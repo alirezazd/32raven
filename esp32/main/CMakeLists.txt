@@ -13,5 +13,5 @@ idf_component_register(
         "."
         "../drivers"
         "../utils"
-        "../libs"
+
 )
