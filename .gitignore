@@ -1,0 +1,56 @@
+# General
+.DS_Store
+.directory
+*~
+*.swp
+*.swo
+*.tmp
+*.log
+
+# Editors / IDEs
+.vscode/
+.idea/
+.settings/
+*.sublime-workspace
+
+# Language Servers
+.clangd/
+.ccls-cache/
+compile_commands.json
+
+# C/C++ Build Artifacts
+build/
+.cache/
+*.o
+*.a
+*.out
+*.exe
+*.bin
+*.elf
+*.map
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+CTestTestfile.cmake
+build
+
+# STM32
+mx.scratch
+*.ioc
+!stm32-baremetal.ioc
+
+# ESP-IDF
+sdkconfig
+sdkconfig.old
+managed_components/
+.espressif/
+flasher_args.json
+
+# Python
+*.pyc
+__pycache__/
+venv/
+.venv/

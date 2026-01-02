@@ -1,0 +1,52 @@
+Checks: >
+  -*,
+  readability-identifier-naming
+
+WarningsAsErrors: readability-identifier-naming
+
+CheckOptions:
+  # Namespaces
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+
+  # Types
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypeAliasCase
+    value: CamelCase
+
+  # Methods
+  - key: readability-identifier-naming.PublicMethodCase
+    value: CamelCase
+  - key: readability-identifier-naming.ProtectedMethodCase
+    value: CamelCase
+  - key: readability-identifier-naming.PrivateMethodCase
+    value: CamelCase
+
+  # Functions (free functions)
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+
+  # Variables
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+
+  # Class data members
+  - key: readability-identifier-naming.MemberVariableCase
+    value: lower_case
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: _
+
+  # Constants
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantPrefix
+    value: k
+
+  # Macros
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
