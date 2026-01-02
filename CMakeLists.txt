@@ -26,7 +26,7 @@ endif()
 # STM32 Firmware
 # -----------------------------------------------------------------------------
 add_custom_target(stm32 ALL
-    COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32 -B ${CMAKE_CURRENT_BINARY_DIR}/stm32
+    COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32 -B ${CMAKE_CURRENT_BINARY_DIR}/stm32 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32
     COMMENT "Building STM32 Firmware"
 )
