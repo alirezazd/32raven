@@ -2,7 +2,7 @@
 #include "logv2.hpp"
 
 extern "C" {
-#include "esp_err.h"
+#include "esp_err.h" // IWYU pragma: keep
 }
 
 static constexpr const char *kTag = "button";

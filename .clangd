@@ -1,5 +1,2 @@
 CompileFlags:
   CompilationDatabase: ../build/stm32
-
-Diagnostics:
-  UnusedIncludes: None
