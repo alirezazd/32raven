@@ -1,5 +1,5 @@
 CompileFlags:
-    Remove: [-f*, -m*]
-    Add: [--target=riscv32-esp-elf]
-    # Point to the ESP32 compilation database
-    # Note: Clangd might struggle with ESP-IDF even with this, but this helps.
+  CompilationDatabase: ../build/esp32
+
+Diagnostics:
+  UnusedIncludes: None
