@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "main.cpp"
+        "ctx.cpp"
         "states.cpp"
         "system.cpp"
         "../drivers/led.cpp"

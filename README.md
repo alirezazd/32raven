@@ -4,9 +4,9 @@ Drone flight controller project for STM32 and ESP32 platforms.
 
 ## Project Structure
 
-- `libs`: Code shared between both platforms (drivers, math, protocols).
-- `stm32`: STM32 specific code (HAL, startup, main loop).
-- `esp32`: ESP32 specific code (tasks, wireless communication).
+- `libs`: Code shared between both platforms (Templates).
+- `stm32`: STM32 specific code; Main FC code.
+- `esp32`: ESP32 specific code; wifi programming code.
 
 ## Build Instructions
 
