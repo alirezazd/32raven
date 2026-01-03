@@ -28,3 +28,12 @@ private:
   sm_tick_t period_ms_ = 300;
   sm_tick_t next_toggle_ = 0;
 };
+
+class ProgramState : public IState<AppContext> {
+public:
+  const char *name() const override { return "Program"; }
+
+  void on_enter(AppContext &ctx, sm_tick_t now) override;
+  void on_step(AppContext &ctx, sm_tick_t now) override;
+  void on_exit(AppContext &ctx, sm_tick_t now) override;
+};

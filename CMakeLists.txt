@@ -1,57 +1,80 @@
 cmake_minimum_required(VERSION 3.16)
 project(32raven)
 
-# Goal: Orchestrate builds for independent sub-projects.
-# Output is directed to ${CMAKE_BINARY_DIR}/<subproject>
+# Orchestrate independent sub-project builds.
+# Outputs go to: ${CMAKE_BINARY_DIR}/stm32 and ${CMAKE_BINARY_DIR}/esp32
 
 # -----------------------------------------------------------------------------
-# Configuration
+# Configuration helpers
 # -----------------------------------------------------------------------------
 
-# Try to find IDF_PATH from environment if not explicitly set
-if(NOT DEFINED IDF_PATH)
-    set(IDF_PATH "$ENV{IDF_PATH}")
+# Allow passing -DIDF_PATH=/path/to/esp-idf, otherwise try env var.
+if(NOT DEFINED IDF_PATH AND DEFINED ENV{IDF_PATH})
+  set(IDF_PATH "$ENV{IDF_PATH}")
 endif()
 
-# Auto-detect if not set
-if(NOT EXISTS "${IDF_PATH}/export.sh")
-    file(GLOB ESP_IDF_DIRS "$ENV{HOME}/esp/*/esp-idf")
-    if(ESP_IDF_DIRS)
-        list(GET ESP_IDF_DIRS 0 FOUND_IDF_PATH)
-        set(IDF_PATH "${FOUND_IDF_PATH}")
-        message(STATUS "Auto-detected ESP-IDF at: ${IDF_PATH}")
-    else()
-        # Fallback to specifically checked path from recent finding
-        if(EXISTS "$ENV{HOME}/esp/v5.5.2/esp-idf/export.sh")
-             set(IDF_PATH "$ENV{HOME}/esp/v5.5.2/esp-idf")
-             message(STATUS "Auto-detected ESP-IDF at: ${IDF_PATH}")
-        endif()
+# Optional auto-detect (only used when building esp32 target).
+function(detect_idf_path out_var)
+  if(DEFINED IDF_PATH AND EXISTS "${IDF_PATH}/export.sh")
+    set(${out_var} "${IDF_PATH}" PARENT_SCOPE)
+    return()
+  endif()
+
+  file(GLOB _idf_candidates "$ENV{HOME}/esp/*/esp-idf")
+  if(_idf_candidates)
+    list(GET _idf_candidates 0 _found)
+    if(EXISTS "${_found}/export.sh")
+      set(${out_var} "${_found}" PARENT_SCOPE)
+      return()
     endif()
-endif()
+  endif()
 
-# We only enforce IDF_PATH if we are actually trying to build the ESP32 target.
-if(NOT EXISTS "${IDF_PATH}/export.sh")
-    message(FATAL_ERROR "IDF_PATH not found or invalid (${IDF_PATH}). ESP32 build target requires valid IDF_PATH. Set -DIDF_PATH=/path/to/esp-idf")
-else()
-    message(STATUS "Using ESP-IDF at: ${IDF_PATH}")
-endif()
-
+  set(${out_var} "" PARENT_SCOPE)
+endfunction()
 
 # -----------------------------------------------------------------------------
 # STM32 Firmware
 # -----------------------------------------------------------------------------
-add_custom_target(stm32 ALL
-    COMMAND ${CMAKE_COMMAND} -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32 -B ${CMAKE_CURRENT_BINARY_DIR}/stm32 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
-    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32
-    COMMENT "Building STM32 Firmware"
+add_custom_target(stm32
+  COMMAND ${CMAKE_COMMAND}
+          -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32
+          -B ${CMAKE_CURRENT_BINARY_DIR}/stm32
+          -G Ninja
+          -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gcc-arm-none-eabi.cmake
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32
+  COMMENT "Building STM32 firmware"
+  VERBATIM
 )
 
 # -----------------------------------------------------------------------------
 # ESP32 Firmware
 # -----------------------------------------------------------------------------
-# We use bash to source the export.sh script before running idf.py
-add_custom_target(esp32 ALL
-    COMMAND bash -c ". ${IDF_PATH}/export.sh > /dev/null 2>&1 && idf.py -C ${CMAKE_CURRENT_SOURCE_DIR}/esp32 -B ${CMAKE_CURRENT_BINARY_DIR}/esp32 build"
-    COMMENT "Building ESP32 Firmware"
-    VERBATIM
+add_custom_target(esp32
+  COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware (ESP-IDF)"
+  COMMAND bash -c
+          "set -e; \
+           IDF='${IDF_PATH}'; \
+           if [ -z \"$$IDF\" ] || [ ! -f \"$$IDF/export.sh\" ]; then \
+             IDF=''; \
+           fi; \
+           if [ -z \"$$IDF\" ]; then \
+             for d in \"$HOME\"/esp/*/esp-idf; do \
+               if [ -f \"$$d/export.sh\" ]; then IDF=\"$$d\"; break; fi; \
+             done; \
+           fi; \
+           if [ -z \"$$IDF\" ]; then \
+             echo 'ERROR: IDF_PATH not found. Set IDF_PATH env var or pass -DIDF_PATH=/path/to/esp-idf'; \
+             exit 1; \
+           fi; \
+           . \"$$IDF/export.sh\" > /dev/null 2>&1; \
+           idf.py -C '${CMAKE_CURRENT_SOURCE_DIR}/esp32' -B '${CMAKE_CURRENT_BINARY_DIR}/esp32' \
+             -D CMAKE_EXPORT_COMPILE_COMMANDS=ON build"
+  COMMENT "Building ESP32 firmware"
+  VERBATIM
 )
+
+# -----------------------------------------------------------------------------
+# Default target
+# -----------------------------------------------------------------------------
+add_custom_target(all_firmware DEPENDS stm32 esp32)
