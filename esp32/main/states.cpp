@@ -1,4 +1,5 @@
 #include "states.hpp"
+#include "ctx.hpp"
 #include "http_server.hpp"
 #include "logv2.hpp"
 #include "system.hpp"
@@ -18,14 +19,14 @@ void IdleState::on_enter(AppContext &ctx, sm_tick_t now) {
 }
 
 void IdleState::on_step(AppContext &ctx, sm_tick_t now) {
-  if (!ctx.sys || !ctx.sm || !listen_)
+  if (!ctx.sys || !ctx.sm || !ctx.listen)
     return;
 
   ctx.sys->button().Poll(now);
 
   if (ctx.sys->button().ConsumeLongPress()) {
     LOGI(kTag, "Idle -> Listen (long press)");
-    ctx.sm->request_transition(*listen_);
+    ctx.sm->request_transition(*ctx.listen);
   }
 }
 
@@ -46,18 +47,18 @@ void ListenState::on_enter(AppContext &ctx, sm_tick_t now) {
 }
 
 void ListenState::on_step(AppContext &ctx, sm_tick_t now) {
-  if (!ctx.sys || !ctx.sm || !idle_)
+  if (!ctx.sys || !ctx.sm || !ctx.idle)
     return;
 
   ctx.sys->button().Poll(now);
 
   if (ctx.sys->button().ConsumeLongPress()) {
     LOGI(kTag, "Listen -> Idle (long press)");
-    ctx.sm->request_transition(*idle_);
+    ctx.sm->request_transition(*ctx.idle);
     return;
   }
 
-  if (time_reached(now, next_toggle_)) {
+  if (TimeReached(now, next_toggle_)) {
     LOGV(kTag, "toggle led");
     ctx.sys->led().Toggle();
     next_toggle_ = now + period_ms_;

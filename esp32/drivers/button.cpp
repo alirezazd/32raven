@@ -52,7 +52,7 @@ bool Button::ReadRawPressed() const {
   return active_low_ ? !kRawPressed : kRawPressed;
 }
 
-void Button::Poll(time_ms_t now_ms) {
+void Button::Poll(TimeMs now_ms) {
   if (!initialized_)
     return;
 
@@ -66,7 +66,7 @@ void Button::Poll(time_ms_t now_ms) {
 
   // if raw has been stable long enough, accept it
   if (kRaw != stable_) {
-    if ((time_ms_t)(now_ms - raw_last_change_ms_) >= debounce_ms_) {
+    if ((TimeMs)(now_ms - raw_last_change_ms_) >= debounce_ms_) {
       stable_ = kRaw;
       LOGI(kTag, "debounced -> %d at %u ms", (int)stable_, (unsigned)now_ms);
 
@@ -87,7 +87,7 @@ void Button::Poll(time_ms_t now_ms) {
 
   // long press detection: fire once per hold
   if (pressed_ && !long_fired_) {
-    if ((time_ms_t)(now_ms - press_start_ms_) >= long_press_ms_) {
+    if ((TimeMs)(now_ms - press_start_ms_) >= long_press_ms_) {
       long_fired_ = true;
       ev_long_ = true;
       LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);

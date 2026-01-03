@@ -19,12 +19,12 @@ public:
     bool pullup = true;
     bool pulldown = false;
 
-    time_ms_t debounce_ms = 30;
-    time_ms_t long_press_ms = 500;
+    TimeMs debounce_ms = 30;
+    TimeMs long_press_ms = 500;
   };
 
   // Polling API
-  void Poll(time_ms_t now_ms);
+  void Poll(TimeMs now_ms);
 
   // Edge-like events (latched until consumed)
   bool ConsumeLongPress();
@@ -44,17 +44,17 @@ private:
   // config
   gpio_num_t pin_ = GPIO_NUM_NC;
   bool active_low_ = true;
-  time_ms_t debounce_ms_ = 30;
-  time_ms_t long_press_ms_ = 500;
+  TimeMs debounce_ms_ = 30;
+  TimeMs long_press_ms_ = 500;
 
   // debouncer
   bool raw_last_ = false;
   bool stable_ = false;
-  time_ms_t raw_last_change_ms_ = 0;
+  TimeMs raw_last_change_ms_ = 0;
 
   // state
   bool pressed_ = false;
-  time_ms_t press_start_ms_ = 0;
+  TimeMs press_start_ms_ = 0;
   bool long_fired_ = false;
 
   // event latches
