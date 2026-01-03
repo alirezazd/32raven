@@ -13,10 +13,25 @@ if(NOT DEFINED IDF_PATH)
     set(IDF_PATH "$ENV{IDF_PATH}")
 endif()
 
-# We only enforce IDF_PATH if we are actually trying to build the ESP32 target
-# However, for consistency, we warn if it's missing.
+# Auto-detect if not set
 if(NOT EXISTS "${IDF_PATH}/export.sh")
-    message(WARNING "IDF_PATH not found or invalid (${IDF_PATH}). ESP32 build target may fail. Set -DIDF_PATH=/path/to/esp-idf")
+    file(GLOB ESP_IDF_DIRS "$ENV{HOME}/esp/*/esp-idf")
+    if(ESP_IDF_DIRS)
+        list(GET ESP_IDF_DIRS 0 FOUND_IDF_PATH)
+        set(IDF_PATH "${FOUND_IDF_PATH}")
+        message(STATUS "Auto-detected ESP-IDF at: ${IDF_PATH}")
+    else()
+        # Fallback to specifically checked path from recent finding
+        if(EXISTS "$ENV{HOME}/esp/v5.5.2/esp-idf/export.sh")
+             set(IDF_PATH "$ENV{HOME}/esp/v5.5.2/esp-idf")
+             message(STATUS "Auto-detected ESP-IDF at: ${IDF_PATH}")
+        endif()
+    endif()
+endif()
+
+# We only enforce IDF_PATH if we are actually trying to build the ESP32 target.
+if(NOT EXISTS "${IDF_PATH}/export.sh")
+    message(FATAL_ERROR "IDF_PATH not found or invalid (${IDF_PATH}). ESP32 build target requires valid IDF_PATH. Set -DIDF_PATH=/path/to/esp-idf")
 else()
     message(STATUS "Using ESP-IDF at: ${IDF_PATH}")
 endif()

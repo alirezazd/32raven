@@ -3,6 +3,7 @@
 #include "state_machine.hpp"
 #include "states.hpp"
 #include "system.hpp"
+#include "timebase.hpp"
 
 extern "C" {
 #include "esp_timer.h"
@@ -10,32 +11,28 @@ extern "C" {
 #include "freertos/task.h"
 }
 
-static inline sm_tick_t NowMs() {
-  return (sm_tick_t)(esp_timer_get_time() / 1000);
-}
-
 extern "C" void app_main(void) { // NOLINT
   // 1) Initialize all drivers
   System::init();
 
   // 2) Build application context
+  // 2) Build application context
   AppContext ctx{};
-  ctx.sys = &System::getInstance();
+  // sys, idle, listen are initialized in constructor
 
   // 3) Create state machine
   StateMachine<AppContext> sm(ctx);
   ctx.sm = &sm;
 
-  // 4) Create states
-  IdleState idle;
-  ListenState listen;
-
-  idle.SetListen(&listen);
-  listen.SetIdle(&idle);
-  listen.SetBlinkPeriod(300); // ms
+  // 4) Configure states
+  if (ctx.listen) {
+    ctx.listen->SetBlinkPeriod(300); // ms
+  }
 
   // 5) Start in idle
-  sm.start(idle, NowMs());
+  if (ctx.idle) {
+    sm.start(*ctx.idle, NowMs());
+  }
 
   // 6) Main loop
   while (true) {
