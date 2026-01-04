@@ -3,7 +3,7 @@
 #include "timebase.hpp"
 
 extern "C" {
-#include "driver/gpio.h"
+#include "driver/gpio.h" // IWYU pragma: keep
 }
 
 class Button {

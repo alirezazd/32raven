@@ -3,6 +3,7 @@
 #include "button.hpp"
 #include "http_server.hpp"
 #include "led.hpp"
+#include "programmer.hpp"
 #include "wifi.hpp"
 
 extern "C" {
@@ -11,7 +12,7 @@ extern "C" {
 
 static constexpr const char *kTag = "system";
 
-void System::_init() {
+void System::Init() {
   if (initialized_)
     return;
 
@@ -25,6 +26,8 @@ void System::_init() {
   ESP_LOGI(kTag, "HTTP Server initialized");
   Uart::GetInstance().Init(Uart::Config{});
   ESP_LOGI(kTag, "Uart driver initialized");
+  Programmer::Get().Init(Programmer::Config{}, &Uart::GetInstance());
+  ESP_LOGI(kTag, "Programmer initialized");
 
   // Optional but strongly recommended
   // catch missing driver init early
@@ -34,12 +37,14 @@ void System::_init() {
   initialized_ = true;
 }
 
-LED &System::led() { return LED::GetInstance(); }
+LED &System::Led() { return LED::GetInstance(); }
 
-Button &System::button() { return Button::GetInstance(); }
+Button &System::Button() { return Button::GetInstance(); }
 
-WifiController &System::wifi() { return WifiController::GetInstance(); }
+WifiController &System::Wifi() { return WifiController::GetInstance(); }
 
-HttpServer &System::http() { return HttpServer::GetInstance(); }
+HttpServer &System::Http() { return HttpServer::GetInstance(); }
 
-Uart &System::uart() { return Uart::GetInstance(); }
+Uart &System::Uart() { return Uart::GetInstance(); }
+
+Programmer &System::Programmer() { return Programmer::Get(); }

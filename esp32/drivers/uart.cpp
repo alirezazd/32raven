@@ -21,24 +21,17 @@ static uart_port_t ToPort(int n) {
   }
 }
 
-static uart_parity_t ToParity(int p) {
-  // 0 none, 1 even, 2 odd
-  if (p == 2)
+static uart_parity_t ToParity(Uart::Config::Parity p) {
+  if (p == Uart::Config::Parity::kOdd)
     return UART_PARITY_ODD;
-  if (p == 1)
+  if (p == Uart::Config::Parity::kEven)
     return UART_PARITY_EVEN;
   return UART_PARITY_DISABLE;
 }
 
 void Uart::Init(const Config &cfg) {
   cfg_ = cfg;
-
   const uart_port_t kPort = ToPort(cfg_.uart_num);
-
-  // Install UART driver (TX/RX ring buffers)
-  // Keep it simple: assume init is called once. If you re-init, add
-  // uart_driver_delete(port).
-  (void)uart_driver_install(kPort, cfg_.rx_buf, cfg_.tx_buf, 0, nullptr, 0);
 
   uart_config_t ucfg{};
   ucfg.baud_rate = (int)cfg_.baud_rate;
@@ -48,18 +41,25 @@ void Uart::Init(const Config &cfg) {
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  (void)uart_param_config(kPort, &ucfg);
+  if (uart_param_config(kPort, &ucfg) != ESP_OK)
+    return;
+  if (uart_set_pin(kPort, cfg_.tx_gpio, cfg_.rx_gpio, UART_PIN_NO_CHANGE,
+                   UART_PIN_NO_CHANGE) != ESP_OK)
+    return;
 
-  // Route UART to chosen GPIOs
-  (void)uart_set_pin(kPort, cfg_.tx_gpio, cfg_.rx_gpio, UART_PIN_NO_CHANGE,
-                     UART_PIN_NO_CHANGE);
+  // If you ever re-init, call uart_driver_delete(kPort) first.
+  if (uart_driver_install(kPort, cfg_.rx_buf, cfg_.tx_buf, 0, nullptr, 0) !=
+      ESP_OK)
+    return;
 
   (void)uart_flush_input(kPort);
   initialized_ = true;
 }
 
 int Uart::Write(const uint8_t *data, size_t size) {
-  if (!initialized_ || !data || size == 0)
+  if (!initialized_)
+    return -1;
+  if (!data || size == 0)
     return 0;
   const uart_port_t kPort = ToPort(cfg_.uart_num);
 
@@ -69,7 +69,9 @@ int Uart::Write(const uint8_t *data, size_t size) {
 }
 
 int Uart::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
-  if (!initialized_ || !data || size == 0)
+  if (!initialized_)
+    return -1;
+  if (!data || size == 0)
     return 0;
   const uart_port_t kPort = ToPort(cfg_.uart_num);
 
@@ -101,4 +103,11 @@ bool Uart::SetBaudRate(uint32_t baud_rate) {
   ucfg.rx_flow_ctrl_thresh = 0;
 
   return uart_param_config(kPort, &ucfg) == ESP_OK;
+}
+
+bool Uart::DrainTx(uint32_t timeout_ms) {
+  if (!initialized_)
+    return false;
+  const uart_port_t kPort = ToPort(cfg_.uart_num);
+  return uart_wait_tx_done(kPort, pdMS_TO_TICKS(timeout_ms)) == ESP_OK;
 }

@@ -31,3 +31,4 @@ venv/
 mx.scratch
 *.ioc
 !stm32-baremetal.ioc
+user_config.cmake

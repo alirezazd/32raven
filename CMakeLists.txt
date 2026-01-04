@@ -1,80 +1,87 @@
 cmake_minimum_required(VERSION 3.16)
-project(32raven)
-
-# Orchestrate independent sub-project builds.
-# Outputs go to: ${CMAKE_BINARY_DIR}/stm32 and ${CMAKE_BINARY_DIR}/esp32
+project(32raven NONE)
 
 # -----------------------------------------------------------------------------
-# Configuration helpers
+# Optional user config
 # -----------------------------------------------------------------------------
-
-# Allow passing -DIDF_PATH=/path/to/esp-idf, otherwise try env var.
-if(NOT DEFINED IDF_PATH AND DEFINED ENV{IDF_PATH})
-  set(IDF_PATH "$ENV{IDF_PATH}")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/user_config.cmake")
+  include("${CMAKE_CURRENT_SOURCE_DIR}/user_config.cmake")
 endif()
 
-# Optional auto-detect (only used when building esp32 target).
-function(detect_idf_path out_var)
-  if(DEFINED IDF_PATH AND EXISTS "${IDF_PATH}/export.sh")
-    set(${out_var} "${IDF_PATH}" PARENT_SCOPE)
-    return()
-  endif()
+# -----------------------------------------------------------------------------
+# Inputs
+# -----------------------------------------------------------------------------
+set(IDF_PATH "" CACHE PATH "Path to esp-idf (or set env IDF_PATH)")
+if(NOT IDF_PATH AND DEFINED ENV{IDF_PATH})
+  set(IDF_PATH "$ENV{IDF_PATH}")
+endif()
+if(NOT IDF_PATH)
+  message(FATAL_ERROR
+    "IDF_PATH is required.\n"
+    "Set env: export IDF_PATH=/path/to/esp-idf\n"
+    "or pass: -DIDF_PATH=/path/to/esp-idf"
+  )
+endif()
+if(NOT EXISTS "${IDF_PATH}/export.sh")
+  message(FATAL_ERROR "IDF_PATH is invalid: '${IDF_PATH}' (missing export.sh)")
+endif()
 
-  file(GLOB _idf_candidates "$ENV{HOME}/esp/*/esp-idf")
-  if(_idf_candidates)
-    list(GET _idf_candidates 0 _found)
-    if(EXISTS "${_found}/export.sh")
-      set(${out_var} "${_found}" PARENT_SCOPE)
-      return()
-    endif()
-  endif()
+set(STM32_TOOLCHAIN_FILE "" CACHE FILEPATH "STM32 toolchain file (gcc-arm-none-eabi.cmake)")
 
-  set(${out_var} "" PARENT_SCOPE)
-endfunction()
+if(STM32_TOOLCHAIN_FILE AND EXISTS "${STM32_TOOLCHAIN_FILE}")
+  set(_STM32_TC "${STM32_TOOLCHAIN_FILE}")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/stm32/cmake/gcc-arm-none-eabi.cmake")
+  set(_STM32_TC "${CMAKE_CURRENT_SOURCE_DIR}/stm32/cmake/gcc-arm-none-eabi.cmake")
+else()
+  set(_STM32_TC "")
+endif()
+
+# Multi-config support: only relevant for Visual Studio/Xcode style generators.
+set(_CFG_ARG "")
+if(CMAKE_CONFIGURATION_TYPES)
+  set(_CFG_ARG --config $<CONFIG>)
+endif()
 
 # -----------------------------------------------------------------------------
-# STM32 Firmware
+# STM32 target
 # -----------------------------------------------------------------------------
 add_custom_target(stm32
+  COMMAND ${CMAKE_COMMAND} -E echo "Building STM32 firmware"
   COMMAND ${CMAKE_COMMAND}
           -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32
           -B ${CMAKE_CURRENT_BINARY_DIR}/stm32
-          -G Ninja
-          -DCMAKE_TOOLCHAIN_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gcc-arm-none-eabi.cmake
+          -G "${CMAKE_GENERATOR}"
+          -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${_STM32_TC}
           -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32
-  COMMENT "Building STM32 firmware"
+  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32 ${_CFG_ARG}
   VERBATIM
 )
 
+if(NOT _STM32_TC)
+  add_custom_command(TARGET stm32 PRE_BUILD
+    COMMAND ${CMAKE_COMMAND} -E echo "ERROR: STM32 toolchain file not found."
+    COMMAND ${CMAKE_COMMAND} -E echo "Expected: ${CMAKE_CURRENT_SOURCE_DIR}/stm32/cmake/gcc-arm-none-eabi.cmake"
+    COMMAND ${CMAKE_COMMAND} -E echo "Or pass: -DSTM32_TOOLCHAIN_FILE=/path/to/gcc-arm-none-eabi.cmake"
+    COMMAND ${CMAKE_COMMAND} -E false
+  )
+endif()
+
 # -----------------------------------------------------------------------------
-# ESP32 Firmware
+# ESP32 target
 # -----------------------------------------------------------------------------
 add_custom_target(esp32
-  COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware (ESP-IDF)"
-  COMMAND bash -c
-          "set -e; \
-           IDF='${IDF_PATH}'; \
-           if [ -z \"$$IDF\" ] || [ ! -f \"$$IDF/export.sh\" ]; then \
-             IDF=''; \
-           fi; \
-           if [ -z \"$$IDF\" ]; then \
-             for d in \"$HOME\"/esp/*/esp-idf; do \
-               if [ -f \"$$d/export.sh\" ]; then IDF=\"$$d\"; break; fi; \
-             done; \
-           fi; \
-           if [ -z \"$$IDF\" ]; then \
-             echo 'ERROR: IDF_PATH not found. Set IDF_PATH env var or pass -DIDF_PATH=/path/to/esp-idf'; \
-             exit 1; \
-           fi; \
-           . \"$$IDF/export.sh\" > /dev/null 2>&1; \
-           idf.py -C '${CMAKE_CURRENT_SOURCE_DIR}/esp32' -B '${CMAKE_CURRENT_BINARY_DIR}/esp32' \
-             -D CMAKE_EXPORT_COMPILE_COMMANDS=ON build"
-  COMMENT "Building ESP32 firmware"
+  COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware"
+  COMMAND bash -lc
+    "set -euo pipefail; \
+     . '${IDF_PATH}/export.sh'; \
+     idf.py -C '${CMAKE_CURRENT_SOURCE_DIR}/esp32' \
+            -B '${CMAKE_CURRENT_BINARY_DIR}/esp32' \
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON build"
   VERBATIM
 )
 
 # -----------------------------------------------------------------------------
-# Default target
+# Build both
 # -----------------------------------------------------------------------------
 add_custom_target(all_firmware DEPENDS stm32 esp32)
