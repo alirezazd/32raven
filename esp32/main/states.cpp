@@ -7,38 +7,32 @@
 
 static constexpr const char *kTag = "states";
 
-void IdleState::on_enter(AppContext &ctx, sm_tick_t now) {
+void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
-  LOGI(kTag, "enter Idle");
+  LOGI(kTag, "entering Idle");
 
-  if (!ctx.sys)
-    return;
   ctx.sys->http().Stop();
   ctx.sys->led().Off();
   ctx.sys->wifi().Stop();
 }
 
-void IdleState::on_step(AppContext &ctx, sm_tick_t now) {
-  if (!ctx.sys || !ctx.sm || !ctx.listen)
-    return;
+void IdleState::OnStep(AppContext &ctx, SmTick now) {
 
   ctx.sys->button().Poll(now);
 
   if (ctx.sys->button().ConsumeLongPress()) {
     LOGI(kTag, "Idle -> Listen (long press)");
-    ctx.sm->request_transition(*ctx.listen);
+    ctx.sm->ReqTransition(*ctx.listen_state);
   }
 }
 
-void IdleState::on_exit(AppContext &, sm_tick_t) { LOGI(kTag, "exit Idle"); }
+void IdleState::OnExit(AppContext &, SmTick) { LOGI(kTag, "exiting Idle"); }
 
-void ListenState::on_enter(AppContext &ctx, sm_tick_t now) {
-  LOGI(kTag, "enter Listen");
+void ListenState::OnEnter(AppContext &ctx, SmTick now) {
+  LOGI(kTag, "entering Listen");
 
   next_toggle_ = now + period_ms_;
 
-  if (!ctx.sys)
-    return;
   ctx.sys->led().On(); // optional immediate feedback
 
   ctx.sys->wifi().StartAp();
@@ -46,15 +40,13 @@ void ListenState::on_enter(AppContext &ctx, sm_tick_t now) {
   ctx.sys->http().SetUploadEnabled(false);
 }
 
-void ListenState::on_step(AppContext &ctx, sm_tick_t now) {
-  if (!ctx.sys || !ctx.sm || !ctx.idle)
-    return;
+void ListenState::OnStep(AppContext &ctx, SmTick now) {
 
   ctx.sys->button().Poll(now);
 
   if (ctx.sys->button().ConsumeLongPress()) {
     LOGI(kTag, "Listen -> Idle (long press)");
-    ctx.sm->request_transition(*ctx.idle);
+    ctx.sm->ReqTransition(*ctx.idle_state);
     return;
   }
 
@@ -66,7 +58,8 @@ void ListenState::on_step(AppContext &ctx, sm_tick_t now) {
 
   HttpServer::Event ev;
   while (ctx.sys->http().PopEvent(ev)) {
-    if (ev.id == HttpServer::EventId::kBegin) {
+    switch (ev.id) {
+    case HttpServer::EventId::kBegin: {
       ctx.sys->http().SetUploadEnabled(true);
 
       HttpServer::Status st = ctx.sys->http().GetStatus();
@@ -76,7 +69,9 @@ void ListenState::on_step(AppContext &ctx, sm_tick_t now) {
 
       LOGI(kTag, "BEGIN size=%u crc=%u", (unsigned)ev.begin.size,
            (unsigned)ev.begin.crc);
-    } else if (ev.id == HttpServer::EventId::kAbort) {
+      break;
+    }
+    case HttpServer::EventId::kAbort: {
       ctx.sys->http().SetUploadEnabled(false);
 
       HttpServer::Status st = ctx.sys->http().GetStatus();
@@ -85,9 +80,16 @@ void ListenState::on_step(AppContext &ctx, sm_tick_t now) {
       ctx.sys->http().SetStatus(st);
 
       LOGI(kTag, "ABORT");
-    } else if (ev.id == HttpServer::EventId::kReset) {
+      break;
+    }
+    case HttpServer::EventId::kReset: {
       ctx.sys->http().SetUploadEnabled(false);
+      // TODO: Implement actual system reset logic here (esp_restart)
       LOGI(kTag, "RESET");
+      break;
+    }
+    default:
+      break;
     }
   }
 
@@ -111,12 +113,16 @@ void ListenState::on_step(AppContext &ctx, sm_tick_t now) {
   }
 }
 
-void ListenState::on_exit(AppContext &ctx, sm_tick_t) {
+void ListenState::OnExit(AppContext &ctx, SmTick) {
   LOGI(kTag, "exit Listen");
 
-  if (!ctx.sys)
-    return;
   ctx.sys->http().Stop();
 
   ctx.sys->led().Off();
+}
+
+void ProgramState::OnEnter(AppContext &ctx, SmTick now) {
+  LOGI(kTag, "entering Program mode");
+
+  ctx.sys->led().On(); // optional immediate feedback
 }

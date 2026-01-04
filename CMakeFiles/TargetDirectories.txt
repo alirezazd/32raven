@@ -1,0 +1,5 @@
+/home/the1/Projects/32raven/CMakeFiles/stm32.dir
+/home/the1/Projects/32raven/CMakeFiles/esp32.dir
+/home/the1/Projects/32raven/CMakeFiles/all_firmware.dir
+/home/the1/Projects/32raven/CMakeFiles/edit_cache.dir
+/home/the1/Projects/32raven/CMakeFiles/rebuild_cache.dir

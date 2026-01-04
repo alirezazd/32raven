@@ -1,2 +1,21 @@
+If:
+  PathMatch: (^|.*/)(esp32/).*
 CompileFlags:
-  CompilationDatabase: ../build/stm32
+  CompilationDatabase: build/esp32
+  Remove: [
+      -fno-tree-switch-conversion,
+      -fno-shrink-wrap,
+      -fstrict-volatile-bitfields,
+    ] # IDF and its Fuckin GCC flags
+---
+If:
+  PathMatch: (^|.*/)(stm32/).*
+CompileFlags:
+  CompilationDatabase: build/stm32
+---
+If:
+  PathMatch: (^|.*/)(libs/).*
+CompileFlags:
+  CompilationDatabase: build/esp32
+  Remove:
+    [-fno-tree-switch-conversion, -fno-shrink-wrap, -fstrict-volatile-bitfields]

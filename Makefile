@@ -1,47 +1,32 @@
-BUILD_DIR := build
+SHELL := /usr/bin/bash
+
 CMAKE := /usr/bin/cmake
-LOG_FILE := $(BUILD_DIR)/make.log
+RM := /usr/bin/rm
 
-# Colors
-GREEN  := \033[0;32m
-YELLOW := \033[0;33m
-RED    := \033[0;31m
-NC     := \033[0m # No Color
+BUILD_DIR ?= build
+GEN ?= Ninja
 
-.PHONY: all stm32 esp32 clean configure flash-stm32 flash-esp32
+.PHONY: help configure all stm32 esp32 clean distclean
 
-# Default target: Build all
-all: configure
-	@echo "$(YELLOW)[+] Building All Targets...$(NC)"
-	@$(CMAKE) --build $(BUILD_DIR) > $(LOG_FILE) 2>&1 || (echo "$(RED)[-] Build Failed! See $(LOG_FILE) for details.$(NC)"; exit 1)
-	@echo "$(GREEN)[✔] Build Complete!$(NC)"
+help:
+	@echo "Targets: configure | all | esp32 | stm32 | clean"
+	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_DIR=build, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..."
 
-# Build STM32 only
-stm32: configure
-	@echo "$(YELLOW)[+] Building STM32 Firmware...$(NC)"
-	@$(CMAKE) --build $(BUILD_DIR) --target stm32 > $(LOG_FILE) 2>&1 || (echo "$(RED)[-] STM32 Build Failed! See $(LOG_FILE) for details.$(NC)"; exit 1)
-	@echo "$(GREEN)[✔] STM32 Build Complete!$(NC)"
-
-# Build ESP32 only
-esp32: configure
-	@echo "$(YELLOW)[+] Building ESP32 Firmware...$(NC)"
-	@$(CMAKE) --build $(BUILD_DIR) --target esp32 > $(LOG_FILE) 2>&1 || (echo "$(RED)[-] ESP32 Build Failed! See $(LOG_FILE) for details.$(NC)"; exit 1)
-	@echo "$(GREEN)[✔] ESP32 Build Complete!$(NC)"
-
-# Configure the project if build directory doesn't exist
 configure:
-	@if [ ! -d "$(BUILD_DIR)" ]; then \
-		echo "$(YELLOW)[+] Configuring project...$(NC)"; \
-		mkdir -p $(BUILD_DIR); \
-		$(CMAKE) -S . -B $(BUILD_DIR) > $(BUILD_DIR)/configure.log 2>&1 || (echo "$(RED)[-] Configuration Failed! See $(BUILD_DIR)/configure.log$(NC)"; exit 1); \
-	fi
+	@mkdir -p "$(BUILD_DIR)"
+	"$(CMAKE)" -S . -B "$(BUILD_DIR)" -G "$(GEN)"
 
-# Clean build directory
+all: configure
+	"$(CMAKE)" --build "$(BUILD_DIR)" --target all_firmware
+
+esp32: configure
+	"$(CMAKE)" --build "$(BUILD_DIR)" --target esp32
+
+stm32: configure
+	"$(CMAKE)" --build "$(BUILD_DIR)" --target stm32
+
 clean:
-	@echo "$(YELLOW)[+] Cleaning build directory...$(NC)"
-	@rm -rf $(BUILD_DIR)
-	@echo "$(GREEN)[✔] Clean Complete!$(NC)"
+	@echo "Removing $(BUILD_DIR)/"
+	"$(RM)" -rf "$(BUILD_DIR)"
 
-# Helpers
-flash-esp32:
-	idf.py -C esp32 -B $(BUILD_DIR)/esp32 flash monitor
+distclean: clean

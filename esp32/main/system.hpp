@@ -2,27 +2,26 @@
 #include "button.hpp"
 #include "http_server.hpp"
 #include "led.hpp"
+#include "programmer.hpp"
 #include "uart.hpp"
 #include "wifi.hpp"
 
 class System {
 public:
-  static System &getInstance() {
+  static System &GetInstance() {
     static System instance;
     return instance;
   }
 
-  static void init() { getInstance()._init(); }
-
-  LED &led();
-  Button &button();
-  WifiController &wifi();
-  HttpServer &http();
-  Uart &uart();
+  LED &Led();
+  Button &Button();
+  WifiController &Wifi();
+  HttpServer &Http();
+  Uart &Uart();
+  Programmer &Programmer();
 
 private:
-  void _init();
-
+  void Init();
   bool initialized_ = false;
 
   System() = default;
