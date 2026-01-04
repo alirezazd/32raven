@@ -14,8 +14,8 @@ public:
     int tx_gpio = 4;  // ESP TX -> STM32 PA10
     int rx_gpio = 5;  // ESP RX <- STM32 PA9
     uint32_t baud_rate = 115200;
-    // 0 none, 1 even, 2 odd
-    int parity = 1;
+    enum class Parity { kNone = 0, kEven = 1, kOdd = 2 };
+    Parity parity = Parity::kEven;
     int rx_buf = 2048;
     int tx_buf = 2048;
   };
@@ -23,6 +23,7 @@ public:
   int Write(const uint8_t *data, size_t size);
   int Read(uint8_t *data, size_t size, uint32_t timeout_ms = 0);
   void Flush();
+  bool DrainTx(uint32_t timeout_ms);
   bool SetBaudRate(uint32_t baud_rate);
 
 private:

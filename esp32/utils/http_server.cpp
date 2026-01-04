@@ -377,7 +377,7 @@ esp_err_t HttpServer::HUpload(void *reqp) {
       return ESP_FAIL;
 
     // Backpressure: if buffer full, fail fast (simple).
-    // Alternative: wait and retry a few times.
+    // TODO: wait and retry a few times (implement real backpressure).
     if (!s.WriteUpload(buf, (size_t)r)) {
       httpd_resp_set_status(req, "503 Service Unavailable");
       httpd_resp_sendstr(req, "{\"ok\":false,\"err\":\"buffer_full\"}\n");

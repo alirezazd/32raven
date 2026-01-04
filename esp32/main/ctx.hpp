@@ -14,6 +14,6 @@ struct AppContext {
   System *sys = nullptr;
   StateMachine<AppContext> *sm = nullptr;
 
-  IdleState *idle = nullptr;
-  ListenState *listen = nullptr;
+  IdleState *idle_state = nullptr;
+  ListenState *listen_state = nullptr;
 };

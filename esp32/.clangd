@@ -1,5 +1,2 @@
 CompileFlags:
-  CompilationDatabase: ../build/esp32
-
-Diagnostics:
-  UnusedIncludes: None
+    Remove: [-f*, -m*]

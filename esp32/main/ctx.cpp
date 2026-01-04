@@ -13,6 +13,6 @@ AppContext::AppContext() {
   static IdleState s_idle;
   static ListenState s_listen;
 
-  idle = &s_idle;
-  listen = &s_listen;
+  idle_state = &s_idle;
+  listen_state = &s_listen;
 }
