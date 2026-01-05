@@ -10,6 +10,7 @@ idf_component_register(
         "../utils/http_server.cpp"
         "../utils/timebase.cpp"
         "../drivers/uart.cpp"
+        "../drivers/programmer.cpp"
     INCLUDE_DIRS
         "."
         "../drivers"

@@ -3,6 +3,7 @@
 // Forward declarations
 struct IdleState;
 struct ListenState;
+struct ProgramState;
 
 class System;
 
@@ -16,4 +17,5 @@ struct AppContext {
 
   IdleState *idle_state = nullptr;
   ListenState *listen_state = nullptr;
+  ProgramState *program_state = nullptr;
 };

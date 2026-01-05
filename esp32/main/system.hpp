@@ -14,14 +14,14 @@ public:
   }
 
   LED &Led();
-  Button &Button();
-  WifiController &Wifi();
-  HttpServer &Http();
-  Uart &Uart();
-  Programmer &Programmer();
+  ::Button &Button();
+  ::WifiController &Wifi();
+  ::HttpServer &Http();
+  ::Uart &Uart();
+  ::Programmer &Programmer();
+  void Init();
 
 private:
-  void Init();
   bool initialized_ = false;
 
   System() = default;
