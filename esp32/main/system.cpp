@@ -4,6 +4,7 @@
 #include "http_server.hpp"
 #include "led.hpp"
 #include "programmer.hpp"
+#include "uart.hpp"
 #include "wifi.hpp"
 
 extern "C" {
@@ -26,7 +27,7 @@ void System::Init() {
   ESP_LOGI(kTag, "HTTP Server initialized");
   Uart::GetInstance().Init(Uart::Config{});
   ESP_LOGI(kTag, "Uart driver initialized");
-  Programmer::Get().Init(Programmer::Config{}, &Uart::GetInstance());
+  Programmer::GetInstance().Init(Programmer::Config{}, &Uart::GetInstance());
   ESP_LOGI(kTag, "Programmer initialized");
 
   // Optional but strongly recommended
@@ -39,12 +40,12 @@ void System::Init() {
 
 LED &System::Led() { return LED::GetInstance(); }
 
-Button &System::Button() { return Button::GetInstance(); }
+::Button &System::Button() { return ::Button::GetInstance(); }
 
 WifiController &System::Wifi() { return WifiController::GetInstance(); }
 
 HttpServer &System::Http() { return HttpServer::GetInstance(); }
 
-Uart &System::Uart() { return Uart::GetInstance(); }
+::Uart &System::Uart() { return ::Uart::GetInstance(); }
 
-Programmer &System::Programmer() { return Programmer::Get(); }
+::Programmer &System::Programmer() { return ::Programmer::GetInstance(); }

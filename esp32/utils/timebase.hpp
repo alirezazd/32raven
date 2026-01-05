@@ -13,3 +13,5 @@ static inline bool TimeReached(TimeMs now, TimeMs deadline) {
 static inline TimeMs TimeAfter(TimeMs now, TimeMs delta_ms) {
   return (TimeMs)(now + delta_ms);
 }
+
+void SleepMs(TimeMs ms);
