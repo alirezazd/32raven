@@ -11,7 +11,7 @@ extern "C" {
 }
 
 extern "C" void app_main(void) { // NOLINT
-  System::init();
+  System::GetInstance().Init();
 
   AppContext ctx{};
 
