@@ -1,8 +1,8 @@
 #pragma once
 #include "button.hpp"
-#include "http_server.hpp"
 #include "led.hpp"
 #include "programmer.hpp"
+#include "tcp_server.hpp"
 #include "uart.hpp"
 #include "wifi.hpp"
 
@@ -16,7 +16,7 @@ public:
   LED &Led();
   ::Button &Button();
   ::WifiController &Wifi();
-  ::HttpServer &Http();
+  ::TcpServer &Tcp();
   ::Uart &Uart();
   ::Programmer &Programmer();
   void Init();

@@ -25,11 +25,14 @@ esp32: configure
 stm32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target stm32
 
-flash-esp32:
+flash-esp32: esp32
 	cd esp32 && idf.py -B ../$(BUILD_DIR)/esp32 flash
 
-monitor-esp32:
+monitor-esp32: 
 	cd esp32 && idf.py -B ../$(BUILD_DIR)/esp32 monitor
+
+flash-monitor-esp32: esp32
+	cd esp32 && idf.py -B ../$(BUILD_DIR)/esp32 flash monitor
 
 clean:
 	@echo "Removing $(BUILD_DIR)/"

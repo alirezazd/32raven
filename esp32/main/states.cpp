@@ -1,8 +1,8 @@
 #include "states.hpp"
 #include "ctx.hpp"
-#include "http_server.hpp"
 #include "logv2.hpp"
 #include "system.hpp"
+#include "tcp_server.hpp"
 #include "timebase.hpp"
 
 static constexpr const char *kTag = "states";
@@ -10,10 +10,6 @@ static constexpr const char *kTag = "states";
 void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
   LOGI(kTag, "entering Idle");
-
-  ctx.sys->Http().Stop();
-  ctx.sys->Led().Off();
-  ctx.sys->Wifi().Stop();
 }
 
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
@@ -36,12 +32,13 @@ void ListenState::OnEnter(AppContext &ctx, SmTick now) {
   ctx.sys->Led().On(); // optional immediate feedback
 
   ctx.sys->Wifi().StartAp();
-  ctx.sys->Http().Start();
-  ctx.sys->Http().SetUploadEnabled(false);
+  ctx.sys->Tcp().Start();
+  ctx.sys->Tcp().SetUploadEnabled(false);
 }
 
 void ListenState::OnStep(AppContext &ctx, SmTick now) {
 
+  ctx.sys->Tcp().Poll(now);
   ctx.sys->Button().Poll(now);
 
   if (ctx.sys->Button().ConsumeLongPress()) {
@@ -56,16 +53,16 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
     next_toggle_ = now + period_ms_;
   }
 
-  HttpServer::Event ev;
-  while (ctx.sys->Http().PopEvent(ev)) {
+  TcpServer::Event ev;
+  while (ctx.sys->Tcp().PopEvent(ev)) {
     switch (ev.id) {
-    case HttpServer::EventId::kBegin: {
-      ctx.sys->Http().SetUploadEnabled(true);
+    case TcpServer::EventId::kBegin: {
+      ctx.sys->Tcp().SetUploadEnabled(true);
 
-      HttpServer::Status st = ctx.sys->Http().GetStatus();
+      TcpServer::Status st = ctx.sys->Tcp().GetStatus();
       st.total = ev.begin.size;
       st.rx = 0;
-      ctx.sys->Http().SetStatus(st);
+      ctx.sys->Tcp().SetStatus(st);
 
       LOGI(kTag, "BEGIN size=%u crc=%u", (unsigned)ev.begin.size,
            (unsigned)ev.begin.crc);
@@ -73,19 +70,19 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
       ctx.sm->ReqTransition(*ctx.program_state);
       break;
     }
-    case HttpServer::EventId::kAbort: {
-      ctx.sys->Http().SetUploadEnabled(false);
+    case TcpServer::EventId::kAbort: {
+      ctx.sys->Tcp().SetUploadEnabled(false);
 
-      HttpServer::Status st = ctx.sys->Http().GetStatus();
+      TcpServer::Status st = ctx.sys->Tcp().GetStatus();
       st.total = 0;
       st.rx = 0;
-      ctx.sys->Http().SetStatus(st);
+      ctx.sys->Tcp().SetStatus(st);
 
       LOGI(kTag, "ABORT");
       break;
     }
-    case HttpServer::EventId::kReset: {
-      ctx.sys->Http().SetUploadEnabled(false);
+    case TcpServer::EventId::kReset: {
+      ctx.sys->Tcp().SetUploadEnabled(false);
       // TODO: Implement actual system reset logic here (esp_restart)
       LOGI(kTag, "RESET");
       break;
@@ -95,22 +92,22 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
     }
   }
 
-  if (ctx.sys->Http().UploadEnabled()) {
+  if (ctx.sys->Tcp().UploadEnabled()) {
     uint8_t buf[512];
     for (int i = 0; i < 8; ++i) {
-      int n = ctx.sys->Http().ReadUpload(buf, sizeof(buf));
+      int n = ctx.sys->Tcp().ReadUpload(buf, sizeof(buf));
       if (n <= 0)
         break;
 
-      HttpServer::Status st = ctx.sys->Http().GetStatus();
+      TcpServer::Status st = ctx.sys->Tcp().GetStatus();
       st.rx += (uint32_t)n;
-      ctx.sys->Http().SetStatus(st);
+      ctx.sys->Tcp().SetStatus(st);
     }
 
-    if (ctx.sys->Http().UploadOverflowed()) {
+    if (ctx.sys->Tcp().UploadOverflowed()) {
       LOGI(kTag, "upload overflow");
-      ctx.sys->Http().ClearUploadOverflow();
-      ctx.sys->Http().SetUploadEnabled(false);
+      ctx.sys->Tcp().ClearUploadOverflow();
+      ctx.sys->Tcp().SetUploadEnabled(false);
     }
   }
 }
@@ -118,30 +115,48 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
 void ListenState::OnExit(AppContext &ctx, SmTick) {
   LOGI(kTag, "exit Listen");
 
-  ctx.sys->Http().Stop();
-
-  ctx.sys->Led().Off();
+  // ctx.sys->Http().Stop(); // Keep running for ProgramState
+  // ctx.sys->Led().Off();   // Keep LED on for feedback
 }
 
 void ProgramState::OnEnter(AppContext &ctx, SmTick now) {
   LOGI(kTag, "entering Program mode");
 
-  ctx.sys->Programmer().Start(ctx.sys->Http().GetStatus().total, now);
+  ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total, now);
 }
 
 void ProgramState::OnStep(AppContext &ctx, SmTick now) {
-  /*
-  uint8_t buf[512];
-  int n = ctx.sys->Http().ReadUpload(buf, sizeof(buf));
-  if (n <= 0)
-    return;
+  ctx.sys->Tcp().Poll(now);
 
-  ctx.sys->Programmer().PushBytes(buf, n, now);
-  */
-  (void)ctx;
-  (void)now;
+  // flow control: only read if programmer has space
+  size_t free = ctx.sys->Programmer().Free();
+  if (free > 0) {
+    uint8_t buf[512];
+    size_t to_read = (free < sizeof(buf)) ? free : sizeof(buf);
+    int n = ctx.sys->Tcp().ReadUpload(buf, to_read);
+    if (n > 0) {
+      ctx.sys->Programmer().PushBytes(buf, n, now);
+    } else {
+      ctx.sys->Programmer().Poll(now);
+    }
+  } else {
+    ctx.sys->Programmer().Poll(now);
+  }
+
+  // Update status for the client
+  TcpServer::Status st = ctx.sys->Tcp().GetStatus();
+  st.rx = ctx.sys->Programmer().Written();
+  ctx.sys->Tcp().SetStatus(st);
+
+  // Check if done
+  if (ctx.sys->Programmer().Done()) {
+    // Client checks status, so we should stay until reset or manual disconnect.
+  }
 }
 
 void ProgramState::OnExit(AppContext &ctx, SmTick) {
   LOGI(kTag, "exit Program");
+  ctx.sys->Tcp().Stop();
+  ctx.sys->Wifi().Stop();
+  ctx.sys->Led().Off();
 }

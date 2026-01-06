@@ -16,7 +16,8 @@ class ListenState : public IState<AppContext> {
 public:
   const char *Name() const override { return "Listen"; }
 
-  void SetBlinkPeriod(SmTick ms) { period_ms_ = ms; }
+  void SetIdleBlinkPeriod(SmTick ms) { period_ms_ = ms; }
+  void SetListenBlinkPeriod(SmTick ms) { period_ms_ = ms; }
 
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
