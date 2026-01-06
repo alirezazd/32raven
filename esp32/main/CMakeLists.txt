@@ -7,7 +7,7 @@ idf_component_register(
         "../drivers/led.cpp"
         "../drivers/button.cpp"
         "../drivers/wifi.cpp"
-        "../utils/http_server.cpp"
+        "../utils/tcp_server.cpp"
         "../utils/timebase.cpp"
         "../drivers/uart.cpp"
         "../drivers/programmer.cpp"

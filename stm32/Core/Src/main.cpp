@@ -19,6 +19,6 @@ int main(void) {
 
   while (1) {
     LED::toggle();
-    busy_wait_us(20000);
+    busy_wait_us(900000);
   }
 }

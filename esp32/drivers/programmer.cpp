@@ -5,11 +5,15 @@
 
 extern "C" {
 #include "driver/gpio.h"
+#include "esp_log.h"
 }
+
+static const char *kTag = "programmer";
 
 void Programmer::Init(const Config &cfg, Uart *uart) {
   ctx_.cfg = cfg;
   ctx_.uart = uart;
+  ctx_.sm = &sm_;
 
   // Bind state pointers
   ctx_.st_idle = &StIdle_;
@@ -123,12 +127,14 @@ bool Programmer::EnterBootloader() {
     // Wait for ACK
     int r = ctx_.uart->Read(&rx, 1, ctx_.cfg.sync_timeout_ms);
     if (r == 1) {
-      if (rx == 0x79)
+      if (rx == 0x79) {
+        ESP_LOGI(kTag, "STM32 Connect ACK (0x79)");
         return true; // ACK
+      }
       if (rx == 0x1F) {
-        // NACK, retry
+        ESP_LOGW(kTag, "STM32 Connect NACK (0x1F)");
       } else {
-        // Unknown byte, retry
+        ESP_LOGW(kTag, "STM32 Connect Unknown: 0x%02X", rx);
       }
     } else {
       // Timeout or no data, retry
@@ -142,6 +148,183 @@ bool Programmer::EnterBootloader() {
   return false;
 }
 
+bool Programmer::GetBootloaderInfo() {
+  if (!ctx_.uart)
+    return false;
+
+  // CMD_GET: 0x00 0xFF
+  uint8_t cmd[] = {0x00, 0xFF};
+  ctx_.uart->Flush();
+  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  // Expect: ACK + N + Version + N bytes + ACK
+  // N = number of bytes to follow - 1
+  uint8_t ack = 0;
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "CMD_GET failed to get initial ACK (0x%02X)", ack);
+    return false;
+  }
+
+  uint8_t len = 0;
+  if (ctx_.uart->Read(&len, 1, ctx_.cfg.sync_timeout_ms) != 1) {
+    ESP_LOGE(kTag, "CMD_GET failed to get length");
+    return false;
+  }
+
+  uint8_t ver = 0;
+  if (ctx_.uart->Read(&ver, 1, ctx_.cfg.sync_timeout_ms) != 1) {
+    ESP_LOGE(kTag, "CMD_GET failed to get version");
+    return false;
+  }
+
+  ESP_LOGI(kTag, "STM32 Bootloader v%X.%X", ver >> 4, ver & 0xF);
+
+  // Read supported commands
+  // We need to read 'len' bytes. Since 'ver' was one of the bytes (protocol
+  // says N = number of bytes - 1) Wait, AN3155 says: ACK N = number of bytes -
+  // 1 Version CMD1 CMD2
+  // ...
+  // CMDn
+  // ACK
+  // Total bytes to read after N is N + 1. Version is the first one.
+  // So we have N more bytes to read after version.
+
+  uint8_t cmds[256];
+  // uint8_t len cannot exceed 255, so it fits in cmds
+
+  if (len > 0) {
+    if (ctx_.uart->Read(cmds, len, ctx_.cfg.sync_timeout_ms) != (int)len) {
+      ESP_LOGE(kTag, "CMD_GET failed to get commands");
+      return false;
+    }
+    ESP_LOGI(kTag, "Supported Commands:");
+    for (int i = 0; i < len; ++i) {
+      ESP_LOGI(kTag, "  - 0x%02X", cmds[i]);
+    }
+  }
+
+  uint8_t final_ack = 0;
+  if (ctx_.uart->Read(&final_ack, 1, ctx_.cfg.sync_timeout_ms) != 1 ||
+      final_ack != 0x79) {
+    ESP_LOGE(kTag, "CMD_GET missing final ACK");
+    return false;
+  }
+
+  return true;
+}
+
+bool Programmer::EraseAll() {
+  if (!ctx_.uart)
+    return false;
+
+  ESP_LOGI(kTag, "Sending EXT_ERASE (0x44)...");
+
+  // CMD_EXT_ERASE: 0x44 0xBB
+  uint8_t cmd[] = {0x44, 0xBB};
+  ctx_.uart->Flush();
+  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  uint8_t ack = 0;
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "EXT_ERASE failed to get initial ACK (0x%02X)", ack);
+    return false;
+  }
+
+  // To mass erase: 0xFF 0xFF + Checksum (0x00)
+  // Wait, AN3155 says:
+  // 1. Send 0x44 0xBB -> Receive ACK
+  // 2. Send 0xFF 0xFF (Special erase code) + 0x00 (Checksum of 0xFF 0xFF xor
+  // logic? No, simple sum checksum) Checksum calculation: 0xFF ^ 0xFF = 0x00.
+  // Correct.
+
+  uint8_t payload[] = {0xFF, 0xFF, 0x00};
+  ctx_.uart->Write(payload, sizeof(payload));
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  // Wait for final ACK - this can take time for full chip erase!
+  // Configured wait time might need to be longer.
+  // Using a longer timeout here.
+  const uint32_t kEraseTimeoutMs = 10000;
+
+  ack = 0;
+  if (ctx_.uart->Read(&ack, 1, kEraseTimeoutMs) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)", ack);
+    return false;
+  }
+
+  ESP_LOGI(kTag, "EXT_ERASE Success");
+  return true;
+}
+
+bool Programmer::Boot() {
+  if (!ctx_.uart)
+    return false;
+
+  ESP_LOGI(kTag, "Performing Hardware Reset to Boot App...");
+
+  // Ensure BOOT0 is low (User Flash mode)
+  Boot0Set(false);
+
+  // Toggle Reset Pin
+  NrstPulse(ctx_.cfg.reset_pulse_ms);
+
+  return true;
+}
+
+bool Programmer::WriteBlock(uint32_t addr, const uint8_t *data, size_t len) {
+  if (!ctx_.uart || !data || len == 0 || len > 256)
+    return false;
+
+  // CMD_WRITE_MEMORY: 0x31 0xCE
+  uint8_t cmd[] = {0x31, 0xCE};
+  ctx_.uart->Flush();
+  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  uint8_t ack = 0;
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "WRITE_MEM failed to get initial ACK (0x%02X)", ack);
+    return false;
+  }
+
+  // Address: 4 bytes (BE) + Checksum
+  uint8_t addr_buf[5];
+  addr_buf[0] = (addr >> 24) & 0xFF;
+  addr_buf[1] = (addr >> 16) & 0xFF;
+  addr_buf[2] = (addr >> 8) & 0xFF;
+  addr_buf[3] = (addr >> 0) & 0xFF;
+  addr_buf[4] = addr_buf[0] ^ addr_buf[1] ^ addr_buf[2] ^ addr_buf[3];
+
+  ctx_.uart->Write(addr_buf, 5);
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "WRITE_MEM failed to get addr ACK (0x%02X)", ack);
+    return false;
+  }
+
+  // Data: N (len-1), Data bytes, Checksum (N ^ data[0] ^ ... ^ data[len-1])
+  uint8_t N = (uint8_t)(len - 1);
+  uint8_t cs = N;
+  for (size_t i = 0; i < len; ++i) {
+    cs ^= data[i];
+  }
+
+  ctx_.uart->Write(&N, 1);
+  ctx_.uart->Write(data, len);
+  ctx_.uart->Write(&cs, 1);
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "WRITE_MEM failed to get data ACK (0x%02X)", ack);
+    return false;
+  }
+
+  return true;
+}
+
 void Programmer::Start(uint32_t total_size, SmTick now) {
   (void)now;
   if (!initialized_)
@@ -150,6 +333,7 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
   // Reset session
   ctx_.total_size = total_size;
   ctx_.written = 0;
+  ctx_.write_addr = 0x08000000;
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
   ctx_.err = 0;
@@ -166,9 +350,27 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
   // Handshake OK
   ctx_.ready = true;
 
+  if (!GetBootloaderInfo()) {
+    ESP_LOGW(kTag, "Failed to get bootloader info, proceeding anyway...");
+  }
+
+  if (!EraseAll()) {
+    ESP_LOGE(kTag, "Failed to mass erase!");
+    ctx_.err = 3; // erase_failed
+    ctx_.ready = false;
+    sm_.Start(StError_, now);
+    return;
+  }
+
   // Start internal writing SM (placeholder until you implement AN3155 write
   // blocks)
   sm_.Start(StWriting_, now);
+}
+
+void Programmer::Poll(SmTick now) {
+  if (!initialized_)
+    return;
+  sm_.Step(now);
 }
 
 void Programmer::Abort(SmTick now) {
@@ -233,6 +435,10 @@ bool Programmer::Error() const {
 uint32_t Programmer::Total() const { return ctx_.total_size; }
 uint32_t Programmer::Written() const { return ctx_.written; }
 
+size_t Programmer::Free() const {
+  return RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
+}
+
 // ---- State implementations ----
 
 void Programmer::WritingState::OnEnter(Ctx &c, SmTick) {
@@ -259,35 +465,65 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
     c.err = 2; // buffer_overflow
     // Transition to error
     if (c.st_error) {
-      // request transition through SM: we do not have SM here, but we can set
-      // err and rely on outer call. Minimal: mark as done by zeroing ready and
-      // let app handle.
+      // request transition through SM can't be done directly, assume Start()
+      // was called correctly For now just error flag set is enough if we check
+      // it
     }
   }
 
-  // Drain up to a bounded amount per step
-  const size_t kMaxDrain = 512;
-  size_t drained = 0;
-  while (drained < kMaxDrain && c.head != c.tail) {
-    c.head = (c.head + 1) % Ctx::kBufCap;
-    c.written += 1;
-    drained += 1;
+  // Drain ring buffer into 256-byte max chunks
+  // We need to wait until we have at least 256 bytes OR we have reached end of
+  // stream BUT we don't know total size perfectly if streamed chunked, but we
+  // do know total_size from header.
 
-    if (c.total_size && c.written >= c.total_size) {
-      // Done
-      // We cannot call request_transition from here directly, because
-      // StateMachine is outside. But we can set a marker by forcing head==tail
-      // and letting outer wrapper transition.
-      break;
+  while (c.written < c.total_size) {
+    size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
+    size_t needed = 256;
+    size_t remaining_file = c.total_size - c.written;
+    if (needed > remaining_file)
+      needed = remaining_file;
+
+    if (available < needed) {
+      // Wait for more data from HTTP
+      return;
     }
+
+    // We have enough data for a block
+    uint8_t block[256];
+    for (size_t i = 0; i < needed; ++i) {
+      block[i] = c.buf[c.head];
+      c.head = (c.head + 1) % Ctx::kBufCap;
+    }
+
+    // Write block
+    // Note: This blocks the main loop, but each block is fast (~25ms @ 115200)
+    if (!Programmer::GetInstance().WriteBlock(c.write_addr, block, needed)) {
+      c.err = 4; // write_failed
+      ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)c.write_addr);
+      return; // todo: transition to error
+    }
+
+    c.write_addr += needed;
+    c.written += needed;
+
+    // Optional: fast toggle LED for activity?
   }
 
-  // Transition decisions
-  if (c.total_size && c.written >= c.total_size && c.head == c.tail) {
-    // move to done
-    // We must request transition via the outer StateMachine. We can do it by
-    // setting a flag and using events, but your current SM has no built-in flag
-    // channel. Simplest: use on_event, or store "want_done" in context. To keep
-    // this file minimal, we do nothing here.
+  // Done
+  if (c.written >= c.total_size) {
+    ESP_LOGI(kTag, "Programming Complete! Booting...");
+
+    if (Programmer::GetInstance().Boot()) {
+      ESP_LOGI(kTag, "Boot command sent.");
+    } else {
+      ESP_LOGE(kTag, "Boot command failed.");
+      // Don't error out completely, user code might still run if it was just a
+      // shaky ACK
+    }
+
+    // Transition to Done
+    if (c.sm && c.st_done) {
+      c.sm->ReqTransition(*c.st_done);
+    }
   }
 }

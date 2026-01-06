@@ -31,6 +31,7 @@ public:
   };
 
   void Start(uint32_t total_size, SmTick now);
+  void Poll(SmTick now);
 
   void Abort(SmTick now);
 
@@ -45,6 +46,8 @@ public:
   uint32_t Total() const;
   uint32_t Written() const;
 
+  size_t Free() const;
+
   bool IsInitialized() const { return initialized_; }
 
 private:
@@ -58,6 +61,9 @@ private:
 
     uint32_t total_size = 0;
     uint32_t written = 0;
+    uint32_t write_addr = 0x08000000; // Start of STM32 Flash
+
+    StateMachine<Ctx> *sm = nullptr;
 
     bool ready = false;
 
@@ -84,7 +90,6 @@ private:
     return (cap - 1) - RbUsed(head, tail, cap);
   }
 
-  // ---- Internal states (your SM template) ----
   class IdleState : public IState<Ctx> {
   public:
     const char *Name() const override { return "P.Idle"; }
@@ -117,11 +122,15 @@ private:
     void OnExit(Ctx &, SmTick) override {}
   };
 
-  // ---- Private helpers (implemented in .cpp) ----
   void GpioInit();
   void Boot0Set(bool on);
   void NrstPulse(uint32_t pulse_ms);
-  bool EnterBootloader(); // BOOT0/reset/0x7F/ACK (bounded retries)
+  bool EnterBootloader();   // BOOT0/reset/0x7F/ACK (bounded retries)
+  bool GetBootloaderInfo(); // CMD_GET (0x00)
+  bool EraseAll();          // CMD_ERASE (0x43) or CMD_EXT_ERASE (0x44)
+  bool WriteBlock(uint32_t addr, const uint8_t *data,
+                  size_t len); // CMD_WRITE_MEMORY (0x31)
+  bool Boot();
 
   bool initialized_ = false;
 

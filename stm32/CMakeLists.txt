@@ -59,6 +59,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/DShotCodec.cpp
 )
 
+# Create binary file
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
+    COMMENT "Generating binary file: ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin"
+)
+
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
