@@ -1,9 +1,9 @@
 #include "system.hpp"
 
 #include "button.hpp"
-#include "http_server.hpp"
 #include "led.hpp"
 #include "programmer.hpp"
+#include "tcp_server.hpp"
 #include "uart.hpp"
 #include "wifi.hpp"
 
@@ -23,8 +23,8 @@ void System::Init() {
   ESP_LOGI(kTag, "Button driver initialized");
   WifiController::GetInstance().Init(WifiController::Config{});
   ESP_LOGI(kTag, "Wifi driver initialized");
-  HttpServer::GetInstance().Init(HttpServer::Config{});
-  ESP_LOGI(kTag, "HTTP Server initialized");
+  TcpServer::GetInstance().Init(TcpServer::Config{});
+  ESP_LOGI(kTag, "TCP Server initialized");
   Uart::GetInstance().Init(Uart::Config{});
   ESP_LOGI(kTag, "Uart driver initialized");
   Programmer::GetInstance().Init(Programmer::Config{}, &Uart::GetInstance());
@@ -44,7 +44,7 @@ LED &System::Led() { return LED::GetInstance(); }
 
 WifiController &System::Wifi() { return WifiController::GetInstance(); }
 
-HttpServer &System::Http() { return HttpServer::GetInstance(); }
+::TcpServer &System::Tcp() { return ::TcpServer::GetInstance(); }
 
 ::Uart &System::Uart() { return ::Uart::GetInstance(); }
 

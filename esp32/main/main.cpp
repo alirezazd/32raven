@@ -10,21 +10,16 @@ extern "C" {
 #include "freertos/task.h"
 }
 
-extern "C" void app_main(void) { // NOLINT
+extern "C" void app_main(void) {
   System::GetInstance().Init();
 
   AppContext ctx{};
 
   StateMachine<AppContext> sm(ctx);
-  ctx.sm = &sm;
+  ctx.sm = &sm; // I know it's weird, but it's the only way to do it like a man
 
-  if (ctx.listen_state) {
-    ctx.listen_state->SetBlinkPeriod(300); // ms
-  }
+  sm.Start(*ctx.idle_state, NowMs());
 
-  if (ctx.idle_state) {
-    sm.Start(*ctx.idle_state, NowMs());
-  }
   while (true) {
     sm.Step(NowMs());
     vTaskDelay(1); // must block at least 1 tick for watchdog
