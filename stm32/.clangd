@@ -1,5 +1,13 @@
 CompileFlags:
   CompilationDatabase: ../build/stm32
+  Add: 
+    - "-I/home/the1/Projects/32raven/stm32/Drivers/STM32F4xx_HAL_Driver/Inc"
+    - "-I/home/the1/Projects/32raven/stm32/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy"
+    - "-I/home/the1/Projects/32raven/stm32/Drivers/CMSIS/Device/ST/STM32F4xx/Include"
+    - "-I/home/the1/Projects/32raven/stm32/Drivers/CMSIS/Include"
+    - "-I/home/the1/Projects/32raven/stm32/Core/Inc"
+    - "-DSTM32F407xx"
+    - "-DUSE_HAL_DRIVER"
 
 Diagnostics:
   UnusedIncludes: None

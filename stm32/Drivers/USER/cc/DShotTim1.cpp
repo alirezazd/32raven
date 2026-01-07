@@ -7,26 +7,26 @@
 extern "C" {
 TIM_HandleTypeDef htim1;
 DMA_HandleTypeDef hdma_tim1_up;
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim); // NOLINT
 }
 
 // ---------- local helpers ----------
 
-static uint16_t div_round_u16(uint32_t num, uint32_t den) {
+static uint16_t DivRoundU16(uint32_t num, uint32_t den) {
   return static_cast<uint16_t>((num + (den / 2u)) / den);
 }
 
 // DShot duty ratios
-static constexpr uint32_t T1_NUM = 3u;
-static constexpr uint32_t T1_DEN = 4u; // 75%
-static constexpr uint32_t T0_NUM = 3u;
-static constexpr uint32_t T0_DEN = 8u; // 37.5%
+static constexpr uint32_t kT1Num = 3u;
+static constexpr uint32_t kT1Den = 4u; // 75%
+static constexpr uint32_t kT0Num = 3u;
+static constexpr uint32_t kT0Den = 8u; // 37.5%
 
 // ---------- driver init ----------
 
 void DShotTim1::_init(const Config &config) {
   if (initialized_) {
-    Error_Handler();
+    ErrorHandler();
   }
   initialized_ = true;
 
@@ -55,10 +55,10 @@ void DShotTim1::_init(const Config &config) {
   TIM1->DCR = TIM_DMABASE_CCR1 | TIM_DMABURSTLENGTH_4TRANSFERS;
 
   timings_.arr = static_cast<uint16_t>(htim1.Init.Period);
-  const uint32_t period_ticks = timings_.arr + 1u;
+  const uint32_t kPeriodTicks = timings_.arr + 1u;
 
-  timings_.t1h = div_round_u16(period_ticks * T1_NUM, T1_DEN);
-  timings_.t0h = div_round_u16(period_ticks * T0_NUM, T0_DEN);
+  timings_.t1h = DivRoundU16(kPeriodTicks * kT1Num, kT1Den);
+  timings_.t0h = DivRoundU16(kPeriodTicks * kT0Num, kT0Den);
 
   // idle low
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
@@ -94,19 +94,19 @@ void DShotTim1::tim1_init_(uint16_t period) {
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
 
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
 
   if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
 
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
 
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
   sConfigOC.Pulse = 0;
@@ -117,13 +117,13 @@ void DShotTim1::tim1_init_(uint16_t period) {
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
 
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
 
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
@@ -134,7 +134,7 @@ void DShotTim1::tim1_init_(uint16_t period) {
   sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
 
   if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-    Error_Handler();
+    ErrorHandler();
 
   HAL_TIM_MspPostInit(&htim1);
 }
@@ -176,7 +176,7 @@ void DShotTim1::startTransfer_(const uint16_t *buf, uint32_t count_words) {
                        reinterpret_cast<uint32_t>(&TIM1->DMAR),
                        count_words) != HAL_OK) {
     busy_ = false;
-    Error_Handler();
+    ErrorHandler();
     return;
   }
 
@@ -186,7 +186,7 @@ void DShotTim1::startTransfer_(const uint16_t *buf, uint32_t count_words) {
 
 void DShotTim1::finishAndIdle() {
   __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_UPDATE);
-  (void)HAL_DMA_Abort(&hdma_tim1_up); // safe even if already stopped
+  (void)HAL_DMA_Abort(&hdma_tim1_up); // safe even if already stopped // NOLINT
 
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
@@ -199,14 +199,14 @@ void DShotTim1::finishAndIdle() {
 
 // ---------- DMA callbacks ----------
 
-extern "C" void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma) {
+extern "C" void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma) { // NOLINT
   if (hdma == &hdma_tim1_up) {
     g_dshot_dma_done = 1;
     DShotTim1::getInstance().finishAndIdle();
   }
 }
 
-extern "C" void HAL_DMA_XferErrorCallback(DMA_HandleTypeDef *hdma) {
+extern "C" void HAL_DMA_XferErrorCallback(DMA_HandleTypeDef *hdma) { // NOLINT
   if (hdma == &hdma_tim1_up) {
     DShotTim1::getInstance().finishAndIdle();
   }

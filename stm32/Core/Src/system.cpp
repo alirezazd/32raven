@@ -5,33 +5,36 @@
 #include "LED.hpp"
 #include "TimeBase.hpp"
 #include "UserConfig.hpp"
+#include "board.h"
 #include "stm32f4xx.h"
+
+// TODO: Use menuconfig to set these values and auto generate the config
 
 System::System() {
   // Constructor does nothing now, explicit init() required.
 }
 
-void System::_init(const Config &config) {
+void System::Init(const Config &config) {
   if (initialized_) {
-    ::Error_Handler();
+    ErrorHandler();
   }
   initialized_ = true;
 
   HAL_Init();
-  System::SystemClock_Config(config);
+  ConfigureSystemClock(config);
 
   // Initialize Drivers
-  GPIO::init(GPIO_DEFAULT);
-  DShotTim1::init(DSHOT_TIM1_DEFAULT);
-  I2C<I2CInstance::I2C_1>::init(I2C_DEFAULT);
-  I2C<I2CInstance::I2C_3>::init(I2C_DEFAULT);
-  TimeBase::init(TimeBase_DEFAULT);
-  LED::init(LED_DEFAULT);
+  GPIO::GetInstance().Init(kGpioDefault);
+  DShotTim1::init(kDshotTim1Default);
+  I2C<I2CInstance::I2C_1>::init(kI2cDefault);
+  I2C<I2CInstance::I2C_3>::init(kI2cDefault);
+  System::GetInstance().Time().Init(kTimeBaseDefault);
+  LED::GetInstance().Init(kLedDefault);
 }
 
-void System::SystemClock_Config(const Config &config) {
-  RCC_OscInitTypeDef RCC_OscInitStruct = config.osc;
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = config.clk;
+void System::ConfigureSystemClock(const Config &config) {
+  RCC_OscInitTypeDef rcc_osc_init = config.osc;
+  RCC_ClkInitTypeDef rcc_clk_init = config.clk;
 
   /** Configure the main internal regulator output voltage
    */
@@ -40,14 +43,14 @@ void System::SystemClock_Config(const Config &config) {
 
   /** Initializes the RCC Oscillators
    */
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-    Error_Handler();
+  if (HAL_RCC_OscConfig(&rcc_osc_init) != HAL_OK) {
+    ErrorHandler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
    */
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, config.flashLatency) != HAL_OK) {
-    Error_Handler();
+  if (HAL_RCC_ClockConfig(&rcc_clk_init, config.flashLatency) != HAL_OK) {
+    ErrorHandler();
   }
 
   /** Enables the Clock Security System
@@ -55,7 +58,7 @@ void System::SystemClock_Config(const Config &config) {
   // HAL_RCC_EnableCSS(); TODO: Enable this when we have a backup power source
 }
 
-extern "C" void Error_Handler(void) {
+extern "C" void ErrorHandler(void) {
   __disable_irq();
   while (1) {
   }

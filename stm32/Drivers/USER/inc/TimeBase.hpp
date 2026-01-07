@@ -16,16 +16,16 @@ class TimeBase {
 public:
   using Config = TimeBaseConfig;
 
-  static TimeBase &getInstance() {
-    static TimeBase instance;
-    return instance;
-  }
-
-  static uint32_t micros() { return getInstance()._micros(); }
+  void Init(const Config &config);
+  uint32_t Micros() const;
 
 private:
   friend class System;
-  static void init(const Config &config) { getInstance()._init(config); }
+
+  static TimeBase &GetInstance() {
+    static TimeBase instance;
+    return instance;
+  }
 
   TimeBase() = default;
   ~TimeBase() = default;
@@ -33,8 +33,6 @@ private:
   TimeBase(const TimeBase &) = delete;
   TimeBase &operator=(const TimeBase &) = delete;
 
-  void _init(const Config &config);
-  uint32_t _micros() const;
   bool initialized_ = false;
 };
 

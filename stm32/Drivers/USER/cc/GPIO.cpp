@@ -3,15 +3,15 @@
 #include "board.h"
 
 namespace {
-inline void init_pin(GPIO_TypeDef *port, const GPIO_InitTypeDef &cfg) {
+inline void InitPin(GPIO_TypeDef *port, const GPIO_InitTypeDef &cfg) {
   GPIO_InitTypeDef tmp = cfg;
   HAL_GPIO_Init(port, &tmp);
 }
 } // namespace
 
-void GPIO::_init(const Config &config) {
+void GPIO::Init(const Config &config) {
   if (initialized_) {
-    Error_Handler();
+    ErrorHandler();
   }
   initialized_ = true;
   __HAL_RCC_GPIOH_CLK_ENABLE();
@@ -22,9 +22,9 @@ void GPIO::_init(const Config &config) {
 
   HAL_GPIO_WritePin(config.led.port, config.led.init.Pin, GPIO_PIN_RESET);
 
-  init_pin(config.button.port, config.button.init);
-  init_pin(config.led.port, config.led.init);
-  init_pin(config.pb10.port, config.pb10.init);
+  InitPin(config.button.port, config.button.init);
+  InitPin(config.led.port, config.led.init);
+  InitPin(config.pb10.port, config.pb10.init);
 
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);

@@ -1,11 +1,14 @@
 #ifndef CORE_SYSTEM_HPP
 #define CORE_SYSTEM_HPP
 
+#include "GPIO.hpp"
+#include "LED.hpp"
+#include "TimeBase.hpp"
 #include "board.h"
 
 class System {
 public:
-  static System &getInstance() {
+  static System &GetInstance() {
     static System instance;
     return instance;
   }
@@ -17,8 +20,11 @@ public:
     uint32_t voltageScaling;
   };
 
-  static void init(const Config &config) { getInstance()._init(config); }
-  void _init(const Config &config);
+  void Init(const Config &config);
+
+  LED &Led() { return LED::GetInstance(); }
+  GPIO &Gpio() { return GPIO::GetInstance(); }
+  TimeBase &Time() { return TimeBase::GetInstance(); }
 
 private:
   bool initialized_ = false;
@@ -26,6 +32,8 @@ private:
   ~System() {}
   System(const System &) = delete;
   System &operator=(const System &) = delete;
-  void SystemClock_Config(const Config &config);
+  void ConfigureSystemClock(const Config &config);
 };
+
+#define MICROS() (System::GetInstance().Time().Micros())
 #endif // CORE_SYSTEM_HPP
