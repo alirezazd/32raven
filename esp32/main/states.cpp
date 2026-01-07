@@ -1,9 +1,9 @@
 #include "states.hpp"
 #include "ctx.hpp"
-#include "logv2.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
 extern "C" {
+#include "esp_log.h"
 #include "esp_system.h" // for esp_restart
 }
 
@@ -11,7 +11,7 @@ static constexpr const char *kTag = "states";
 
 void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
-  LOGI(kTag, "entering Idle");
+  ESP_LOGI(kTag, "entering Idle");
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
 }
 
@@ -20,15 +20,15 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->Button().Poll(now);
 
   if (ctx.sys->Button().ConsumeLongPress()) {
-    LOGI(kTag, "Idle -> Listen (long press)");
+    ESP_LOGI(kTag, "Idle -> Listen (long press)");
     ctx.sm->ReqTransition(*ctx.listen_state);
   }
 }
 
-void IdleState::OnExit(AppContext &, SmTick) { LOGI(kTag, "exiting Idle"); }
+void IdleState::OnExit(AppContext &, SmTick) { ESP_LOGI(kTag, "exiting Idle"); }
 
 void ListenState::OnEnter(AppContext &ctx, SmTick now) {
-  LOGI(kTag, "entering Listen");
+  ESP_LOGI(kTag, "entering Listen");
 
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
 
@@ -40,7 +40,7 @@ void ListenState::OnEnter(AppContext &ctx, SmTick now) {
 void ListenState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->Button().Poll(now);
   if (ctx.sys->Button().ConsumeLongPress()) {
-    LOGI(kTag, "Listen -> Idle (long press)");
+    ESP_LOGI(kTag, "Listen -> Idle (long press)");
     ctx.sm->ReqTransition(*ctx.idle_state);
     return;
   }
@@ -57,8 +57,8 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
       st.rx = 0;
       ctx.sys->Tcp().SetStatus(st);
 
-      LOGI(kTag, "BEGIN size=%u crc=%u", (unsigned)ev.begin.size,
-           (unsigned)ev.begin.crc);
+      ESP_LOGI(kTag, "BEGIN size=%u crc=%u", (unsigned)ev.begin.size,
+               (unsigned)ev.begin.crc);
 
       ctx.sm->ReqTransition(*ctx.program_state);
       break;
@@ -71,21 +71,21 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
       st.rx = 0;
       ctx.sys->Tcp().SetStatus(st);
 
-      LOGI(kTag, "ABORT");
+      ESP_LOGI(kTag, "ABORT");
       ctx.sm->ReqTransition(*ctx.idle_state);
       break;
     }
     case TcpServer::EventId::kReset: {
       ctx.sys->Tcp().SetUploadEnabled(false);
 
-      LOGW(kTag, "RESET requested. Resetting STM32...");
+      ESP_LOGW(kTag, "RESET requested. Resetting STM32...");
       // 1. Reset STM32 to App
       ctx.sys->Programmer().Boot();
 
       // 2. Short delay to allow pulse to happen?
       // Programmer::Boot() is blocking (sleeps during pulse), so valid.
 
-      LOGW(kTag, "Rebooting ESP32...");
+      ESP_LOGW(kTag, "Rebooting ESP32...");
       // 3. Reset ESP32
       esp_restart();
       break;
@@ -109,20 +109,20 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
   }
 }
 
-void ListenState::OnExit(AppContext &ctx, SmTick) { LOGI(kTag, "exit Listen"); }
+void ListenState::OnExit(AppContext &ctx, SmTick) {
+  ESP_LOGI(kTag, "exit Listen");
+}
 
 void ProgramState::OnEnter(AppContext &ctx, SmTick now) {
-  LOGI(kTag, "entering Program mode");
+  ESP_LOGI(kTag, "entering Program mode");
 
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total, now);
   // Manual control for activity
   ctx.sys->Led().Off();
 }
 
-// TODO: Use DMA
-// TODO: Handle LED
-// TODO: Verification
 void ProgramState::OnStep(AppContext &ctx, SmTick now) {
+  // Wanted to use DMA but realized it's not worth it
   ctx.sys->Tcp().Poll(now);
   ctx.sys->Programmer().Poll(now);
 
@@ -130,13 +130,13 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   auto &prog = ctx.sys->Programmer();
 
   if (prog.Error()) {
-    LOGE(kTag, "Prog Error -> ErrorState");
+    ESP_LOGE(kTag, "Prog Error -> ErrorState");
     ctx.sm->ReqTransition(*ctx.error_state);
     return;
   }
 
   if (prog.Done()) {
-    LOGI(kTag, "Prog Done -> Idle");
+    ESP_LOGI(kTag, "Prog Done -> Idle");
     ctx.sm->ReqTransition(*ctx.idle_state);
     return;
   }
@@ -165,7 +165,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
 }
 
 void ProgramState::OnExit(AppContext &ctx, SmTick) {
-  LOGI(kTag, "exit Program");
+  ESP_LOGI(kTag, "exit Program");
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().Stop();
   ctx.sys->Programmer().Boot();
@@ -173,7 +173,7 @@ void ProgramState::OnExit(AppContext &ctx, SmTick) {
 
 void ErrorState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
-  LOGE(kTag, "ENTERING ERROR STATE");
+  ESP_LOGE(kTag, "ENTERING ERROR STATE");
   ctx.sys->Led().SetPattern(LED::Pattern::kDoubleBlink, 300);
 }
 
@@ -182,9 +182,9 @@ void ErrorState::OnStep(AppContext &ctx, SmTick now) {
   // Optional: Exit error on button press?
   if (ctx.sys->Button().ConsumePress() ||
       ctx.sys->Button().ConsumeLongPress()) {
-    LOGI(kTag, "Error ACK -> Idle");
+    ESP_LOGI(kTag, "Error ACK -> Idle");
     ctx.sm->ReqTransition(*ctx.idle_state);
   }
 }
 
-void ErrorState::OnExit(AppContext &, SmTick) { LOGI(kTag, "exit Error"); }
+void ErrorState::OnExit(AppContext &, SmTick) { ESP_LOGI(kTag, "exit Error"); }

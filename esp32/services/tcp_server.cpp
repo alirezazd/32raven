@@ -16,15 +16,6 @@ extern "C" {
 static constexpr const char *kTag = "tcp_server";
 
 // ----- tiny lock helpers (same style as your http server) -----
-void TcpServer::LockTake(unsigned int &l) {
-  while (__atomic_test_and_set(&l, __ATOMIC_ACQUIRE)) {
-    taskYIELD();
-  }
-}
-void TcpServer::LockGive(unsigned int &l) {
-  __atomic_clear(&l, __ATOMIC_RELEASE);
-}
-
 // ----- ring buffer helpers -----
 static inline size_t RbUsed(size_t head, size_t tail, size_t cap) {
   return (tail >= head) ? (tail - head) : (cap - head + tail);
@@ -55,12 +46,10 @@ void TcpServer::Stop() {
   CloseAll();
 
   // Clear buffers/queues
-  LockTake(lock_);
   evt_head_ = evt_tail_ = 0;
   up_head_ = up_tail_ = 0;
   upload_overflow_ = false;
   upload_enabled_ = false;
-  LockGive(lock_);
 }
 
 void TcpServer::Poll(SmTick now) {
@@ -75,83 +64,65 @@ void TcpServer::Poll(SmTick now) {
 // ---------------- SM-facing API (queue/buffer/status) ----------------
 
 bool TcpServer::PopEvent(Event &out) {
-  LockTake(lock_); // TODO use atomic ops
   if (evt_head_ == evt_tail_) {
-    LockGive(lock_);
     return false;
   }
   out = evt_q_[evt_head_];
   evt_head_ = (evt_head_ + 1) % kEvtCap;
-  LockGive(lock_);
   return true;
 }
 
 bool TcpServer::PushEvent(const Event &e) {
-  LockTake(lock_);
   size_t next = (evt_tail_ + 1) % kEvtCap;
   if (next == evt_head_) {
-    LockGive(lock_);
     return false;
   }
   evt_q_[evt_tail_] = e;
   evt_tail_ = next;
-  LockGive(lock_);
   return true;
 }
 
 void TcpServer::SetUploadEnabled(bool en) {
-  LockTake(lock_);
   upload_enabled_ = en;
   if (!upload_enabled_) {
     up_head_ = up_tail_ = 0;
     upload_overflow_ = false;
   }
-  LockGive(lock_);
 }
 
 int TcpServer::ReadUpload(uint8_t *dst, size_t max_len) {
   if (!dst || max_len == 0)
     return 0;
 
-  LockTake(lock_);
   size_t n = 0;
   while (n < max_len && up_head_ != up_tail_) {
     dst[n++] = up_[up_head_];
     up_head_ = (up_head_ + 1) % kUpCap;
   }
-  LockGive(lock_);
   return (int)n;
 }
 
 bool TcpServer::WriteUpload(const uint8_t *data, size_t len) {
-  LockTake(lock_);
   if (!upload_enabled_) {
-    LockGive(lock_);
     return false;
   }
   if (len > RbFree(up_head_, up_tail_, kUpCap)) {
     upload_overflow_ = true;
-    LockGive(lock_);
     return false;
   }
   for (size_t i = 0; i < len; ++i) {
     up_[up_tail_] = data[i];
     up_tail_ = (up_tail_ + 1) % kUpCap;
   }
-  LockGive(lock_);
   return true;
 }
 
 void TcpServer::SetStatus(const Status &s) {
-  LockTake(lock_);
   status_ = s;
-  LockGive(lock_);
 }
 
 TcpServer::Status TcpServer::GetStatus() const {
-  LockTake(lock_);
   Status s = status_;
-  LockGive(lock_);
   return s;
 }
 
@@ -391,10 +362,8 @@ void TcpServer::PumpDataRx() {
   uint8_t buf[1024];
   for (int iter = 0; iter < 4; ++iter) { // bounded work
     // Flow control: check space before pulling from TCP
-    LockTake(lock_);
     bool enabled = upload_enabled_;
     size_t free = RbFree(up_head_, up_tail_, kUpCap);
-    LockGive(lock_);
 
     // If upload is enabled but no space, stop reading to assert method
     // (backpressure)
@@ -774,13 +743,11 @@ esp_err_t TcpServer::Start() {
     return ESP_OK;
 
   // reset internal state (same as PART 1)
-  LockTake(lock_);
   evt_head_ = evt_tail_ = 0;
   up_head_ = up_tail_ = 0;
   upload_overflow_ = false;
   upload_enabled_ = false;
   status_ = Status{};
-  LockGive(lock_);
 
   ctx_.ctrl_listen_fd = -1;
   ctx_.data_listen_fd = -1;
