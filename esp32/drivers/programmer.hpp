@@ -1,7 +1,7 @@
 #pragma once
-#include "mbedtls/sha256.h" // ESP-IDF SHA256
+#include "mbedtls/sha256.h" // IWYU pragma: keep
 #include "uart.hpp"
-#include <array>
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -45,6 +45,7 @@ public:
   bool Ready() const; // handshake done, ready to accept bytes
   bool Done() const;
   bool Error() const;
+  bool IsVerifying() const;
 
   uint32_t Total() const;
   uint32_t Written() const;

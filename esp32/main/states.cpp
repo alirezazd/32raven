@@ -141,6 +141,12 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
+  // Toggle LED during verification
+  if (prog.IsVerifying()) {
+    ctx.sys->Led().Toggle();
+    return;
+  }
+
   // Update status
   TcpServer::Status st = tcp.GetStatus();
   st.rx = prog.Written();

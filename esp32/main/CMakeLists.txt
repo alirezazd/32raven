@@ -7,13 +7,13 @@ idf_component_register(
         "../drivers/led.cpp"
         "../drivers/button.cpp"
         "../drivers/wifi.cpp"
-        "../utils/tcp_server.cpp"
-        "../utils/timebase.cpp"
+        "../services/tcp_server.cpp"
+        "../services/timebase.cpp"
         "../drivers/uart.cpp"
         "../drivers/programmer.cpp"
     INCLUDE_DIRS
         "."
         "../drivers"
-        "../utils"
+        "../services"
 
 )

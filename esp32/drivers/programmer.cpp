@@ -1,5 +1,5 @@
 #include "programmer.hpp"
-#include "../utils/timebase.hpp"
+#include "timebase.hpp"
 
 #include <cstring>
 
@@ -199,10 +199,38 @@ bool Programmer::GetBootloaderInfo() {
       ESP_LOGE(kTag, "CMD_GET failed to get commands");
       return false;
     }
-    ESP_LOGI(kTag, "Supported Commands:");
+
+    // Verify critical commands: READ(0x11), WRITE(0x31), ERASE(0x43/44),
+    // GO(0x21)
+    bool has_read = false;
+    bool has_write = false;
+    bool has_erase = false;
+    bool has_go = false;
+
     for (int i = 0; i < len; ++i) {
-      ESP_LOGI(kTag, "  - 0x%02X", cmds[i]);
+      switch (cmds[i]) {
+      case 0x11:
+        has_read = true;
+        break;
+      case 0x31:
+        has_write = true;
+        break;
+      case 0x43:
+      case 0x44:
+        has_erase = true;
+        break;
+      case 0x21:
+        has_go = true;
+        break;
+      }
     }
+
+    if (!has_read || !has_write || !has_erase || !has_go) {
+      ESP_LOGE(kTag, "Missing critical commands: R=%d W=%d E=%d GO=%d",
+               has_read, has_write, has_erase, has_go);
+      return false;
+    }
+    ESP_LOGI(kTag, "Bootloader capabilities OK");
   }
 
   uint8_t final_ack = 0;
@@ -326,6 +354,62 @@ bool Programmer::WriteBlock(uint32_t addr, const uint8_t *data, size_t len) {
   return true;
 }
 
+bool Programmer::ReadBlock(uint32_t addr, uint8_t *data, size_t len) {
+  if (!ctx_.uart || !data || len == 0 || len > 256)
+    return false;
+
+  // CMD_READ_MEMORY: 0x11 0xEE
+  uint8_t cmd[] = {0x11, 0xEE};
+  ctx_.uart->Flush();
+  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  uint8_t ack = 0;
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "READ_MEM failed to get initial ACK (0x%02X)", ack);
+    return false;
+  }
+
+  // Address: 4 bytes (BE) + Checksum
+  uint8_t addr_buf[5];
+  addr_buf[0] = (addr >> 24) & 0xFF;
+  addr_buf[1] = (addr >> 16) & 0xFF;
+  addr_buf[2] = (addr >> 8) & 0xFF;
+  addr_buf[3] = (addr >> 0) & 0xFF;
+  addr_buf[4] = addr_buf[0] ^ addr_buf[1] ^ addr_buf[2] ^ addr_buf[3];
+
+  ctx_.uart->Write(addr_buf, 5);
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "READ_MEM failed to get addr ACK (0x%02X)", ack);
+    return false;
+  }
+
+  // Number of bytes to read: N (len-1) + Checksum (complement of N)
+  uint8_t n = (uint8_t)(len - 1);
+  uint8_t cs = ~n;
+
+  uint8_t len_buf[2] = {n, cs};
+  ctx_.uart->Write(len_buf, 2);
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "READ_MEM failed to get length ACK (0x%02X)", ack);
+    return false;
+  }
+
+  // Receive data
+  int r = ctx_.uart->Read(
+      data, len, ctx_.cfg.sync_timeout_ms + (len / 10)); // extra time for bytes
+  if (r != (int)len) {
+    ESP_LOGE(kTag, "READ_MEM read data failed exp=%u got=%d", (unsigned)len, r);
+    return false;
+  }
+
+  return true;
+}
+
 void Programmer::Start(uint32_t total_size, SmTick now) {
   (void)now;
   if (!initialized_)
@@ -437,6 +521,11 @@ bool Programmer::Error() const {
          (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Error") == 0);
 }
 
+bool Programmer::IsVerifying() const {
+  return initialized_ && (sm_.CurrentName() &&
+                          std::strcmp(sm_.CurrentName(), "P.Verifying") == 0);
+}
+
 uint32_t Programmer::Total() const { return ctx_.total_size; }
 uint32_t Programmer::Written() const { return ctx_.written; }
 
@@ -521,5 +610,59 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
     if (c.sm && c.st_verifying) {
       c.sm->ReqTransition(*c.st_verifying);
     }
+  }
+}
+
+void Programmer::VerifyingState::OnEnter(Ctx &c, SmTick) {
+  c.verify_addr = 0x08000000;
+  // Init SHA256 for readback
+  mbedtls_sha256_init(&c.sha_ctx);
+  mbedtls_sha256_starts(&c.sha_ctx, 0);
+}
+
+void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
+  // Read back in chunks
+  uint32_t start_addr = 0x08000000;
+  uint32_t offset = c.verify_addr - start_addr;
+
+  // Process reasonable chunks (e.g. 256)
+  while (offset < c.total_size) {
+    size_t chunk = 256;
+    if (chunk > (c.total_size - offset)) {
+      chunk = c.total_size - offset;
+    }
+
+    uint8_t buf[256];
+    if (!Programmer::GetInstance().ReadBlock(c.verify_addr, buf, chunk)) {
+      c.err = 5; // verify_read_failed
+      if (c.sm && c.st_error)
+        c.sm->ReqTransition(*c.st_error);
+      return;
+    }
+
+    mbedtls_sha256_update(&c.sha_ctx, buf, chunk);
+    c.verify_addr += chunk;
+    offset = c.verify_addr - start_addr;
+
+    // Yield occasionally if we are blocking too long
+    // But for performance, maybe do a few? 1 block is fine.
+    return;
+  }
+
+  // Done reading
+  uint8_t read_hash[32];
+  mbedtls_sha256_finish(&c.sha_ctx, read_hash);
+  mbedtls_sha256_free(&c.sha_ctx);
+
+  // Compare
+  if (std::memcmp(c.computed_hash, read_hash, 32) != 0) {
+    ESP_LOGE(kTag, "Verification Failed! CRCs do not match.");
+    c.err = 6; // verify_checksum_mismatch
+    if (c.sm && c.st_error)
+      c.sm->ReqTransition(*c.st_error);
+  } else {
+    ESP_LOGI(kTag, "Verification Successful. Hash matches.");
+    if (c.sm && c.st_done)
+      c.sm->ReqTransition(*c.st_done);
   }
 }
