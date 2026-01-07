@@ -8,7 +8,7 @@ extern "C" {
 #include "esp_log.h"
 }
 
-static const char *kTag = "programmer";
+static constexpr char kTag[] = "programmer";
 
 void Programmer::Init(const Config &cfg, Uart *uart) {
   ctx_.cfg = cfg;
@@ -18,6 +18,7 @@ void Programmer::Init(const Config &cfg, Uart *uart) {
   // Bind state pointers
   ctx_.st_idle = &StIdle_;
   ctx_.st_writing = &StWriting_;
+  ctx_.st_verifying = &StVerifying_;
   ctx_.st_done = &StDone_;
   ctx_.st_error = &StError_;
 
@@ -306,13 +307,13 @@ bool Programmer::WriteBlock(uint32_t addr, const uint8_t *data, size_t len) {
   }
 
   // Data: N (len-1), Data bytes, Checksum (N ^ data[0] ^ ... ^ data[len-1])
-  uint8_t N = (uint8_t)(len - 1);
-  uint8_t cs = N;
+  uint8_t n = (uint8_t)(len - 1);
+  uint8_t cs = n;
   for (size_t i = 0; i < len; ++i) {
     cs ^= data[i];
   }
 
-  ctx_.uart->Write(&N, 1);
+  ctx_.uart->Write(&n, 1);
   ctx_.uart->Write(data, len);
   ctx_.uart->Write(&cs, 1);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
@@ -349,6 +350,10 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
 
   // Handshake OK
   ctx_.ready = true;
+
+  // Init SHA256 for write calculation
+  mbedtls_sha256_init(&ctx_.sha_ctx);
+  mbedtls_sha256_starts(&ctx_.sha_ctx, 0); // 0 = SHA256
 
   if (!GetBootloaderInfo()) {
     ESP_LOGW(kTag, "Failed to get bootloader info, proceeding anyway...");
@@ -450,31 +455,18 @@ void Programmer::WritingState::OnEnter(Ctx &c, SmTick) {
 void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
   (void)now;
 
-  // Placeholder behavior:
-  // Drain bytes from staging buffer and count them as "written".
-  // Replace this later with:
-  // - build 256-byte blocks
-  // - send WRITE_MEMORY command + address + data + checksum
-  // - wait for ACK with timeouts/retries
-  // - update c.written only when STM32 ACKs the block
-  //
-  // This placeholder lets you validate backpressure plumbing end-to-end.
-
   // If buffer overflow happened, error out
   if (c.overflow) {
     c.err = 2; // buffer_overflow
-    // Transition to error
-    if (c.st_error) {
-      // request transition through SM can't be done directly, assume Start()
-      // was called correctly For now just error flag set is enough if we check
-      // it
+    // Transition to error is handled by the SM check?
+    // Actually, we need to request it. Since we can't easily request from here
+    // without the parent SM pointer passed down or stored in Ctx differently
+    // (Ctx has sm*), we use that.
+    if (c.sm && c.st_error) {
+      c.sm->ReqTransition(*c.st_error);
     }
+    return;
   }
-
-  // Drain ring buffer into 256-byte max chunks
-  // We need to wait until we have at least 256 bytes OR we have reached end of
-  // stream BUT we don't know total size perfectly if streamed chunked, but we
-  // do know total_size from header.
 
   while (c.written < c.total_size) {
     size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
@@ -500,8 +492,16 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
     if (!Programmer::GetInstance().WriteBlock(c.write_addr, block, needed)) {
       c.err = 4; // write_failed
       ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)c.write_addr);
-      return; // todo: transition to error
+      // transition to error (requesting it via SM if possible, or just setting
+      // error state)
+      if (c.sm && c.st_error) {
+        c.sm->ReqTransition(*c.st_error);
+      }
+      return;
     }
+
+    // Update ongoing SHA256
+    mbedtls_sha256_update(&c.sha_ctx, block, needed);
 
     c.write_addr += needed;
     c.written += needed;
@@ -509,21 +509,17 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
     // Optional: fast toggle LED for activity?
   }
 
-  // Done
+  // Done writing
   if (c.written >= c.total_size) {
-    ESP_LOGI(kTag, "Programming Complete! Booting...");
+    // Finish calculating the expected hash
+    mbedtls_sha256_finish(&c.sha_ctx, c.computed_hash);
+    mbedtls_sha256_free(&c.sha_ctx);
 
-    if (Programmer::GetInstance().Boot()) {
-      ESP_LOGI(kTag, "Boot command sent.");
-    } else {
-      ESP_LOGE(kTag, "Boot command failed.");
-      // Don't error out completely, user code might still run if it was just a
-      // shaky ACK
-    }
+    ESP_LOGI(kTag, "Write complete. Verifying...");
 
-    // Transition to Done
-    if (c.sm && c.st_done) {
-      c.sm->ReqTransition(*c.st_done);
+    // Transition to Verifying
+    if (c.sm && c.st_verifying) {
+      c.sm->ReqTransition(*c.st_verifying);
     }
   }
 }

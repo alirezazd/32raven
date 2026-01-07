@@ -10,7 +10,7 @@ extern "C" {
 #include "freertos/task.h"
 }
 
-extern "C" void app_main(void) {
+extern "C" void app_main(void) { // NOLINT as IDF requires app_main
   System::GetInstance().Init();
 
   AppContext ctx{};

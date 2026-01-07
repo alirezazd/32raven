@@ -25,14 +25,31 @@ esp32: configure
 stm32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target stm32
 
-flash-esp32: esp32
-	cd esp32 && idf.py -B ../$(BUILD_DIR)/esp32 flash
+# Helper to extract IDF_PATH from user_config.cmake if it exists
+# We use grep to find the line, reject comments, and cut the value inside quotes
+IDF_PATH_VAR := $(shell grep "IDF_PATH" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
+export IDF_PATH ?= $(if $(IDF_PATH_VAR),$(IDF_PATH_VAR),)
 
-monitor-esp32: 
-	cd esp32 && idf.py -B ../$(BUILD_DIR)/esp32 monitor
+# Helper to extract ESP_PORT and ESP_BAUD
+ESP_PORT_VAR := $(shell grep "ESP_PORT" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
+ESP_BAUD_VAR := $(shell grep "ESP_BAUD" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
+
+IDF_ARGS :=
+ifneq ($(ESP_PORT_VAR),)
+	IDF_ARGS += -p $(ESP_PORT_VAR)
+endif
+ifneq ($(ESP_BAUD_VAR),)
+	IDF_ARGS += -b $(ESP_BAUD_VAR)
+endif
+
+flash-esp32: esp32
+	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 flash"
+
+monitor-esp32:
+	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 monitor"
 
 flash-monitor-esp32: esp32
-	cd esp32 && idf.py -B ../$(BUILD_DIR)/esp32 flash monitor
+	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 flash monitor"
 
 clean:
 	@echo "Removing $(BUILD_DIR)/"
