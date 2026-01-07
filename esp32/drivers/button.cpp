@@ -1,5 +1,8 @@
 #include "button.hpp"
-#include "logv2.hpp"
+extern "C" {
+#include "driver/gpio.h"
+#include "esp_log.h"
+}
 
 static constexpr const char *kTag = "button";
 
@@ -34,10 +37,11 @@ void Button::Init(const Config &cfg) {
   ev_release_ = false;
   ev_long_ = false;
 
-  LOGI(kTag,
-       "init pin=%d active_low=%d pullup=%d pulldown=%d debounce=%u long=%u",
-       (int)cfg.pin, (int)cfg.active_low, (int)cfg.pullup, (int)cfg.pulldown,
-       (unsigned)cfg.debounce_ms, (unsigned)cfg.long_press_ms);
+  ESP_LOGI(
+      kTag,
+      "init pin=%d active_low=%d pullup=%d pulldown=%d debounce=%u long=%u",
+      (int)cfg.pin, (int)cfg.active_low, (int)cfg.pullup, (int)cfg.pulldown,
+      (unsigned)cfg.debounce_ms, (unsigned)cfg.long_press_ms);
 
   initialized_ = true;
 }
@@ -55,7 +59,7 @@ void Button::Poll(TimeMs now_ms) {
   const bool kRaw = ReadRawPressed();
 
   if (kRaw != raw_last_) {
-    LOGD(kTag, "raw change -> %d at %u ms", (int)kRaw, (unsigned)now_ms);
+    ESP_LOGD(kTag, "raw change -> %d at %u ms", (int)kRaw, (unsigned)now_ms);
     raw_last_ = kRaw;
     raw_last_change_ms_ = now_ms;
   }
@@ -64,7 +68,8 @@ void Button::Poll(TimeMs now_ms) {
   if (kRaw != stable_) {
     if ((TimeMs)(now_ms - raw_last_change_ms_) >= debounce_ms_) {
       stable_ = kRaw;
-      LOGI(kTag, "debounced -> %d at %u ms", (int)stable_, (unsigned)now_ms);
+      ESP_LOGI(kTag, "debounced -> %d at %u ms", (int)stable_,
+               (unsigned)now_ms);
 
       // stable edge
       if (stable_) {
@@ -86,7 +91,7 @@ void Button::Poll(TimeMs now_ms) {
     if ((TimeMs)(now_ms - press_start_ms_) >= long_press_ms_) {
       long_fired_ = true;
       ev_long_ = true;
-      LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);
+      ESP_LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);
     }
   }
 }

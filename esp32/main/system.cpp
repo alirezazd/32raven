@@ -10,7 +10,6 @@
 extern "C" {
 #include "esp_log.h"
 }
-
 static constexpr const char *kTag = "system";
 
 void System::Init() {

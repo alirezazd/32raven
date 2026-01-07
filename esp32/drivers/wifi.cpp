@@ -5,6 +5,8 @@ extern "C" {
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_log.h"
+}
+extern "C" {
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "nvs_flash.h"
