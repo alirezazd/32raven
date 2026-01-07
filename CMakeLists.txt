@@ -26,6 +26,18 @@ if(NOT EXISTS "${IDF_PATH}/export.sh")
   message(FATAL_ERROR "IDF_PATH is invalid: '${IDF_PATH}' (missing export.sh)")
 endif()
 
+add_compile_options(
+    -Wall
+    -Wextra
+    -Wshadow
+    -Wconversion
+    -Wsign-conversion
+    -Wdouble-promotion
+    -Wformat=2
+    -Wundef
+    -Werror=return-type
+)
+
 set(STM32_TOOLCHAIN_FILE "" CACHE FILEPATH "STM32 toolchain file (gcc-arm-none-eabi.cmake)")
 
 if(STM32_TOOLCHAIN_FILE AND EXISTS "${STM32_TOOLCHAIN_FILE}")
@@ -72,6 +84,7 @@ endif()
 # -----------------------------------------------------------------------------
 add_custom_target(esp32
   COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware"
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/esp32/check_forbidden.sh
   COMMAND bash -lc
     "set -euo pipefail; \
      . '${IDF_PATH}/export.sh'; \
@@ -80,6 +93,18 @@ add_custom_target(esp32
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON build"
   VERBATIM
 )
+
+# -----------------------------------------------------------------------------
+# Compliance Checks
+# -----------------------------------------------------------------------------
+# Define exceptions for the forbidden header/keyword compliance check.
+# Each item will be treated as a grep pattern that, if matched, allows the line.
+set(FORBIDDEN_EXCEPTIONS
+    "#include <vector>"  # Example: remove this when you actually need to catch it
+    "placement new"
+)
+string(REPLACE ";" "\n" FORBIDDEN_EXCEPTIONS_CONTENT "${FORBIDDEN_EXCEPTIONS}")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/esp32/forbidden_exceptions.txt" "${FORBIDDEN_EXCEPTIONS_CONTENT}")
 
 # -----------------------------------------------------------------------------
 # Build both

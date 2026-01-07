@@ -13,7 +13,7 @@ extern "C" {
 #include "lwip/sockets.h"
 }
 
-static const char *kTag = "tcp_server";
+static constexpr const char *kTag = "tcp_server";
 
 // ----- tiny lock helpers (same style as your http server) -----
 void TcpServer::LockTake(unsigned int &l) {
@@ -75,7 +75,7 @@ void TcpServer::Poll(SmTick now) {
 // ---------------- SM-facing API (queue/buffer/status) ----------------
 
 bool TcpServer::PopEvent(Event &out) {
-  LockTake(lock_);
+  LockTake(lock_); // TODO use atomic ops
   if (evt_head_ == evt_tail_) {
     LockGive(lock_);
     return false;
@@ -623,6 +623,7 @@ class TcpServer::StStopped : public IState<Ctx> {
 public:
   const char *Name() const override { return "Stopped"; }
   void SetListen(IState<Ctx> *s) { listen_ = s; }
+  IState<Ctx> *GetListen() const { return listen_; }
 
   void OnEnter(Ctx &ctx, SmTick) override {
     if (!ctx.self || !ctx.sm)
@@ -799,12 +800,15 @@ esp_err_t TcpServer::Start() {
   s_ctrl_ = &st_ctrl;
   s_ctrldata_ = &st_ctrldata;
 
-  st_stopped.SetListen(s_listen_);
-  st_listen.SetCtrl(s_ctrl_);
-  st_ctrl.SetListen(s_listen_);
-  st_ctrl.SetCtrlData(s_ctrldata_);
-  st_ctrldata.SetListen(s_listen_);
-  st_ctrldata.SetCtrl(s_ctrl_);
+  // Wire transitions (only needs to happen once, but cheap to redo)
+  if (!st_stopped.GetListen()) {
+    st_stopped.SetListen(s_listen_);
+    st_listen.SetCtrl(s_ctrl_);
+    st_ctrl.SetListen(s_listen_);
+    st_ctrl.SetCtrlData(s_ctrldata_);
+    st_ctrldata.SetListen(s_listen_);
+    st_ctrldata.SetCtrl(s_ctrl_);
+  }
 
   running_ = true;
 

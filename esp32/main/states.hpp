@@ -36,3 +36,12 @@ public:
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
 };
+
+class ErrorState : public IState<AppContext> {
+public:
+  const char *Name() const override { return "Error"; }
+
+  void OnEnter(AppContext &ctx, SmTick now) override;
+  void OnStep(AppContext &ctx, SmTick now) override;
+  void OnExit(AppContext &ctx, SmTick now) override;
+}; // TODO: Implement

@@ -1,10 +1,6 @@
 #include "button.hpp"
 #include "logv2.hpp"
 
-extern "C" {
-#include "esp_err.h" // IWYU pragma: keep
-}
-
 static constexpr const char *kTag = "button";
 
 void Button::Init(const Config &cfg) {
