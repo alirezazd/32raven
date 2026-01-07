@@ -151,10 +151,6 @@ private:
   static bool MakeListenSocket(int &out_fd, uint16_t port, int backlog,
                                bool nonblocking);
 
-  // Minimal lock
-  static void LockTake(unsigned int &l);
-  static void LockGive(unsigned int &l);
-
   Config cfg_{};
   bool running_ = false;
 
@@ -183,7 +179,4 @@ private:
 
   // status
   Status status_{};
-
-  // lock
-  mutable unsigned int lock_ = 0;
 };
