@@ -1,7 +1,10 @@
 #pragma once
+#include "mbedtls/sha256.h" // ESP-IDF SHA256
 #include "uart.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "state_machine.hpp"
 
@@ -50,6 +53,8 @@ public:
 
   bool IsInitialized() const { return initialized_; }
 
+  bool Boot();
+
 private:
   friend class System;
   void Init(const Config &cfg, Uart *uart);
@@ -79,8 +84,14 @@ private:
     // transitions
     IState<Ctx> *st_idle = nullptr;
     IState<Ctx> *st_writing = nullptr;
+    IState<Ctx> *st_verifying = nullptr; // New State
     IState<Ctx> *st_done = nullptr;
     IState<Ctx> *st_error = nullptr;
+
+    // verification
+    mbedtls_sha256_context sha_ctx;
+    uint8_t computed_hash[32];
+    uint32_t verify_addr = 0x08000000;
   };
 
   static size_t RbUsed(size_t head, size_t tail, size_t cap) {
@@ -104,6 +115,14 @@ private:
     void OnEnter(Ctx &c, SmTick now) override;
     void OnStep(Ctx &c, SmTick now) override;
     void OnExit(Ctx &, SmTick) override {}
+  };
+
+  class VerifyingState : public IState<Ctx> {
+  public:
+    const char *Name() const override { return "P.Verifying"; }
+    void OnEnter(Ctx &c, SmTick now) override;
+    void OnStep(Ctx &c, SmTick now) override;
+    void OnExit(Ctx &c, SmTick now) override {}
   };
 
   class DoneState : public IState<Ctx> {
@@ -130,7 +149,8 @@ private:
   bool EraseAll();          // CMD_ERASE (0x43) or CMD_EXT_ERASE (0x44)
   bool WriteBlock(uint32_t addr, const uint8_t *data,
                   size_t len); // CMD_WRITE_MEMORY (0x31)
-  bool Boot();
+  bool ReadBlock(uint32_t addr, uint8_t *data,
+                 size_t len); // CMD_READ_MEMORY (0x11)
 
   bool initialized_ = false;
 
@@ -139,6 +159,7 @@ private:
 
   IdleState StIdle_{};
   WritingState StWriting_{};
+  VerifyingState StVerifying_{};
   DoneState StDone_{};
   ErrorState StError_{};
 

@@ -13,8 +13,10 @@ AppContext::AppContext() {
   static IdleState s_idle;
   static ListenState s_listen;
   static ProgramState s_program;
+  static ErrorState s_error;
 
   idle_state = &s_idle;
   listen_state = &s_listen;
   program_state = &s_program;
+  error_state = &s_error;
 }

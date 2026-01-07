@@ -4,6 +4,7 @@
 struct IdleState;
 struct ListenState;
 struct ProgramState;
+struct ErrorState;
 
 class System;
 
@@ -18,4 +19,5 @@ struct AppContext {
   IdleState *idle_state = nullptr;
   ListenState *listen_state = nullptr;
   ProgramState *program_state = nullptr;
+  ErrorState *error_state = nullptr;
 };
