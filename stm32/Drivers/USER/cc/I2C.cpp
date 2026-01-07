@@ -16,13 +16,13 @@ template <I2CInstance Inst> I2C_HandleTypeDef *I2C<Inst>::_getHandle() {
     return &hi2c1;
   if (Inst == I2CInstance::I2C_3)
     return &hi2c3;
-  Error_Handler();
+  ErrorHandler();
   return nullptr;
 }
 
 template <I2CInstance Inst> void I2C<Inst>::_init(const Config &config) {
   if (initialized_) {
-    Error_Handler();
+    ErrorHandler();
   }
   initialized_ = true;
 
@@ -45,7 +45,7 @@ template <I2CInstance Inst> void I2C<Inst>::_init(const Config &config) {
   p_handle->Init.NoStretchMode = config.noStretchMode;
 
   if (HAL_I2C_Init(p_handle) != HAL_OK) {
-    Error_Handler();
+    ErrorHandler();
   }
 }
 

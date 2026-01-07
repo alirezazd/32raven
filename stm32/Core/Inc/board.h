@@ -8,13 +8,13 @@ extern "C" {
 #endif
 
 /* Exported functions prototypes ---------------------------------------------*/
-void Error_Handler(void);
+void ErrorHandler(void);
 
 /* Private defines -----------------------------------------------------------*/
-#define USER_BTN_Pin GPIO_PIN_0
-#define USER_BTN_GPIO_Port GPIOA
-#define USER_LED_Pin GPIO_PIN_1
-#define USER_LED_GPIO_Port GPIOA
+#define USER_BTN_PIN GPIO_PIN_0
+#define USER_BTN_GPIO_PORT GPIOA
+#define USER_LED_PIN GPIO_PIN_1
+#define USER_LED_GPIO_PORT GPIOA
 
 #ifdef __cplusplus
 }
