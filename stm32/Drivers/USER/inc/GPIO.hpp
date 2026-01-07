@@ -19,16 +19,15 @@ public:
   };
 
   // One-time init entry point
-  // static void init(const Config &config) { instance()._init(config); }
-
-  static GPIO &getInstance() {
-    static GPIO instance;
-    return instance;
-  }
+  void Init(const Config &config);
 
 private:
   friend class System;
-  static void init(const Config &config) { getInstance()._init(config); }
+
+  static GPIO &GetInstance() {
+    static GPIO instance;
+    return instance;
+  }
 
   GPIO() = default;
   ~GPIO() = default;
@@ -36,6 +35,5 @@ private:
   GPIO(const GPIO &) = delete;
   GPIO &operator=(const GPIO &) = delete;
 
-  void _init(const Config &config);
   bool initialized_ = false;
 };

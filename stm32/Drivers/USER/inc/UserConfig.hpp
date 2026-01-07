@@ -8,7 +8,7 @@
 #include "system.hpp" // For System::Config
 
 // Default Configuration values
-constexpr System::Config SYSTEM_DEFAULT = {
+constexpr System::Config kSystemDefault = {
     // RCC_OscInitTypeDef
     {RCC_OSCILLATORTYPE_HSE, // OscillatorType
      RCC_HSE_ON,             // HSEState
@@ -38,7 +38,7 @@ constexpr System::Config SYSTEM_DEFAULT = {
     PWR_REGULATOR_VOLTAGE_SCALE1 // voltageScaling
 };
 
-constexpr I2CConfig I2C_DEFAULT = {400000,
+constexpr I2CConfig kI2cDefault = {400000,
                                    I2C_DUTYCYCLE_2,
                                    0,
                                    I2C_ADDRESSINGMODE_7BIT,
@@ -47,27 +47,27 @@ constexpr I2CConfig I2C_DEFAULT = {400000,
                                    I2C_GENERALCALL_DISABLE,
                                    I2C_NOSTRETCH_DISABLE};
 
-constexpr TimeBaseConfig TimeBase_DEFAULT = {
+constexpr TimeBaseConfig kTimeBaseDefault = {
     83,         // Prescaler
     0xFFFFFFFF, // Period
 };
 
-constexpr GPIO::Config GPIO_DEFAULT = {
+const GPIO::Config kGpioDefault = {
     // LED (Output, No Pull, Low Speed)
-    {USER_LED_GPIO_Port,
-     {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
+    {USER_LED_GPIO_PORT,
+     {USER_LED_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
 
     // Button (Input, Pull Down)
-    {USER_BTN_GPIO_Port,
-     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
+    {USER_BTN_GPIO_PORT,
+     {USER_BTN_PIN, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
 
     // PB10 (EXTI Rising, No Pull)
     {GPIOB,
      {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
 };
 
-constexpr LED::Config LED_DEFAULT = {USER_LED_GPIO_Port, USER_LED_Pin};
+const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_PIN};
 
-constexpr DShotTim1::Config DSHOT_TIM1_DEFAULT = {
+constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
 };

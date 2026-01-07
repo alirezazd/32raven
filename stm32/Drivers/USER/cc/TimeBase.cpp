@@ -2,9 +2,9 @@
 
 #include "board.h"
 
-void TimeBase::_init(const Config &config) {
+void TimeBase::Init(const Config &config) {
   if (initialized_) {
-    Error_Handler();
+    ErrorHandler();
   }
   initialized_ = true;
 
@@ -32,7 +32,7 @@ void TimeBase::_init(const Config &config) {
   TIM2->CR1 |= TIM_CR1_CEN;
 }
 
-uint32_t TimeBase::_micros() const {
+uint32_t TimeBase::Micros() const {
   // 32-bit read is atomic on Cortex-M4
   return TIM2->CNT;
 }

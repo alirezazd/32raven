@@ -5,29 +5,24 @@
 
 class LED {
 public:
-  static LED &getInstance() {
-    static LED instance;
-    return instance;
-  }
-
   struct Config {
     GPIO_TypeDef *port;
     uint16_t pin;
   };
 
-  static void on() { getInstance()._on(); }
-  static void off() { getInstance()._off(); }
-  static void toggle() { getInstance()._toggle(); }
+  void Init(const Config &config);
 
-  void _init(const Config &config);
-
-  void _on();
-  void _off();
-  void _toggle();
+  void On();
+  void Off();
+  void Toggle();
 
 private:
   friend class System;
-  static void init(const Config &config) { getInstance()._init(config); }
+
+  static LED &GetInstance() {
+    static LED instance;
+    return instance;
+  }
 
   LED() = default;
   ~LED() = default;
