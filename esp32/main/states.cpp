@@ -13,6 +13,7 @@ void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
   ESP_LOGI(kTag, "entering Idle");
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
+  line_idx_ = 0;
 }
 
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
@@ -21,7 +22,35 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
 
   if (ctx.sys->Button().ConsumeLongPress()) {
     ESP_LOGI(kTag, "Idle -> Listen (long press)");
+    ctx.listen_state->SetMode(ListenState::ListenMode::kHard);
     ctx.sm->ReqTransition(*ctx.listen_state);
+    return;
+  }
+
+  // Check UART for "BEGIN" command
+  uint8_t rx[16];
+  int n = ctx.sys->Uart().Read(rx, sizeof(rx));
+  for (int i = 0; i < n; ++i) {
+    char c = (char)rx[i];
+    if (c == '\n' || c == '\r') {
+      line_buf_[line_idx_] = '\0';
+      if (line_idx_ > 0) {
+        if (strcmp(line_buf_, "BEGIN") == 0) {
+          ESP_LOGI(kTag, "Idle -> Listen (UART BEGIN)");
+          ctx.listen_state->SetMode(ListenState::ListenMode::kSoft);
+          ctx.sm->ReqTransition(*ctx.listen_state);
+          return;
+        }
+      }
+      line_idx_ = 0;
+    } else {
+      if (line_idx_ < sizeof(line_buf_) - 1) {
+        line_buf_[line_idx_++] = c;
+      } else {
+        // overflow, reset
+        line_idx_ = 0;
+      }
+    }
   }
 }
 
@@ -35,17 +64,39 @@ void ListenState::OnEnter(AppContext &ctx, SmTick now) {
   ctx.sys->Wifi().StartAp();
   ctx.sys->Tcp().Start();
   ctx.sys->Tcp().SetUploadEnabled(false);
+  last_active_ = now;
 }
 
-void ListenState::OnStep(AppContext &ctx, SmTick now) {
-  ctx.sys->Button().Poll(now);
-  if (ctx.sys->Button().ConsumeLongPress()) {
-    ESP_LOGI(kTag, "Listen -> Idle (long press)");
-    ctx.sm->ReqTransition(*ctx.idle_state);
-    return;
+// --- Helper Functions ---
+
+static bool RunBridge(AppContext &ctx) {
+  bool activity = false;
+  // Transparent Bridge: Uart <-> Tcp
+  // 1. Tcp RX -> Uart TX
+  // Ensure we can receive bytes from client (buffered in Upload ringbuffer)
+  if (!ctx.sys->Tcp().UploadEnabled()) {
+    ctx.sys->Tcp().SetUploadEnabled(true);
   }
 
-  ctx.sys->Tcp().Poll(now);
+  uint8_t buf[128];
+  // Read from TCP buffer (filled by client data)
+  int n_tcp = ctx.sys->Tcp().ReadUpload(buf, sizeof(buf));
+  if (n_tcp > 0) {
+    ctx.sys->Uart().Write(buf, (size_t)n_tcp);
+  }
+
+  // 2. Uart RX -> Tcp TX
+  // Read from UART (STM32 output)
+  int n_uart = ctx.sys->Uart().Read(buf, sizeof(buf));
+  if (n_uart > 0) {
+    ctx.sys->Tcp().SendData(buf, (size_t)n_uart);
+    activity = true;
+  }
+  return activity;
+}
+
+// Returns true if state transition occurred
+static bool CheckForEvents(AppContext &ctx) {
   TcpServer::Event ev;
   while (ctx.sys->Tcp().PopEvent(ev)) {
     switch (ev.id) {
@@ -57,11 +108,12 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
       st.rx = 0;
       ctx.sys->Tcp().SetStatus(st);
 
-      ESP_LOGI(kTag, "BEGIN size=%u crc=%u", (unsigned)ev.begin.size,
-               (unsigned)ev.begin.crc);
+      ESP_LOGI(kTag, "BEGIN size=%u crc=%u target=%d", (unsigned)ev.begin.size,
+               (unsigned)ev.begin.crc, (int)ev.begin.target);
 
+      ctx.sys->Programmer().SetTarget(ev.begin.target);
       ctx.sm->ReqTransition(*ctx.program_state);
-      break;
+      return true;
     }
     case TcpServer::EventId::kAbort: {
       ctx.sys->Tcp().SetUploadEnabled(false);
@@ -73,7 +125,7 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
 
       ESP_LOGI(kTag, "ABORT");
       ctx.sm->ReqTransition(*ctx.idle_state);
-      break;
+      return true;
     }
     case TcpServer::EventId::kReset: {
       ctx.sys->Tcp().SetUploadEnabled(false);
@@ -88,23 +140,44 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
       ESP_LOGW(kTag, "Rebooting ESP32...");
       // 3. Reset ESP32
       esp_restart();
-      break;
+      return true; // Unreachable
     }
     default:
       break;
     }
   }
+  return false;
+}
 
-  if (ctx.sys->Tcp().UploadEnabled()) {
-    uint8_t buf[512];
-    for (int i = 0; i < 8; ++i) {
-      int n = ctx.sys->Tcp().ReadUpload(buf, sizeof(buf));
-      if (n <= 0)
-        break;
+void ListenState::OnStep(AppContext &ctx, SmTick now) {
+  ctx.sys->Button().Poll(now);
 
-      TcpServer::Status st = ctx.sys->Tcp().GetStatus();
-      st.rx += (uint32_t)n;
-      ctx.sys->Tcp().SetStatus(st);
+  // Hard Mode: Exit on Button Long Press
+  if (mode_ == ListenMode::kHard) {
+    if (ctx.sys->Button().ConsumeLongPress()) {
+      ESP_LOGI(kTag, "Listen(Hard) -> Idle (long press)");
+      ctx.sm->ReqTransition(*ctx.idle_state);
+      return;
+    }
+  }
+
+  ctx.sys->Tcp().Poll(now);
+
+  if (CheckForEvents(ctx)) {
+    return;
+  }
+
+  bool activity = RunBridge(ctx);
+  if (activity) {
+    last_active_ = now;
+  }
+
+  // Soft Mode: Exit on Timeout
+  if (mode_ == ListenMode::kSoft) {
+    if ((now - last_active_) > 100) {
+      ESP_LOGI(kTag, "Listen(Soft) -> Idle (timeout)");
+      ctx.sm->ReqTransition(*ctx.idle_state);
+      return;
     }
   }
 }
@@ -136,8 +209,8 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   if (prog.Done()) {
-    ESP_LOGI(kTag, "Prog Done -> Idle");
-    ctx.sm->ReqTransition(*ctx.idle_state);
+    ESP_LOGI(kTag, "Prog Done -> Listen");
+    ctx.sm->ReqTransition(*ctx.listen_state);
     return;
   }
 

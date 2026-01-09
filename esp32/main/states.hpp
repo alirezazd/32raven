@@ -1,5 +1,6 @@
 #pragma once
 #include "state_machine.hpp"
+#include <cstddef>
 
 struct AppContext;
 
@@ -10,6 +11,10 @@ public:
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
+
+private:
+  char line_buf_[32]{};
+  size_t line_idx_ = 0;
 };
 
 class ListenState : public IState<AppContext> {
@@ -23,7 +28,12 @@ public:
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
 
+  enum class ListenMode { kHard, kSoft };
+  void SetMode(ListenMode m) { mode_ = m; }
+
 private:
+  ListenMode mode_ = ListenMode::kHard;
+  SmTick last_active_ = 0;
   SmTick period_ms_ = 300;
   SmTick next_toggle_ = 0;
 };
