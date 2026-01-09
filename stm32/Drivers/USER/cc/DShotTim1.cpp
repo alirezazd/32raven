@@ -80,10 +80,10 @@ void DShotTim1::dma_init_() {
 }
 
 void DShotTim1::tim1_init_(uint16_t period) {
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+  TIM_ClockConfigTypeDef clock_source_config = {0};
+  TIM_MasterConfigTypeDef master_config = {0};
+  TIM_OC_InitTypeDef config_oc = {0};
+  TIM_BreakDeadTimeConfigTypeDef break_dead_time_config = {0};
 
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
@@ -96,44 +96,44 @@ void DShotTim1::tim1_init_(uint16_t period) {
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
     ErrorHandler();
 
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  clock_source_config.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &clock_source_config) != HAL_OK)
     ErrorHandler();
 
   if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
     ErrorHandler();
 
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  master_config.MasterOutputTrigger = TIM_TRGO_RESET;
+  master_config.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &master_config) != HAL_OK)
     ErrorHandler();
 
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  config_oc.OCMode = TIM_OCMODE_PWM1;
+  config_oc.Pulse = 0;
+  config_oc.OCPolarity = TIM_OCPOLARITY_HIGH;
+  config_oc.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  config_oc.OCFastMode = TIM_OCFAST_DISABLE;
+  config_oc.OCIdleState = TIM_OCIDLESTATE_RESET;
+  config_oc.OCNIdleState = TIM_OCNIDLESTATE_RESET;
 
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_1) != HAL_OK)
     ErrorHandler();
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_2) != HAL_OK)
     ErrorHandler();
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_3) != HAL_OK)
     ErrorHandler();
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_4) != HAL_OK)
     ErrorHandler();
 
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  break_dead_time_config.OffStateRunMode = TIM_OSSR_DISABLE;
+  break_dead_time_config.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  break_dead_time_config.LockLevel = TIM_LOCKLEVEL_OFF;
+  break_dead_time_config.DeadTime = 0;
+  break_dead_time_config.BreakState = TIM_BREAK_DISABLE;
+  break_dead_time_config.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  break_dead_time_config.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
 
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &break_dead_time_config) != HAL_OK)
     ErrorHandler();
 
   HAL_TIM_MspPostInit(&htim1);
@@ -163,8 +163,8 @@ bool DShotTim1::_sendBits(const uint16_t *interleaved_ccr, uint16_t totalBits) {
   busy_ = true;
   __set_PRIMASK(primask);
 
-  const uint32_t count_words = static_cast<uint32_t>(totalBits) * kMotors;
-  startTransfer_(interleaved_ccr, count_words);
+  const uint32_t kCountWords = static_cast<uint32_t>(totalBits) * kMotors;
+  startTransfer_(interleaved_ccr, kCountWords);
   return true;
 }
 

@@ -4,8 +4,8 @@
 #include "stm32f4xx_hal.h"
 #include <cstdint>
 
-constexpr uint32_t SECONDS_TO_MICROS(uint32_t s) { return s * 1000000u; }
-constexpr uint32_t MILLIS_TO_MICROS(uint32_t ms) { return ms * 1000u; }
+#define SECONDS_TO_MICROS(s) ((s) * 1000000u)
+#define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
 
 struct TimeBaseConfig {
   uint32_t prescaler; // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz

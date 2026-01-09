@@ -11,26 +11,26 @@ template <I2CInstance Inst> I2C<Inst>::I2C() {}
 
 template <I2CInstance Inst> I2C<Inst>::~I2C() {}
 
-template <I2CInstance Inst> I2C_HandleTypeDef *I2C<Inst>::_getHandle() {
-  if (Inst == I2CInstance::I2C_1)
+template <I2CInstance Inst> I2C_HandleTypeDef *I2C<Inst>::GetHandle() {
+  if (Inst == I2CInstance::kI2C1)
     return &hi2c1;
-  if (Inst == I2CInstance::I2C_3)
+  if (Inst == I2CInstance::kI2C3)
     return &hi2c3;
   ErrorHandler();
   return nullptr;
 }
 
-template <I2CInstance Inst> void I2C<Inst>::_init(const Config &config) {
+template <I2CInstance Inst> void I2C<Inst>::Init(const Config &config) {
   if (initialized_) {
     ErrorHandler();
   }
   initialized_ = true;
 
-  I2C_HandleTypeDef *p_handle = _getHandle();
+  I2C_HandleTypeDef *p_handle = GetHandle();
 
-  if constexpr (Inst == I2CInstance::I2C_1) {
+  if constexpr (Inst == I2CInstance::kI2C1) {
     p_handle->Instance = I2C1;
-  } else if constexpr (Inst == I2CInstance::I2C_3) {
+  } else if constexpr (Inst == I2CInstance::kI2C3) {
     p_handle->Instance = I2C3;
   }
 
@@ -50,5 +50,5 @@ template <I2CInstance Inst> void I2C<Inst>::_init(const Config &config) {
 }
 
 // Explicit Instantiation
-template class I2C<I2CInstance::I2C_1>;
-template class I2C<I2CInstance::I2C_3>;
+template class I2C<I2CInstance::kI2C1>;
+template class I2C<I2CInstance::kI2C3>;

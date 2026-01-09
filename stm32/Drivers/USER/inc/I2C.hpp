@@ -3,7 +3,7 @@
 
 #include "stm32f4xx_hal.h"
 
-enum class I2CInstance { I2C_1, I2C_3 };
+enum class I2CInstance { kI2C1, kI2C3 };
 
 // Common Config for all I2C instances
 struct I2CConfig {
@@ -21,9 +21,9 @@ template <I2CInstance Inst> class I2C {
 public:
   using Config = I2CConfig;
 
-  static I2C &getInstance() {
+  static I2C &GetInstance() {
     static_assert(
-        Inst == I2CInstance::I2C_1 || Inst == I2CInstance::I2C_3,
+        Inst == I2CInstance::kI2C1 || Inst == I2CInstance::kI2C3,
         "Unsupported I2C Instance. Only I2C1 and I2C3 are supported.");
     static I2C instance;
     return instance;
@@ -31,9 +31,6 @@ public:
 
 private:
   friend class System;
-  static void init(const Config &config) { getInstance()._init(config); }
-
-  // static void init(const Config &config) { getInstance()._init(config); }
 
 private:
   I2C();
@@ -43,8 +40,8 @@ private:
   I2C(const I2C &) = delete;
   I2C &operator=(const I2C &) = delete;
 
-  void _init(const Config &config);
-  I2C_HandleTypeDef *_getHandle();
+  void Init(const Config &config);
+  I2C_HandleTypeDef *GetHandle();
   bool initialized_ = false;
 };
 

@@ -105,7 +105,6 @@ bool Programmer::EnterBootloader() {
   SleepMs(ctx_.cfg.boot_settle_ms);
 
   // Configure UART for bootloader link (your Uart driver already exists)
-  // If you want parity control here, expose it via your Uart config or method.
   (void)ctx_.uart->SetBaudRate(ctx_.cfg.uart_baud);
 
   // Flush any junk
@@ -424,6 +423,37 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
   ctx_.err = 0;
   ctx_.ready = false;
 
+  if (ctx_.target == Target::kEsp32) {
+    ESP_LOGI(kTag, "Starting ESP32 OTA...");
+    ctx_.ota_part = esp_ota_get_next_update_partition(NULL);
+    if (!ctx_.ota_part) {
+      ESP_LOGE(kTag, "OTA partition not found!");
+      ctx_.err = 7; // ota_part_not_found
+      sm_.Start(StError_, now);
+      return;
+    }
+
+    esp_err_t err = esp_ota_begin(ctx_.ota_part, total_size, &ctx_.ota_handle);
+    if (err != ESP_OK) {
+      ESP_LOGE(kTag, "esp_ota_begin failed: %s", esp_err_to_name(err));
+      ctx_.err = 8; // ota_begin_failed
+      sm_.Start(StError_, now);
+      return;
+    }
+
+    ESP_LOGI(kTag, "ESP32 OTA Initialized. Writing to partition subtype %d...",
+             ctx_.ota_part->subtype);
+    ctx_.ready = true;
+    // Skip SHA256 init for now, esp_ota verifies image checksum itself?
+    // We can still do it for our own sanity/progress matching.
+    mbedtls_sha256_init(&ctx_.sha_ctx);
+    mbedtls_sha256_starts(&ctx_.sha_ctx, 0);
+
+    sm_.Start(StWriting_, now);
+    return;
+  }
+
+  // --- STM32 Logic ---
   // Run blocking handshake now (OK at this stage since upload is disabled)
   if (!EnterBootloader()) {
     ctx_.err = 1; // handshake_failed
@@ -559,54 +589,91 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
 
   while (c.written < c.total_size) {
     size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
+
+    // Default chunk size
     size_t needed = 256;
     size_t remaining_file = c.total_size - c.written;
     if (needed > remaining_file)
       needed = remaining_file;
 
     if (available < needed) {
-      // Wait for more data from HTTP
+      // Wait for more data
       return;
     }
 
-    // We have enough data for a block
     uint8_t block[256];
     for (size_t i = 0; i < needed; ++i) {
       block[i] = c.buf[c.head];
       c.head = (c.head + 1) % Ctx::kBufCap;
     }
 
-    // Write block
-    // Note: This blocks the main loop, but each block is fast (~25ms @ 115200)
-    if (!Programmer::GetInstance().WriteBlock(c.write_addr, block, needed)) {
-      c.err = 4; // write_failed
-      ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)c.write_addr);
-      // transition to error (requesting it via SM if possible, or just setting
-      // error state)
-      if (c.sm && c.st_error) {
-        c.sm->ReqTransition(*c.st_error);
+    if (c.target == Target::kEsp32) {
+      // --- ESP32 OTA Write ---
+      esp_err_t err = esp_ota_write(c.ota_handle, block, needed);
+      if (err != ESP_OK) {
+        c.err = 9; // ota_write_failed
+        ESP_LOGE(kTag, "esp_ota_write failed: %s", esp_err_to_name(err));
+        if (c.sm && c.st_error)
+          c.sm->ReqTransition(*c.st_error);
+        return;
       }
-      return;
+      // Continue to checksum update below
+    } else {
+      // --- STM32 UART Write ---
+      // Write block
+      // Note: This blocks the main loop, but each block is fast (~25ms @
+      // 115200)
+      if (!Programmer::GetInstance().WriteBlock(c.write_addr, block, needed)) {
+        c.err = 4; // write_failed
+        ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)c.write_addr);
+        if (c.sm && c.st_error)
+          c.sm->ReqTransition(*c.st_error);
+        return;
+      }
+      c.write_addr += needed;
     }
 
     // Update ongoing SHA256
     mbedtls_sha256_update(&c.sha_ctx, block, needed);
-
-    c.write_addr += needed;
     c.written += needed;
-
-    // Optional: fast toggle LED for activity?
   }
 
   // Done writing
   if (c.written >= c.total_size) {
-    // Finish calculating the expected hash
     mbedtls_sha256_finish(&c.sha_ctx, c.computed_hash);
     mbedtls_sha256_free(&c.sha_ctx);
 
-    ESP_LOGI(kTag, "Write complete. Verifying...");
+    ESP_LOGI(kTag, "Write complete.");
 
-    // Transition to Verifying
+    if (c.target == Target::kEsp32) {
+      // Finalize ESP32 OTA
+      esp_err_t err = esp_ota_end(c.ota_handle);
+      if (err != ESP_OK) {
+        ESP_LOGE(kTag, "esp_ota_end failed: %s", esp_err_to_name(err));
+        c.err = 10; // ota_end_failed
+        if (c.sm && c.st_error)
+          c.sm->ReqTransition(*c.st_error);
+        return;
+      }
+
+      err = esp_ota_set_boot_partition(c.ota_part);
+      if (err != ESP_OK) {
+        ESP_LOGE(kTag, "esp_ota_set_boot_partition failed: %s",
+                 esp_err_to_name(err));
+        c.err = 11;
+        if (c.sm && c.st_error)
+          c.sm->ReqTransition(*c.st_error);
+        return;
+      }
+
+      ESP_LOGI(kTag, "ESP32 OTA Successful. Rebooting...");
+      // Delay slightly to ensure log is flushed?
+      esp_restart();
+      return;
+    }
+
+    // Connect to Verification for STM32
+    ESP_LOGI(kTag, "Verifying...");
     if (c.sm && c.st_verifying) {
       c.sm->ReqTransition(*c.st_verifying);
     }

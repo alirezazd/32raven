@@ -7,7 +7,8 @@ extern "C" {
 #include "esp_err.h"
 }
 
-#include "state_machine.hpp" // your SmTick / IState / StateMachine
+#include "programmer.hpp"
+#include "state_machine.hpp"
 
 class TcpServer {
 public:
@@ -51,9 +52,12 @@ public:
     kDataDown,
   };
 
+  using Target = Programmer::Target;
+
   struct BeginArgs {
     uint32_t size = 0;
     uint32_t crc = 0;
+    Target target = Target::kStm32;
   };
 
   struct Event {
@@ -86,6 +90,9 @@ public:
 
   // Optional: send a single line response to CTRL client
   esp_err_t SendCtrlLine(const char *line);
+
+  // Send raw data to DATA client
+  int SendData(const uint8_t *data, size_t len);
 
 private:
   friend class System;
