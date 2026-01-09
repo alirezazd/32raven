@@ -2,6 +2,12 @@
 #include "mbedtls/sha256.h" // IWYU pragma: keep
 #include "uart.hpp"
 
+extern "C" {
+#include "esp_ota_ops.h"
+#include "esp_partition.h"
+#include "esp_system.h" // IWYU pragma: keep
+}
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -32,6 +38,10 @@ public:
     uint32_t uart_baud = 115200;
     Uart::Config::Parity uart_parity = Uart::Config::Parity::kEven;
   };
+
+  enum class Target { kStm32, kEsp32 };
+
+  void SetTarget(Target t) { ctx_.target = t; }
 
   void Start(uint32_t total_size, SmTick now);
   void Poll(SmTick now);
@@ -64,6 +74,7 @@ private:
   struct Ctx {
     Uart *uart = nullptr;
     Config cfg{};
+    Target target = Target::kStm32;
 
     uint32_t total_size = 0;
     uint32_t written = 0;
@@ -93,6 +104,10 @@ private:
     mbedtls_sha256_context sha_ctx;
     uint8_t computed_hash[32];
     uint32_t verify_addr = 0x08000000;
+
+    // ESP32 OTA
+    esp_ota_handle_t ota_handle = 0;
+    const esp_partition_t *ota_part = nullptr;
   };
 
   static size_t RbUsed(size_t head, size_t tail, size_t cap) {

@@ -15,7 +15,6 @@ extern "C" {
 
 static constexpr const char *kTag = "tcp_server";
 
-// ----- tiny lock helpers (same style as your http server) -----
 // ----- ring buffer helpers -----
 static inline size_t RbUsed(size_t head, size_t tail, size_t cap) {
   return (tail >= head) ? (tail - head) : (cap - head + tail);
@@ -117,9 +116,7 @@ bool TcpServer::WriteUpload(const uint8_t *data, size_t len) {
   return true;
 }
 
-void TcpServer::SetStatus(const Status &s) {
-  status_ = s;
-}
+void TcpServer::SetStatus(const Status &s) { status_ = s; }
 
 TcpServer::Status TcpServer::GetStatus() const {
   Status s = status_;
@@ -423,6 +420,22 @@ esp_err_t TcpServer::SendCtrlLine(const char *line) {
   return ESP_OK;
 }
 
+int TcpServer::SendData(const uint8_t *data, size_t len) {
+  if (ctx_.data_fd < 0 || !data || len == 0)
+    return -1;
+
+  // Best-effort non-blocking send
+  int r = send(ctx_.data_fd, data, len, 0);
+  if (r < 0) {
+    if (errno == EWOULDBLOCK || errno == EAGAIN)
+      return 0; // buffer full, drop or retry later (streaming logic: drop used
+                // here)
+    // CloseData(); // Optional: close on error? For now, just report error.
+    return -1;
+  }
+  return r;
+}
+
 static inline const char *SkipSpace(const char *p) {
   while (*p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n'))
     ++p;
@@ -513,6 +526,41 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
   return false;
 }
 
+static bool FindStrKV(const char *p, const char *key, char *out_buf,
+                      size_t max_len) {
+  if (!p || !key || !out_buf || max_len == 0)
+    return false;
+
+  const size_t kLen = std::strlen(key);
+
+  while (*p) {
+    p = SkipSpace(p);
+    if (!*p)
+      break;
+
+    // find key at token start
+    if (std::strncmp(p, key, kLen) == 0 && p[kLen] == '=') {
+      p += kLen + 1;
+      // Copy value until space or end
+      size_t i = 0;
+      while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+        if (i < max_len - 1) {
+          out_buf[i++] = *p;
+        }
+        ++p;
+      }
+      out_buf[i] = '\0';
+      return true;
+    }
+
+    // skip token
+    while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
+      ++p;
+    }
+  }
+  return false;
+}
+
 static bool StartsWithCI(const char *s, const char *prefix) {
   while (*prefix) {
     char a = *s++;
@@ -539,6 +587,14 @@ void TcpServer::HandleLine(const char *line) {
     bool ok_size = FindU32KV(p, "size", size);
     (void)FindU32KV(p, "crc", crc);
 
+    char target_str[32];
+    Target target = Target::kStm32;
+    if (FindStrKV(p, "target", target_str, sizeof(target_str))) {
+      if (StartsWithCI(target_str, "esp32")) {
+        target = Target::kEsp32;
+      }
+    }
+
     if (!ok_size || size == 0) {
       (void)SendCtrlLine("ERR bad_size\n");
       return;
@@ -548,6 +604,7 @@ void TcpServer::HandleLine(const char *line) {
     e.id = EventId::kBegin;
     e.begin.size = size;
     e.begin.crc = crc;
+    e.begin.target = target;
     if (!PushEvent(e)) {
       (void)SendCtrlLine("ERR evt_queue_full\n");
       return;

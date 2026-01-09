@@ -26,8 +26,8 @@ void System::Init(const Config &config) {
   // Initialize Drivers
   GPIO::GetInstance().Init(kGpioDefault);
   DShotTim1::init(kDshotTim1Default);
-  I2C<I2CInstance::I2C_1>::init(kI2cDefault);
-  I2C<I2CInstance::I2C_3>::init(kI2cDefault);
+  I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
+  I2C<I2CInstance::kI2C3>::GetInstance().Init(kI2cDefault);
   System::GetInstance().Time().Init(kTimeBaseDefault);
   LED::GetInstance().Init(kLedDefault);
 }

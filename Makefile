@@ -42,6 +42,8 @@ ifneq ($(ESP_BAUD_VAR),)
 	IDF_ARGS += -b $(ESP_BAUD_VAR)
 endif
 
+esp32-menuconfig:
+	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 menuconfig"
 flash-esp32: esp32
 	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 flash"
 
@@ -52,7 +54,19 @@ flash-monitor-esp32: esp32
 	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 flash monitor"
 
 clean:
+	@echo "Cleaning ESP-IDF..."
+	-bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 fullclean"
 	@echo "Removing $(BUILD_DIR)/"
 	"$(RM)" -rf "$(BUILD_DIR)"
+
+# Default ESP32 IP
+ESP_IP ?= 192.168.4.1
+
+# WiFi Flashing
+flash-wifi-stm32: stm32
+	python3 tools/esp32_client.py $(ESP_IP) flash $(BUILD_DIR)/stm32/stm32-baremetal.bin
+
+flash-wifi-esp32: esp32
+	python3 tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/stm32_wifi_flasher.bin
 
 distclean: clean
