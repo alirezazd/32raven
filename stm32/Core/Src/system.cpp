@@ -1,12 +1,16 @@
 #include "system.hpp"
-#include "DShotTim1.hpp"
-#include "GPIO.hpp"
-#include "I2C.hpp"
-#include "LED.hpp"
-#include "TimeBase.hpp"
-#include "UserConfig.hpp"
+#include "button.hpp"
+#include "dma.hpp"
+#include "dshot_tim1.hpp"
+#include "gpio.hpp"
+// #include "i2c.hpp"
 #include "board.h"
+#include "led.hpp"
+#include "spi.hpp"
 #include "stm32f4xx.h"
+#include "time_base.hpp"
+#include "uart.hpp"
+#include "user_config.hpp"
 
 // TODO: Use menuconfig to set these values and auto generate the config
 
@@ -24,12 +28,16 @@ void System::Init(const Config &config) {
   ConfigureSystemClock(config);
 
   // Initialize Drivers
+  Dma::GetInstance().Init();
   GPIO::GetInstance().Init(kGpioDefault);
+  Spi::GetInstance().Init();
   DShotTim1::init(kDshotTim1Default);
-  I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
-  I2C<I2CInstance::kI2C3>::GetInstance().Init(kI2cDefault);
+  // I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
+  // I2C<I2CInstance::kI2C3>::GetInstance().Init(kI2cDefault);
   System::GetInstance().Time().Init(kTimeBaseDefault);
   LED::GetInstance().Init(kLedDefault);
+  Button::GetInstance().Init(kButtonDefault);
+  Uart<UartInstance::kUart1>::GetInstance().Init(kUartDefault);
 }
 
 void System::ConfigureSystemClock(const Config &config) {

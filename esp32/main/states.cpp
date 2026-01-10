@@ -133,7 +133,7 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sys->Uart().Write(buf, (size_t)n_tcp);
   }
 
-  // 2. Uart RX -> Tcp TX + Spy for "ABort"
+  // 2. Uart RX -> Tcp TX + Spy for "ABORT"
   int n_uart = ctx.sys->Uart().Read(buf, sizeof(buf));
   if (n_uart > 0) {
     ctx.sys->Tcp().SendData(buf, (size_t)n_uart);
@@ -143,8 +143,9 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
       if (c == '\n' || c == '\r') {
         line_buf_[line_idx_] = '\0';
         if (line_idx_ > 0) {
-          if (strcmp(line_buf_, "ABort") == 0) {
-            ESP_LOGI(kTag, "Listen -> Idle (UART ABort)");
+          ESP_LOGI(kTag, "UART RX Line: '%s'", line_buf_);
+          if (strcasecmp(line_buf_, "ABORT") == 0) {
+            ESP_LOGI(kTag, "Listen -> Idle (UART ABORT)");
             ctx.sm->ReqTransition(*ctx.idle_state);
             return;
           }

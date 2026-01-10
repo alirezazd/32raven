@@ -8,6 +8,7 @@ public:
   struct Config {
     GPIO_TypeDef *port;
     uint16_t pin;
+    bool active_low;
   };
 
   void Init(const Config &config);
@@ -32,6 +33,7 @@ private:
 
   GPIO_TypeDef *port_ = nullptr;
   uint16_t pin_ = 0;
+  bool active_low_ = false;
   bool initialized_ = false;
 };
 
