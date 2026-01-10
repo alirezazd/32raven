@@ -157,6 +157,15 @@ class Esp32Shell(cmd.Cmd):
         print("Target is rebooting. Connection closed.")
         self.do_disconnect(None)
 
+    def do_abort(self, arg):
+        """Send ABORT command to ESP32."""
+        if not self._ensure_connected(): return
+
+        print("Sending ABORT command...")
+        resp = self._send_ctrl("ABORT")
+        print(f"Response: {resp}")
+        self.do_disconnect(None)
+
     def do_flash(self, arg):
         """Flash a binary file. Usage: flash <path_to_bin>"""
         if not arg:

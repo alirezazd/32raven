@@ -9,7 +9,18 @@ GEN ?= Ninja
 .PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32
 
 help:
-	@echo "Targets: configure | all | esp32 | stm32 | clean | flash-esp32 | monitor-esp32"
+	@echo "Targets:"
+	@echo "  configure           - Configure CMake"
+	@echo "  all                 - Build all firmware"
+	@echo "  esp32               - Build ESP32 firmware"
+	@echo "  stm32               - Build STM32 firmware"
+	@echo "  clean               - Clean build directory"
+	@echo "  esp32-menuconfig    - Run ESP-IDF menuconfig"
+	@echo "  flash-esp32         - Flash ESP32 via serial"
+	@echo "  monitor-esp32       - Monitor ESP32 via serial"
+	@echo "  flash-monitor-esp32 - Flash and monitor ESP32 via serial"
+	@echo "  flash-wifi-esp32    - Flash ESP32 via WiFi (OTA)"
+	@echo "  flash-wifi-stm32    - Flash STM32 via WiFi (Bridge)"
 	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_DIR=build, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..."
 
 configure:
