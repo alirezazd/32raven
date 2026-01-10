@@ -1,6 +1,6 @@
 #include "system.hpp"
 #include "button.hpp"
-#include "dma.hpp"
+
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
 // #include "i2c.hpp"
@@ -28,7 +28,7 @@ void System::Init(const Config &config) {
   ConfigureSystemClock(config);
 
   // Initialize Drivers
-  Dma::GetInstance().Init();
+
   GPIO::GetInstance().Init(kGpioDefault);
   Spi::GetInstance().Init();
   DShotTim1::init(kDshotTim1Default);
