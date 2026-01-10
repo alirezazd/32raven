@@ -133,6 +133,10 @@ bool WifiController::StartAp() {
 
   wifi_on_ = true;
   ESP_LOGI(kTag, "AP started SSID=%s", cfg_.ssid);
+
+  // Disable power save to prevent "Assoc Expired" (reason=4) loops
+  esp_wifi_set_ps(WIFI_PS_NONE);
+
   return true;
 }
 

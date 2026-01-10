@@ -1,10 +1,15 @@
 #ifndef CORE_SYSTEM_HPP
 #define CORE_SYSTEM_HPP
 
-#include "GPIO.hpp"
-#include "LED.hpp"
-#include "TimeBase.hpp"
 #include "board.h"
+#include "button.hpp"
+#include "dma.hpp"
+#include "dshot_tim1.hpp"
+#include "gpio.hpp"
+#include "led.hpp"
+#include "spi.hpp"
+#include "time_base.hpp"
+#include "uart.hpp"
 
 class System {
 public:
@@ -23,8 +28,14 @@ public:
   void Init(const Config &config);
 
   LED &Led() { return LED::GetInstance(); }
+  Dma &GetDma() { return Dma::GetInstance(); }
+  Spi &GetSpi() { return Spi::GetInstance(); }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
+  Button &Btn() { return Button::GetInstance(); }
+  Uart<UartInstance::kUart1> &GetUart() {
+    return Uart<UartInstance::kUart1>::GetInstance();
+  }
 
 private:
   bool initialized_ = false;

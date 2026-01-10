@@ -1,10 +1,10 @@
 #include "I2C.hpp"
+#include "i2c.hpp"
 #include "system.hpp"
 
 // Define Global Legacy Handles for ISR/Extern compatibility
 extern "C" {
 I2C_HandleTypeDef hi2c1;
-I2C_HandleTypeDef hi2c3;
 }
 
 template <I2CInstance Inst> I2C<Inst>::I2C() {}
@@ -14,8 +14,6 @@ template <I2CInstance Inst> I2C<Inst>::~I2C() {}
 template <I2CInstance Inst> I2C_HandleTypeDef *I2C<Inst>::GetHandle() {
   if (Inst == I2CInstance::kI2C1)
     return &hi2c1;
-  if (Inst == I2CInstance::kI2C3)
-    return &hi2c3;
   ErrorHandler();
   return nullptr;
 }
@@ -30,8 +28,6 @@ template <I2CInstance Inst> void I2C<Inst>::Init(const Config &config) {
 
   if constexpr (Inst == I2CInstance::kI2C1) {
     p_handle->Instance = I2C1;
-  } else if constexpr (Inst == I2CInstance::kI2C3) {
-    p_handle->Instance = I2C3;
   }
 
   // Common configuration
@@ -51,4 +47,3 @@ template <I2CInstance Inst> void I2C<Inst>::Init(const Config &config) {
 
 // Explicit Instantiation
 template class I2C<I2CInstance::kI2C1>;
-template class I2C<I2CInstance::kI2C3>;
