@@ -3,7 +3,7 @@
 
 #include "board.h"
 #include "button.hpp"
-#include "dma.hpp"
+
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
 #include "led.hpp"
@@ -28,7 +28,7 @@ public:
   void Init(const Config &config);
 
   LED &Led() { return LED::GetInstance(); }
-  Dma &GetDma() { return Dma::GetInstance(); }
+
   Spi &GetSpi() { return Spi::GetInstance(); }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }

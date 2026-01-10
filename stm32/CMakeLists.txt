@@ -54,7 +54,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/gpio.cpp
     Drivers/USER/cc/time_base.cpp
     Drivers/USER/cc/led.cpp
-    Drivers/USER/cc/dma.cpp
+
     Drivers/USER/cc/dshot_tim1.cpp
     Drivers/USER/cc/spi.cpp
     Drivers/USER/cc/button.cpp
