@@ -6,6 +6,7 @@
 
 extern "C" {
 TIM_HandleTypeDef htim1;
+DMA_HandleTypeDef hdma_tim1_up;
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim); // NOLINT
 }
 
@@ -72,7 +73,13 @@ void DShotTim1::_init(const Config &config) {
 // ---------- CubeMX-derived init ----------
 
 void DShotTim1::dma_init_() {
-  // DMA init moved to Dma driver
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, 6, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
 }
 
 void DShotTim1::tim1_init_(uint16_t period) {
