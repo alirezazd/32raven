@@ -1,11 +1,13 @@
-#include "DShotTim1.hpp"
-#include "GPIO.hpp"
-#include "I2C.hpp"
-#include "LED.hpp"
-#include "TimeBase.hpp"
+#include "button.hpp"
+#include "dshot_tim1.hpp"
+#include "gpio.hpp"
+#include "i2c.hpp"
+#include "led.hpp"
 #include "stm32f4xx_hal.h"
 #include "system.hpp" // For C-macros (USER_LED_Pin, etc)
 #include "system.hpp" // For System::Config
+#include "time_base.hpp"
+#include "uart.hpp"
 
 // Default Configuration values
 constexpr System::Config kSystemDefault = {
@@ -55,19 +57,34 @@ constexpr TimeBaseConfig kTimeBaseDefault = {
 const GPIO::Config kGpioDefault = {
     // LED (Output, No Pull, Low Speed)
     {USER_LED_GPIO_PORT,
-     {USER_LED_PIN, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
+     {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
 
     // Button (Input, Pull Down)
     {USER_BTN_GPIO_PORT,
-     {USER_BTN_PIN, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
+     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
 
     // PB10 (EXTI Rising, No Pull)
     {GPIOB,
      {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
 };
 
-const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_PIN};
+// LED: Port, Pin, ActiveLow
+const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin, true};
+
+// Button: Pin, Debounce, LongPress
+const Button::Config kButtonDefault = {USER_BTN_Pin, false, false,
+                                       true,         50,    500};
 
 constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
+};
+
+const UartConfig kUartDefault = {
+    115200,              // baudRate
+    UART_WORDLENGTH_9B,  // wordLength (8 data + 1 parity)
+    UART_STOPBITS_1,     // stopBits
+    UART_PARITY_EVEN,    // parity
+    UART_MODE_TX_RX,     // mode
+    UART_HWCONTROL_NONE, // hwFlowCtl
+    UART_OVERSAMPLING_16 // overSampling
 };

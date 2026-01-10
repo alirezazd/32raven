@@ -51,12 +51,15 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/sysmem.c
     Core/Src/main.cpp
     Core/Src/system.cpp
-    Drivers/USER/cc/GPIO.cpp
-    Drivers/USER/cc/I2C.cpp
-    Drivers/USER/cc/TimeBase.cpp
-    Drivers/USER/cc/LED.cpp
-    Drivers/USER/cc/DShotTim1.cpp
-    Core/Src/DShotCodec.cpp
+    Drivers/USER/cc/gpio.cpp
+    Drivers/USER/cc/time_base.cpp
+    Drivers/USER/cc/led.cpp
+    Drivers/USER/cc/dma.cpp
+    Drivers/USER/cc/dshot_tim1.cpp
+    Drivers/USER/cc/spi.cpp
+    Drivers/USER/cc/button.cpp
+    Drivers/USER/cc/uart.cpp
+    Core/Src/states.cpp
 )
 
 # Create binary file
@@ -70,7 +73,8 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     Drivers/USER/inc
     Core/Inc
-    ../../libs/include
+    Services/Inc
+    ../libs/include
 )
 
 # Add project symbols (macros)

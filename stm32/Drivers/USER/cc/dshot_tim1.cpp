@@ -1,4 +1,4 @@
-#include "DShotTim1.hpp"
+#include "dshot_tim1.hpp"
 #include "DShotCodec.hpp"
 #include "stm32f4xx_hal.h"
 #include "system.hpp"
@@ -6,7 +6,6 @@
 
 extern "C" {
 TIM_HandleTypeDef htim1;
-DMA_HandleTypeDef hdma_tim1_up;
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim); // NOLINT
 }
 
@@ -73,10 +72,7 @@ void DShotTim1::_init(const Config &config) {
 // ---------- CubeMX-derived init ----------
 
 void DShotTim1::dma_init_() {
-  __HAL_RCC_DMA2_CLK_ENABLE();
-
-  HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, 2, 0);
-  HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
+  // DMA init moved to Dma driver
 }
 
 void DShotTim1::tim1_init_(uint16_t period) {

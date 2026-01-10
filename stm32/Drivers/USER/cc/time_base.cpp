@@ -1,6 +1,8 @@
-#include "TimeBase.hpp"
+#include "time_base.hpp"
 
 #include "board.h"
+
+TIM_HandleTypeDef htim2;
 
 void TimeBase::Init(const Config &config) {
   if (initialized_) {
