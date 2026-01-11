@@ -59,6 +59,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/spi.cpp
     Drivers/USER/cc/button.cpp
     Drivers/USER/cc/uart.cpp
+    Drivers/USER/cc/m9n.cpp
     Core/Src/states.cpp
 )
 

@@ -3,13 +3,14 @@
 
 #include "board.h"
 #include "button.hpp"
-
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
 #include "led.hpp"
+#include "m9n.hpp"
 #include "spi.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
+#include "user_config.hpp" // For SystemConfig
 
 class System {
 public:
@@ -18,14 +19,7 @@ public:
     return instance;
   }
 
-  struct Config {
-    RCC_OscInitTypeDef osc;
-    RCC_ClkInitTypeDef clk;
-    uint32_t flashLatency;
-    uint32_t voltageScaling;
-  };
-
-  void Init(const Config &config);
+  void Init(const SystemConfig &config);
 
   LED &Led() { return LED::GetInstance(); }
 
@@ -36,14 +30,26 @@ public:
   Uart<UartInstance::kUart1> &GetUart() {
     return Uart<UartInstance::kUart1>::GetInstance();
   }
+  // Alias for clarity (Console)
+  Uart<UartInstance::kUart1> &GetUart1() {
+    return Uart<UartInstance::kUart1>::GetInstance();
+  }
+  // GPS UART
+  Uart<UartInstance::kUart2> &GetUart2() {
+    return Uart<UartInstance::kUart2>::GetInstance();
+  }
+
+  ublox::M9N &GetGps() { return m9n_; }
 
 private:
   bool initialized_ = false;
+  ublox::M9N m9n_;
+
   System();
   ~System() {}
   System(const System &) = delete;
   System &operator=(const System &) = delete;
-  void ConfigureSystemClock(const Config &config);
+  void ConfigureSystemClock(const SystemConfig &config);
 };
 
 #define MICROS() (System::GetInstance().Time().Micros())

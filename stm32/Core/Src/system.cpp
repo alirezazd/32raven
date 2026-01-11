@@ -18,7 +18,7 @@ System::System() {
   // Constructor does nothing now, explicit init() required.
 }
 
-void System::Init(const Config &config) {
+void System::Init(const SystemConfig &config) {
   if (initialized_) {
     ErrorHandler();
   }
@@ -37,10 +37,11 @@ void System::Init(const Config &config) {
   System::GetInstance().Time().Init(kTimeBaseDefault);
   LED::GetInstance().Init(kLedDefault);
   Button::GetInstance().Init(kButtonDefault);
-  Uart<UartInstance::kUart1>::GetInstance().Init(kUartDefault);
+  Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
+  Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
 }
 
-void System::ConfigureSystemClock(const Config &config) {
+void System::ConfigureSystemClock(const SystemConfig &config) {
   RCC_OscInitTypeDef rcc_osc_init = config.osc;
   RCC_ClkInitTypeDef rcc_clk_init = config.clk;
 
