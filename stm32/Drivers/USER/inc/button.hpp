@@ -1,38 +1,34 @@
 #pragma once
-
-#include "board.h"
+#include "board.h" // for USER_BTN_GPIO_PORT/Pin and ErrorHandler()
+#include "stm32f4xx.h"
 #include <cstdint>
 
 class Button {
 public:
+  struct Config {
+    GPIO_TypeDef *port;
+    uint16_t pin;           // GPIO_PIN_x bitmask
+    bool active_low;        // for your schematic: false
+    uint32_t debounce_ms;   // e.g. 50
+    uint32_t long_press_ms; // e.g. 500
+  };
+
   static Button &GetInstance() {
     static Button instance;
     return instance;
   }
 
-  struct Config {
-    uint16_t pin;
-    bool active_low;
-    bool pullup;
-    bool pulldown;
-    uint32_t debounce_ms;
-    uint32_t long_press_ms;
-  };
-
   void Poll(uint32_t now_ms);
 
-  // Event consumption
   bool ConsumePress();
-  bool ConsumeLongPress();
   bool ConsumeRelease();
+  bool ConsumeLongPress();
 
-  // State access
   bool IsPressed() const { return pressed_; }
-  bool IsInitialized() const { return initialized_; }
 
 private:
   friend class System;
-  void Init(const Config &config);
+  void Init(const Config &cfg);
 
   Button() = default;
   ~Button() = default;
@@ -41,25 +37,27 @@ private:
 
   bool ReadRawPressed() const;
 
-  // Configuration
+  // Config
+  GPIO_TypeDef *port_ = nullptr;
   uint16_t pin_ = 0;
-  bool active_low_ = true;
+  bool active_low_ = false;
   uint32_t debounce_ms_ = 50;
   uint32_t long_press_ms_ = 500;
 
-  // Debouncer state
+  // Debounce tracking
   bool raw_last_ = false;
   bool stable_ = false;
   uint32_t raw_last_change_ms_ = 0;
 
-  // Button state
+  // State
   bool pressed_ = false;
   uint32_t press_start_ms_ = 0;
   bool long_fired_ = false;
-  bool initialized_ = false;
 
-  // Event latches
+  // Latched events
   bool ev_press_ = false;
   bool ev_release_ = false;
   bool ev_long_ = false;
+
+  bool initialized_ = false;
 };

@@ -1,23 +1,22 @@
-#ifndef USER_DRIVERS_LED_HPP
-#define USER_DRIVERS_LED_HPP
-
-#include "stm32f4xx_hal.h"
+#pragma once
+#include "stm32f4xx.h"
+#include <cstdint>
 
 class LED {
 public:
   struct Config {
     GPIO_TypeDef *port;
-    uint16_t pin;
+    uint16_t pin; // GPIO_PIN_x bitmask
     bool active_low;
   };
 
-  void On();
-  void Off();
+  void Set(bool on);
   void Toggle();
+  bool IsOn() const;
 
 private:
   friend class System;
-  void Init(const Config &config);
+  void Init(const Config &cfg);
 
   static LED &GetInstance() {
     static LED instance;
@@ -35,5 +34,3 @@ private:
   bool active_low_ = false;
   bool initialized_ = false;
 };
-
-#endif // USER_DRIVERS_LED_HPP

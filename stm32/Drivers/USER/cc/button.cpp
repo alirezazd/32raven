@@ -1,38 +1,22 @@
 #include "button.hpp"
 
-void Button::Init(const Config &config) {
+void Button::Init(const Config &cfg) {
   if (initialized_) {
-    return;
+    ErrorHandler();
   }
+  initialized_ = true;
 
-  pin_ = config.pin;
-  active_low_ = config.active_low;
-  debounce_ms_ = config.debounce_ms;
-  long_press_ms_ = config.long_press_ms;
+  port_ = cfg.port;
+  pin_ = cfg.pin;
+  active_low_ = cfg.active_low;
+  debounce_ms_ = cfg.debounce_ms;
+  long_press_ms_ = cfg.long_press_ms;
 
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-
-  /*Configure GPIO pin */
-  GPIO_InitStruct.Pin = pin_;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-
-  if (config.pullup) {
-    GPIO_InitStruct.Pull = GPIO_PULLUP;
-  } else if (config.pulldown) {
-    GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  } else {
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-  }
-
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  // Initialize debouncer
+  // Initialize from current pin level
   raw_last_ = ReadRawPressed();
   stable_ = raw_last_;
   pressed_ = stable_;
+
   raw_last_change_ms_ = 0;
   press_start_ms_ = 0;
   long_fired_ = false;
@@ -40,19 +24,16 @@ void Button::Init(const Config &config) {
   ev_press_ = false;
   ev_release_ = false;
   ev_long_ = false;
-
-  initialized_ = true;
 }
 
 bool Button::ReadRawPressed() const {
-  const bool kRaw = (HAL_GPIO_ReadPin(GPIOA, pin_) == GPIO_PIN_SET);
-  return active_low_ ? !kRaw : kRaw;
+  const bool kPinHigh = (port_->IDR & pin_) != 0;
+  return active_low_ ? !kPinHigh : kPinHigh;
 }
 
 void Button::Poll(uint32_t now_ms) {
-  if (!initialized_) {
+  if (!initialized_)
     return;
-  }
 
   const bool kRaw = ReadRawPressed();
 
@@ -61,12 +42,11 @@ void Button::Poll(uint32_t now_ms) {
     raw_last_change_ms_ = now_ms;
   }
 
-  // if raw has been stable long enough, accept it
+  // Debounce acceptance
   if (kRaw != stable_) {
     if ((now_ms - raw_last_change_ms_) >= debounce_ms_) {
       stable_ = kRaw;
 
-      // stable edge
       if (stable_) {
         pressed_ = true;
         press_start_ms_ = now_ms;
@@ -80,7 +60,7 @@ void Button::Poll(uint32_t now_ms) {
     }
   }
 
-  // long press detection
+  // Long press
   if (pressed_ && !long_fired_) {
     if ((now_ms - press_start_ms_) >= long_press_ms_) {
       long_fired_ = true;
@@ -95,14 +75,14 @@ bool Button::ConsumePress() {
   return kVal;
 }
 
-bool Button::ConsumeLongPress() {
-  const bool kVal = ev_long_;
-  ev_long_ = false;
-  return kVal;
-}
-
 bool Button::ConsumeRelease() {
   const bool kVal = ev_release_;
   ev_release_ = false;
+  return kVal;
+}
+
+bool Button::ConsumeLongPress() {
+  const bool kVal = ev_long_;
+  ev_long_ = false;
   return kVal;
 }

@@ -5,7 +5,7 @@
 void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
   // Default is idle
-  ctx.sys->Led().Off();
+  ctx.sys->Led().Set(false);
 
   // Configure GPS
   ublox::M9NConfig config;
@@ -77,7 +77,7 @@ void IdleState::OnExit(AppContext &ctx, SmTick now) {
 
 void NotIdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
-  ctx.sys->Led().On();
+  ctx.sys->Led().Set(true);
   ctx.sys->GetUart().Send("\nHello From STM32\r\n");
 }
 
