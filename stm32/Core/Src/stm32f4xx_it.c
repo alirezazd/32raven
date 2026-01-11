@@ -58,6 +58,24 @@
 extern DMA_HandleTypeDef hdma_spi1_rx;
 extern DMA_HandleTypeDef hdma_spi1_tx;
 extern DMA_HandleTypeDef hdma_tim1_up;
+extern DMA_HandleTypeDef hdma_usart1_rx;
+extern DMA_HandleTypeDef hdma_usart1_tx;
+extern DMA_HandleTypeDef hdma_usart2_rx;
+extern DMA_HandleTypeDef hdma_usart2_tx;
+extern void Uart1DmaTxComplete(void);
+extern void Uart2DmaTxComplete(void);
+extern void Uart1DmaError(uint32_t);
+extern void Uart2DmaError(uint32_t);
+extern void Uart1RxDmaError(uint32_t);
+extern void Uart2RxDmaError(uint32_t);
+
+extern void Uart1OnUartInterrupt(void);
+extern void Uart2OnUartInterrupt(void);
+extern void Uart1OnRxHalfCplt(void);
+extern void Uart1OnRxCplt(void);
+extern void Uart2OnRxHalfCplt(void);
+extern void Uart2OnRxCplt(void);
+
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -202,6 +220,76 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
+ * @brief This function handles DMA1 stream5 global interrupt.
+ */
+void DMA1_Stream5_IRQHandler(void) {
+  // USART2 RX: DMA1 Stream5 (Stream 5 is High 4-7)
+  const uint32_t hisr = DMA1->HISR;
+
+  // Check for Transfer Error, Direct Mode Error, or FIFO Error
+  if (hisr & (DMA_HISR_TEIF5 | DMA_HISR_DMEIF5 | DMA_HISR_FEIF5)) {
+    // Clear ALL flags for this stream
+    DMA1->HIFCR = DMA_HIFCR_CTEIF5 | DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5 |
+                  DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTCIF5;
+    Uart2RxDmaError(hisr);
+    return;
+  }
+
+  if (hisr & (DMA_HISR_HTIF5 | DMA_HISR_TCIF5)) {
+    // Clear HT/TC flags
+    DMA1->HIFCR = DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTCIF5;
+    
+    if (hisr & DMA_HISR_HTIF5) {
+        Uart2OnRxHalfCplt();
+    }
+    if (hisr & DMA_HISR_TCIF5) {
+        Uart2OnRxCplt();
+    }
+  }
+}
+
+/**
+  * @brief This function handles USART1 global interrupt.
+  */
+void USART1_IRQHandler(void)
+{
+  Uart1OnUartInterrupt();
+}
+
+/**
+  * @brief This function handles USART2 global interrupt.
+  */
+void USART2_IRQHandler(void)
+{
+  Uart2OnUartInterrupt();
+}
+
+/**
+ * @brief This function handles DMA1 stream6 global interrupt.
+ */
+void DMA1_Stream6_IRQHandler(void) {
+  // USART2 TX: DMA1 Stream6 (Stream 6 is High 4-7)
+  const uint32_t hisr = DMA1->HISR;
+  
+  // Check errors first
+  if (hisr & (DMA_HISR_TEIF6 | DMA_HISR_DMEIF6)) {
+      DMA1->HIFCR = DMA_HIFCR_CTEIF6 | DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CFEIF6 |
+                    DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTCIF6;
+      // Disable stream on error
+      DMA1_Stream6->CR &= ~DMA_SxCR_EN;
+      while(DMA1_Stream6->CR & DMA_SxCR_EN){}
+      
+      Uart2DmaError(hisr);
+      return;
+  }
+
+  if (hisr & DMA_HISR_TCIF6) {
+    DMA1->HIFCR = DMA_HIFCR_CTCIF6;
+    Uart2DmaTxComplete();
+  }
+}
+
+/**
   * @brief This function handles EXTI line[15:10] interrupts.
   */
 void EXTI15_10_IRQHandler(void)
@@ -230,6 +318,35 @@ void DMA2_Stream0_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles DMA2 stream2 global interrupt.
+  */
+void DMA2_Stream2_IRQHandler(void) {
+  // USART1 RX: DMA2 Stream2 (Stream 2 is Low 0-3)
+  const uint32_t lisr = DMA2->LISR;
+
+  // Check for Transfer Error, Direct Mode Error, or FIFO Error
+  if (lisr & (DMA_LISR_TEIF2 | DMA_LISR_DMEIF2 | DMA_LISR_FEIF2)) {
+    // Clear ALL flags for this stream
+    DMA2->LIFCR = DMA_LIFCR_CTEIF2 | DMA_LIFCR_CDMEIF2 | DMA_LIFCR_CFEIF2 |
+                  DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTCIF2;
+    Uart1RxDmaError(lisr);
+    return;
+  }
+
+  if (lisr & (DMA_LISR_HTIF2 | DMA_LISR_TCIF2)) {
+    // Clear HT/TC flags
+    DMA2->LIFCR = DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTCIF2;
+    
+    if (lisr & DMA_LISR_HTIF2) {
+        Uart1OnRxHalfCplt();
+    }
+    if (lisr & DMA_LISR_TCIF2) {
+        Uart1OnRxCplt();
+    }
+  }
+}
+
+/**
   * @brief This function handles DMA2 stream3 global interrupt.
   */
 void DMA2_Stream3_IRQHandler(void)
@@ -255,6 +372,30 @@ void DMA2_Stream5_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Stream5_IRQn 1 */
 
   /* USER CODE END DMA2_Stream5_IRQn 1 */
+}
+
+/**
+  * @brief This function handles DMA2 stream7 global interrupt.
+  */
+void DMA2_Stream7_IRQHandler(void) {
+  // USART1 TX: DMA2 Stream7 => High 4-7
+  const uint32_t hisr = DMA2->HISR;
+  
+  if (hisr & (DMA_HISR_TEIF7 | DMA_HISR_DMEIF7)) {
+       DMA2->HIFCR = DMA_HIFCR_CTEIF7 | DMA_HIFCR_CDMEIF7 | DMA_HIFCR_CFEIF7 |
+                     DMA_HIFCR_CHTIF7 | DMA_HIFCR_CTCIF7;
+        // Disable stream on error
+       DMA2_Stream7->CR &= ~DMA_SxCR_EN;
+       while(DMA2_Stream7->CR & DMA_SxCR_EN){}
+
+       Uart1DmaError(hisr);
+       return;
+  }
+  
+  if (hisr & DMA_HISR_TCIF7) {
+    DMA2->HIFCR = DMA_HIFCR_CTCIF7;
+    Uart1DmaTxComplete();
+  }
 }
 
 /* USER CODE BEGIN 1 */

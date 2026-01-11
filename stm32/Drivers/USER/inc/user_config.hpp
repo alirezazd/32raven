@@ -1,16 +1,41 @@
+#pragma once
+
+#include "board.h"
+#include "stm32f4xx_hal.h"
+// Drivers
 #include "button.hpp"
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
 #include "i2c.hpp"
 #include "led.hpp"
-#include "stm32f4xx_hal.h"
-#include "system.hpp" // For C-macros (USER_LED_Pin, etc)
-#include "system.hpp" // For System::Config
 #include "time_base.hpp"
-#include "uart.hpp"
+// Note: uart.hpp and system.hpp are consumers, not providers of config types
+// now.
+
+// System Configuration Struct
+struct SystemConfig {
+  RCC_OscInitTypeDef osc;
+  RCC_ClkInitTypeDef clk;
+  uint32_t flashLatency;
+  uint32_t voltageScaling;
+};
+
+// UART Configuration Struct
+struct UartConfig {
+  uint32_t baudRate;
+  uint32_t wordLength;
+  uint32_t stopBits;
+  uint32_t parity;
+  uint32_t mode;
+  uint32_t hwFlowCtl;
+  uint32_t overSampling;
+  size_t tx_buffer_size;
+  size_t rx_dma_size;
+  size_t rx_ring_size;
+};
 
 // Default Configuration values
-constexpr System::Config kSystemDefault = {
+constexpr SystemConfig kSystemDefault = {
     // RCC_OscInitTypeDef
     {RCC_OSCILLATORTYPE_HSE, // OscillatorType
      RCC_HSE_ON,             // HSEState
@@ -59,9 +84,9 @@ const GPIO::Config kGpioDefault = {
     {USER_LED_GPIO_PORT,
      {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
 
-    // Button (Input, Pull Down)
+    // Button (Input, Pull Up)
     {USER_BTN_GPIO_PORT,
-     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
+     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_SPEED_FREQ_LOW, 0}},
 
     // PB10 (EXTI Rising, No Pull)
     {GPIOB,
@@ -69,7 +94,7 @@ const GPIO::Config kGpioDefault = {
 };
 
 // LED: Port, Pin, ActiveLow
-const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin, true};
+const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin, false};
 
 // Button: Pin, Debounce, LongPress
 const Button::Config kButtonDefault = {USER_BTN_Pin, false, false,
@@ -79,12 +104,33 @@ constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
 };
 
-const UartConfig kUartDefault = {
-    115200,              // baudRate
-    UART_WORDLENGTH_9B,  // wordLength (8 data + 1 parity)
-    UART_STOPBITS_1,     // stopBits
-    UART_PARITY_EVEN,    // parity
-    UART_MODE_TX_RX,     // mode
-    UART_HWCONTROL_NONE, // hwFlowCtl
-    UART_OVERSAMPLING_16 // overSampling
+// Buffer size constants used by templates
+constexpr size_t kUartTxBufSize = 256;
+constexpr size_t kUartRxDmaSize = 128;   // Low latency
+constexpr size_t kUartRxRingSize = 1024; // Large capacity
+
+constexpr UartConfig kUart1Config = {
+    115200,               // baudRate (Console)
+    UART_WORDLENGTH_9B,   // wordLength (8 data + 1 parity)
+    UART_STOPBITS_1,      // stopBits
+    UART_PARITY_EVEN,     // parity
+    UART_MODE_TX_RX,      // mode
+    UART_HWCONTROL_NONE,  // hwFlowCtl
+    UART_OVERSAMPLING_16, // overSampling
+    kUartTxBufSize,       // tx_buffer_size
+    kUartRxDmaSize,       // rx_dma_size
+    kUartRxRingSize       // rx_ring_size
+};
+
+constexpr UartConfig kUart2Config = {
+    38400,                // baudRate (GPS M9N Default)
+    UART_WORDLENGTH_8B,   // wordLength
+    UART_STOPBITS_1,      // stopBits
+    UART_PARITY_NONE,     // parity
+    UART_MODE_TX_RX,      // mode
+    UART_HWCONTROL_NONE,  // hwFlowCtl
+    UART_OVERSAMPLING_16, // overSampling
+    kUartTxBufSize,       // tx_buffer_size
+    kUartRxDmaSize,       // rx_dma_size
+    kUartRxRingSize       // rx_ring_size
 };

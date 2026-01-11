@@ -10,9 +10,10 @@ public:
     return instance;
   }
 
+private:
+  friend class System;
   void Init();
 
-private:
   Spi() = default;
 };
 

@@ -16,11 +16,11 @@ class TimeBase {
 public:
   using Config = TimeBaseConfig;
 
-  void Init(const Config &config);
   uint32_t Micros() const;
 
 private:
   friend class System;
+  void Init(const Config &config);
 
   static TimeBase &GetInstance() {
     static TimeBase instance;
