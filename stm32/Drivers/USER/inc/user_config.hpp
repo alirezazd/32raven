@@ -84,9 +84,9 @@ const GPIO::Config kGpioDefault = {
     {USER_LED_GPIO_PORT,
      {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
 
-    // Button (Input, Pull Up)
+    // Button (Input, Pull Down)  <-- matches schematic
     {USER_BTN_GPIO_PORT,
-     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLUP, GPIO_SPEED_FREQ_LOW, 0}},
+     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
 
     // PB10 (EXTI Rising, No Pull)
     {GPIOB,
@@ -94,11 +94,14 @@ const GPIO::Config kGpioDefault = {
 };
 
 // LED: Port, Pin, ActiveLow
-const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin, false};
+const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin,
+                                 true}; // Active Low
 
 // Button: Pin, Debounce, LongPress
-const Button::Config kButtonDefault = {USER_BTN_Pin, false, false,
-                                       true,         50,    500};
+const Button::Config kButtonDefault = {
+    USER_BTN_GPIO_PORT, USER_BTN_Pin,
+    false, // active_low: button drives HIGH when pressed
+    50, 500};
 
 constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
