@@ -19,7 +19,6 @@ public:
     uint32_t long_press_ms;
   };
 
-  void Init(const Config &config);
   void Poll(uint32_t now_ms);
 
   // Event consumption
@@ -32,6 +31,9 @@ public:
   bool IsInitialized() const { return initialized_; }
 
 private:
+  friend class System;
+  void Init(const Config &config);
+
   Button() = default;
   ~Button() = default;
   Button(const Button &) = delete;

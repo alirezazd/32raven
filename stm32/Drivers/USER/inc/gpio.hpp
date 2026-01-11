@@ -19,10 +19,9 @@ public:
   };
 
   // One-time init entry point
-  void Init(const Config &config);
-
 private:
   friend class System;
+  void Init(const Config &config);
 
   static GPIO &GetInstance() {
     static GPIO instance;

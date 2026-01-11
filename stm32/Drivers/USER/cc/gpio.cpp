@@ -29,7 +29,7 @@ void GPIO::Init(const Config &config) {
   InitPin(config.pb10.port, config.pb10.init);
 
   /*Configure GPIO pin : SPI1_CS_Pin */
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitTypeDef GPIO_InitStruct = {0}; // NOLINT, MX generated code
   GPIO_InitStruct.Pin = SPI1_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
@@ -37,7 +37,7 @@ void GPIO::Init(const Config &config) {
   HAL_GPIO_Init(SPI1_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : IMU_INT_Pin */
-  GPIO_InitStruct.Pin = IMU_INT_Pin;
+  GPIO_InitStruct.Pin = IMU_INT_Pin; // NOLINT, MX generated code
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(IMU_INT_GPIO_Port, &GPIO_InitStruct);

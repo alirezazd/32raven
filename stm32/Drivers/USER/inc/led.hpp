@@ -11,14 +11,13 @@ public:
     bool active_low;
   };
 
-  void Init(const Config &config);
-
   void On();
   void Off();
   void Toggle();
 
 private:
   friend class System;
+  void Init(const Config &config);
 
   static LED &GetInstance() {
     static LED instance;
