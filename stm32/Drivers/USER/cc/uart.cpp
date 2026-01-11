@@ -177,7 +177,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
       tx_drop_bytes_++;
       // Overflow: Turn on LED and drop data.
       // We cannot log this error via UART because the buffer is full.
-      System::GetInstance().Led().On();
+      System::GetInstance().Led().Set(true);
       // TODO: Handle UART TX buffer overflow correctly in future
     }
   }
@@ -247,7 +247,7 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
     uint32_t isr_flags) {
   rx_dma_err_++;
-  System::GetInstance().Led().On();
+  System::GetInstance().Led().Set(true);
 
   // RX DMA Failure Recovery Strategy:
   // 1. Disable Stream
@@ -309,7 +309,7 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleDmaError(
     uint32_t isr_flags) {
   tx_dma_err_++;
-  System::GetInstance().Led().On();
+  System::GetInstance().Led().Set(true);
 
   // Retry Strategy
   if (tx_retry_count_ < 3) {
