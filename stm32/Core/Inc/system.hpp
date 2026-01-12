@@ -7,6 +7,7 @@
 #include "gpio.hpp"
 #include "led.hpp"
 #include "m9n.hpp"
+#include "m9n_service.hpp"
 #include "spi.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
@@ -40,9 +41,11 @@ public:
   }
 
   M9N &GetGps() { return M9N::GetInstance(); }
+  M9NService &ServiceM9N() { return m9n_service_; }
 
 private:
   bool initialized_ = false;
+  M9NService m9n_service_;
 
   System();
   ~System() {}

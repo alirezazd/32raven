@@ -129,7 +129,6 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
     HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
   }
   if (initialized_) {
-    // ErrorHandler();
     return;
   }
   initialized_ = true;
@@ -163,6 +162,14 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::ReInit(
+    const UartConfig &config) {
+  initialized_ = false;
+  Init(config);
+}
+
+template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
+          size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const char *str) {
   Send((const uint8_t *)str, strlen(str));
 }
@@ -192,6 +199,12 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 bool Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Read(uint8_t &out) {
   return rx_ring_.Pop(out);
+}
+
+template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
+          size_t RxRingSize>
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushRx() {
+  rx_ring_.Clear();
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
@@ -392,6 +405,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
 
   // 5. Set NDTR (Number of Data to Transfer)
   s->NDTR = RxDmaSize;
+  rx_last_pos_ = 0; // Reset software pointer since DMA starts from 0
 
   // 6. Configure CR
   // CHSEL=4 (100), MINC, CIRC

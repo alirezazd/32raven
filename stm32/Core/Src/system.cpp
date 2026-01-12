@@ -33,7 +33,6 @@ void System::Init(const SystemConfig &config) {
   Spi::GetInstance().Init();
   DShotTim1::init(kDshotTim1Default);
   // I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
-  // I2C<I2CInstance::kI2C3>::GetInstance().Init(kI2cDefault);
   System::GetInstance().Time().Init(kTimeBaseDefault);
   LED::GetInstance().Init(kLedDefault);
   Button::GetInstance().Init(kButtonDefault);

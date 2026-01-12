@@ -128,6 +128,11 @@ public:
     tail_.store(t, std::memory_order_release);
   }
 
+  void Clear() {
+    tail_.store(head_.load(std::memory_order_acquire),
+                std::memory_order_release);
+  }
+
 private:
   T buffer_[Size];
   std::atomic<size_t> head_{0};
