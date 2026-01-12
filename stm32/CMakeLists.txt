@@ -65,6 +65,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 # Create binary file
+add_custom_command(TARGET ${CMAKE_PROJECT_NAME} PRE_BUILD
+    COMMAND ${CMAKE_SOURCE_DIR}/../check_forbidden.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/..
+    COMMENT "Running static analysis (check_forbidden.sh)..."
+)
+
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O binary $<TARGET_FILE:${CMAKE_PROJECT_NAME}> ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin
     COMMENT "Generating binary file: ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}.bin"
@@ -87,6 +93,7 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     -fno-rtti
     -fno-exceptions
+    -Wdouble-promotion
 )
 
 # Remove wrong libob.a library dependency when using cpp files
