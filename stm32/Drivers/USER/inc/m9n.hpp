@@ -35,6 +35,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace protocol {
 static constexpr uint8_t SYNC1 = 0xB5;
@@ -43,42 +44,54 @@ static constexpr uint8_t CLS_NAV = 0x01;
 static constexpr uint8_t ID_NAV_PVT = 0x07;
 static constexpr uint8_t CLS_CFG = 0x06;
 static constexpr uint8_t ID_CFG_VALSET = 0x8A;
+static constexpr uint8_t CLS_ACK = 0x05;
+static constexpr uint8_t ID_ACK_ACK = 0x01;
+static constexpr uint8_t ID_ACK_NAK = 0x00;
 } // namespace protocol
 
 struct PVTData {
-  uint32_t iTOW; // GPS Time of Week [ms]
-  uint16_t year;
-  uint8_t month;
-  uint8_t day;
-  uint8_t hour;
-  uint8_t min;
-  uint8_t sec;
-  uint8_t valid; // Validity flags
-  uint32_t tAcc; // Time accuracy estimate (UTC) [ns]
-  int32_t nano;
-  uint8_t fixType;  // GNSSfix type: 0=NoFix, 3=3D-Fix
-  uint8_t flags;    // Fix Status Flags
-  uint8_t flags2;   // Fix Status Flags 2
-  uint8_t numSV;    // Number of SVs used in Nav Solution
-  int32_t lon;      // [1e-7 deg]
-  int32_t lat;      // [1e-7 deg]
-  int32_t height;   // Height above ellipsoid [mm]
-  int32_t hMSL;     // Height above mean sea level [mm]
-  uint32_t hAcc;    // Horizontal accuracy estimate [mm]
-  uint32_t vAcc;    // Vertical accuracy estimate [mm]
-  int32_t velN;     // NED north velocity [mm/s]
-  int32_t velE;     // NED east velocity [mm/s]
-  int32_t velD;     // NED down velocity [mm/s]
-  int32_t gSpeed;   // Ground Speed (2-D) [mm/s]
-  int32_t headMot;  // Heading of motion (2-D) [1e-5 deg]
-  uint32_t sAcc;    // Speed accuracy estimate [mm/s]
-  uint32_t headAcc; // Heading accuracy estimate [1e-5 deg]
-  uint16_t pDOP;    // Position DOP [0.01]
+  uint32_t iTOW; // 0 GPS Time of Week [ms]
+  uint16_t year; // 4 Year
+  uint8_t month; // 6 Month
+  uint8_t day;   // 7 Day
+  uint8_t hour;  // 8 Hour
+  uint8_t min;   // 9 Minute
+  uint8_t sec;   // 10 Second
+  uint8_t valid; // 11 Validity flags
+  uint32_t tAcc; // 12 Time accuracy estimate (UTC) [ns]
+  int32_t nano;  // 16 Fractional part of iTOW [ns]
+
+  uint8_t fixType; // 20 Fix type
+  uint8_t flags;   // 21 Fix Status Flags
+  uint8_t flags2;  // 22 Fix Status Flags 2
+  uint8_t numSV;   // 23 Number of SVs used in Nav Solution
+
+  int32_t lon;    // 24 Longitude [1e-7 deg]
+  int32_t lat;    // 28 Latitude [1e-7 deg]
+  int32_t height; // 32 Height above ellipsoid [mm]
+  int32_t hMSL;   // 36 Height above mean sea level [mm]
+  uint32_t hAcc;  // 40 Horizontal accuracy estimate [mm]
+  uint32_t vAcc;  // 44 Vertical accuracy estimate [mm]
+
+  int32_t velN;     // 48 NED north velocity [mm/s]
+  int32_t velE;     // 52 NED east velocity [mm/s]
+  int32_t velD;     // 56 NED down velocity [mm/s]
+  int32_t gSpeed;   // 60 Ground Speed (2-D) [mm/s]
+  int32_t headMot;  // 64 Heading of motion (2-D) [1e-5 deg]
+  uint32_t sAcc;    // 68 Speed accuracy estimate [mm/s]
+  uint32_t headAcc; // 72 Heading accuracy estimate [1e-5 deg]
+
+  uint16_t pDOP;        // 76 Position DOP [0.01]
+  uint8_t reserved1[6]; // 78..83 Reserved
+
+  int32_t headVeh; // 84 Heading of vehicle (2-D) [1e-5 deg]
+  int16_t magDec;  // 88 Magnetic Declination [1e-5 deg]
+  uint16_t magAcc; // 90 Magnetic Declination accuracy [1e-5 deg]
 } __attribute__((packed));
 
-struct M9NConfig {
-  uint32_t baudrate = 115200;
-};
+// PVTData matches full UBX NAV-PVT payload (92 bytes)
+static_assert(sizeof(PVTData) == 92,
+              "PVTData size must match UBX NAV-PVT payload");
 
 class M9N {
 public:
@@ -129,14 +142,12 @@ private:
   uint8_t _ck_a = 0;
   uint8_t _ck_b = 0;
 
-  // We only need a buffer large enough for NAV-PVT (92 bytes + padding)
+  // Buffer for largest UBX message we parse (NAV-PVT is 92 bytes; 120 gives
+  // headroom)
   static constexpr size_t MAX_PAYLOAD_SIZE = 120;
   uint8_t _payload_buf[MAX_PAYLOAD_SIZE];
 
   PVTData _pvt{};
-
-  void calculateChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
-                         uint8_t &ck_b);
 
   // Helper to send CFG-VALSET commands
   template <typename T> void sendCfgValSet(uint32_t key, T value);
