@@ -32,9 +32,77 @@
  ****************************************************************************/
 
 #include "m9n.hpp"
+#include "uart.hpp"
 #include <cstring>
 
-namespace ublox {
+// Template implementation for sendCfgValSet
+template <typename T> void M9N::sendCfgValSet(uint32_t key, T value) {
+  constexpr size_t val_size = sizeof(T);
+  constexpr size_t payload_len =
+      4 + 4 + val_size; // Ver+Lay+Res(4) + Key(4) + Val
+  constexpr size_t packet_len = 6 + payload_len + 2;
+
+  uint8_t buf[packet_len];
+  buf[0] = protocol::SYNC1;
+  buf[1] = protocol::SYNC2;
+  buf[2] = protocol::CLS_CFG;
+  buf[3] = protocol::ID_CFG_VALSET;
+  buf[4] = payload_len & 0xFF;
+  buf[5] = (payload_len >> 8) & 0xFF;
+
+  buf[6] = 0x00; // Version
+  buf[7] = 0x01; // Layer RAM
+  buf[8] = 0x00; // Reserved
+  buf[9] = 0x00; // Reserved
+
+  // Key (Little Endian)
+  buf[10] = key & 0xFF;
+  buf[11] = (key >> 8) & 0xFF;
+  buf[12] = (key >> 16) & 0xFF;
+  buf[13] = (key >> 24) & 0xFF;
+
+  // Value (Little Endian)
+  for (size_t i = 0; i < val_size; i++) {
+    buf[14 + i] = (value >> (i * 8)) & 0xFF;
+  }
+
+  // Checksum
+  uint8_t ck_a = 0, ck_b = 0;
+  for (size_t i = 2; i < packet_len - 2; i++) {
+    ck_a += buf[i];
+    ck_b += ck_a;
+  }
+  buf[packet_len - 2] = ck_a;
+  buf[packet_len - 1] = ck_b;
+
+  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
+}
+
+void M9N::Init() {
+  // Configure M9N with "Sweet Spot" settings
+  // No delays needed - GPS processes commands asynchronously
+
+  // 1. Set Rate to 10Hz (100ms)
+  sendCfgValSet(0x30210001, (uint16_t)100);
+
+  // 2. Set Dynamic Model to Airborne < 4g
+  sendCfgValSet(0x20110021, (uint8_t)8);
+
+  // 3. Enable All Constellations
+  sendCfgValSet(0x1031001f, (uint8_t)1); // GPS
+  sendCfgValSet(0x10310025, (uint8_t)1); // GLONASS
+  sendCfgValSet(0x10310021, (uint8_t)1); // Galileo
+  sendCfgValSet(0x10310022, (uint8_t)1); // BeiDou
+
+  // 4. Enable NAV-PVT
+  sendCfgValSet(0x20910007, (uint8_t)1);
+
+  // 5. Disable NMEA
+  sendCfgValSet(0x10740002, (uint8_t)0);
+
+  // 6. Enable UBX
+  sendCfgValSet(0x10740001, (uint8_t)1);
+}
 
 void M9N::calculateChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
                             uint8_t &ck_b) {
@@ -122,5 +190,3 @@ bool M9N::parse(uint8_t b) {
   }
   return false;
 }
-
-} // namespace ublox

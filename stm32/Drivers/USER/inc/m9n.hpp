@@ -36,8 +36,6 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace ublox {
-
 namespace protocol {
 static constexpr uint8_t SYNC1 = 0xB5;
 static constexpr uint8_t SYNC2 = 0x62;
@@ -84,7 +82,10 @@ struct M9NConfig {
 
 class M9N {
 public:
-  M9N() = default;
+  static M9N &GetInstance() {
+    static M9N instance;
+    return instance;
+  }
 
   /**
    * @brief Parse a single byte from the UART stream.
@@ -99,80 +100,15 @@ public:
    */
   const PVTData &pvt() const { return _pvt; }
 
-  /**
-   * @brief Configure the u-blox M9N with optimal settings.
-   *        This template allows passing any callable that accepts (const
-   * uint8_t*, size_t).
-   *
-   * @tparam Sender Callable type for sending data to UART.
-   * @param config Configuration parameters.
-   * @param sender Callback to send data: sender(data_ptr, length)
-   */
-  template <typename Sender>
-  void configure(const M9NConfig &config, Sender &&sender) {
-    // 1. Set baudrate (CFG-UART1-BAUDRATE)
-    // 2. Set update rate (CFG-RATE-MEAS)
-    // 3. Enable NAV-PVT
-    // Implementation will generate the bytes and call sender()
-    // Note: Actual implementation of constructing the packet needs to be in a
-    // method we can call from here. We will implement a helper 'sendValSet'
-    // that generates the bytes and calls the sender.
-
-    // Example: Set Baudrate
-    // uint32_t baud_key = 0x40520001; // CFG-UART1-BAUDRATE
-    // sendCfgValSet(baud_key, config.baudrate, sender);
-
-    // Helper delay
-    auto simple_delay = [](uint32_t count) {
-      volatile uint32_t i = 0;
-      for (; i < count; i++) {
-        __asm__("nop");
-      }
-    };
-
-    // 1. Set Rate to 10Hz (100ms)
-    // Key: CFG-RATE-MEAS (0x30210001)
-    uint32_t rate_key = 0x30210001;
-    sendCfgValSet(rate_key, (uint16_t)100, sender);
-    simple_delay(1000000);
-
-    // 2. Set Dynamic Model to Airborne < 4g
-    // Key: CFG-NAVSPG-DYNMODEL (0x20110021). Value: 8 (Airborne < 4g)
-    sendCfgValSet(0x20110021, (uint8_t)8, sender);
-    simple_delay(1000000);
-
-    // 3. Enable All Constellations
-    // GPS (0x1031001f), GLONASS (0x10310025), Galileo (0x10310021), BeiDou
-    // (0x10310022)
-    sendCfgValSet(0x1031001f, (uint8_t)1, sender); // GPS
-    simple_delay(500000);
-    sendCfgValSet(0x10310025, (uint8_t)1, sender); // GLONASS
-    simple_delay(500000);
-    sendCfgValSet(0x10310021, (uint8_t)1, sender); // Galileo
-    simple_delay(500000);
-    sendCfgValSet(0x10310022, (uint8_t)1, sender); // BeiDou
-    simple_delay(1000000);
-
-    // 4. Enable NAV-PVT
-    // Key: CFG-MSGOUT-UBX_NAV_PVT_UART1 (0x20910007)
-    uint32_t msg_key = 0x20910007;
-    sendCfgValSet(msg_key, (uint8_t)1, sender);
-    simple_delay(1000000);
-
-    // 5. Disable NMEA
-    // Key: CFG-UART1OUTPROT-NMEA (0x10740002)
-    uint32_t nmea_key = 0x10740002;
-    sendCfgValSet(nmea_key, (uint8_t)0, sender);
-    simple_delay(1000000);
-
-    // 6. Enable UBX
-    // Key: CFG-UART1OUTPROT-UBX (0x10740001)
-    uint32_t ubx_key = 0x10740001;
-    sendCfgValSet(ubx_key, (uint8_t)1, sender);
-    simple_delay(1000000);
-  }
-
 private:
+  friend class System;
+  void Init();
+
+  M9N() = default;
+  ~M9N() = default;
+  M9N(const M9N &) = delete;
+  M9N &operator=(const M9N &) = delete;
+
   enum class State {
     SYNC1,
     SYNC2,
@@ -202,60 +138,6 @@ private:
   void calculateChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
                          uint8_t &ck_b);
 
-  // Helper to send CFG-VALSET for a single key-value pair
-  // Used template here or move implementation to cpp if we want to hide it
-  // But since configure is a template, helpers used by it must be accessible
-  // if they are templates or generic. Simplifying: We can make a specialized
-  // helper for internal use.
-
-  template <typename T, typename Sender>
-  void sendCfgValSet(uint32_t key, T value, Sender &&sender) {
-    // Frame structure:
-    // Sync1, Sync2, Cls(06), Id(8A), LenL, LenH,
-    // Version(1), Layers(1=RAM), Reserved(2),
-    // Key(4), Value(1,2,4,8)
-    // CK_A, CK_B
-
-    constexpr size_t val_size = sizeof(T);
-    constexpr size_t payload_len =
-        4 + 4 + val_size; // Ver+Lay+Res(4) + Key(4) + Val
-    constexpr size_t packet_len = 6 + payload_len + 2;
-
-    uint8_t buf[packet_len];
-    buf[0] = protocol::SYNC1;
-    buf[1] = protocol::SYNC2;
-    buf[2] = protocol::CLS_CFG;
-    buf[3] = protocol::ID_CFG_VALSET;
-    buf[4] = payload_len & 0xFF;
-    buf[5] = (payload_len >> 8) & 0xFF;
-
-    buf[6] = 0x00; // Version
-    buf[7] = 0x01; // Layer RAM
-    buf[8] = 0x00; // Reserved
-    buf[9] = 0x00; // Reserved
-
-    // Key (Little Endian)
-    buf[10] = key & 0xFF;
-    buf[11] = (key >> 8) & 0xFF;
-    buf[12] = (key >> 16) & 0xFF;
-    buf[13] = (key >> 24) & 0xFF;
-
-    // Value (Little Endian)
-    for (size_t i = 0; i < val_size; i++) {
-      buf[14 + i] = (value >> (i * 8)) & 0xFF;
-    }
-
-    // Checksum
-    uint8_t ck_a = 0, ck_b = 0;
-    for (size_t i = 2; i < packet_len - 2; i++) {
-      ck_a += buf[i];
-      ck_b += ck_a;
-    }
-    buf[packet_len - 2] = ck_a;
-    buf[packet_len - 1] = ck_b;
-
-    sender(buf, packet_len);
-  }
+  // Helper to send CFG-VALSET commands
+  template <typename T> void sendCfgValSet(uint32_t key, T value);
 };
-
-} // namespace ublox
