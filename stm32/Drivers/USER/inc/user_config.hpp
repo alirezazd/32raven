@@ -126,7 +126,7 @@ constexpr UartConfig kUart1Config = {
 };
 
 constexpr UartConfig kUart2Config = {
-    38400,                // baudRate (GPS M9N Default)
+    115200,               // baudRate (GPS M9N)
     UART_WORDLENGTH_8B,   // wordLength
     UART_STOPBITS_1,      // stopBits
     UART_PARITY_NONE,     // parity
@@ -137,3 +137,8 @@ constexpr UartConfig kUart2Config = {
     kUartRxDmaSize,       // rx_dma_size
     kUartRxRingSize       // rx_ring_size
 };
+
+// Set to true to re-flash M9N persistent configuration on boot.
+// This will force connection at 38400 baud, send golden config to Flash/BBR,
+// and reboot/reinit UARTs to 115200.
+constexpr bool kFlashM9nConfig = false;
