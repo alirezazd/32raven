@@ -32,161 +32,207 @@
  ****************************************************************************/
 
 #include "m9n.hpp"
+
 #include "uart.hpp"
+
 #include <cstring>
+#include <type_traits>
 
-// Template implementation for sendCfgValSet
+namespace {
+
+// UBX-CFG-VALSET fixed header fields
+constexpr uint8_t kValsetVersion = 0x00;
+
+// Layers bitfield in VALSET:
+// 0x01 = RAM only (volatile). Keep minimal and safe.
+// If later you want persistence, you can use 0x07 (RAM | BBR | Flash) on
+// modules that support it, but do that only after you add ACK handling.
+constexpr uint8_t kValsetLayerRam = 0x01;
+
+// Key IDs you are using
+constexpr uint32_t kKeyCfgRateMeasMs = 0x30210001; // CFG-RATE-MEAS
+constexpr uint32_t kKeyCfgDynModel = 0x20110021;   // CFG-NAVSPG-DYNMODEL
+constexpr uint32_t kKeyGpsEnable = 0x1031001f;     // CFG-SIGNAL-GPS_ENA
+constexpr uint32_t kKeyGloEnable = 0x10310025;     // CFG-SIGNAL-GLO_ENA
+constexpr uint32_t kKeyGalEnable = 0x10310021;     // CFG-SIGNAL-GAL_ENA
+constexpr uint32_t kKeyBdsEnable = 0x10310022;     // CFG-SIGNAL-BDS_ENA
+
+constexpr uint32_t kKeyMsgoutNavPvtUart1 =
+    0x20910007; // CFG-MSGOUT-UBX_NAV_PVT_UART1
+constexpr uint32_t kKeyUart1OutprotUbx = 0x10740001;  // CFG-UART1OUTPROT-UBX
+constexpr uint32_t kKeyUart1OutprotNmea = 0x10740002; // CFG-UART1OUTPROT-NMEA
+
+inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
+                        uint8_t &ck_b) {
+  ck_a = 0;
+  ck_b = 0;
+  for (size_t i = 0; i < len; i++) {
+    ck_a = static_cast<uint8_t>(ck_a + data[i]);
+    ck_b = static_cast<uint8_t>(ck_b + ck_a);
+  }
+}
+
+} // namespace
+
 template <typename T> void M9N::sendCfgValSet(uint32_t key, T value) {
-  constexpr size_t val_size = sizeof(T);
-  constexpr size_t payload_len =
-      4 + 4 + val_size; // Ver+Lay+Res(4) + Key(4) + Val
-  constexpr size_t packet_len = 6 + payload_len + 2;
+  static_assert(std::is_trivially_copyable_v<T>,
+                "CFG-VALSET value must be trivially copyable");
 
-  uint8_t buf[packet_len];
+  constexpr size_t kValSize = sizeof(T);
+  constexpr uint16_t kPayloadLen =
+      static_cast<uint16_t>(4 + 4 + kValSize); // ver/layer/res + key + value
+  constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
+
+  uint8_t buf[kPacketLen];
+
+  // UBX header
   buf[0] = protocol::SYNC1;
   buf[1] = protocol::SYNC2;
   buf[2] = protocol::CLS_CFG;
   buf[3] = protocol::ID_CFG_VALSET;
-  buf[4] = payload_len & 0xFF;
-  buf[5] = (payload_len >> 8) & 0xFF;
+  buf[4] = static_cast<uint8_t>(kPayloadLen & 0xFF);
+  buf[5] = static_cast<uint8_t>((kPayloadLen >> 8) & 0xFF);
 
-  buf[6] = 0x00; // Version
-  buf[7] = 0x01; // Layer RAM
-  buf[8] = 0x00; // Reserved
-  buf[9] = 0x00; // Reserved
+  // Payload: version, layer, reserved(2)
+  buf[6] = kValsetVersion;
+  buf[7] = kValsetLayerRam;
+  buf[8] = 0x00;
+  buf[9] = 0x00;
 
-  // Key (Little Endian)
-  buf[10] = key & 0xFF;
-  buf[11] = (key >> 8) & 0xFF;
-  buf[12] = (key >> 16) & 0xFF;
-  buf[13] = (key >> 24) & 0xFF;
+  // Key little-endian
+  buf[10] = static_cast<uint8_t>(key & 0xFF);
+  buf[11] = static_cast<uint8_t>((key >> 8) & 0xFF);
+  buf[12] = static_cast<uint8_t>((key >> 16) & 0xFF);
+  buf[13] = static_cast<uint8_t>((key >> 24) & 0xFF);
 
-  // Value (Little Endian)
-  for (size_t i = 0; i < val_size; i++) {
-    buf[14 + i] = (value >> (i * 8)) & 0xFF;
-  }
+  // Value bytes (little-endian on STM32)
+  std::memcpy(&buf[14], &value, kValSize);
 
-  // Checksum
+  // Checksum over CLASS..payload
   uint8_t ck_a = 0, ck_b = 0;
-  for (size_t i = 2; i < packet_len - 2; i++) {
-    ck_a += buf[i];
-    ck_b += ck_a;
-  }
-  buf[packet_len - 2] = ck_a;
-  buf[packet_len - 1] = ck_b;
+  UbxChecksum(&buf[2], 4 + kPayloadLen, ck_a, ck_b);
+  buf[kPacketLen - 2] = ck_a;
+  buf[kPacketLen - 1] = ck_b;
 
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
+  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
+  uart.Send(buf, kPacketLen);
 }
+
+// Keep template in this TU only (it’s only used here).
+template void M9N::sendCfgValSet<uint8_t>(uint32_t, uint8_t);
+template void M9N::sendCfgValSet<uint16_t>(uint32_t, uint16_t);
 
 void M9N::Init() {
-  // Configure M9N with "Sweet Spot" settings
-  // No delays needed - GPS processes commands asynchronously
+  // Best-practice baseline (Betaflight/PX4-style):
+  // - UBX only (no NMEA)
+  // - NAV-PVT enabled on UART1
+  // - 10 Hz update
+  // - dynamic model: airborne <4g
+  // - multi-constellation enabled
+  //
+  // Note: we configure RAM layer only (volatile) to keep init simple and safe.
 
-  // 1. Set Rate to 10Hz (100ms)
-  sendCfgValSet(0x30210001, (uint16_t)100);
+  // 1) Protocol output selection first (reduce spam / ambiguity)
+  sendCfgValSet<uint8_t>(kKeyUart1OutprotUbx, 1);
+  sendCfgValSet<uint8_t>(kKeyUart1OutprotNmea, 0);
 
-  // 2. Set Dynamic Model to Airborne < 4g
-  sendCfgValSet(0x20110021, (uint8_t)8);
+  // 2) Enable NAV-PVT output on UART1 (1 message per navigation solution)
+  sendCfgValSet<uint8_t>(kKeyMsgoutNavPvtUart1, 1);
 
-  // 3. Enable All Constellations
-  sendCfgValSet(0x1031001f, (uint8_t)1); // GPS
-  sendCfgValSet(0x10310025, (uint8_t)1); // GLONASS
-  sendCfgValSet(0x10310021, (uint8_t)1); // Galileo
-  sendCfgValSet(0x10310022, (uint8_t)1); // BeiDou
+  // 3) 10 Hz (100 ms)
+  sendCfgValSet<uint16_t>(kKeyCfgRateMeasMs, 100);
 
-  // 4. Enable NAV-PVT
-  sendCfgValSet(0x20910007, (uint8_t)1);
+  // 4) Dynamic model: airborne < 4g (8)
+  sendCfgValSet<uint8_t>(kKeyCfgDynModel, 8);
 
-  // 5. Disable NMEA
-  sendCfgValSet(0x10740002, (uint8_t)0);
-
-  // 6. Enable UBX
-  sendCfgValSet(0x10740001, (uint8_t)1);
-}
-
-void M9N::calculateChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
-                            uint8_t &ck_b) {
-  ck_a = 0;
-  ck_b = 0;
-  for (size_t i = 0; i < len; i++) {
-    ck_a += data[i];
-    ck_b += ck_a;
-  }
+  // 5) Constellations (common baseline)
+  sendCfgValSet<uint8_t>(kKeyGpsEnable, 1);
+  sendCfgValSet<uint8_t>(kKeyGloEnable, 1);
+  sendCfgValSet<uint8_t>(kKeyGalEnable, 1);
+  sendCfgValSet<uint8_t>(kKeyBdsEnable, 1);
 }
 
 bool M9N::parse(uint8_t b) {
   switch (_state) {
   case State::SYNC1:
-    if (b == protocol::SYNC1)
+    if (b == protocol::SYNC1) {
       _state = State::SYNC2;
+    }
     break;
+
   case State::SYNC2:
-    if (b == protocol::SYNC2)
+    if (b == protocol::SYNC2) {
       _state = State::CLASS;
-    else
+    } else if (b == protocol::SYNC1) {
+      // stay in SYNC2 (handles B5 B5 62 ...)
+      _state = State::SYNC2;
+    } else {
       _state = State::SYNC1;
+    }
     break;
+
   case State::CLASS:
     _cls = b;
     _ck_a = 0;
     _ck_b = 0;
-    _ck_a += b;
-    _ck_b += _ck_a;
+    _ck_a = static_cast<uint8_t>(_ck_a + b);
+    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
     _state = State::ID;
     break;
+
   case State::ID:
     _id = b;
-    _ck_a += b;
-    _ck_b += _ck_a;
+    _ck_a = static_cast<uint8_t>(_ck_a + b);
+    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
     _state = State::LENGTH_L;
     break;
+
   case State::LENGTH_L:
     _len = b;
-    _ck_a += b;
-    _ck_b += _ck_a;
+    _ck_a = static_cast<uint8_t>(_ck_a + b);
+    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
     _state = State::LENGTH_H;
     break;
+
   case State::LENGTH_H:
-    _len |= (b << 8);
-    _ck_a += b;
-    _ck_b += _ck_a;
+    _len |= static_cast<uint16_t>(b) << 8;
+    _ck_a = static_cast<uint8_t>(_ck_a + b);
+    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
+
     _payload_idx = 0;
     if (_len > MAX_PAYLOAD_SIZE) {
-      _state = State::SYNC1; // Payload too big for our buffer
+      _state = State::SYNC1;
     } else {
       _state = State::PAYLOAD;
     }
     break;
+
   case State::PAYLOAD:
-    if (_payload_idx < _len) {
-      _payload_buf[_payload_idx++] = b;
-      _ck_a += b;
-      _ck_b += _ck_a;
-    }
-    if (_payload_idx == _len) {
+    _payload_buf[_payload_idx++] = b;
+    _ck_a = static_cast<uint8_t>(_ck_a + b);
+    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
+
+    if (_payload_idx >= _len) {
       _state = State::CK_A;
     }
     break;
+
   case State::CK_A:
-    if (b == _ck_a)
-      _state = State::CK_B;
-    else
-      _state = State::SYNC1;
+    _state = (b == _ck_a) ? State::CK_B : State::SYNC1;
     break;
+
   case State::CK_B:
     if (b == _ck_b) {
-      // Packet Valid
-      if (_cls == protocol::CLS_NAV && _id == protocol::ID_NAV_PVT) {
-        if (_len >= 92) {
-          // Copy to PVT struct; minimal padding safety check
-          memcpy(&_pvt, _payload_buf, sizeof(PVTData));
-          _state = State::SYNC1;
-          return true;
-        }
+      if (_cls == protocol::CLS_NAV && _id == protocol::ID_NAV_PVT &&
+          _len == sizeof(PVTData)) {
+        std::memcpy(&_pvt, _payload_buf, sizeof(PVTData));
+        _state = State::SYNC1;
+        return true;
       }
     }
     _state = State::SYNC1;
     break;
   }
+
   return false;
 }
