@@ -39,11 +39,10 @@ public:
     return Uart<UartInstance::kUart2>::GetInstance();
   }
 
-  ublox::M9N &GetGps() { return m9n_; }
+  M9N &GetGps() { return M9N::GetInstance(); }
 
 private:
   bool initialized_ = false;
-  ublox::M9N m9n_;
 
   System();
   ~System() {}

@@ -39,6 +39,7 @@ void System::Init(const SystemConfig &config) {
   Button::GetInstance().Init(kButtonDefault);
   Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
   Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
+  M9N::GetInstance().Init();
 }
 
 void System::ConfigureSystemClock(const SystemConfig &config) {

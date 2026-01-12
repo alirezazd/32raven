@@ -4,15 +4,7 @@
 
 void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
-  // Default is idle
   ctx.sys->Led().Set(false);
-
-  // Configure GPS
-  ublox::M9NConfig config;
-  config.baudrate = 38400; // Match Uart2 Config
-  ctx.sys->GetGps().configure(config, [&](const uint8_t *data, size_t len) {
-    ctx.sys->GetUart2().Send(data, len);
-  });
 }
 
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
