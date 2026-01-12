@@ -61,6 +61,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/uart.cpp
     Drivers/USER/cc/m9n.cpp
     Core/Src/states.cpp
+    Services/Src/m9n_service.cpp
 )
 
 # Create binary file

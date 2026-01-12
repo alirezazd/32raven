@@ -13,7 +13,6 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
 
   auto &uart = ctx.sys->GetUart();      // Console
   auto &gps_uart = ctx.sys->GetUart2(); // GPS
-  auto &gps = ctx.sys->GetGps();
 
   // Heartbeat Blink
   static uint32_t last_blink = 0;
@@ -23,10 +22,13 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   // Process GPS Data
+  auto &service = ctx.sys->ServiceM9N();
   uint8_t c;
   while (gps_uart.Read(c)) {
-    if (gps.parse(c)) {
-      const auto &pvt = gps.pvt();
+    service.ProcessByte(c);
+    if (service.NewDataAvailable()) {
+      service.ClearNewDataFlag();
+      const auto &pvt = service.GetData();
       char buf[128];
 
       int32_t lat = pvt.lat;

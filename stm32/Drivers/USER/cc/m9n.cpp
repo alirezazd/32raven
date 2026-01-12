@@ -33,6 +33,8 @@
 
 #include "m9n.hpp"
 
+#include "system.hpp"
+#include "time_base.hpp"
 #include "uart.hpp"
 
 #include <cstring>
@@ -45,9 +47,9 @@ constexpr uint8_t kValsetVersion = 0x00;
 
 // Layers bitfield in VALSET:
 // 0x01 = RAM only (volatile). Keep minimal and safe.
-// If later you want persistence, you can use 0x07 (RAM | BBR | Flash) on
-// modules that support it, but do that only after you add ACK handling.
+// 0x07 = RAM | BBR | Flash (persistent across reboots and battery removal)
 constexpr uint8_t kValsetLayerRam = 0x01;
+constexpr uint8_t kValsetLayerAll = 0x07;
 
 // Key IDs you are using
 constexpr uint32_t kKeyCfgRateMeasMs = 0x30210001; // CFG-RATE-MEAS
@@ -56,9 +58,14 @@ constexpr uint32_t kKeyGpsEnable = 0x1031001f;     // CFG-SIGNAL-GPS_ENA
 constexpr uint32_t kKeyGloEnable = 0x10310025;     // CFG-SIGNAL-GLO_ENA
 constexpr uint32_t kKeyGalEnable = 0x10310021;     // CFG-SIGNAL-GAL_ENA
 constexpr uint32_t kKeyBdsEnable = 0x10310022;     // CFG-SIGNAL-BDS_ENA
+constexpr uint32_t kKeySbasEnable = 0x10310020;    // CFG-SIGNAL-SBAS_ENA
+
+constexpr uint32_t kKeyItfmEnable = 0x10410013; // CFG-ITFM-ENABLE
 
 constexpr uint32_t kKeyMsgoutNavPvtUart1 =
     0x20910007; // CFG-MSGOUT-UBX_NAV_PVT_UART1
+
+constexpr uint32_t kKeyUart1Baudrate = 0x40520001;    // CFG-UART1-BAUDRATE
 constexpr uint32_t kKeyUart1OutprotUbx = 0x10740001;  // CFG-UART1OUTPROT-UBX
 constexpr uint32_t kKeyUart1OutprotNmea = 0x10740002; // CFG-UART1OUTPROT-NMEA
 
@@ -74,7 +81,8 @@ inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
 
 } // namespace
 
-template <typename T> void M9N::sendCfgValSet(uint32_t key, T value) {
+template <typename T>
+void M9N::sendCfgValSet(uint32_t key, T value, uint8_t layer) {
   static_assert(std::is_trivially_copyable_v<T>,
                 "CFG-VALSET value must be trivially copyable");
 
@@ -95,7 +103,7 @@ template <typename T> void M9N::sendCfgValSet(uint32_t key, T value) {
 
   // Payload: version, layer, reserved(2)
   buf[6] = kValsetVersion;
-  buf[7] = kValsetLayerRam;
+  buf[7] = layer; // Use provided layer (RAM or persistent)
   buf[8] = 0x00;
   buf[9] = 0x00;
 
@@ -118,21 +126,112 @@ template <typename T> void M9N::sendCfgValSet(uint32_t key, T value) {
   uart.Send(buf, kPacketLen);
 }
 
-// Keep template in this TU only (it’s only used here).
-template void M9N::sendCfgValSet<uint8_t>(uint32_t, uint8_t);
-template void M9N::sendCfgValSet<uint16_t>(uint32_t, uint16_t);
+// Keep template in this TU only (it's only used here).
+template void M9N::sendCfgValSet<uint8_t>(uint32_t, uint8_t, uint8_t);
+template void M9N::sendCfgValSet<uint16_t>(uint32_t, uint16_t, uint8_t);
+template void M9N::sendCfgValSet<uint32_t>(uint32_t, uint32_t, uint8_t);
+
+void M9N::FlashConfig(uint32_t current_baud) {
+  // ONE-TIME CONFIGURATION: Flash golden config to M9N.
+  //
+  // Steps:
+  // 1. Connect at current_baud (e.g., 38400 factory default or existing config)
+  // 2. Send all config with layer=0x07 (RAM+BBR+Flash) for persistence
+  // 3. Wait for config to apply
+  // 4. Reinit UART2 at 115200
+  //
+  // After this runs, M9N will boot at 115200 with golden config.
+
+  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
+
+  // Temporarily reinit UART2 at current_baud to talk to M9N
+  UartConfig temp_config = kUart2Config;
+  temp_config.baudRate = current_baud;
+  uart.ReInit(temp_config);
+
+  // Small delay for UART to stabilize (100ms)
+  auto &time = System::GetInstance().Time();
+  uint32_t start = time.Micros();
+  while ((time.Micros() - start) < MILLIS_TO_MICROS(100)) {
+    // Busy wait
+  }
+
+  // Flush RX buffer to remove any NMEA/junk from before
+  uart.FlushRx();
+
+  // Send golden config with persistent layer (0x07 = RAM | BBR | Flash)
+  // IMPORTANT: Baud rate change is done LAST to avoid race condition
+  constexpr uint8_t kPersistent = kValsetLayerAll;
+
+  // 1) Protocol output selection (must be first to reduce spam)
+  sendCfgValSet<uint8_t>(kKeyUart1OutprotUbx, 1, kPersistent);
+  sendCfgValSet<uint8_t>(kKeyUart1OutprotNmea, 0, kPersistent);
+
+  // 2) Enable NAV-PVT output on UART1
+  sendCfgValSet<uint8_t>(kKeyMsgoutNavPvtUart1, 1, kPersistent);
+
+  // 3) 10 Hz (100 ms)
+  sendCfgValSet<uint16_t>(kKeyCfgRateMeasMs, 100, kPersistent);
+
+  // 4) Dynamic model: airborne < 2g (7)
+  sendCfgValSet<uint8_t>(kKeyCfgDynModel, 7, kPersistent);
+
+  // 5) Constellations
+  sendCfgValSet<uint8_t>(kKeyGpsEnable, 1, kPersistent);
+  sendCfgValSet<uint8_t>(kKeyGloEnable, 1, kPersistent);
+  sendCfgValSet<uint8_t>(kKeyGalEnable, 1, kPersistent);
+  sendCfgValSet<uint8_t>(kKeyBdsEnable, 1, kPersistent);
+  sendCfgValSet<uint8_t>(kKeySbasEnable, 1, kPersistent);
+
+  // 6) Interference mitigation (jamming/spoofing detection)
+  sendCfgValSet<uint8_t>(kKeyItfmEnable, 1, kPersistent);
+
+  // 7) Baud rate change to 115200 (LAST to avoid race condition!)
+  // All previous config is sent at current_baud, ensuring reliable delivery.
+  // After this command, M9N may switch baud immediately.
+  sendCfgValSet<uint32_t>(kKeyUart1Baudrate, 115200, kPersistent);
+
+  // Wait for M9N to apply config and switch baud rate (500ms)
+  start = time.Micros();
+  while ((time.Micros() - start) < MILLIS_TO_MICROS(500)) {
+    // Busy wait
+  }
+
+  // Reinit UART2 at 115200 to match M9N's new baud rate
+  uart.ReInit(kUart2Config);
+
+  // WARNING: No ACK handling implemented!
+  // This function sends CFG-VALSET commands but does not parse ACK-ACK/NAK
+  // responses. Flash writes (layer 0x07) can fail silently if:
+  // - Keys are rejected by firmware
+  // - Module is in wrong state
+  // - Flash is write-protected
+  //
+  // TODO: Add ACK parsing to verify success, or at minimum:
+  // - Parse parser output to verify UBX-only protocol (no NMEA)
+  // - Verify NAV-PVT messages are received at 10Hz
+  // - Check baud rate change succeeded (communication continues)
+  //
+  // For now, verify manually by observing GPS output after first boot.
+}
 
 void M9N::Init() {
-  // Best-practice baseline (Betaflight/PX4-style):
-  // - UBX only (no NMEA)
-  // - NAV-PVT enabled on UART1
-  // - 10 Hz update
-  // - dynamic model: airborne <4g
-  // - multi-constellation enabled
-  //
-  // Note: we configure RAM layer only (volatile) to keep init simple and safe.
+  if (kFlashM9nConfig) {
+    FlashConfig(38400);
+  }
 
-  // 1) Protocol output selection first (reduce spam / ambiguity)
+  // Runtime initialization (assumes M9N already configured via FlashConfig)
+  // This sends config to RAM only for quick startup.
+  //
+  // NOTE: Baud rate is NOT set here. We assume M9N is already operating at
+  // 115200 baud (set by FlashConfig and saved to BBR/Flash). Changing baud
+  // rate requires coordinated UART re-initialization which is handled only
+  // in FlashConfig.
+  //
+  // If M9N loses power/battery, it will revert to saved flash config,
+  // which should already be 115200 + golden settings.
+
+  // 1) Protocol output selection (reduce spam / ambiguity)
   sendCfgValSet<uint8_t>(kKeyUart1OutprotUbx, 1);
   sendCfgValSet<uint8_t>(kKeyUart1OutprotNmea, 0);
 
@@ -142,97 +241,20 @@ void M9N::Init() {
   // 3) 10 Hz (100 ms)
   sendCfgValSet<uint16_t>(kKeyCfgRateMeasMs, 100);
 
-  // 4) Dynamic model: airborne < 4g (8)
-  sendCfgValSet<uint8_t>(kKeyCfgDynModel, 8);
+  // 4) Dynamic model: airborne < 2g (7)
+  sendCfgValSet<uint8_t>(kKeyCfgDynModel, 7);
 
   // 5) Constellations (common baseline)
   sendCfgValSet<uint8_t>(kKeyGpsEnable, 1);
   sendCfgValSet<uint8_t>(kKeyGloEnable, 1);
   sendCfgValSet<uint8_t>(kKeyGalEnable, 1);
   sendCfgValSet<uint8_t>(kKeyBdsEnable, 1);
+  sendCfgValSet<uint8_t>(kKeySbasEnable, 1);
+
+  // 6) Interference mitigation (jamming/spoofing detection)
+  sendCfgValSet<uint8_t>(kKeyItfmEnable, 1);
 }
 
-bool M9N::parse(uint8_t b) {
-  switch (_state) {
-  case State::SYNC1:
-    if (b == protocol::SYNC1) {
-      _state = State::SYNC2;
-    }
-    break;
-
-  case State::SYNC2:
-    if (b == protocol::SYNC2) {
-      _state = State::CLASS;
-    } else if (b == protocol::SYNC1) {
-      // stay in SYNC2 (handles B5 B5 62 ...)
-      _state = State::SYNC2;
-    } else {
-      _state = State::SYNC1;
-    }
-    break;
-
-  case State::CLASS:
-    _cls = b;
-    _ck_a = 0;
-    _ck_b = 0;
-    _ck_a = static_cast<uint8_t>(_ck_a + b);
-    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
-    _state = State::ID;
-    break;
-
-  case State::ID:
-    _id = b;
-    _ck_a = static_cast<uint8_t>(_ck_a + b);
-    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
-    _state = State::LENGTH_L;
-    break;
-
-  case State::LENGTH_L:
-    _len = b;
-    _ck_a = static_cast<uint8_t>(_ck_a + b);
-    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
-    _state = State::LENGTH_H;
-    break;
-
-  case State::LENGTH_H:
-    _len |= static_cast<uint16_t>(b) << 8;
-    _ck_a = static_cast<uint8_t>(_ck_a + b);
-    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
-
-    _payload_idx = 0;
-    if (_len > MAX_PAYLOAD_SIZE) {
-      _state = State::SYNC1;
-    } else {
-      _state = State::PAYLOAD;
-    }
-    break;
-
-  case State::PAYLOAD:
-    _payload_buf[_payload_idx++] = b;
-    _ck_a = static_cast<uint8_t>(_ck_a + b);
-    _ck_b = static_cast<uint8_t>(_ck_b + _ck_a);
-
-    if (_payload_idx >= _len) {
-      _state = State::CK_A;
-    }
-    break;
-
-  case State::CK_A:
-    _state = (b == _ck_a) ? State::CK_B : State::SYNC1;
-    break;
-
-  case State::CK_B:
-    if (b == _ck_b) {
-      if (_cls == protocol::CLS_NAV && _id == protocol::ID_NAV_PVT &&
-          _len == sizeof(PVTData)) {
-        std::memcpy(&_pvt, _payload_buf, sizeof(PVTData));
-        _state = State::SYNC1;
-        return true;
-      }
-    }
-    _state = State::SYNC1;
-    break;
-  }
-
-  return false;
+bool M9N::Read(uint8_t &b) {
+  return Uart<UartInstance::kUart2>::GetInstance().Read(b);
 }
