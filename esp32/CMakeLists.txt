@@ -7,3 +7,4 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(EXTRA_COMPONENT_DIRS ../libs)
 
 project(stm32_wifi_flasher)
+add_compile_options(-Wdouble-promotion)
