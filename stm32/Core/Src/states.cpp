@@ -1,4 +1,6 @@
 #include "states.hpp"
+#include "board.h"
+#include "spi.hpp"
 #include <cstdio>
 #include <cstdlib>
 
@@ -8,47 +10,33 @@ void IdleState::OnEnter(AppContext &ctx, SmTick now) {
 }
 
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
+  // Ensure IMU is initialized (lazy init)
+
   auto &btn = ctx.sys->Btn();
   btn.Poll(now);
 
   auto &uart = ctx.sys->GetUart();      // Console
   auto &gps_uart = ctx.sys->GetUart2(); // GPS
 
-  // Heartbeat Blink
+  // Heartbeat Blink + WhoAmI Check
   static uint32_t last_blink = 0;
   if (now - last_blink > 500) {
     ctx.sys->Led().Toggle();
     last_blink = now;
+
+    uint32_t ts = ctx.sys->GetImu().GetLastDrdyTime();
+
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "IMU Last IRQ: %lu\r\n", ts);
+    uart.Send(buf);
   }
 
-  // Process GPS Data
+  // Process GPS Data (Validation Only)
   auto &service = ctx.sys->ServiceM9N();
   uint8_t c;
   while (gps_uart.Read(c)) {
     service.ProcessByte(c);
-    if (service.NewDataAvailable()) {
-      service.ClearNewDataFlag();
-      const auto &pvt = service.GetData();
-      char buf[128];
-
-      int32_t lat = pvt.lat;
-      int32_t lon = pvt.lon;
-      char lat_c = (lat >= 0) ? 'N' : 'S';
-      char lon_c = (lon >= 0) ? 'E' : 'W';
-      lat = std::abs(lat);
-      lon = std::abs(lon);
-
-      std::snprintf(
-          buf, sizeof(buf),
-          "\r\nGPSv2: Fix:%d Sats:%d Lat:%ld.%07ld %c Lon:%ld.%07ld %c "
-          "Alt:%dm Spd:%ld.%02ldm/s Hdg:%ld.%02lddeg\r\n",
-          pvt.fixType, pvt.numSV, (long)lat / 10000000, (long)lat % 10000000,
-          lat_c, (long)lon / 10000000, (long)lon % 10000000, lon_c,
-          (int)pvt.hMSL / 1000, (long)pvt.gSpeed / 1000,
-          ((long)pvt.gSpeed % 1000) / 10, (long)pvt.headMot / 100000,
-          ((long)pvt.headMot % 100000) / 1000);
-      uart.Send(buf);
-    }
+    // GPS printing removed as requested
   }
 
   // Echo Console (optional, keeping minimal for now to avoid clutter)

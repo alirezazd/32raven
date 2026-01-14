@@ -60,13 +60,14 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/button.cpp
     Drivers/USER/cc/uart.cpp
     Drivers/USER/cc/m9n.cpp
+    Drivers/USER/cc/icm20948.cpp
     Core/Src/states.cpp
     Services/Src/m9n_service.cpp
 )
 
 # Create binary file
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} PRE_BUILD
-    COMMAND ${CMAKE_SOURCE_DIR}/../check_forbidden.sh
+    COMMAND ${CMAKE_SOURCE_DIR}/../scripts/lint/check_forbidden.sh
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/..
     COMMENT "Running static analysis (check_forbidden.sh)..."
 )

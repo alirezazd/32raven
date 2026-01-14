@@ -9,6 +9,7 @@ import cmd
 import subprocess
 import shutil
 import re
+import fcntl
 
 # Constants
 CTRL_PORT = 9000
@@ -426,6 +427,15 @@ def main():
     
     args = parser.parse_args()
     
+    # Exclusive access check
+    # We keep the file open until the process exits
+    lock_file = open("/tmp/esp32_client.lock", "w")
+    try:
+        fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except IOError:
+        print("Error: Another instance of esp32_client is running.")
+        sys.exit(1)
+
     target_ip = args.ip
     
     # Auto-Connect Logic if IP not provided

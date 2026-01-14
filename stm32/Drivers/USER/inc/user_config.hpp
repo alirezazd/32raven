@@ -79,19 +79,24 @@ constexpr TimeBaseConfig kTimeBaseDefault = {
     0xFFFFFFFF, // Period
 };
 
-const GPIO::Config kGpioDefault = {
-    // LED (Output, No Pull, Low Speed)
+static const GPIO::PinConfig kPins[] = {
     {USER_LED_GPIO_PORT,
      {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
-
-    // Button (Input, Pull Down)  <-- matches schematic
     {USER_BTN_GPIO_PORT,
      {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
-
-    // PB10 (EXTI Rising, No Pull)
     {GPIOB,
      {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
+    // SPI1: SCK=PA5, MISO=PA6, MOSI=PA7 (AF5)
+    {GPIOA,
+     {GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7, GPIO_MODE_AF_PP, GPIO_NOPULL,
+      GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1}},
+    // SPI1 CS: PA4
+    {GPIOA,
+     {GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH,
+      0}},
 };
+
+const GPIO::Config kGpioDefault = {kPins, sizeof(kPins) / sizeof(kPins[0])};
 
 // LED: Port, Pin, ActiveLow
 const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin,
@@ -137,6 +142,33 @@ constexpr UartConfig kUart2Config = {
     kUartRxDmaSize,       // rx_dma_size
     kUartRxRingSize       // rx_ring_size
 };
+
+// SPI Configuration Struct
+enum class SpiPrescaler : uint8_t {
+  kDiv2 = 0,
+  kDiv4 = 1,
+  kDiv8 = 2,
+  kDiv16 = 3,
+  kDiv32 = 4,
+  kDiv64 = 5,
+  kDiv128 = 6,
+  kDiv256 = 7,
+};
+
+enum class SpiPolarity : uint8_t { kLow = 0, kHigh = 1 };
+enum class SpiPhase : uint8_t { k1Edge = 0, k2Edge = 1 };
+enum class SpiBitOrder : uint8_t { kMsbFirst = 0, kLsbFirst = 1 };
+
+struct SpiConfig {
+  SpiPolarity polarity;
+  SpiPhase phase;
+  SpiPrescaler prescaler;
+  SpiBitOrder bit_order;
+};
+
+constexpr SpiConfig kSpi1Config = {SpiPolarity::kHigh, SpiPhase::k2Edge,
+                                   SpiPrescaler::kDiv32,
+                                   SpiBitOrder::kMsbFirst};
 
 // Set to true to re-flash M9N persistent configuration on boot.
 // This will force connection at 38400 baud, send golden config to Flash/BBR,
