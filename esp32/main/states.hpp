@@ -37,6 +37,9 @@ public:
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
+
+private:
+  SmTick last_activity_ = 0;
 };
 
 class ErrorState : public IState<AppContext> {

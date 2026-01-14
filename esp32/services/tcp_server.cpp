@@ -363,8 +363,22 @@ void TcpServer::PumpDataRx() {
     size_t free = RbFree(up_head_, up_tail_, kUpCap);
 
     // If upload is enabled but no space, stop reading to assert method
-    // (backpressure)
+    // (backpressure). But we MUST check if the peer closed the connection!
     if (enabled && free == 0) {
+      char dummy;
+      int r = recv(ctx_.data_fd, &dummy, 1, MSG_PEEK | MSG_DONTWAIT);
+      if (r == 0) {
+        ESP_LOGW(kTag, "Data peer closed (recv=0 during backpressure)");
+        CloseData();
+        return;
+      }
+      if (r < 0) {
+        if (errno != EWOULDBLOCK && errno != EAGAIN) {
+          ESP_LOGE(kTag, "Data recv error during backpressure errno=%d", errno);
+          CloseData();
+          return;
+        }
+      }
       return;
     }
 

@@ -1,27 +1,22 @@
-// GPIO.hpp
 #pragma once
-
 #include "stm32f4xx_hal.h"
+#include <cstddef>
 
 class GPIO {
 public:
-  // Board-level pin description
   struct PinConfig {
     GPIO_TypeDef *port;
     GPIO_InitTypeDef init;
   };
 
-  // Board GPIO layout
   struct Config {
-    PinConfig led;
-    PinConfig button;
-    PinConfig pb10;
+    const PinConfig *pins;
+    size_t pin_count;
   };
 
-  // One-time init entry point
 private:
   friend class System;
-  void Init(const Config &config);
+  void Init(const Config &cfg);
 
   static GPIO &GetInstance() {
     static GPIO instance;
@@ -30,7 +25,6 @@ private:
 
   GPIO() = default;
   ~GPIO() = default;
-
   GPIO(const GPIO &) = delete;
   GPIO &operator=(const GPIO &) = delete;
 

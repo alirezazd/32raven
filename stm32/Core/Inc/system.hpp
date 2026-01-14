@@ -5,6 +5,7 @@
 #include "button.hpp"
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
+#include "icm20948.hpp"
 #include "led.hpp"
 #include "m9n.hpp"
 #include "m9n_service.hpp"
@@ -24,7 +25,9 @@ public:
 
   LED &Led() { return LED::GetInstance(); }
 
-  Spi &GetSpi() { return Spi::GetInstance(); }
+  Spi<SpiInstance::kSpi1> &GetSpi() {
+    return Spi<SpiInstance::kSpi1>::GetInstance();
+  }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
   Button &Btn() { return Button::GetInstance(); }
@@ -42,6 +45,7 @@ public:
 
   M9N &GetGps() { return M9N::GetInstance(); }
   M9NService &ServiceM9N() { return m9n_service_; }
+  Icm20948 &GetImu() { return Icm20948::GetInstance(); }
 
 private:
   bool initialized_ = false;
