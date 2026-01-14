@@ -11,11 +11,18 @@ FORBIDDEN_KEYWORDS=" new" # Space prefix to avoid matching 'newline' etc.
 echo "Running static check for forbidden C++ features..."
 
 EXIT_CODE=0
-EXCEPTIONS_FILE="forbidden_exceptions.txt"
 
-# Create / touch exceptions file if it doesn't exist
+if [ "$#" -ge 1 ]; then
+    EXCEPTIONS_FILE="$1"
+else
+    EXCEPTIONS_FILE="forbidden_exceptions.txt"
+fi
+
+# Ensure the exceptions file exists (create empty if neither arg nor local file exists)
 if [ ! -f "$EXCEPTIONS_FILE" ]; then
-    touch "$EXCEPTIONS_FILE"
+    # If using the default name and it doesn't exist, just use /dev/null logic or create empty temp
+    # We will just touch a temp file to avoid grep errors if the user didn't provide one
+    EXCEPTIONS_FILE=$(mktemp)
 fi
 
 for dir in $TARGET_DIRS; do

@@ -84,7 +84,7 @@ endif()
 # -----------------------------------------------------------------------------
 add_custom_target(esp32
   COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware"
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh "${LINT_EXCEPTIONS_FILE}"
   COMMAND bash -lc
     "set -euo pipefail; \
      . '${IDF_PATH}/export.sh'; \
@@ -97,14 +97,19 @@ add_custom_target(esp32
 # -----------------------------------------------------------------------------
 # Compliance Checks
 # -----------------------------------------------------------------------------
-# Define exceptions for the forbidden header/keyword compliance check.
-# Each item will be treated as a grep pattern that, if matched, allows the line.
-set(FORBIDDEN_EXCEPTIONS
-    "#include <vector>"  # Example: remove this when you actually need to catch it
-    "placement new"
-)
-string(REPLACE ";" "\n" FORBIDDEN_EXCEPTIONS_CONTENT "${FORBIDDEN_EXCEPTIONS}")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/forbidden_exceptions.txt" "${FORBIDDEN_EXCEPTIONS_CONTENT}")
+# -----------------------------------------------------------------------------
+# Compliance Checks
+# -----------------------------------------------------------------------------
+# Write user-defined exceptions to a temporary file in the build directory
+# This allows 'user_config.cmake' to define 'set(LINT_EXCEPTIONS "pattern1" "pattern2")'
+set(LINT_EXCEPTIONS_FILE "${CMAKE_CURRENT_BINARY_DIR}/lint_exceptions.txt")
+if(DEFINED LINT_EXCEPTIONS)
+    string(REPLACE ";" "\n" LINT_EXCEPTIONS_CONTENT "${LINT_EXCEPTIONS}")
+    file(WRITE "${LINT_EXCEPTIONS_FILE}" "${LINT_EXCEPTIONS_CONTENT}")
+else()
+    # Write empty file if no exceptions defined
+    file(WRITE "${LINT_EXCEPTIONS_FILE}" "")
+endif()
 
 # -----------------------------------------------------------------------------
 # Build both
