@@ -173,6 +173,7 @@ void ProgramState::OnEnter(AppContext &ctx, SmTick now) {
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total, now);
   // Manual control for activity
   ctx.sys->Led().Off();
+  last_activity_ = now;
 }
 
 void ProgramState::OnStep(AppContext &ctx, SmTick now) {
@@ -195,6 +196,23 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
+  // Check for events (ABORT/RESET/Disconnect) because TCP is still running
+  TcpServer::Event ev;
+  while (tcp.PopEvent(ev)) {
+    if (ev.id == TcpServer::EventId::kAbort ||
+        ev.id == TcpServer::EventId::kCtrlDown ||
+        ev.id == TcpServer::EventId::kDataDown) {
+      ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev.id);
+      prog.Abort(now);
+      if (ev.id == TcpServer::EventId::kAbort) {
+        ctx.sm->ReqTransition(*ctx.idle_state);
+      } else {
+        ctx.sm->ReqTransition(*ctx.error_state);
+      }
+      return;
+    }
+  }
+
   // Toggle LED during verification
   if (prog.IsVerifying()) {
     ctx.sys->Led().Toggle();
@@ -214,6 +232,17 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     if (n > 0) {
       prog.PushBytes(buf, n, now);
       ctx.sys->Led().Toggle();
+      last_activity_ = now;
+    }
+  }
+
+  // Check Timeout (e.g. 1 second)
+  if (!prog.IsVerifying() && !prog.Done()) {
+    if ((now - last_activity_) > 1000) {
+      ESP_LOGE(kTag, "Programmer timed out (no data for 1s)");
+      prog.Abort(now);
+      ctx.sm->ReqTransition(*ctx.error_state);
+      return;
     }
   }
 }

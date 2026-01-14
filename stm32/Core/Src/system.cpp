@@ -30,7 +30,7 @@ void System::Init(const SystemConfig &config) {
   // Initialize Drivers
 
   GPIO::GetInstance().Init(kGpioDefault);
-  Spi::GetInstance().Init();
+  Spi<SpiInstance::kSpi1>::GetInstance().Init(kSpi1Config);
   DShotTim1::init(kDshotTim1Default);
   // I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
   System::GetInstance().Time().Init(kTimeBaseDefault);
@@ -39,6 +39,7 @@ void System::Init(const SystemConfig &config) {
   Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
   Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
   M9N::GetInstance().Init();
+  Icm20948::GetInstance().Init();
 }
 
 void System::ConfigureSystemClock(const SystemConfig &config) {

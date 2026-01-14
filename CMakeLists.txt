@@ -84,7 +84,7 @@ endif()
 # -----------------------------------------------------------------------------
 add_custom_target(esp32
   COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware"
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/esp32/check_forbidden.sh
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
   COMMAND bash -lc
     "set -euo pipefail; \
      . '${IDF_PATH}/export.sh'; \
@@ -104,7 +104,7 @@ set(FORBIDDEN_EXCEPTIONS
     "placement new"
 )
 string(REPLACE ";" "\n" FORBIDDEN_EXCEPTIONS_CONTENT "${FORBIDDEN_EXCEPTIONS}")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/esp32/forbidden_exceptions.txt" "${FORBIDDEN_EXCEPTIONS_CONTENT}")
+file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/forbidden_exceptions.txt" "${FORBIDDEN_EXCEPTIONS_CONTENT}")
 
 # -----------------------------------------------------------------------------
 # Build both

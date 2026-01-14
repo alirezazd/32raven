@@ -3,6 +3,7 @@
 #include "user_config.hpp"
 #include <cstring>
 
+#include "critical_section.hpp"
 #include "stm32f4xx.h"
 
 // NOTE: These streams match your CubeMX MSP:
@@ -68,23 +69,6 @@ static inline bool UartTransmitDma(const uint8_t *buf, uint16_t len) {
   s->CR |= DMA_SxCR_EN;
   return true;
 }
-
-static constexpr uint32_t kMaskPri =
-    (5u << (8u - __NVIC_PRIO_BITS)) & 0xFFu; // Priority 5 masked
-
-struct BasepriGuard {
-  uint32_t old;
-  explicit BasepriGuard(uint32_t new_basepri) : old(__get_BASEPRI()) {
-    __set_BASEPRI(new_basepri);
-    __DSB();
-    __ISB();
-  }
-  ~BasepriGuard() {
-    __set_BASEPRI(old);
-    __DSB();
-    __ISB();
-  }
-};
 
 extern "C" {
 UART_HandleTypeDef huart1;
@@ -488,6 +472,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::OnUartInterrupt() {
 
   // Check for IDLE line interrupt
   if (sr & USART_SR_IDLE) {
+    last_idle_time_ = System::GetInstance().Time().Micros();
     drain = true;
   }
 

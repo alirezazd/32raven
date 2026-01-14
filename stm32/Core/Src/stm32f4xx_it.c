@@ -63,6 +63,7 @@ extern DMA_HandleTypeDef hdma_usart1_tx;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern void Uart1DmaTxComplete(void);
+extern void Icm20948OnDrdyIrq(uint32_t timestamp);
 extern void Uart2DmaTxComplete(void);
 extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
@@ -289,19 +290,20 @@ void DMA1_Stream6_IRQHandler(void) {
   }
 }
 
-/**
-  * @brief This function handles EXTI line[15:10] interrupts.
-  */
 void EXTI15_10_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
+  // Timestamp tightly before anything else
+  // We assume TIM2 is running as TimeBase (verified in time_base.cpp)
+  uint32_t now = TIM2->CNT;
 
-  /* USER CODE END EXTI15_10_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(IMU_INT_Pin);
-  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
-
-  /* USER CODE END EXTI15_10_IRQn 1 */
+  if (EXTI->PR & (1u << 10)) {
+    EXTI->PR = (1u << 10);
+    Icm20948OnDrdyIrq(now);
+  }
 }
+
+extern void Spi1RxDmaComplete(void);
+extern void Spi1DmaError(uint32_t isr);
 
 /**
   * @brief This function handles DMA2 stream0 global interrupt.
@@ -311,7 +313,28 @@ void DMA2_Stream0_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
 
   /* USER CODE END DMA2_Stream0_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_spi1_rx);
+  // RX Stream (Stream 0 is Low 0-3)
+  const uint32_t lisr = DMA2->LISR;
+
+  // Check errors
+  if (lisr & (DMA_LISR_TEIF0 | DMA_LISR_DMEIF0 | DMA_LISR_FEIF0)) {
+     // Clear flags
+     DMA2->LIFCR = DMA_LIFCR_CTEIF0 | DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CFEIF0 |
+                   DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0;
+     Spi1DmaError(lisr);
+     return;
+  }
+
+  // Check TC (Transfer Complete)
+  if (lisr & DMA_LISR_TCIF0) {
+     // Hardening: Clear ALL flags for Stream 0 AND Stream 3 (opportunistic cleanup)
+     DMA2->LIFCR = (DMA_LIFCR_CTEIF0 | DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CFEIF0 |
+                    DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0) |
+                   (DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3 |
+                    DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTCIF3);
+     Spi1RxDmaComplete();
+  }
+
   /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
 
   /* USER CODE END DMA2_Stream0_IRQn 1 */
@@ -354,7 +377,19 @@ void DMA2_Stream3_IRQHandler(void)
   /* USER CODE BEGIN DMA2_Stream3_IRQn 0 */
 
   /* USER CODE END DMA2_Stream3_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_spi1_tx);
+  // TX Stream (Stream 3 is Low 0-3)
+  const uint32_t lisr = DMA2->LISR;
+
+  // Hardening: Always clear any pending TX flags (cheap hygiene)
+  DMA2->LIFCR = DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3 |
+                DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTCIF3;
+
+  // Check errors
+  if (lisr & (DMA_LISR_TEIF3 | DMA_LISR_DMEIF3 | DMA_LISR_FEIF3)) {
+     Spi1DmaError(lisr);
+  }
+  // We don't care about TC on TX for SPI Full Duplex (relies on RX TC)
+  
   /* USER CODE BEGIN DMA2_Stream3_IRQn 1 */
 
   /* USER CODE END DMA2_Stream3_IRQn 1 */
