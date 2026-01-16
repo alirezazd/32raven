@@ -7,6 +7,7 @@
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
 #include "i2c.hpp"
+#include "icm20948.hpp"
 #include "led.hpp"
 #include "time_base.hpp"
 // Note: uart.hpp and system.hpp are consumers, not providers of config types
@@ -174,3 +175,25 @@ constexpr SpiConfig kSpi1Config = {SpiPolarity::kHigh, SpiPhase::k2Edge,
 // This will force connection at 38400 baud, send golden config to Flash/BBR,
 // and reboot/reinit UARTs to 115200.
 constexpr bool kFlashM9nConfig = false;
+
+// ICM20948 Configuration
+// Default values match previous driver hardcoded settings
+constexpr Icm20948::Config kIcm20948Config = {
+    32,  // dma_buf_size
+    512, // fifo_size
+    // Bank 2 ACCEL_CONFIG
+    0x06, // accel_range: 16G (Bits 2|1)
+    0x19, // accel_dlpf_config: 3 << 3 | 1 (Enabled, ~111Hz BW)
+    0,    // accel_sample_rate_div
+
+    // Bank 2 GYRO_CONFIG_1
+    0x06, // gyro_range: 2000dps (Bits 2|1)
+    0x19, // gyro_dlpf_config: 3 << 3 | 1 (Enabled, ~119Hz BW)
+    0,    // gyro_sample_rate_div
+
+    // Bank 3 AK09916 CNTL2: MODE4 (100Hz) = 0x08 (Bit3)
+    0x08,
+
+    static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
+    0xEA,                                       // WHO_AM_I
+};

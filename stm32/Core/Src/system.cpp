@@ -39,7 +39,7 @@ void System::Init(const SystemConfig &config) {
   Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
   Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
   M9N::GetInstance().Init();
-  Icm20948::GetInstance().Init();
+  Icm20948::GetInstance().Init(kIcm20948Config);
 }
 
 void System::ConfigureSystemClock(const SystemConfig &config) {
@@ -70,6 +70,8 @@ void System::ConfigureSystemClock(const SystemConfig &config) {
 
 extern "C" void ErrorHandler(void) {
   __disable_irq();
+  System::GetInstance().Led().Set(true);
   while (1) {
+    __NOP();
   }
 }

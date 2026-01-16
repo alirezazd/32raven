@@ -1,5 +1,6 @@
 #include "spi.hpp"
 #include "critical_section.hpp"
+#include "system.hpp"
 
 template <SpiInstance Inst> void Spi<Inst>::Init(const SpiConfig &config) {
   /* DMA controller clock enable */
@@ -130,6 +131,10 @@ template <SpiInstance Inst> void Spi<Inst>::Read(uint8_t *rx, size_t len) {
 }
 
 template <SpiInstance Inst> void Spi<Inst>::SetPrescaler(SpiPrescaler rate) {
+  if (busy_) {
+    ErrorHandler();
+    return;
+  }
   SPI_TypeDef *spi = Hw();
   Disable();
 
@@ -184,6 +189,19 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
   }
 
   SPI_TypeDef *spi = Hw();
+
+  // Pre-flight drain: Ensure DR is empty and OVR is cleared
+  while (spi->SR & SPI_SR_RXNE) {
+    volatile uint32_t tmp = spi->DR;
+    (void)tmp;
+  }
+  // Clear OVR if it was set during drain or before
+  if (spi->SR & SPI_SR_OVR) {
+    volatile uint32_t tmp = spi->DR;
+    tmp = spi->SR;
+    (void)tmp;
+  }
+
   DMA_Stream_TypeDef *rx_stream = nullptr;
   DMA_Stream_TypeDef *tx_stream = nullptr;
   DMA_TypeDef *dma = nullptr;
@@ -344,6 +362,8 @@ template <SpiInstance Inst> void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
   SPI_TypeDef *spi = Hw();
   DMA_Stream_TypeDef *rx_stream = DMA2_Stream0; // Hardcoded for SPI1
   DMA_Stream_TypeDef *tx_stream = DMA2_Stream3;
+
+  System::GetInstance().Led().Set(true);
 
   // Disable SPI DMA Requests
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);

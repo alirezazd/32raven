@@ -17,6 +17,7 @@ public:
   using Config = TimeBaseConfig;
 
   uint32_t Micros() const;
+  void DelayMicros(uint32_t us) const;
 
 private:
   friend class System;
