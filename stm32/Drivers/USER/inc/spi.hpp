@@ -58,7 +58,7 @@ private:
   SpiDoneCb cb_ = nullptr;
   void *user_ = nullptr;
   uint8_t dummy_tx_ = 0xFF;
-  uint8_t dummy_rx_ = 0;
+  uint8_t dummy_rx_ = 0x00;
 
   void Enable();
   void Disable();

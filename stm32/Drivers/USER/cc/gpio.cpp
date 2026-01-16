@@ -61,7 +61,4 @@ void GPIO::Init(const Config &cfg) {
     GPIO_InitTypeDef tmp = cfg.pins[i].init;
     HAL_GPIO_Init(cfg.pins[i].port, &tmp);
   }
-  // 4) EXTI pin configuration
-  HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
