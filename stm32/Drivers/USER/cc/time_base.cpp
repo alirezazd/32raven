@@ -34,7 +34,14 @@ void TimeBase::Init(const Config &config) {
   TIM2->CR1 |= TIM_CR1_CEN;
 }
 
-uint32_t TimeBase::Micros() const {
+inline uint32_t TimeBase::Micros() const {
   // 32-bit read is atomic on Cortex-M4
   return TIM2->CNT;
+}
+
+void TimeBase::DelayMicros(uint32_t us) const {
+  uint32_t start = Micros();
+  while (Micros() - start < us) {
+    __NOP();
+  }
 }
