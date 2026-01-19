@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
+enum class ErrorCode;
+
 class Uart {
 public:
   enum class Id : uint8_t { kStm32, kEp2, kCount };
@@ -20,22 +22,16 @@ public:
     int tx_buf = 2048;
   };
 
-  // New type alias added as per instruction
-  using ErrorHandler = void (*)(const char *msg);
-
   int Write(const uint8_t *data, size_t size);
   int Read(uint8_t *data, size_t size, uint32_t timeout_ms = 0);
   void Flush();
   bool DrainTx(uint32_t timeout_ms);
   bool SetBaudRate(uint32_t baud_rate);
 
-  // Init method signature updated as per instruction
-  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
-
 private:
   friend class System;
 
-  void Init(const Config &cfg);
+  ErrorCode Init(const Config &cfg);
 
   Config cfg_{};
   bool initialized_ = false;

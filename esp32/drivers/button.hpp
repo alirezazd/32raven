@@ -1,5 +1,7 @@
 #pragma once
+#include <cstdint>
 
+enum class ErrorCode;
 #include "timebase.hpp"
 
 extern "C" {
@@ -23,9 +25,6 @@ public:
     TimeMs long_press_ms = 500;
   };
 
-  using ErrorHandler = void (*)(const char *msg);
-  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
-
   // Polling API
   void Poll(TimeMs now_ms);
 
@@ -40,7 +39,7 @@ public:
 private:
   friend class System;
 
-  void Init(const Config &cfg);
+  ErrorCode Init(const Config &cfg);
 
   bool ReadRawPressed() const;
 

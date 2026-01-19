@@ -1,4 +1,5 @@
 #include "button.hpp"
+#include "system.hpp"
 extern "C" {
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -6,9 +7,9 @@ extern "C" {
 
 static constexpr const char *kTag = "button";
 
-void Button::Init(const Config &cfg, ErrorHandler error_handler) {
+ErrorCode Button::Init(const Config &cfg) {
   if (initialized_)
-    return;
+    return ErrorCode::kOk;
 
   pin_ = cfg.pin;
   active_low_ = cfg.active_low;
@@ -24,9 +25,7 @@ void Button::Init(const Config &cfg, ErrorHandler error_handler) {
   io_conf.pull_up_en = cfg.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 
   if (gpio_config(&io_conf) != ESP_OK) {
-    if (error_handler)
-      error_handler("Button GPIO Config Failed");
-    return;
+    return ErrorCode::kButtonGpioConfigFailed;
   }
 
   // Initialize debouncer from current level
@@ -48,6 +47,7 @@ void Button::Init(const Config &cfg, ErrorHandler error_handler) {
       (unsigned)cfg.debounce_ms, (unsigned)cfg.long_press_ms);
 
   initialized_ = true;
+  return ErrorCode::kOk;
 }
 
 bool Button::ReadRawPressed() const {
