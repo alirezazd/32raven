@@ -6,6 +6,30 @@
 #include "uart.hpp"
 #include "wifi.hpp"
 
+enum class ErrorCode {
+  kOk = 0,
+  // LED
+  kLedTimerInitFailed,
+  kLedChannelInitFailed,
+  kLedFadeInstallFailed,
+  // Button
+  kButtonGpioConfigFailed,
+  // WiFi
+  kWifiNvsInitFailed,
+  kWifiNetifInitFailed,
+  kWifiEventLoopFailed,
+  kWifiInitFailed,
+  kWifiSetStorageFailed,
+  // UART
+  kUartInvalidNumber,
+  kUartParamConfigFailed,
+  kUartSetPinFailed,
+  kUartDriverInstallFailed,
+  // Programmer
+  kProgrammerUartNull,
+  // TCP Server (none currently, uses ErrorHandler)
+};
+
 class System {
 public:
   static System &GetInstance() {

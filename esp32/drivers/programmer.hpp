@@ -2,6 +2,8 @@
 #include "mbedtls/sha256.h" // IWYU pragma: keep
 #include "uart.hpp"
 
+enum class ErrorCode;
+
 extern "C" {
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
@@ -31,9 +33,6 @@ public:
 
     uint32_t sync_timeout_ms = 100;
     uint8_t sync_retries = 10;
-
-    uint32_t baudrate = 115200;
-    Uart::Config::Parity uart_parity = Uart::Config::Parity::kEven;
   };
 
   enum class Target { kStm32, kEsp32 };
@@ -65,13 +64,10 @@ public:
 
 private:
   friend class System;
-  using ErrorHandler = void (*)(const char *msg);
-  void Init(const Config &cfg, Uart *uart,
-            ErrorHandler error_handler = nullptr);
+  ErrorCode Init(const Config &cfg, Uart *uart);
   // ---- Internal context used by StateMachine<Ctx> ----
   struct Ctx {
     Uart *uart = nullptr;
-    ErrorHandler error_handler = nullptr;
     Config cfg{};
     Target target = Target::kStm32;
 

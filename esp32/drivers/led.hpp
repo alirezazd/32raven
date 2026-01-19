@@ -1,6 +1,8 @@
 #pragma once
 #include <cstddef>
 
+enum class ErrorCode;
+
 extern "C" {
 #include "hal/gpio_types.h" // IWYU pragma: keep
 }
@@ -29,9 +31,6 @@ public:
     uint16_t hold_ms;
   };
 
-  using ErrorHandler = void (*)(const char *msg);
-  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
-
   // Set a specific pattern type with a period
   void SetPattern(Pattern p, uint32_t period_ms);
 
@@ -46,6 +45,8 @@ public:
 
 private:
   friend class System;
+
+  ErrorCode Init(const Config &cfg);
 
   LED() = default;
   ~LED() = default;
