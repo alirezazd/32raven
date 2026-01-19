@@ -26,14 +26,14 @@ static inline size_t RbFree(size_t head, size_t tail, size_t cap) {
 
 // ---------------- TcpServer core ----------------
 
-void TcpServer::Init(const Config &cfg) {
+void TcpServer::Init(const Config &cfg, ErrorHandler error_handler) {
   cfg_ = cfg;
 
   // wire internal SM context
   ctx_.self = this;
   ctx_.sm = &sm_;
 
-  // NOTE: we do not open sockets here. Start() does that.
+  ESP_LOGI(kTag, "initialized on port %d", cfg.ctrl_port);
 }
 
 void TcpServer::Stop() {
