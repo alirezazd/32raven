@@ -2,6 +2,8 @@
 #include "ctx.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
+#include <cstdio>
+#include <mavlink.h>
 extern "C" {
 #include "esp_log.h"
 #include "esp_system.h" // for esp_restart
@@ -121,8 +123,8 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
-  // Transparent Bridge: Uart <-> Tcp
-  // 1. Tcp RX -> Uart TX
+  // Transparent Bridge: Tcp -> EP2 (MAVLink)
+  // 1. Tcp RX -> EP2 TX
   if (!ctx.sys->Tcp().UploadEnabled()) {
     ctx.sys->Tcp().SetUploadEnabled(true);
   }
@@ -130,7 +132,10 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
   uint8_t buf[128];
   int n_tcp = ctx.sys->Tcp().ReadUpload(buf, sizeof(buf));
   if (n_tcp > 0) {
-    ctx.sys->Uart().Write(buf, (size_t)n_tcp);
+    // Forward to EP2 (MAVLink)
+    ctx.sys->Uart(Uart::Id::kEp2).Write(buf, (size_t)n_tcp);
+    // Also forward to STM32? For now, assume MAVLink bridge targets EP2.
+    // ctx.sys->Uart(Uart::Id::kStm32).Write(buf, (size_t)n_tcp);
   }
 
   // 2. Uart RX -> Tcp TX + Spy for "ABORT"
@@ -157,6 +162,49 @@ void ListenState::OnStep(AppContext &ctx, SmTick now) {
         } else {
           // overflow
           line_idx_ = 0;
+        }
+      }
+    }
+  }
+
+  // 3. EP2 UART RX -> Tcp TX (MAVLink forwarding)
+  int n_ep2 = ctx.sys->Uart(Uart::Id::kEp2).Read(buf, sizeof(buf));
+  if (n_ep2 > 0) {
+    // ctx.sys->Tcp().SendData(buf, (size_t)n_ep2); // DISABLE RAW FORWARDING
+    // FOR CLEAN MONITOR
+
+    // MAVLink Parsing (Debug)
+    mavlink_message_t msg;
+    mavlink_status_t status;
+    static uint32_t last_msg_log = 0;
+
+    for (int i = 0; i < n_ep2; ++i) {
+      if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], &msg, &status)) {
+        // Rate limit the success logs
+        if ((now - last_msg_log) > 1000) {
+          char log_buf[64];
+          int len = 0;
+
+          if (msg.msgid == MAVLINK_MSG_ID_RADIO_STATUS) { // ID 109
+            int8_t rssi = (int8_t)mavlink_msg_radio_status_get_rssi(&msg);
+            int8_t remrssi = (int8_t)mavlink_msg_radio_status_get_remrssi(&msg);
+            int8_t noise = (int8_t)mavlink_msg_radio_status_get_noise(&msg);
+            // Values are signed int8_t (dBm)
+            len = std::snprintf(
+                log_buf, sizeof(log_buf),
+                "Link: RSSI %d dBm, Rem: %d dBm, Noise: %d dBm\r\n", rssi,
+                remrssi, noise);
+          } else if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+            len =
+                std::snprintf(log_buf, sizeof(log_buf), "Link: Heartbeat\r\n");
+          } else {
+            len = std::snprintf(log_buf, sizeof(log_buf), "Link: Msg ID %d\r\n",
+                                msg.msgid);
+          }
+
+          if (len > 0)
+            ctx.sys->Tcp().SendData((uint8_t *)log_buf, len);
+          last_msg_log = now;
         }
       }
     }
