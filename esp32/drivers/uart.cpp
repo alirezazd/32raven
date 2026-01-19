@@ -17,7 +17,7 @@ static uart_port_t ToPort(int n) {
     return UART_NUM_2;
 #endif
   default:
-    return UART_NUM_1;
+    return UART_NUM_MAX;
   }
 }
 
@@ -29,9 +29,15 @@ static uart_parity_t ToParity(Uart::Config::Parity p) {
   return UART_PARITY_DISABLE;
 }
 
-void Uart::Init(const Config &cfg) {
+void Uart::Init(const Config &cfg, ErrorHandler error_handler) {
   cfg_ = cfg;
   const uart_port_t kPort = ToPort(cfg_.uart_num);
+
+  if (kPort == UART_NUM_MAX) {
+    if (error_handler)
+      error_handler("Invalid Uart Number");
+    return;
+  }
 
   uart_config_t ucfg{};
   ucfg.baud_rate = (int)cfg_.baud_rate;
@@ -41,16 +47,25 @@ void Uart::Init(const Config &cfg) {
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  if (uart_param_config(kPort, &ucfg) != ESP_OK)
+  if (uart_param_config(kPort, &ucfg) != ESP_OK) {
+    if (error_handler)
+      error_handler("Uart Param Config Failed");
     return;
+  }
   if (uart_set_pin(kPort, cfg_.tx_gpio, cfg_.rx_gpio, UART_PIN_NO_CHANGE,
-                   UART_PIN_NO_CHANGE) != ESP_OK)
+                   UART_PIN_NO_CHANGE) != ESP_OK) {
+    if (error_handler)
+      error_handler("Uart Set Pin Failed");
     return;
+  }
 
   // If you ever re-init, call uart_driver_delete(kPort) first.
   if (uart_driver_install(kPort, cfg_.rx_buf, cfg_.tx_buf, 0, nullptr, 0) !=
-      ESP_OK)
+      ESP_OK) {
+    if (error_handler)
+      error_handler("Uart Driver Install Failed");
     return;
+  }
 
   (void)uart_flush_input(kPort);
   initialized_ = true;

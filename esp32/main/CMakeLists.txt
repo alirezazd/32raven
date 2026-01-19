@@ -11,6 +11,7 @@ idf_component_register(
         "../services/timebase.cpp"
         "../drivers/uart.cpp"
         "../drivers/programmer.cpp"
+        "../drivers/ep2_receiver.cpp"
     INCLUDE_DIRS
         "."
         "../drivers"

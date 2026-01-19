@@ -10,11 +10,22 @@ extern "C" {
 
 static constexpr char kTag[] = "programmer";
 
-void Programmer::Init(const Config &cfg, Uart *uart) {
+void Programmer::Init(const Config &cfg, Uart *uart,
+                      ErrorHandler error_handler) {
+  if (initialized_)
+    return;
   ctx_.cfg = cfg;
   ctx_.uart = uart;
+  ctx_.error_handler = error_handler;
   ctx_.sm = &sm_;
 
+  if (!ctx_.uart) {
+    if (error_handler)
+      error_handler("Programmer Uart is Null");
+    return;
+  }
+
+  // Init pins
   // Bind state pointers
   ctx_.st_idle = &StIdle_;
   ctx_.st_writing = &StWriting_;
@@ -22,7 +33,6 @@ void Programmer::Init(const Config &cfg, Uart *uart) {
   ctx_.st_done = &StDone_;
   ctx_.st_error = &StError_;
 
-  // Init pins
   GpioInit();
 
   // Start in idle
@@ -64,8 +74,8 @@ void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
     gpio_config(&io);
 
     // Default NRST deasserted (high if active-low reset)
-    const bool kActiveLow = ctx_.cfg.nrst_active_low;
-    gpio_set_level((gpio_num_t)kNrst, kActiveLow ? 1 : 0);
+    // Default NRST deasserted (high for active-low reset)
+    gpio_set_level((gpio_num_t)kNrst, 1);
   }
 }
 
@@ -74,11 +84,8 @@ void Programmer::Boot0Set(bool on) {
   if (kPin < 0)
     return;
 
-  const bool kActiveHigh = ctx_.cfg.boot0_active_high;
-  const int kAssertLevel = kActiveHigh ? 1 : 0;
-  const int kDeassertLevel = kActiveHigh ? 0 : 1;
-
-  gpio_set_level((gpio_num_t)kPin, on ? kAssertLevel : kDeassertLevel);
+  // BOOT0 is assumed active-high
+  gpio_set_level((gpio_num_t)kPin, on ? 1 : 0);
 }
 
 void Programmer::NrstPulse(uint32_t pulse_ms) {
@@ -86,9 +93,9 @@ void Programmer::NrstPulse(uint32_t pulse_ms) {
   if (kPin < 0)
     return;
 
-  const bool kActiveLow = ctx_.cfg.nrst_active_low;
-  const int kAssertLevel = kActiveLow ? 0 : 1;
-  const int kDeassertLevel = kActiveLow ? 1 : 0;
+  // NRST is assumed active-low (assert=0, deassert=1)
+  const int kAssertLevel = 0;
+  const int kDeassertLevel = 1;
 
   gpio_set_level((gpio_num_t)kPin, kAssertLevel);
   SleepMs(pulse_ms);
@@ -105,7 +112,7 @@ bool Programmer::EnterBootloader() {
   SleepMs(ctx_.cfg.boot_settle_ms);
 
   // Configure UART for bootloader link (your Uart driver already exists)
-  (void)ctx_.uart->SetBaudRate(ctx_.cfg.uart_baud);
+  (void)ctx_.uart->SetBaudRate(ctx_.cfg.baudrate);
 
   // Flush any junk
   ctx_.uart->Flush();
@@ -732,4 +739,8 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
     if (c.sm && c.st_done)
       c.sm->ReqTransition(*c.st_done);
   }
+}
+
+void Programmer::ErrorState::OnEnter(Ctx &c, SmTick) {
+  c.error_handler("Programmer Failed");
 }

@@ -21,7 +21,7 @@ static inline void LogErr(const char *what, esp_err_t e) {
     ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
 }
 
-void WifiController::Init(const Config &cfg) {
+void WifiController::Init(const Config &cfg, ErrorHandler error_handler) {
   if (initialized_)
     return;
   cfg_ = cfg;
@@ -34,19 +34,27 @@ void WifiController::Init(const Config &cfg) {
     e = nvs_flash_init();
   }
   LogErr("nvs_flash_init", e);
-  if (e != ESP_OK)
+  if (e != ESP_OK) {
+    if (error_handler)
+      error_handler("NVS Init Failed");
     return;
+  }
 
   // 2. Netif (LwIP)
   e = esp_netif_init();
   LogErr("esp_netif_init", e);
-  if (e != ESP_OK && e != ESP_ERR_INVALID_STATE)
+  if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+    if (error_handler)
+      error_handler("Netif Init Failed");
     return;
+  }
 
   // 3. Event Loop
   e = esp_event_loop_create_default();
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
     LogErr("esp_event_loop_create_default", e);
+    if (error_handler)
+      error_handler("Event Loop Create Failed");
     return;
   }
 
@@ -57,12 +65,21 @@ void WifiController::Init(const Config &cfg) {
     // already init
   } else if (e != ESP_OK) {
     LogErr("esp_wifi_init", e);
+    if (error_handler)
+      error_handler("Wifi Init Failed");
     return;
   }
 
   // 5. Storage RAM
   e = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   LogErr("esp_wifi_set_storage", e);
+  // Storage failure might be non-critical, but let's be safe?
+  // User asked for error handling. Let's assume critical.
+  if (e != ESP_OK) {
+    if (error_handler)
+      error_handler("Wifi Set Storage Failed");
+    return;
+  }
 
   initialized_ = true;
   ESP_LOGI(kTag, "initialized");
