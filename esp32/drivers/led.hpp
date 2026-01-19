@@ -29,7 +29,8 @@ public:
     uint16_t hold_ms;
   };
 
-  void Init(const Config &cfg);
+  using ErrorHandler = void (*)(const char *msg);
+  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
 
   // Set a specific pattern type with a period
   void SetPattern(Pattern p, uint32_t period_ms);

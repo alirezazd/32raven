@@ -6,7 +6,7 @@ extern "C" {
 
 static constexpr const char *kTag = "button";
 
-void Button::Init(const Config &cfg) {
+void Button::Init(const Config &cfg, ErrorHandler error_handler) {
   if (initialized_)
     return;
 
@@ -15,15 +15,19 @@ void Button::Init(const Config &cfg) {
   debounce_ms_ = cfg.debounce_ms;
   long_press_ms_ = cfg.long_press_ms;
 
-  gpio_config_t c{};
-  c.pin_bit_mask = (1ULL << (uint32_t)pin_);
-  c.mode = GPIO_MODE_INPUT;
-  c.intr_type = GPIO_INTR_DISABLE;
+  gpio_config_t io_conf = {};
+  io_conf.intr_type = GPIO_INTR_DISABLE;
+  io_conf.mode = GPIO_MODE_INPUT;
+  io_conf.pin_bit_mask = (1ULL << pin_);
+  io_conf.pull_down_en =
+      cfg.pulldown ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE;
+  io_conf.pull_up_en = cfg.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 
-  c.pull_up_en = cfg.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
-  c.pull_down_en = cfg.pulldown ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE;
-
-  (void)gpio_config(&c);
+  if (gpio_config(&io_conf) != ESP_OK) {
+    if (error_handler)
+      error_handler("Button GPIO Config Failed");
+    return;
+  }
 
   // Initialize debouncer from current level
   raw_last_ = ReadRawPressed();

@@ -17,7 +17,7 @@ static constexpr uint32_t kDutyMax = 8191;
 // Internal definitions for static steps if needed, but we use dynamic
 // generation now.
 
-void LED::Init(const Config &cfg) {
+void LED::Init(const Config &cfg, ErrorHandler error_handler) {
   pin_ = cfg.pin;
   active_low_ = cfg.active_low;
 
@@ -28,7 +28,10 @@ void LED::Init(const Config &cfg) {
   timer_conf.duty_resolution = kLedcRes;
   timer_conf.freq_hz = kLedcFreq;
   timer_conf.clk_cfg = LEDC_AUTO_CLK;
-  ledc_timer_config(&timer_conf);
+  if (ledc_timer_config(&timer_conf) != ESP_OK) {
+    error_handler("LEDC Timer Init Failed");
+    return;
+  }
 
   // Configure LEDC Channel
   ledc_channel_config_t channel_conf = {};
@@ -39,9 +42,15 @@ void LED::Init(const Config &cfg) {
   channel_conf.timer_sel = kLedcTimer;
   channel_conf.duty = 0; // Start off
   channel_conf.hpoint = 0;
-  ledc_channel_config(&channel_conf);
+  if (ledc_channel_config(&channel_conf) != ESP_OK) {
+    error_handler("LEDC Channel Init Failed");
+    return;
+  }
 
-  ledc_fade_func_install(0);
+  if (ledc_fade_func_install(0) != ESP_OK) {
+    error_handler("LEDC Fade Install Failed");
+    return;
+  }
 
   // Start OFF deterministically
   Off();

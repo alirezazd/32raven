@@ -26,16 +26,13 @@ public:
     int boot0_gpio = 6;
     int nrst_gpio = 7; // active low reset
 
-    bool boot0_active_high = true;
-    bool nrst_active_low = true;
-
     uint32_t reset_pulse_ms = 50;
     uint32_t boot_settle_ms = 50;
 
     uint32_t sync_timeout_ms = 100;
     uint8_t sync_retries = 10;
 
-    uint32_t uart_baud = 115200;
+    uint32_t baudrate = 115200;
     Uart::Config::Parity uart_parity = Uart::Config::Parity::kEven;
   };
 
@@ -68,11 +65,13 @@ public:
 
 private:
   friend class System;
-  void Init(const Config &cfg, Uart *uart);
-
+  using ErrorHandler = void (*)(const char *msg);
+  void Init(const Config &cfg, Uart *uart,
+            ErrorHandler error_handler = nullptr);
   // ---- Internal context used by StateMachine<Ctx> ----
   struct Ctx {
     Uart *uart = nullptr;
+    ErrorHandler error_handler = nullptr;
     Config cfg{};
     Target target = Target::kStm32;
 
@@ -152,7 +151,7 @@ private:
   class ErrorState : public IState<Ctx> {
   public:
     const char *Name() const override { return "P.Error"; }
-    void OnEnter(Ctx &, SmTick) override {}
+    void OnEnter(Ctx &, SmTick) override;
     void OnStep(Ctx &, SmTick) override {}
     void OnExit(Ctx &, SmTick) override {}
   };

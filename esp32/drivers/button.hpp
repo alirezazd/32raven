@@ -23,6 +23,9 @@ public:
     TimeMs long_press_ms = 500;
   };
 
+  using ErrorHandler = void (*)(const char *msg);
+  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
+
   // Polling API
   void Poll(TimeMs now_ms);
 

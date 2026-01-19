@@ -128,7 +128,8 @@ private:
   class StCtrl;
   class StCtrlData;
 
-  void Init(const Config &cfg);
+  using ErrorHandler = void (*)(const char *msg);
+  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
 
   // Helpers used by states
   void CloseCtrl();

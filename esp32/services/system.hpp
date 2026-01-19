@@ -17,11 +17,13 @@ public:
   ::Button &Button();
   ::WifiController &Wifi();
   ::TcpServer &Tcp();
-  ::Uart &Uart();
+  ::Uart &Uart(::Uart::Id id);
+  ::Uart &Uart(); // Default to STM32 for backward compatibility
   ::Programmer &Programmer();
   void Init();
 
 private:
+  ::Uart uarts_[(int)::Uart::Id::kCount];
   bool initialized_ = false;
 
   System() = default;
