@@ -1,4 +1,5 @@
 #include "programmer.hpp"
+#include "system.hpp"
 #include "timebase.hpp"
 
 #include <cstring>
@@ -10,19 +11,15 @@ extern "C" {
 
 static constexpr char kTag[] = "programmer";
 
-void Programmer::Init(const Config &cfg, Uart *uart,
-                      ErrorHandler error_handler) {
+ErrorCode Programmer::Init(const Config &cfg, Uart *uart) {
   if (initialized_)
-    return;
+    return ErrorCode::kOk;
   ctx_.cfg = cfg;
   ctx_.uart = uart;
-  ctx_.error_handler = error_handler;
   ctx_.sm = &sm_;
 
   if (!ctx_.uart) {
-    if (error_handler)
-      error_handler("Programmer Uart is Null");
-    return;
+    return ErrorCode::kProgrammerUartNull;
   }
 
   // Init pins
@@ -45,6 +42,7 @@ void Programmer::Init(const Config &cfg, Uart *uart,
 
   sm_.Start(StIdle_, 0);
   initialized_ = true;
+  return ErrorCode::kOk;
 }
 
 void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
@@ -110,9 +108,6 @@ bool Programmer::EnterBootloader() {
   Boot0Set(true);
   NrstPulse(ctx_.cfg.reset_pulse_ms);
   SleepMs(ctx_.cfg.boot_settle_ms);
-
-  // Configure UART for bootloader link (your Uart driver already exists)
-  (void)ctx_.uart->SetBaudRate(ctx_.cfg.baudrate);
 
   // Flush any junk
   ctx_.uart->Flush();
@@ -742,5 +737,5 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
 }
 
 void Programmer::ErrorState::OnEnter(Ctx &c, SmTick) {
-  c.error_handler("Programmer Failed");
+  // Error state - error code is already set in ctx_.err
 }

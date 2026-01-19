@@ -1,4 +1,5 @@
 #include "wifi.hpp"
+#include "system.hpp"
 
 extern "C" {
 #include "driver/gpio.h" // IWYU pragma: keep
@@ -21,9 +22,9 @@ static inline void LogErr(const char *what, esp_err_t e) {
     ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
 }
 
-void WifiController::Init(const Config &cfg, ErrorHandler error_handler) {
+ErrorCode WifiController::Init(const Config &cfg) {
   if (initialized_)
-    return;
+    return ErrorCode::kOk;
   cfg_ = cfg;
 
   // 1. NVS
@@ -35,27 +36,21 @@ void WifiController::Init(const Config &cfg, ErrorHandler error_handler) {
   }
   LogErr("nvs_flash_init", e);
   if (e != ESP_OK) {
-    if (error_handler)
-      error_handler("NVS Init Failed");
-    return;
+    return ErrorCode::kWifiNvsInitFailed;
   }
 
   // 2. Netif (LwIP)
   e = esp_netif_init();
   LogErr("esp_netif_init", e);
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
-    if (error_handler)
-      error_handler("Netif Init Failed");
-    return;
+    return ErrorCode::kWifiNetifInitFailed;
   }
 
   // 3. Event Loop
   e = esp_event_loop_create_default();
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
     LogErr("esp_event_loop_create_default", e);
-    if (error_handler)
-      error_handler("Event Loop Create Failed");
-    return;
+    return ErrorCode::kWifiEventLoopFailed;
   }
 
   // 4. WiFi Init
@@ -65,9 +60,7 @@ void WifiController::Init(const Config &cfg, ErrorHandler error_handler) {
     // already init
   } else if (e != ESP_OK) {
     LogErr("esp_wifi_init", e);
-    if (error_handler)
-      error_handler("Wifi Init Failed");
-    return;
+    return ErrorCode::kWifiInitFailed;
   }
 
   // 5. Storage RAM
@@ -76,13 +69,12 @@ void WifiController::Init(const Config &cfg, ErrorHandler error_handler) {
   // Storage failure might be non-critical, but let's be safe?
   // User asked for error handling. Let's assume critical.
   if (e != ESP_OK) {
-    if (error_handler)
-      error_handler("Wifi Set Storage Failed");
-    return;
+    return ErrorCode::kWifiSetStorageFailed;
   }
 
   initialized_ = true;
   ESP_LOGI(kTag, "initialized");
+  return ErrorCode::kOk;
 }
 
 bool WifiController::StartAp() {

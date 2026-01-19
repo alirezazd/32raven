@@ -1,5 +1,7 @@
 #pragma once
 
+enum class ErrorCode;
+
 #include "esp_netif_types.h"
 
 class WifiController {
@@ -23,8 +25,7 @@ public:
 
 private:
   friend class System;
-  using ErrorHandler = void (*)(const char *msg);
-  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
+  ErrorCode Init(const Config &cfg);
   Config cfg_{};
   bool wifi_on_ = false;
   esp_netif_t *ap_netif_ = nullptr;

@@ -36,27 +36,40 @@ void System::Init() {
   if (initialized_)
     return;
 
-  // Pass Panic to all drivers
-  LED::GetInstance().Init(LED::Config{}, Panic);
+  ErrorCode err;
+
+  err = LED::GetInstance().Init(LED::Config{});
+  if (err != ErrorCode::kOk)
+    Panic("LED Init Failed");
   ESP_LOGI(kTag, "LED driver initialized");
 
-  Button::GetInstance().Init(Button::Config{}, Panic);
+  err = Button::GetInstance().Init(Button::Config{});
+  if (err != ErrorCode::kOk)
+    Panic("Button Init Failed");
   ESP_LOGI(kTag, "Button driver initialized");
 
-  WifiController::GetInstance().Init(WifiController::Config{}, Panic);
+  err = WifiController::GetInstance().Init(WifiController::Config{});
+  if (err != ErrorCode::kOk)
+    Panic("Wifi Init Failed");
   ESP_LOGI(kTag, "Wifi driver initialized");
 
   TcpServer::GetInstance().Init(TcpServer::Config{}, Panic);
   ESP_LOGI(kTag, "TCP Server initialized");
 
-  uarts_[(int)Uart::Id::kStm32].Init(kStm32UartConfig, Panic);
+  err = uarts_[(int)Uart::Id::kStm32].Init(kStm32UartConfig);
+  if (err != ErrorCode::kOk)
+    Panic("STM32 Uart Init Failed");
   ESP_LOGI(kTag, "STM32 Uart initialized");
 
-  uarts_[(int)Uart::Id::kEp2].Init(kEp2UartConfig, Panic);
+  err = uarts_[(int)Uart::Id::kEp2].Init(kEp2UartConfig);
+  if (err != ErrorCode::kOk)
+    Panic("EP2 Uart Init Failed");
   ESP_LOGI(kTag, "EP2 Uart initialized");
 
-  Programmer::GetInstance().Init(Programmer::Config{}, &Uart(Uart::Id::kStm32),
-                                 Panic);
+  err = Programmer::GetInstance().Init(Programmer::Config{},
+                                       &Uart(Uart::Id::kStm32));
+  if (err != ErrorCode::kOk)
+    Panic("Programmer Init Failed");
   ESP_LOGI(kTag, "Programmer initialized");
 
   initialized_ = true;
