@@ -178,7 +178,7 @@ private:
   size_t evt_tail_ = 0;
 
   // ---- upload ring buffer ----
-  static constexpr size_t kUpCap = 8192;
+  static constexpr size_t kUpCap = 4096;
   uint8_t up_[kUpCap]{};
   size_t up_head_ = 0;
   size_t up_tail_ = 0;
