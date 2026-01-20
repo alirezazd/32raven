@@ -80,7 +80,7 @@ private:
     bool ready = false;
 
     // staging buffer for bytes coming from HTTP (backpressure lives here)
-    static constexpr size_t kBufCap = 2048;
+    static constexpr size_t kBufCap = 8192;
     uint8_t buf[kBufCap]{};
     size_t head = 0;
     size_t tail = 0;

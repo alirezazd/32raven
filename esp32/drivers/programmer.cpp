@@ -592,8 +592,12 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
   while (c.written < c.total_size) {
     size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
 
-    // Default chunk size
-    size_t needed = 256;
+    // Determine optimal chunk size based on target capabilities
+    // ESP32: Flash sector size (4KB) for efficiency
+    // STM32: UART Bootloader protocol limit (256 bytes)
+    const size_t kProtocolLimit = (c.target == Target::kEsp32) ? 4096 : 256;
+
+    size_t needed = kProtocolLimit;
     size_t remaining_file = c.total_size - c.written;
     if (needed > remaining_file)
       needed = remaining_file;
@@ -603,7 +607,8 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
       return;
     }
 
-    uint8_t block[256];
+    // Allocate for the largest possible chunk (static to save stack)
+    static uint8_t block[4096];
     for (size_t i = 0; i < needed; ++i) {
       block[i] = c.buf[c.head];
       c.head = (c.head + 1) % Ctx::kBufCap;
