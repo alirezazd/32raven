@@ -1,6 +1,8 @@
 #pragma once
 #include "button.hpp"
+#include "flight_controller.hpp"
 #include "led.hpp"
+#include "mavlink.hpp"
 #include "programmer.hpp"
 #include "tcp_server.hpp"
 #include "uart.hpp"
@@ -41,6 +43,8 @@ public:
   ::Button &Button();
   ::WifiController &Wifi();
   ::TcpServer &Tcp();
+  ::Mavlink &Mavlink();
+  ::FlightController &FlightController();
   ::Uart &Uart(::Uart::Id id);
   ::Uart &Uart(); // Default to STM32 for backward compatibility
   ::Programmer &Programmer();
