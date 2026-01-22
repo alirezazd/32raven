@@ -607,7 +607,7 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
       return;
     }
 
-    // Allocate for the largest possible chunk (static to save stack)
+    // Allocate for the largest possible chunk
     static uint8_t block[4096];
     for (size_t i = 0; i < needed; ++i) {
       block[i] = c.buf[c.head];

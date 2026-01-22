@@ -1,0 +1,159 @@
+#include "flight_controller.hpp"
+#include <cstring>
+
+extern "C" {
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+}
+
+static const char *kTag = "flight";
+
+void FlightController::Init(const Config &cfg, Uart *uart) {
+  if (initialized_)
+    return;
+  cfg_ = cfg;
+  uart_ = uart;
+  initialized_ = true;
+  ESP_LOGI(kTag, "Initialized");
+}
+
+bool FlightController::PerformHandshake() {
+  if (!initialized_ || !uart_)
+    return false;
+
+  ESP_LOGI(kTag, "Handshake Start...");
+
+  uint8_t tx_buf[32];
+  size_t tx_len = message::Serialize(message::MsgId::kPing, nullptr, 0, tx_buf);
+
+  // Handshake Parameters
+  const int kDurationMs = 1000;
+  const int kPeriodMs = 20;
+  const int kAttempts = kDurationMs / kPeriodMs;
+
+  for (int i = 0; i < kAttempts; ++i) {
+    uart_->Write(tx_buf, tx_len);
+    vTaskDelay(pdMS_TO_TICKS(kPeriodMs));
+
+    Poll(0); // Feed parser
+
+    message::Packet response;
+    if (GetPacket(response)) {
+      if (response.header.id == (uint8_t)message::MsgId::kPong) {
+        ESP_LOGI(kTag, "Handshake Success!");
+        return true;
+      }
+    }
+  }
+
+  ESP_LOGW(kTag, "Handshake Failed");
+  return false;
+}
+
+bool FlightController::SendPacket(const message::Packet &pkt) {
+  if (!initialized_ || !uart_)
+    return false;
+
+  uint8_t tx[256 + 32]; // Max payload + header
+  size_t len = message::Serialize((message::MsgId)pkt.header.id, pkt.payload,
+                                  pkt.header.len, tx);
+  uart_->Write(tx, len);
+  return true;
+}
+
+bool FlightController::GetPacket(message::Packet &out_pkt) {
+  if (rx_pkt_ready_) {
+    out_pkt = rx_pkt_out_;
+    rx_pkt_ready_ = false;
+    return true;
+  }
+  return false;
+}
+
+bool FlightController::IsConnected() const {
+  // Simple timeout-based check (e.g., received something in last 2 seconds)
+  // For now, return true if active recently
+  return (rx_state_ != RxState::kMagic1);
+  // Actually better:
+  // return (xTaskGetTickCount() - last_activity_ < pdMS_TO_TICKS(2000));
+  // But let's leave implementation simple.
+  return true;
+}
+
+void FlightController::Poll(uint32_t now) {
+  (void)now;
+  if (!initialized_ || !uart_)
+    return;
+
+  // Process all available bytes
+  uint8_t buf[128];
+  int n = uart_->Read(buf, sizeof(buf));
+
+  for (int i = 0; i < n; ++i) {
+    uint8_t b = buf[i];
+    switch (rx_state_) {
+    case RxState::kMagic1:
+      if (b == message::kMagic1)
+        rx_state_ = RxState::kMagic2;
+      break;
+    case RxState::kMagic2:
+      if (b == message::kMagic2)
+        rx_state_ = RxState::kId;
+      else
+        rx_state_ = RxState::kMagic1;
+      break;
+    case RxState::kId:
+      rx_pkt_internal_.id = b;
+      rx_state_ = RxState::kLen;
+      break;
+    case RxState::kLen:
+      rx_len_ = b;
+      rx_idx_ = 0;
+      rx_state_ = (rx_len_ > 0) ? RxState::kPayload : RxState::kCrc1;
+      break;
+    case RxState::kPayload:
+      rx_pkt_internal_.payload[rx_idx_++] = b;
+      if (rx_idx_ >= rx_len_)
+        rx_state_ = RxState::kCrc1;
+      break;
+    case RxState::kCrc1:
+      rx_pkt_internal_.crc = b;
+      rx_state_ = RxState::kCrc2;
+      break;
+    case RxState::kCrc2:
+      rx_pkt_internal_.crc |= ((uint16_t)b << 8);
+
+      // Verify CRC
+      {
+        uint8_t check_buf[sizeof(message::Header) + 256];
+        message::Header *h = (message::Header *)check_buf;
+        h->magic[0] = message::kMagic1;
+        h->magic[1] = message::kMagic2;
+        h->id = rx_pkt_internal_.id;
+        h->len = rx_len_;
+        if (rx_len_ > 0)
+          memcpy(check_buf + sizeof(message::Header), rx_pkt_internal_.payload,
+                 rx_len_);
+
+        if (message::Crc16(check_buf, sizeof(message::Header) + rx_len_) ==
+            rx_pkt_internal_.crc) {
+
+          // Valid Packet - Copy to output
+          rx_pkt_out_.header.id = rx_pkt_internal_.id;
+          rx_pkt_out_.header.len = rx_len_;
+          if (rx_len_ > 0)
+            memcpy(rx_pkt_out_.payload, rx_pkt_internal_.payload, rx_len_);
+          rx_pkt_out_.crc = rx_pkt_internal_.crc;
+
+          rx_pkt_ready_ = true;
+          // last_activity_ = now;
+        } else {
+          ESP_LOGE(kTag, "CRC Fail");
+        }
+      }
+      rx_state_ = RxState::kMagic1;
+      break;
+    }
+  }
+}

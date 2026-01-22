@@ -100,7 +100,7 @@ class Esp32Shell(cmd.Cmd):
     intro = 'Welcome to the ESP32/32raven Shell. Type help or ? to list commands.\n'
     prompt = '(disconnected) > '
 
-    def __init__(self, ip=None, timeout=5.0):
+    def __init__(self, ip=None, timeout=10):
         super().__init__()
         self.target_ip = ip
         self.timeout = timeout
@@ -330,6 +330,12 @@ class Esp32Shell(cmd.Cmd):
         """Monitor data port (STM32 UART bridge). Ctrl+C to exit."""
         if not self._ensure_connected(): return
 
+        print("Enabling Bridge mode...")
+        resp = self._send_ctrl("BRIDGE")
+        if resp != "OK":
+            print(f"Target refused BRIDGE mode: {resp}")
+            return
+
         print("Opening monitor on DATA port... (Ctrl+C to exit)")
         
         # 1. Open Data Socket
@@ -341,23 +347,87 @@ class Esp32Shell(cmd.Cmd):
             return
             
         import threading
+        import select
+        
         # 2. Start reader thread
         stop_event = threading.Event()
         
         def reader_thread():
+            import collections
+            log_maxlen = 15
+            log_buf = collections.deque(maxlen=log_maxlen)
+            
+            # Pinned status lines (Key -> Content)
+            status_lines = {
+                "RC": "RC: Waiting...",
+                "GPS": "GPS: Waiting...",
+                "Loop": "Loop: Waiting..."
+            }
+            # Order to display them
+            status_order = ["RC", "GPS", "Loop"]
+            
+            rx_buf = b""
+            
+            def redraw():
+                # ANSI Clear Screen + Home
+                sys.stdout.write("\x1b[2J\x1b[H")
+                
+                # Header
+                sys.stdout.write("--- 32Raven Bridge Monitor ---\n")
+                
+                # Logs
+                for l in log_buf:
+                    sys.stdout.write(l + "\n")
+                
+                # Filler to keep status at bottom
+                curr_lines = len(log_buf)
+                if curr_lines < log_maxlen:
+                    sys.stdout.write("\n" * (log_maxlen - curr_lines))
+                    
+                sys.stdout.write("-" * 40 + "\n")
+                
+                # Render status lines
+                for key in status_order:
+                    sys.stdout.write(status_lines[key] + "\n")
+                    
+                sys.stdout.flush()
+
             while not stop_event.is_set():
                 try:
                     ready = select.select([self.data_sock], [], [], 0.1)
                     if ready[0]:
-                        data = self.data_sock.recv(1024)
-                        if not data:
+                        chunk = self.data_sock.recv(1024)
+                        if not chunk:
                             break # Closed
-                        sys.stdout.buffer.write(data)
-                        sys.stdout.buffer.flush()
+                        
+                        rx_buf += chunk
+                        while b'\n' in rx_buf:
+                            line_end = rx_buf.find(b'\n')
+                            line_bytes = rx_buf[:line_end]
+                            rx_buf = rx_buf[line_end+1:]
+                            
+                            # Decode
+                            line = line_bytes.decode('utf-8', errors='replace').strip()
+                            if not line: continue
+                            
+                            # Check if matches a pinned status key
+                            matched_key = None
+                            for key in status_lines:
+                                if line.startswith(key + ":") or line.startswith(key + " "):
+                                    # Handle "Loop:" and "Loop " variations just in case
+                                    matched_key = key
+                                    break
+                            
+                            if matched_key:
+                                status_lines[matched_key] = line
+                                redraw()
+                            else:
+                                log_buf.append(line)
+                                redraw()
+                                
                 except (socket.error, ValueError):
                     break
         
-        import select
         t = threading.Thread(target=reader_thread, daemon=True)
         t.start()
         
@@ -381,6 +451,10 @@ class Esp32Shell(cmd.Cmd):
         t.join(timeout=1.0)
         self.data_sock.close()
         self.data_sock = None
+
+        # 4. Disable Bridge (Abort)
+        print("Sending ABORT to exit Bridge mode...")
+        self._send_ctrl("ABORT")
 
     def _ensure_connected(self):
         if not self.connected:

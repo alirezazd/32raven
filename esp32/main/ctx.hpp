@@ -1,10 +1,11 @@
 #pragma once
 
 // Forward declarations
-struct IdleState;
-struct ListenState;
+struct ServingState;
+struct DfuState;
+struct BridgeState;
 struct ProgramState;
-struct ErrorState;
+struct HardErrorState;
 
 class System;
 
@@ -16,8 +17,9 @@ struct AppContext {
   System *sys = nullptr;
   StateMachine<AppContext> *sm = nullptr;
 
-  IdleState *idle_state = nullptr;
-  ListenState *listen_state = nullptr;
+  ServingState *serving_state = nullptr;
+  DfuState *dfu_state = nullptr;
+  BridgeState *bridge_state = nullptr;
   ProgramState *program_state = nullptr;
-  ErrorState *error_state = nullptr;
+  HardErrorState *hard_error_state = nullptr;
 };

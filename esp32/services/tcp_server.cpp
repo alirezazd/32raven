@@ -46,9 +46,9 @@ void TcpServer::Stop() {
 
   // Clear buffers/queues
   evt_head_ = evt_tail_ = 0;
-  up_head_ = up_tail_ = 0;
-  upload_overflow_ = false;
-  upload_enabled_ = false;
+  down_head_ = down_tail_ = 0;
+  download_overflow_ = false;
+  download_enabled_ = false;
 }
 
 void TcpServer::Poll(SmTick now) {
@@ -81,37 +81,49 @@ bool TcpServer::PushEvent(const Event &e) {
   return true;
 }
 
-void TcpServer::SetUploadEnabled(bool en) {
-  upload_enabled_ = en;
-  if (!upload_enabled_) {
-    up_head_ = up_tail_ = 0;
-    upload_overflow_ = false;
-  }
+void TcpServer::EnableBridge() { download_enabled_ = true; }
+
+void TcpServer::DisableBridge() {
+  download_enabled_ = false;
+  down_head_ = down_tail_ = 0;
+  download_overflow_ = false;
 }
 
-int TcpServer::ReadUpload(uint8_t *dst, size_t max_len) {
+void TcpServer::StartDownload(size_t total_size) {
+  download_enabled_ = true;
+  status_.total = total_size;
+  status_.rx = 0;
+}
+
+void TcpServer::StopDownload() {
+  download_enabled_ = false;
+  status_.total = 0;
+  status_.rx = 0;
+}
+
+int TcpServer::ReadDownload(uint8_t *dst, size_t max_len) {
   if (!dst || max_len == 0)
     return 0;
 
   size_t n = 0;
-  while (n < max_len && up_head_ != up_tail_) {
-    dst[n++] = up_[up_head_];
-    up_head_ = (up_head_ + 1) % kUpCap;
+  while (n < max_len && down_head_ != down_tail_) {
+    dst[n++] = down_[down_head_];
+    down_head_ = (down_head_ + 1) % kDownCap;
   }
   return (int)n;
 }
 
-bool TcpServer::WriteUpload(const uint8_t *data, size_t len) {
-  if (!upload_enabled_) {
+bool TcpServer::WriteDownload(const uint8_t *data, size_t len) {
+  if (!download_enabled_) {
     return false;
   }
-  if (len > RbFree(up_head_, up_tail_, kUpCap)) {
-    upload_overflow_ = true;
+  if (len > RbFree(down_head_, down_tail_, kDownCap)) {
+    download_overflow_ = true;
     return false;
   }
   for (size_t i = 0; i < len; ++i) {
-    up_[up_tail_] = data[i];
-    up_tail_ = (up_tail_ + 1) % kUpCap;
+    down_[down_tail_] = data[i];
+    down_tail_ = (down_tail_ + 1) % kDownCap;
   }
   return true;
 }
@@ -359,10 +371,10 @@ void TcpServer::PumpDataRx() {
   uint8_t buf[1024];
   for (int iter = 0; iter < 4; ++iter) { // bounded work
     // Flow control: check space before pulling from TCP
-    bool enabled = upload_enabled_;
-    size_t free = RbFree(up_head_, up_tail_, kUpCap);
+    bool enabled = download_enabled_;
+    size_t free = RbFree(down_head_, down_tail_, kDownCap);
 
-    // If upload is enabled but no space, stop reading to assert method
+    // If download is enabled but no space, stop reading to assert method
     // (backpressure). But we MUST check if the peer closed the connection!
     if (enabled && free == 0) {
       char dummy;
@@ -391,11 +403,11 @@ void TcpServer::PumpDataRx() {
     int r = recv(ctx_.data_fd, buf, cap, 0);
     if (r > 0) {
       // store bytes if allowed, else drop (policy controlled by App via
-      // SetUploadEnabled)
-      if (!WriteUpload(buf, (size_t)r)) {
-        // buffer full or upload disabled
-        // keep socket open; App can disable upload and/or close data connection
-        // by policy
+      // SetDownloadEnabled)
+      if (!WriteDownload(buf, (size_t)r)) {
+        // buffer full or download disabled
+        // keep socket open; App can disable download and/or close data
+        // connection by policy
       }
       continue;
     }
@@ -644,6 +656,14 @@ void TcpServer::HandleLine(const char *line) {
     return;
   }
 
+  if (StartsWithCI(p, "BRIDGE") || StartsWithCI(p, "MONITOR")) {
+    Event e{};
+    e.id = EventId::kBridge;
+    (void)PushEvent(e);
+    (void)SendCtrlLine("OK\n");
+    return;
+  }
+
   if (StartsWithCI(p, "STATUS?") || StartsWithCI(p, "STATUS")) {
     Status st = GetStatus();
     char buf[128];
@@ -815,9 +835,9 @@ esp_err_t TcpServer::Start() {
 
   // reset internal state (same as PART 1)
   evt_head_ = evt_tail_ = 0;
-  up_head_ = up_tail_ = 0;
-  upload_overflow_ = false;
-  upload_enabled_ = false;
+  down_head_ = down_tail_ = 0;
+  download_overflow_ = false;
+  download_enabled_ = false;
   status_ = Status{};
 
   ctx_.ctrl_listen_fd = -1;

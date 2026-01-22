@@ -11,11 +11,16 @@ idf_component_register(
         "../services/timebase.cpp"
         "../drivers/uart.cpp"
         "../drivers/programmer.cpp"
+        "../services/flight_controller.cpp"
+        "../services/mavlink.cpp"
         "../drivers/ep2_receiver.cpp"
     INCLUDE_DIRS
         "."
         "../drivers"
         "../services"
+        "../../libs/include"
         "../../libs/mavlink/common"
 
 )
+
+target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-address-of-packed-member")
