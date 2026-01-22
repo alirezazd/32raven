@@ -46,6 +46,7 @@ public:
     kBegin,
     kAbort,
     kReset,
+    kBridge, // Explicit command to enable transparent bridge
     kCtrlUp,
     kCtrlDown,
     kDataUp,
@@ -67,15 +68,18 @@ public:
 
   bool PopEvent(Event &out);
 
-  // Upload policy/backpressure owned by App SM
-  void SetUploadEnabled(bool en);
-  bool UploadEnabled() const { return upload_enabled_; }
+  // Helpers to manage download session
+  void EnableBridge();
+  void DisableBridge();
+  void StartDownload(size_t total_size);
+  void StopDownload();
+  bool DownloadEnabled() const { return download_enabled_; }
 
   // Binary bytes buffered from DATA socket
-  int ReadUpload(uint8_t *dst, size_t max_len);
+  int ReadDownload(uint8_t *dst, size_t max_len);
 
-  bool UploadOverflowed() const { return upload_overflow_; }
-  void ClearUploadOverflow() { upload_overflow_ = false; }
+  bool DownloadOverflowed() const { return download_overflow_; }
+  void ClearDownloadOverflow() { download_overflow_ = false; }
 
   // Status snapshot (App updates, client may query via STATUS?)
   struct Status {
@@ -147,7 +151,7 @@ private:
 
   // Queues/buffers
   bool PushEvent(const Event &e);
-  bool WriteUpload(const uint8_t *data, size_t len);
+  bool WriteDownload(const uint8_t *data, size_t len);
 
   // Line parser helper
   void ResetLinebuf();
@@ -177,13 +181,13 @@ private:
   size_t evt_head_ = 0;
   size_t evt_tail_ = 0;
 
-  // ---- upload ring buffer ----
-  static constexpr size_t kUpCap = 4096;
-  uint8_t up_[kUpCap]{};
-  size_t up_head_ = 0;
-  size_t up_tail_ = 0;
-  bool upload_overflow_ = false;
-  bool upload_enabled_ = false;
+  // ---- download ring buffer ----
+  static constexpr size_t kDownCap = 4096;
+  uint8_t down_[kDownCap]{};
+  size_t down_head_ = 0;
+  size_t down_tail_ = 0;
+  bool download_overflow_ = false;
+  bool download_enabled_ = false;
 
   // status
   Status status_{};

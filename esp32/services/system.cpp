@@ -72,6 +72,13 @@ void System::Init() {
     Panic("Programmer Init Failed");
   ESP_LOGI(kTag, "Programmer initialized");
 
+  Mavlink::GetInstance().Init(Mavlink::Config{}, &Uart(Uart::Id::kEp2));
+  ESP_LOGI(kTag, "Mavlink service initialized");
+
+  FlightController::GetInstance().Init(FlightController::Config{},
+                                       &Uart(Uart::Id::kStm32));
+  ESP_LOGI(kTag, "FlightController service initialized");
+
   initialized_ = true;
 }
 
@@ -82,6 +89,12 @@ LED &System::Led() { return LED::GetInstance(); }
 WifiController &System::Wifi() { return WifiController::GetInstance(); }
 
 ::TcpServer &System::Tcp() { return ::TcpServer::GetInstance(); }
+
+::Mavlink &System::Mavlink() { return ::Mavlink::GetInstance(); }
+
+::FlightController &System::FlightController() {
+  return ::FlightController::GetInstance();
+}
 
 ::Uart &System::Uart(::Uart::Id id) {
   if ((int)id < (int)::Uart::Id::kCount) {

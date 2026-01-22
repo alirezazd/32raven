@@ -10,13 +10,15 @@ AppContext::AppContext() {
 
   // 2) Allocate States
   // Using static ensures they live forever and are allocated once.
-  static IdleState s_idle;
-  static ListenState s_listen;
-  static ProgramState s_program;
-  static ErrorState s_error;
+  static ServingState serving;
+  static DfuState dfu;
+  static BridgeState bridge;
+  static ProgramState prog;
+  static HardErrorState err;
 
-  idle_state = &s_idle;
-  listen_state = &s_listen;
-  program_state = &s_program;
-  error_state = &s_error;
+  serving_state = &serving;
+  dfu_state = &dfu;
+  bridge_state = &bridge;
+  program_state = &prog;
+  hard_error_state = &err;
 }

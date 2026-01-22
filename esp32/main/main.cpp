@@ -17,7 +17,7 @@ extern "C" void app_main(void) { // NOLINT as IDF requires app_main
   StateMachine<AppContext> sm(ctx);
   ctx.sm = &sm; // I know it's weird, but it's the only way to do it like a man
 
-  sm.Start(*ctx.idle_state, NowMs());
+  sm.Start(*ctx.serving_state, NowMs());
   while (true) {
     sm.Step(NowMs());
     vTaskDelay(1); // must block at least 1 tick for watchdog

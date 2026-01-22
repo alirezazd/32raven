@@ -4,22 +4,30 @@
 
 struct AppContext;
 
-class IdleState : public IState<AppContext> {
+class ServingState : public IState<AppContext> {
 public:
-  const char *Name() const override { return "Idle"; }
+  const char *Name() const override { return "Serving"; }
 
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
 
 private:
-  char line_buf_[32]{};
-  size_t line_idx_ = 0;
+  bool in_flight_ = false;
 };
 
-class ListenState : public IState<AppContext> {
+class DfuState : public IState<AppContext> {
 public:
-  const char *Name() const override { return "Listen"; }
+  const char *Name() const override { return "Dfu"; }
+
+  void OnEnter(AppContext &ctx, SmTick now) override;
+  void OnStep(AppContext &ctx, SmTick now) override;
+  void OnExit(AppContext &ctx, SmTick now) override;
+};
+
+class BridgeState : public IState<AppContext> {
+public:
+  const char *Name() const override { return "Bridge"; }
 
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
@@ -28,6 +36,7 @@ public:
 private:
   char line_buf_[32]{};
   size_t line_idx_ = 0;
+  SmTick last_print_ = 0;
 };
 
 class ProgramState : public IState<AppContext> {
@@ -40,11 +49,12 @@ public:
 
 private:
   SmTick last_activity_ = 0;
+  uint32_t last_written_ = 0;
 };
 
-class ErrorState : public IState<AppContext> {
+class HardErrorState : public IState<AppContext> {
 public:
-  const char *Name() const override { return "Error"; }
+  const char *Name() const override { return "HardError"; }
 
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
