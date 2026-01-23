@@ -40,6 +40,22 @@ struct Header {
   uint8_t len;      // Payload Length
 };
 
+struct GpsData {
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t min;
+  uint8_t sec;
+  uint8_t valid;
+  uint32_t tAcc; // ns
+  int32_t lon;
+  int32_t lat;
+  int32_t height; // hMSL
+  uint8_t fixType;
+  uint8_t numSV;
+} __attribute__((packed));
+
 struct Packet {
   Header header;
   uint8_t payload[kMaxPayload];

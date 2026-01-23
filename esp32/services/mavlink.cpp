@@ -1,9 +1,12 @@
 #include "mavlink.hpp"
 extern "C" {
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 }
+#include <ctime>
 
-static const char *kTag = "mavlink";
+static constexpr const char *kTag = "mavlink";
 
 void Mavlink::Init(const Config &cfg, Uart *uart) {
   if (initialized_)
@@ -73,5 +76,114 @@ void Mavlink::Poll(uint32_t now) {
         break;
       }
     }
+  }
+
+  // Heartbeat (1Hz)
+  if (now - last_heartbeat_ >= 1000) {
+    SendHeartbeat();
+    last_heartbeat_ = now;
+  }
+}
+
+void Mavlink::SendHeartbeat() {
+  mavlink_message_t msg;
+  mavlink_heartbeat_t hb = {};
+  hb.type = MAV_TYPE_QUADROTOR;
+  hb.autopilot = MAV_AUTOPILOT_GENERIC;
+  hb.base_mode = MAV_MODE_FLAG_MANUAL_INPUT_ENABLED;
+  hb.system_status = MAV_STATE_ACTIVE;
+
+  mavlink_msg_heartbeat_encode(1, 1, &msg, &hb);
+
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+
+  if (uart_) {
+    uart_->Write(buf, len);
+  }
+}
+
+void Mavlink::SendSystemTime(const message::GpsData &t) {
+  uint64_t unix_time_us = 0;
+
+  if (t.year > 0) {
+    struct tm timeinfo = {};
+    timeinfo.tm_year = t.year - 1900;
+    timeinfo.tm_mon = t.month - 1;
+    timeinfo.tm_mday = t.day;
+    timeinfo.tm_hour = t.hour;
+    timeinfo.tm_min = t.min;
+    timeinfo.tm_sec = t.sec;
+    timeinfo.tm_isdst = 0;
+
+    time_t uts = mktime(&timeinfo);
+    if (uts != -1) {
+      unix_time_us = (uint64_t)uts * 1000000ULL;
+    }
+  }
+
+  mavlink_message_t msg;
+  mavlink_system_time_t st = {};
+  st.time_unix_usec = unix_time_us;
+  st.time_boot_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+
+  mavlink_msg_system_time_encode(1, 1, &msg, &st);
+
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+
+  if (uart_) {
+    uart_->Write(buf, len);
+  }
+}
+
+void Mavlink::SendGpsRawInt(const message::GpsData &t) {
+  mavlink_message_t msg;
+  mavlink_gps_raw_int_t gps = {};
+
+  // Time since boot in us (not absolute time)
+  gps.time_usec = (uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS * 1000;
+  gps.fix_type = t.fixType; // 0-1: no fix, 2: 2D, 3: 3D
+  gps.lat = t.lat;          // deg * 1E7
+  gps.lon = t.lon;          // deg * 1E7
+  gps.alt = t.height;       // mm (MSL)
+  gps.eph = UINT16_MAX;     // Unknown
+  gps.epv = UINT16_MAX;     // Unknown
+  gps.vel = UINT16_MAX;     // Unknown
+  gps.cog = UINT16_MAX;     // Unknown
+  gps.satellites_visible = t.numSV;
+
+  mavlink_msg_gps_raw_int_encode(1, 1, &msg, &gps);
+
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+
+  if (uart_) {
+    uart_->Write(buf, len);
+  }
+}
+
+void Mavlink::SendGlobalPositionInt(const message::GpsData &t) {
+  mavlink_message_t msg;
+  mavlink_global_position_int_t pos = {};
+
+  pos.time_boot_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+  pos.lat = t.lat;    // deg * 1E7
+  pos.lon = t.lon;    // deg * 1E7
+  pos.alt = t.height; // mm (MSL)
+  pos.relative_alt =
+      t.height;         // mm (Height above home - simplified as MSL for now)
+  pos.vx = 0;           // Unknown
+  pos.vy = 0;           // Unknown
+  pos.vz = 0;           // Unknown
+  pos.hdg = UINT16_MAX; // Unknown
+
+  mavlink_msg_global_position_int_encode(1, 1, &msg, &pos);
+
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+
+  if (uart_) {
+    uart_->Write(buf, len);
   }
 }

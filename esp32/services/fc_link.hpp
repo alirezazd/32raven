@@ -3,12 +3,12 @@
 #include "message.hpp"
 #include "uart.hpp"
 
-class FlightController {
+class FcLink {
 public:
   struct Config {};
 
-  static FlightController &GetInstance() {
-    static FlightController instance;
+  static FcLink &GetInstance() {
+    static FcLink instance;
     return instance;
   }
 
@@ -17,6 +17,7 @@ public:
 
   // API
   bool SendPacket(const message::Packet &pkt);
+  bool Dispatch(const message::Packet &pkt);
   bool PerformHandshake(); // Blocking handshake (Ping/Pong)
 
   // Checks if a new packet was received and retrieves it.
@@ -27,10 +28,10 @@ public:
   bool IsConnected() const;
 
 private:
-  FlightController() = default;
-  ~FlightController() = default;
-  FlightController(const FlightController &) = delete;
-  FlightController &operator=(const FlightController &) = delete;
+  FcLink() = default;
+  ~FcLink() = default;
+  FcLink(const FcLink &) = delete;
+  FcLink &operator=(const FcLink &) = delete;
 
   Uart *uart_ = nullptr;
   Config cfg_;

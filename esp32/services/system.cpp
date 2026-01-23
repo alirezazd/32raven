@@ -75,14 +75,21 @@ void System::Init() {
   Mavlink::GetInstance().Init(Mavlink::Config{}, &Uart(Uart::Id::kEp2));
   ESP_LOGI(kTag, "Mavlink service initialized");
 
-  FlightController::GetInstance().Init(FlightController::Config{},
-                                       &Uart(Uart::Id::kStm32));
-  ESP_LOGI(kTag, "FlightController service initialized");
+  FcLink::GetInstance().Init(FcLink::Config{}, &Uart(Uart::Id::kStm32));
+  ESP_LOGI(kTag, "FcLink service initialized");
+
+  CommandHandler::GetInstance().Init(CommandHandler::Config{});
+  ESP_LOGI(kTag, "CommandHandler service initialized");
 
   initialized_ = true;
 }
 
-LED &System::Led() { return LED::GetInstance(); }
+void System::StopNetwork() {
+  WifiController::GetInstance().Stop();
+  TcpServer::GetInstance().Stop();
+}
+
+::LED &System::Led() { return LED::GetInstance(); }
 
 ::Button &System::Button() { return ::Button::GetInstance(); }
 
@@ -92,8 +99,10 @@ WifiController &System::Wifi() { return WifiController::GetInstance(); }
 
 ::Mavlink &System::Mavlink() { return ::Mavlink::GetInstance(); }
 
-::FlightController &System::FlightController() {
-  return ::FlightController::GetInstance();
+::FcLink &System::FcLink() { return ::FcLink::GetInstance(); }
+
+::CommandHandler &System::CommandHandler() {
+  return ::CommandHandler::GetInstance();
 }
 
 ::Uart &System::Uart(::Uart::Id id) {
