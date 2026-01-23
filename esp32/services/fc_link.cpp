@@ -1,4 +1,4 @@
-#include "flight_controller.hpp"
+#include "fc_link.hpp"
 #include <cstring>
 
 extern "C" {
@@ -7,9 +7,9 @@ extern "C" {
 #include "freertos/task.h"
 }
 
-static const char *kTag = "flight";
+static constexpr const char *kTag = "link";
 
-void FlightController::Init(const Config &cfg, Uart *uart) {
+void FcLink::Init(const Config &cfg, Uart *uart) {
   if (initialized_)
     return;
   cfg_ = cfg;
@@ -18,7 +18,7 @@ void FlightController::Init(const Config &cfg, Uart *uart) {
   ESP_LOGI(kTag, "Initialized");
 }
 
-bool FlightController::PerformHandshake() {
+bool FcLink::PerformHandshake() {
   if (!initialized_ || !uart_)
     return false;
 
@@ -51,7 +51,7 @@ bool FlightController::PerformHandshake() {
   return false;
 }
 
-bool FlightController::SendPacket(const message::Packet &pkt) {
+bool FcLink::SendPacket(const message::Packet &pkt) {
   if (!initialized_ || !uart_)
     return false;
 
@@ -62,7 +62,7 @@ bool FlightController::SendPacket(const message::Packet &pkt) {
   return true;
 }
 
-bool FlightController::GetPacket(message::Packet &out_pkt) {
+bool FcLink::GetPacket(message::Packet &out_pkt) {
   if (rx_pkt_ready_) {
     out_pkt = rx_pkt_out_;
     rx_pkt_ready_ = false;
@@ -71,7 +71,7 @@ bool FlightController::GetPacket(message::Packet &out_pkt) {
   return false;
 }
 
-bool FlightController::IsConnected() const {
+bool FcLink::IsConnected() const {
   // Simple timeout-based check (e.g., received something in last 2 seconds)
   // For now, return true if active recently
   return (rx_state_ != RxState::kMagic1);
@@ -81,7 +81,7 @@ bool FlightController::IsConnected() const {
   return true;
 }
 
-void FlightController::Poll(uint32_t now) {
+void FcLink::Poll(uint32_t now) {
   (void)now;
   if (!initialized_ || !uart_)
     return;

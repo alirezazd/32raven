@@ -32,6 +32,7 @@ all: configure
 
 esp32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target esp32
+	@bash -lc ". \"$(IDF_PATH)/export.sh\" && python3 scripts/esp32_size.py $(BUILD_DIR)/esp32/stm32_wifi_flasher.map $(BUILD_DIR)/esp32/stm32_wifi_flasher.bin"
 
 stm32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target stm32
