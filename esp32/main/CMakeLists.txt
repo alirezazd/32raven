@@ -11,7 +11,8 @@ idf_component_register(
         "../services/timebase.cpp"
         "../drivers/uart.cpp"
         "../drivers/programmer.cpp"
-        "../services/flight_controller.cpp"
+        "../services/fc_link.cpp"
+        "../services/command_handler.cpp"
         "../services/mavlink.cpp"
         "../drivers/ep2_receiver.cpp"
     INCLUDE_DIRS

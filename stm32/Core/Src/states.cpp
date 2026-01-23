@@ -41,10 +41,43 @@ void IdleState::OnEnter(AppContext &ctx, SmTick now) {
 }
 
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
-  auto &uart = ctx.sys->GetUart();
+  auto &uart = ctx.sys->GetUart(); // Console
 
-  // Process UART
+  // --- Process GPS (UART2) ---
+  auto &gps_uart = ctx.sys->GetUart2();
+  auto &gps_svc = ctx.sys->ServiceM9N();
   uint8_t c;
+  while (gps_uart.Read(c)) {
+    gps_svc.ProcessByte(c);
+    if (gps_svc.NewDataAvailable()) {
+      const auto &pvt = gps_svc.GetData();
+
+      // Temporary: Send GPS RTC to ESP32
+      message::GpsData t;
+      t.year = pvt.year;
+      t.month = pvt.month;
+      t.day = pvt.day;
+      t.hour = pvt.hour;
+      t.min = pvt.min;
+      t.sec = pvt.sec;
+      t.valid = pvt.valid;
+      t.tAcc = pvt.tAcc;
+      t.lon = pvt.lon;
+      t.lat = pvt.lat;
+      t.height = pvt.hMSL;
+      t.fixType = pvt.fixType;
+      t.numSV = pvt.numSV;
+
+      uint8_t tx_buf[64];
+      size_t tx_len = message::Serialize(message::MsgId::kGpsData,
+                                         (uint8_t *)&t, sizeof(t), tx_buf);
+      uart.Send(tx_buf, tx_len);
+
+      gps_svc.ClearNewDataFlag();
+    }
+  }
+
+  // Process Console UART logic (Protocol Parser)
   while (uart.Read(c)) {
     switch (rx_state_) {
     case RxState::kMagic1:

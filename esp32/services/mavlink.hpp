@@ -1,5 +1,6 @@
 #pragma once
 
+#include "message.hpp"
 #include "uart.hpp"
 #include <mavlink.h>
 
@@ -44,4 +45,13 @@ private:
 
   // Data
   RcData rc_{};
+
+  // Heartbeat
+  uint32_t last_heartbeat_ = 0;
+  void SendHeartbeat();
+
+public:
+  void SendSystemTime(const message::GpsData &t);
+  void SendGpsRawInt(const message::GpsData &t);
+  void SendGlobalPositionInt(const message::GpsData &t);
 };

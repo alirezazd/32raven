@@ -1,6 +1,7 @@
 #pragma once
 #include "button.hpp"
-#include "flight_controller.hpp"
+#include "command_handler.hpp"
+#include "fc_link.hpp"
 #include "led.hpp"
 #include "mavlink.hpp"
 #include "programmer.hpp"
@@ -39,16 +40,18 @@ public:
     return instance;
   }
 
-  LED &Led();
+  ::LED &Led();
   ::Button &Button();
   ::WifiController &Wifi();
   ::TcpServer &Tcp();
   ::Mavlink &Mavlink();
-  ::FlightController &FlightController();
+  ::FcLink &FcLink();
+  ::CommandHandler &CommandHandler();
   ::Uart &Uart(::Uart::Id id);
   ::Uart &Uart(); // Default to STM32 for backward compatibility
   ::Programmer &Programmer();
   void Init();
+  void StopNetwork();
 
 private:
   ::Uart uarts_[(int)::Uart::Id::kCount];

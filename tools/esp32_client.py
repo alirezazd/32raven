@@ -406,24 +406,48 @@ class Esp32Shell(cmd.Cmd):
                             line_bytes = rx_buf[:line_end]
                             rx_buf = rx_buf[line_end+1:]
                             
-                            # Decode
-                            line = line_bytes.decode('utf-8', errors='replace').strip()
-                            if not line: continue
-                            
-                            # Check if matches a pinned status key
+                            # Decode (ignore errors to drop garbage bytes)
+                            line_str = line_bytes.decode('utf-8', errors='ignore').strip()
+                            if not line_str: continue
+
+                            # Heuristic: Check for our known keys anywhere in the line
+                            # This handles cases where binary data precedes the text in the same chunk
                             matched_key = None
+                            
+                            # Clean up the line for processing (keep only printable)
+                            # This regex keeps alphanumeric, punctuation and common symbols
+                            clean_line = re.sub(r'[^\x20-\x7E]', '', line_str).strip()
+                            
                             for key in status_lines:
-                                if line.startswith(key + ":") or line.startswith(key + " "):
-                                    # Handle "Loop:" and "Loop " variations just in case
-                                    matched_key = key
-                                    break
+                                # Loose matching: look for "KEY: " or "KEY "
+                                if (key + ":") in clean_line or (key + " ") in clean_line:
+                                    # We found a status line. Ensure we capture the whole relevant part.
+                                    # Find the index
+                                    idx = clean_line.find(key)
+                                    if idx >= 0:
+                                        status_lines[key] = clean_line[idx:]
+                                        matched_key = key
+                                        break
                             
                             if matched_key:
-                                status_lines[matched_key] = line
                                 redraw()
                             else:
-                                log_buf.append(line)
-                                redraw()
+                                # Strict Log Filter
+                                # We only want to see ESP-IDF logs or clear text messages.
+                                # Binary protocol (0xAA 0x55...) often decodes to "U..." or garbage.
+                                
+                                # Check for ESP-IDF log format: "I (123) tag: message"
+                                is_log = re.match(r'^[IDWEV] \(\d+\) ', clean_line)
+                                
+                                # Check for other informative text (e.g. --- Header --- or "Connected")
+                                is_text = clean_line.startswith("---") or \
+                                          clean_line.startswith("Connected") or \
+                                          clean_line.startswith("State")
+                                
+                                if is_log or is_text:
+                                    log_buf.append(clean_line)
+                                    redraw()
+                                # Else: Drop it (likely binary protocol data)
                                 
                 except (socket.error, ValueError):
                     break

@@ -19,63 +19,20 @@ static constexpr const char *kTag = "states";
 // Serving State (Default Runtime)
 // =========================================================================
 
-#include "dispatcher.hpp"
-
-// --- Handlers ---
-
-static void OnPong(AppContext &ctx, const message::Packet &pkt) {
-  (void)ctx;
-  (void)pkt;
-  // Pong is usually handled by handshake logic, but if valid here, good.
-  ESP_LOGI(kTag, "CMD: Pong");
-}
-
-static void OnPing(AppContext &ctx, const message::Packet &pkt) {
-  (void)pkt;
-  ESP_LOGI(kTag, "CMD: Ping -> Sending Pong");
-  // Send Pong back
-  message::Packet tx_pkt;
-  tx_pkt.header.id = (uint8_t)message::MsgId::kPong;
-  tx_pkt.header.len = 0;
-  ctx.sys->FlightController().SendPacket(tx_pkt);
-}
-
-static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
-  (void)ctx;
-  // Log RC Channels (maybe rate limited?)
-  // Payload: [TargetSys, TargetComp, Ch1..18]
-  // Verify length
-  if (pkt.header.len < 2 + 18 * 2)
-    return;
-
-  // Just log for now to prove it works
-  // ESP_LOGI(kTag, "CMD: RC Channels Received");
-}
-
-// --- Dispatch Table ---
-static const Epistole::Dispatcher<AppContext>::Entry kServingHandlers[] = {
-    {message::MsgId::kPong, OnPong},
-    {message::MsgId::kPing, OnPing},
-    {message::MsgId::kRcChannels, OnRcChannels},
-};
-
-static const Epistole::Dispatcher<AppContext>
-    kServingDispatcher(kServingHandlers,
-                       sizeof(kServingHandlers) / sizeof(kServingHandlers[0]));
+// --- Handlers moved to FlightController ---
 
 void ServingState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
   ESP_LOGI(kTag, "entering Serving");
   // Ensure WiFi/TCP are off when entering Serving state
-  ctx.sys->Tcp().Stop();
-  ctx.sys->Wifi().Stop();
+  ctx.sys->StopNetwork();
 
   in_flight_ = false; // Default to not in flight upon entry
 
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
 
   // --- Handshake Logic ---
-  if (!ctx.sys->FlightController().PerformHandshake()) {
+  if (!ctx.sys->FcLink().PerformHandshake()) {
     // Fail - go to DFU
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
@@ -84,10 +41,10 @@ void ServingState::OnEnter(AppContext &ctx, SmTick now) {
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->Mavlink().Poll(now);
-  ctx.sys->FlightController().Poll(now);
+  ctx.sys->FcLink().Poll(now);
   message::Packet pkt;
-  if (ctx.sys->FlightController().GetPacket(pkt)) {
-    if (!kServingDispatcher.Dispatch(ctx, pkt)) {
+  if (ctx.sys->FcLink().GetPacket(pkt)) {
+    if (!ctx.sys->CommandHandler().Dispatch(ctx, pkt)) {
       // Unknown command
     }
   }
@@ -374,14 +331,38 @@ void ProgramState::OnExit(AppContext &ctx, SmTick) {
 
 void HardErrorState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
-  ESP_LOGE(kTag, "ENTERING HARD ERROR STATE (LOCKED)");
+  ESP_LOGE(kTag, "ENTERING HARD ERROR STATE");
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 100);
+
+  // Enable WiFi/TCP for remote debugging
+  ctx.sys->Wifi().StartAp();
+  ctx.sys->Tcp().Start();
+
+  // Wait a bit for connection? No, just broadcast if connected.
+  // We can't easily wait here in OnEnter without blocking state machine.
+  // But we can queue a message.
 }
 
 void HardErrorState::OnStep(AppContext &ctx, SmTick now) {
-  (void)ctx;
-  (void)now;
-  // Locked. No exit logic.
+  // Poll system services to keep them alive (e.g. flushing TCP buffers)
+  ctx.sys->Tcp().Poll(now);
+
+  // Send Error Message periodically to any connected client
+  static uint32_t last_log = 0;
+  if (now - last_log > 1000) {
+    last_log = now;
+    const char *msg =
+        "CRITICAL ERROR: System Halted. Physical Reset Required.\n";
+    ctx.sys->Tcp().SendData((const uint8_t *)msg, strlen(msg));
+  }
+
+  // Consume and ignore all TCP events to prevent state transitions
+  TcpServer::Event ev;
+  while (ctx.sys->Tcp().PopEvent(ev)) {
+    // Ignore
+  }
 }
 
-void HardErrorState::OnExit(AppContext &, SmTick) {}
+void HardErrorState::OnExit(AppContext &, SmTick) {
+  // Should never exit
+}
