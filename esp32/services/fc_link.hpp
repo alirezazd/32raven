@@ -1,6 +1,7 @@
 #pragma once
 
 #include "message.hpp"
+#include "ring_buffer.hpp"
 #include "uart.hpp"
 
 class FcLink {
@@ -38,8 +39,9 @@ private:
   bool initialized_ = false;
 
   // RX Data
-  message::Packet rx_pkt_out_{};
-  bool rx_pkt_ready_ = false;
+  // RX Data
+  static constexpr size_t kQueueSize = 10;
+  RingBuffer<message::Packet, kQueueSize> queue_;
 
   // Internal Logic State
   enum class LogicState {

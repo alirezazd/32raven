@@ -17,6 +17,8 @@ void Mavlink::Init(const Config &cfg, Uart *uart) {
   ESP_LOGI(kTag, "Initialized (RC Receiver)");
 }
 
+bool Mavlink::GetMessage(mavlink_message_t &msg) { return queue_.Pop(msg); }
+
 void Mavlink::Poll(uint32_t now) {
   (void)now;
   if (!initialized_ || !uart_)
@@ -31,9 +33,8 @@ void Mavlink::Poll(uint32_t now) {
   for (int i = 0; i < n; ++i) {
     if (mavlink_parse_char(MAVLINK_COMM_0, buf[i], &rx_msg_, &rx_status_)) {
       // ESP_LOGI(kTag, "Parsed Msg %d", rx_msg_.msgid);
-      // Packet Received
-      if (handler_) {
-        handler_(rx_msg_);
+      if (!queue_.Push(rx_msg_)) {
+        __asm__ __volatile__("nop");
       }
 
       switch (rx_msg_.msgid) {
@@ -43,45 +44,41 @@ void Mavlink::Poll(uint32_t now) {
 
         static uint32_t last_log = 0;
         if (now - last_log > 1000) {
-          // ESP_LOGI(kTag, "RC Ovr: Ch1=%d Ch2=%d", rc.chan1_raw,
-          // rc.chan2_raw);
           last_log = now;
-        }
 
-        // Store
-        rc_.channels[0] = rc.chan1_raw; // Roll
-        rc_.channels[1] = rc.chan2_raw; // Pitch
-        rc_.channels[2] = rc.chan3_raw; // Throttle
-        rc_.channels[3] = rc.chan4_raw; // Yaw
-        rc_.channels[4] = rc.chan5_raw; // Arm/Disarm
-        rc_.channels[5] = rc.chan6_raw; // Arm/Disarm/Buzzer
-        rc_.channels[6] = rc.chan7_raw;
-        rc_.channels[7] = rc.chan8_raw;
-        rc_.channels[8] = rc.chan9_raw;
-        rc_.channels[9] = rc.chan10_raw;
-        rc_.channels[10] = rc.chan11_raw;
-        rc_.channels[11] = rc.chan12_raw;
-        rc_.channels[12] = rc.chan13_raw;
-        rc_.channels[13] = rc.chan14_raw;
-        rc_.channels[14] = rc.chan15_raw;
-        rc_.channels[15] = rc.chan16_raw;
-        rc_.channels[16] = rc.chan17_raw;
-        rc_.channels[17] = rc.chan18_raw;
-        rc_.count = 18;
-        rc_.last_update = now;
-        break;
-      }
+          rc_.channels[0] = rc.chan1_raw; // Roll
+          rc_.channels[1] = rc.chan2_raw; // Pitch
+          rc_.channels[2] = rc.chan3_raw; // Throttle
+          rc_.channels[3] = rc.chan4_raw; // Yaw
+          rc_.channels[4] = rc.chan5_raw; // Arm/Disarm
+          rc_.channels[5] = rc.chan6_raw; // Arm/Disarm/Buzzer
+          rc_.channels[6] = rc.chan7_raw;
+          rc_.channels[7] = rc.chan8_raw;
+          rc_.channels[8] = rc.chan9_raw;
+          rc_.channels[9] = rc.chan10_raw;
+          rc_.channels[10] = rc.chan11_raw;
+          rc_.channels[11] = rc.chan12_raw;
+          rc_.channels[12] = rc.chan13_raw;
+          rc_.channels[13] = rc.chan14_raw;
+          rc_.channels[14] = rc.chan15_raw;
+          rc_.channels[15] = rc.chan16_raw;
+          rc_.channels[16] = rc.chan17_raw;
+          rc_.channels[17] = rc.chan18_raw;
+          rc_.count = 18;
+          rc_.last_update = now;
+          break;
+        }
       default:
         // Ignore others
         break;
       }
+      }
     }
-  }
 
-  // Heartbeat (1Hz)
-  if (now - last_heartbeat_ >= 1000) {
-    SendHeartbeat();
-    last_heartbeat_ = now;
+    if (now - last_heartbeat_ >= 1000) {
+      SendHeartbeat();
+      last_heartbeat_ = now;
+    }
   }
 }
 
@@ -141,16 +138,15 @@ void Mavlink::SendGpsRawInt(const message::GpsData &t) {
   mavlink_message_t msg;
   mavlink_gps_raw_int_t gps = {};
 
-  // Time since boot in us (not absolute time)
   gps.time_usec = (uint64_t)xTaskGetTickCount() * portTICK_PERIOD_MS * 1000;
   gps.fix_type = t.fixType; // 0-1: no fix, 2: 2D, 3: 3D
   gps.lat = t.lat;          // deg * 1E7
   gps.lon = t.lon;          // deg * 1E7
-  gps.alt = t.height;       // mm (MSL)
+  gps.alt = t.hMSL;         // mm (MSL)
   gps.eph = UINT16_MAX;     // Unknown
   gps.epv = UINT16_MAX;     // Unknown
-  gps.vel = UINT16_MAX;     // Unknown
-  gps.cog = UINT16_MAX;     // Unknown
+  gps.vel = t.vel;          // cm/s
+  gps.cog = t.hdg;          // cdeg
   gps.satellites_visible = t.numSV;
 
   mavlink_msg_gps_raw_int_encode(1, 1, &msg, &gps);
@@ -168,15 +164,15 @@ void Mavlink::SendGlobalPositionInt(const message::GpsData &t) {
   mavlink_global_position_int_t pos = {};
 
   pos.time_boot_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
-  pos.lat = t.lat;    // deg * 1E7
-  pos.lon = t.lon;    // deg * 1E7
-  pos.alt = t.height; // mm (MSL)
+  pos.lat = t.lat;  // deg * 1E7
+  pos.lon = t.lon;  // deg * 1E7
+  pos.alt = t.hMSL; // mm (MSL)
   pos.relative_alt =
-      t.height;         // mm (Height above home - simplified as MSL for now)
-  pos.vx = 0;           // Unknown
-  pos.vy = 0;           // Unknown
-  pos.vz = 0;           // Unknown
-  pos.hdg = UINT16_MAX; // Unknown
+      t.hMSL;      // mm (Height above home - simplified as MSL for now)
+  pos.vx = 0;      // Unknown (Need NED velocity to populate)
+  pos.vy = 0;      // Unknown
+  pos.vz = 0;      // Unknown
+  pos.hdg = t.hdg; // cdeg
 
   mavlink_msg_global_position_int_encode(1, 1, &msg, &pos);
 

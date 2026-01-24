@@ -1,6 +1,7 @@
 #pragma once
 
 #include "message.hpp"
+#include "ring_buffer.hpp"
 #include "uart.hpp"
 #include <mavlink.h>
 
@@ -22,13 +23,14 @@ public:
   void Init(const Config &cfg, Uart *uart);
   void Poll(uint32_t now);
 
-  using MsgHandler = void (*)(const mavlink_message_t &msg);
-  void SetHandler(MsgHandler handler) { handler_ = handler; }
+  // Pop a message from the internal buffer. Returns true if msg valid.
+  bool GetMessage(mavlink_message_t &msg);
 
   const RcData &GetRc() const { return rc_; }
 
 private:
-  MsgHandler handler_ = nullptr;
+  static constexpr size_t kQueueSize = 10;
+  RingBuffer<mavlink_message_t, kQueueSize> queue_;
   Mavlink() = default;
   ~Mavlink() = default;
   Mavlink(const Mavlink &) = delete;
