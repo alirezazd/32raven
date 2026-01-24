@@ -51,7 +51,9 @@ struct GpsData {
   uint32_t tAcc; // ns
   int32_t lon;
   int32_t lat;
-  int32_t height; // hMSL
+  int32_t hMSL; // hMSL
+  uint16_t vel; // cm/s
+  uint16_t hdg; // cdeg
   uint8_t fixType;
   uint8_t numSV;
 } __attribute__((packed));

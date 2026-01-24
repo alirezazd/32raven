@@ -89,6 +89,11 @@ void System::StopNetwork() {
   TcpServer::GetInstance().Stop();
 }
 
+void System::StartNetwork() {
+  WifiController::GetInstance().StartAp();
+  TcpServer::GetInstance().Start();
+}
+
 ::LED &System::Led() { return LED::GetInstance(); }
 
 ::Button &System::Button() { return ::Button::GetInstance(); }

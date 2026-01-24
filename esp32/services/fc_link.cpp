@@ -26,8 +26,6 @@ bool FcLink::PerformHandshake() {
 
   uint8_t tx_buf[32];
   size_t tx_len = message::Serialize(message::MsgId::kPing, nullptr, 0, tx_buf);
-
-  // Handshake Parameters
   const int kDurationMs = 1000;
   const int kPeriodMs = 20;
   const int kAttempts = kDurationMs / kPeriodMs;
@@ -36,7 +34,7 @@ bool FcLink::PerformHandshake() {
     uart_->Write(tx_buf, tx_len);
     vTaskDelay(pdMS_TO_TICKS(kPeriodMs));
 
-    Poll(0); // Feed parser
+    Poll(0);
 
     message::Packet response;
     if (GetPacket(response)) {
@@ -62,31 +60,18 @@ bool FcLink::SendPacket(const message::Packet &pkt) {
   return true;
 }
 
-bool FcLink::GetPacket(message::Packet &out_pkt) {
-  if (rx_pkt_ready_) {
-    out_pkt = rx_pkt_out_;
-    rx_pkt_ready_ = false;
-    return true;
-  }
-  return false;
-}
+bool FcLink::GetPacket(message::Packet &out_pkt) { return queue_.Pop(out_pkt); }
 
-bool FcLink::IsConnected() const {
-  // Simple timeout-based check (e.g., received something in last 2 seconds)
-  // For now, return true if active recently
-  return (rx_state_ != RxState::kMagic1);
-  // Actually better:
-  // return (xTaskGetTickCount() - last_activity_ < pdMS_TO_TICKS(2000));
-  // But let's leave implementation simple.
-  return true;
-}
+bool FcLink::IsConnected() const { return (rx_state_ != RxState::kMagic1); }
 
 void FcLink::Poll(uint32_t now) {
   (void)now;
   if (!initialized_ || !uart_)
     return;
 
-  // Process all available bytes
+  if (!initialized_ || !uart_)
+    return;
+
   uint8_t buf[128];
   int n = uart_->Read(buf, sizeof(buf));
 
@@ -124,7 +109,8 @@ void FcLink::Poll(uint32_t now) {
     case RxState::kCrc2:
       rx_pkt_internal_.crc |= ((uint16_t)b << 8);
 
-      // Verify CRC
+      rx_pkt_internal_.crc |= ((uint16_t)b << 8);
+
       {
         uint8_t check_buf[sizeof(message::Header) + 256];
         message::Header *h = (message::Header *)check_buf;
@@ -139,15 +125,15 @@ void FcLink::Poll(uint32_t now) {
         if (message::Crc16(check_buf, sizeof(message::Header) + rx_len_) ==
             rx_pkt_internal_.crc) {
 
-          // Valid Packet - Copy to output
-          rx_pkt_out_.header.id = rx_pkt_internal_.id;
-          rx_pkt_out_.header.len = rx_len_;
+          message::Packet pkt;
+          pkt.header.id = rx_pkt_internal_.id;
+          pkt.header.len = rx_len_;
           if (rx_len_ > 0)
-            memcpy(rx_pkt_out_.payload, rx_pkt_internal_.payload, rx_len_);
-          rx_pkt_out_.crc = rx_pkt_internal_.crc;
+            memcpy(pkt.payload, rx_pkt_internal_.payload, rx_len_);
+          pkt.crc = rx_pkt_internal_.crc;
 
-          rx_pkt_ready_ = true;
-          // last_activity_ = now;
+          if (!queue_.Push(pkt)) {
+          }
         } else {
           ESP_LOGE(kTag, "CRC Fail");
         }
