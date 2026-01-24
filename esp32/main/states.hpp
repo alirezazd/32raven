@@ -25,20 +25,6 @@ public:
   void OnExit(AppContext &ctx, SmTick now) override;
 };
 
-class BridgeState : public IState<AppContext> {
-public:
-  const char *Name() const override { return "Bridge"; }
-
-  void OnEnter(AppContext &ctx, SmTick now) override;
-  void OnStep(AppContext &ctx, SmTick now) override;
-  void OnExit(AppContext &ctx, SmTick now) override;
-
-private:
-  char line_buf_[32]{};
-  size_t line_idx_ = 0;
-  SmTick last_print_ = 0;
-};
-
 class ProgramState : public IState<AppContext> {
 public:
   const char *Name() const override { return "Program"; }

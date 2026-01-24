@@ -63,6 +63,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/icm20948.cpp
     Core/Src/states.cpp
     Services/Src/m9n_service.cpp
+    Services/Src/fc_link.cpp
+    Services/Src/command_handler.cpp
 )
 
 # Create binary file

@@ -3,7 +3,9 @@
 
 #include "board.h"
 #include "button.hpp"
+#include "command_handler.hpp"
 #include "dshot_tim1.hpp"
+#include "fc_link.hpp"
 #include "gpio.hpp"
 #include "icm20948.hpp"
 #include "led.hpp"
@@ -13,6 +15,7 @@
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "user_config.hpp" // For SystemConfig
+#include "vehicle_state.hpp"
 
 class System {
 public:
@@ -47,9 +50,14 @@ public:
   M9NService &ServiceM9N() { return m9n_service_; }
   Icm20948 &GetImu() { return Icm20948::GetInstance(); }
 
+  VehicleState &GetVehicleState() { return vehicle_state_; }
+  FcLink &GetFcLink() { return FcLink::GetInstance(); }
+  CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
+
 private:
   bool initialized_ = false;
   M9NService m9n_service_;
+  VehicleState vehicle_state_;
 
   System();
   ~System() {}

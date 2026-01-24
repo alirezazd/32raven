@@ -52,6 +52,7 @@ public:
   ::Programmer &Programmer();
   void Init();
   void StopNetwork();
+  void StartNetwork();
 
 private:
   ::Uart uarts_[(int)::Uart::Id::kCount];
