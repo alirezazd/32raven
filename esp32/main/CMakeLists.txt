@@ -12,9 +12,9 @@ idf_component_register(
         "../drivers/uart.cpp"
         "../drivers/programmer.cpp"
         "../services/fc_link.cpp"
-        "../services/command_handler.cpp"
+        "../main/command_handler.cpp"
         "../services/mavlink.cpp"
-        "../drivers/ep2_receiver.cpp"
+        "../services/mavlink_tx_task.cpp"
     INCLUDE_DIRS
         "."
         "../drivers"

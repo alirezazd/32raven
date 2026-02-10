@@ -20,7 +20,11 @@ void ErrorHandler(void);
 #define SPI1_CS_GPIO_Port GPIOA
 #define IMU_INT_Pin GPIO_PIN_10
 #define IMU_INT_GPIO_Port GPIOB
+#define IMU_FSYNC_Pin GPIO_PIN_11
+#define IMU_FSYNC_GPIO_Port GPIOB
 #define IMU_INT_EXTI_IRQn EXTI15_10_IRQn
+#define GPS_TIMEPULSE_Pin GPIO_PIN_15
+#define GPS_TIMEPULSE_GPIO_Port GPIOA
 
 #ifdef __cplusplus
 }

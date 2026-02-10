@@ -28,18 +28,26 @@ void System::Init(const SystemConfig &config) {
   ConfigureSystemClock(config);
 
   // Initialize Drivers
-
+  // 1. Core IO/LED first for debugging
   GPIO::GetInstance().Init(kGpioDefault);
+  LED::GetInstance().Init(kLedDefault);
+  LED::GetInstance().Set(true); // Indicator: Boot started
+
   Spi<SpiInstance::kSpi1>::GetInstance().Init(kSpi1Config);
   DShotTim1::init(kDshotTim1Default);
   // I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
+
+  // 2. Complex drivers
   System::GetInstance().Time().Init(kTimeBaseDefault);
-  LED::GetInstance().Init(kLedDefault);
   Button::GetInstance().Init(kButtonDefault);
   Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
   Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
   M9N::GetInstance().Init();
-  Icm20948::GetInstance().Init(kIcm20948Config);
+  // Icm20948::GetInstance().Init(kIcm20948Config);
+  Icm42688p::GetInstance().Init(kIcm42688pConfig);
+
+  // Init Complete: LEAVE LED ON for Debugging
+  // LED::GetInstance().Set(false);
 }
 
 void System::ConfigureSystemClock(const SystemConfig &config) {

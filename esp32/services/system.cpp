@@ -43,7 +43,7 @@ void System::Init() {
     Panic("LED Init Failed");
   ESP_LOGI(kTag, "LED driver initialized");
 
-  err = Button::GetInstance().Init(Button::Config{});
+  err = Button::GetInstance().Init(kButtonConfig);
   if (err != ErrorCode::kOk)
     Panic("Button Init Failed");
   ESP_LOGI(kTag, "Button driver initialized");
@@ -66,16 +66,17 @@ void System::Init() {
     Panic("EP2 Uart Init Failed");
   ESP_LOGI(kTag, "EP2 Uart initialized");
 
-  err = Programmer::GetInstance().Init(Programmer::Config{},
-                                       &Uart(Uart::Id::kStm32));
+  auto &stm32_uart = Uart(::Uart::Id::kStm32);
+  auto &ep2_uart = Uart(::Uart::Id::kEp2);
+  err = Programmer::GetInstance().Init(Programmer::Config{}, &stm32_uart);
   if (err != ErrorCode::kOk)
     Panic("Programmer Init Failed");
   ESP_LOGI(kTag, "Programmer initialized");
 
-  Mavlink::GetInstance().Init(Mavlink::Config{}, &Uart(Uart::Id::kEp2));
+  Mavlink::GetInstance().Init(kMavlinkConfig, &ep2_uart);
   ESP_LOGI(kTag, "Mavlink service initialized");
 
-  FcLink::GetInstance().Init(FcLink::Config{}, &Uart(Uart::Id::kStm32));
+  FcLink::GetInstance().Init(FcLink::Config{}, &stm32_uart);
   ESP_LOGI(kTag, "FcLink service initialized");
 
   CommandHandler::GetInstance().Init(CommandHandler::Config{});

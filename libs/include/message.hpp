@@ -25,6 +25,8 @@ enum class MsgId : uint8_t {
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kImuData = 0x11,
+  kTimeSync = 0x12,
+  kConfig = 0x13,
 
   // System
   kReboot = 0xC0,   // 192
@@ -40,22 +42,51 @@ struct Header {
   uint8_t len;      // Payload Length
 };
 
+struct TimeSyncMsg {
+  uint32_t timestamp;   // Local timestamp (micros)
+  int32_t drift_micros; // Drift from GPS PPS
+  uint8_t synced;       // 1 if synced, 0 otherwise
+} __attribute__((packed));
+
+struct ConfigMsg {
+  uint8_t telemetry_rate_hz;
+} __attribute__((packed));
+
 struct GpsData {
+  // Time
   uint16_t year;
   uint8_t month;
   uint8_t day;
   uint8_t hour;
   uint8_t min;
   uint8_t sec;
-  uint8_t valid;
-  uint32_t tAcc; // ns
-  int32_t lon;
-  int32_t lat;
-  int32_t hMSL; // hMSL
-  uint16_t vel; // cm/s
-  uint16_t hdg; // cdeg
+
+  // Status
   uint8_t fixType;
   uint8_t numSV;
+
+  // Position
+  int32_t lon;  // deg*1e7
+  int32_t lat;  // deg*1e7
+  int32_t hMSL; // mm
+
+  // Motion
+  uint16_t vel; // cm/s
+  uint16_t hdg; // cdeg
+
+  // Accuracy
+  uint32_t hAcc; // mm
+  uint32_t vAcc; // mm
+
+  // Attitude (New)
+  int16_t roll;  // cdeg
+  int16_t pitch; // cdeg
+  int16_t yaw;   // cdeg
+
+  // Battery (New)
+  uint16_t batt_voltage; // mV
+  int16_t batt_current;  // cA
+  int8_t batt_remaining; // %
 } __attribute__((packed));
 
 struct Packet {

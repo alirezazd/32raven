@@ -109,8 +109,8 @@ bool FcLink::Send(const message::Packet &pkt) {
   return true;
 }
 
-void FcLink::SendGps(const GpsData &data) {
-  message::GpsData t;
+void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
+  message::GpsData t = {};
   // Map internal GpsData (blackboard) to Message GpsData
   // Warning: Ensure types match message definitions
   // message::GpsData in shared libs might differ from internal GpsData struct
@@ -118,23 +118,33 @@ void FcLink::SendGps(const GpsData &data) {
   // differ significantly. Based on previous tasks, message::GpsData has: valid,
   // lat, lon, height, etc.
 
-  t.valid = (data.fix_type >= 2); // Simple valid check
-  t.lat = data.lat;
-  t.lon = data.lon;
   t.fixType = data.fix_type;
   t.numSV = data.num_sats;
-  t.hMSL = data.alt; // message::GpsData uses 'hMSL'
+  t.hMSL = data.alt; // data.alt is in mm MSL
   t.vel = data.vel;  // cm/s
   t.hdg = data.hdg;  // cdeg
+  t.lat = data.lat;
+  t.lon = data.lon;
 
-  // Zero out packet calendar for now as we don't have it in VehicleState
-  t.year = 0;
-  t.month = 0;
-  t.day = 0;
-  t.hour = 0;
-  t.min = 0;
-  t.sec = 0;
-  t.tAcc = 0;
+  t.year = data.year;
+  t.month = data.month;
+  t.day = data.day;
+  t.hour = data.hour;
+  t.min = data.min;
+  t.sec = data.sec;
+
+  t.hAcc = data.hAcc; // mm
+  t.vAcc = data.vAcc; // mm
+
+  // Populate new fields with dummy/placeholder data for now
+  // Real attitude/battery data needs to come from `data` source
+  t.roll = 0;
+  t.pitch = 0;
+  t.yaw = data.hdg; // Use GPS heading as yaw fallback
+
+  t.batt_voltage = (uint16_t)(bat.voltage * 1000.0f); // V -> mV
+  t.batt_current = (int16_t)(bat.current * 100.0f);   // A -> cA
+  t.batt_remaining = (int8_t)bat.percentage;          // %
 
   message::Packet pkt;
   pkt.header.id = (uint8_t)message::MsgId::kGpsData;
@@ -160,4 +170,12 @@ void FcLink::SendLog(const char *format, ...) {
     memcpy(pkt.payload, buf, len);
     Send(pkt);
   }
+}
+
+void FcLink::SendTimeSync(const message::TimeSyncMsg &msg) {
+  message::Packet pkt;
+  pkt.header.id = (uint8_t)message::MsgId::kTimeSync;
+  pkt.header.len = sizeof(message::TimeSyncMsg);
+  memcpy(pkt.payload, &msg, sizeof(message::TimeSyncMsg));
+  Send(pkt);
 }

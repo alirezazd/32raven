@@ -30,5 +30,5 @@ venv/
 # STM32
 mx.scratch
 *.ioc
-!stm32-baremetal.ioc
+!32Raven.ioc
 user_config.cmake

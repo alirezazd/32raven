@@ -40,6 +40,9 @@ ErrorCode Programmer::Init(const Config &cfg, Uart *uart) {
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
 
+  // Ensure STM32 is reset on ESP32 boot
+  NrstPulse(ctx_.cfg.reset_pulse_ms);
+
   sm_.Start(StIdle_, 0);
   initialized_ = true;
   return ErrorCode::kOk;
@@ -111,6 +114,10 @@ bool Programmer::EnterBootloader() {
 
   // Flush any junk
   ctx_.uart->Flush();
+
+  // Switch to standard baud rate for ROM bootloader
+  ctx_.uart->SetBaudRate(115200);
+  SleepMs(10);
 
   // STM32 ROM bootloader sync:
   // Host sends 0x7F, device replies 0x79 (ACK) or 0x1F (NACK)
@@ -299,6 +306,9 @@ bool Programmer::Boot() {
 
   // Toggle Reset Pin
   NrstPulse(ctx_.cfg.reset_pulse_ms);
+
+  // Restore operational baud rate for Application
+  ctx_.uart->SetBaudRate(ctx_.cfg.kOperationalBaudRate);
 
   return true;
 }
@@ -510,6 +520,11 @@ void Programmer::Abort(SmTick now) {
   ctx_.written = 0;
 
   sm_.Start(StIdle_, now);
+
+  // Restore operational baud rate
+  if (ctx_.uart) {
+    ctx_.uart->SetBaudRate(ctx_.cfg.kOperationalBaudRate);
+  }
 }
 
 size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
@@ -674,6 +689,8 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
       }
 
       ESP_LOGI(kTag, "ESP32 OTA Successful. Rebooting...");
+      // Reboot STM32 first
+      Programmer::GetInstance().Boot();
       // Delay slightly to ensure log is flushed?
       esp_restart();
       return;

@@ -11,6 +11,8 @@ struct AppContext {
 
   IdleState *idle;
   NotIdleState *not_idle;
+
+  uint32_t telemetry_interval_ms;
 };
 
 #include "dispatcher.hpp"
@@ -34,6 +36,8 @@ private:
     uint8_t payload[255];
     uint16_t crc;
   } rx_pkt_internal_;
+
+  uint32_t last_time_sync_ms_ = 0;
 };
 
 struct NotIdleState : public IState<AppContext> {

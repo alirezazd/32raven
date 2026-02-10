@@ -35,14 +35,7 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
 
   message::Packet pkt;
   while (ctx.sys->FcLink().GetPacket(pkt)) {
-    if (!ctx.sys->CommandHandler().Dispatch(ctx, pkt)) {
-      ESP_LOGW(kTag, "Ignored unknown packet ID: %d", pkt.header.id);
-    }
-  }
-
-  mavlink_message_t msg;
-  while (ctx.sys->Mavlink().GetMessage(msg)) {
-    ctx.sys->CommandHandler().Dispatch(ctx, msg);
+    ctx.sys->CommandHandler().Dispatch(ctx, pkt);
   }
 
   if (!in_flight_) {
@@ -80,35 +73,30 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->Mavlink().Poll(now);
   ctx.sys->FcLink().Poll(now);
 
-  mavlink_message_t msg;
-  while (ctx.sys->Mavlink().GetMessage(msg)) {
-    ctx.sys->CommandHandler().Dispatch(ctx, msg);
-  }
-
   message::Packet pkt;
   while (ctx.sys->FcLink().GetPacket(pkt)) {
-    if (!ctx.sys->CommandHandler().Dispatch(ctx, pkt)) {
-      // Just ignore unknown packets in monitor mode
-    }
+    ctx.sys->CommandHandler().Dispatch(ctx, pkt);
   }
 
   ctx.sys->Tcp().Poll(now);
 
   TcpServer::Event ev;
   while (ctx.sys->Tcp().PopEvent(ev)) {
-    CommandHandler::Result res = ctx.sys->CommandHandler().Dispatch(ctx, ev);
+    CommandHandler::TransitionResult res =
+        ctx.sys->CommandHandler().Dispatch(ctx, ev);
     switch (res) {
-    case CommandHandler::Result::kTransitionToProgram:
+    case CommandHandler::TransitionResult::kTransitionToProgram:
       ctx.sm->ReqTransition(*ctx.program_state);
       return;
-    case CommandHandler::Result::kTransitionToServing:
+    case CommandHandler::TransitionResult::kTransitionToServing:
       ctx.sm->ReqTransition(*ctx.serving_state);
       return;
-    case CommandHandler::Result::kNone:
-    case CommandHandler::Result::kHandled:
+    case CommandHandler::TransitionResult::kNone:
       break;
+    case CommandHandler::TransitionResult::kUnknown:
     default:
-      ESP_LOGW(kTag, "Unhandled TCP Result: %d", (int)res);
+      ESP_LOGE(kTag, "Unknown TCP Result: %d -> HardError", (int)res);
+      ctx.sm->ReqTransition(*ctx.hard_error_state);
       break;
     }
   }
@@ -139,8 +127,13 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   if (prog.Done()) {
-    ESP_LOGI(kTag, "Prog Done -> Rebooting System");
-    esp_restart();
+    ESP_LOGI(kTag, "Prog Done -> Transitioning to Dfu");
+    // Report success status before correct transition
+    TcpServer::Status st = tcp.GetStatus();
+    st.state = 1; // Done
+    tcp.SetStatus(st);
+
+    ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
 

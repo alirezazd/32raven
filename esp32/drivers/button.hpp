@@ -1,5 +1,4 @@
 #pragma once
-#include <cstdint>
 
 enum class ErrorCode;
 #include "timebase.hpp"
@@ -16,13 +15,13 @@ public:
   }
 
   struct Config {
-    gpio_num_t pin = GPIO_NUM_9;
-    bool active_low = true;
-    bool pullup = true;
-    bool pulldown = false;
+    gpio_num_t pin;
+    bool active_low;
+    bool pullup;
+    bool pulldown;
 
-    TimeMs debounce_ms = 30;
-    TimeMs long_press_ms = 500;
+    TimeMs debounce_ms;
+    TimeMs long_press_ms;
   };
 
   // Polling API

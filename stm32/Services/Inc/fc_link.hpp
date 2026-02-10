@@ -21,10 +21,14 @@ public:
   bool Send(const message::Packet &pkt);
 
   // Convenience for GpsData from Blackboard
-  void SendGps(const GpsData &data);
+  // Convenience for GpsData from Blackboard
+  void SendGps(const GpsData &data, const BatteryData &bat);
 
   // Send Log Message
   void SendLog(const char *format, ...);
+
+  // Send TimeSync
+  void SendTimeSync(const message::TimeSyncMsg &msg);
 
 private:
   FcLink() = default;

@@ -1,4 +1,5 @@
 #include "fc_link.hpp"
+#include "user_config.hpp"
 #include <cstring>
 
 extern "C" {
@@ -40,6 +41,18 @@ bool FcLink::PerformHandshake() {
     if (GetPacket(response)) {
       if (response.header.id == (uint8_t)message::MsgId::kPong) {
         ESP_LOGI(kTag, "Handshake Success!");
+
+        // Send Configuration
+        message::ConfigMsg cfg;
+        cfg.telemetry_rate_hz = kTelemetryRateHz;
+
+        message::Packet cfg_pkt;
+        cfg_pkt.header.id = (uint8_t)message::MsgId::kConfig;
+        cfg_pkt.header.len = sizeof(cfg);
+        memcpy(cfg_pkt.payload, &cfg, sizeof(cfg));
+        SendPacket(cfg_pkt);
+        ESP_LOGI(kTag, "Sent Config: %dHz", cfg.telemetry_rate_hz);
+
         return true;
       }
     }

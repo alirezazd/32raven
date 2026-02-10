@@ -42,6 +42,7 @@ public:
 
   ::LED &Led();
   ::Button &Button();
+
   ::WifiController &Wifi();
   ::TcpServer &Tcp();
   ::Mavlink &Mavlink();
