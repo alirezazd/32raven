@@ -10,6 +10,9 @@ import subprocess
 import shutil
 import re
 import fcntl
+import sys
+import select
+from threading import Thread
 
 # Constants
 CTRL_PORT = 9000
@@ -231,6 +234,14 @@ class Esp32Shell(cmd.Cmd):
                 # Short monitoring loop
                 resp = self._send_ctrl("STATUS?")
                 # print(f"DEBUG status: {resp}")
+                
+                # Check for explicit done state (state=1) from server
+                # Format: STATUS rx=... total=... state=1 err=0
+                if resp and "state=1" in resp:
+                    print("\nFlash Success! (Target Rebooted)")
+                    # For STM32: we stay connected. For ESP32: we might disconnect.
+                    break
+
                 if not resp:
                     print("\nConnection closed by remote (Success).")
                     break
@@ -239,7 +250,23 @@ class Esp32Shell(cmd.Cmd):
                 print("\nConnection closed by remote (Success/Reboot).")
                 break
         
-        self.do_disconnect(None)
+        # Don't disconnect here explicitly if we want to keep session open for STM32
+        # But for new behavior: STM32 keeps connection. ESP32 reboots.
+        # We should check if socket is still alive?
+        if self._ensure_connected_silent():
+             print("Session active. You can run 'monitor' or other commands.")
+        else:
+             self.do_disconnect(None)
+
+    def _ensure_connected_silent(self):
+        """Check if connected without auto-reconnect or prints"""
+        if not self.connected: return False
+        try:
+            # check socket health?
+            self.ctrl_sock.send(b'\n')
+            return True
+        except:
+            return False
 
     def do_flash_esp(self, arg):
         """Flash ESP32 firmware. Usage: flash_esp <path_to_bin>"""
@@ -324,161 +351,103 @@ class Esp32Shell(cmd.Cmd):
     def do_quit(self, arg):
         return self.do_exit(arg)
 
+    def do_shell(self, arg):
+        """Enter raw interactive shell mode. (Ctrl+C to exit)"""
+        if not self._ensure_connected(): return
+        
+        print(f"--- Entering Interactive Shell ({self.target_ip}) ---")
+        print("Type commands directly. Ctrl+C to exit.")
+        
+        prompt = "32Raven> "
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        
+        try:
+            while self.connected:
+                # Wait for input from stdin or data from socket
+                r, _, _ = select.select([sys.stdin, self.ctrl_sock], [], [])
+                
+                if sys.stdin in r:
+                    line = sys.stdin.readline()
+                    if not line: break # EOF
+                    self.ctrl_sock.sendall(line.encode("ascii"))
+                    # Don't print prompt here, expect response
+                
+                if self.ctrl_sock in r:
+                    data = self.ctrl_sock.recv(1024)
+                    if not data:
+                        print("\nDisconnected by remote.")
+                        self.do_disconnect(None)
+                        break
+                    text = data.decode("ascii", errors="replace")
+                    sys.stdout.write(text)
+                    if text.endswith("\n"):
+                        sys.stdout.write(prompt)
+                    sys.stdout.flush()
+                    
+        except KeyboardInterrupt:
+            print("\nExiting shell mode.")
+        except socket.error as e:
+             print(f"\nSocket error: {e}")
+             self.do_disconnect(None)
+    
+    def default(self, line):
+        """Send unknown commands directly to ESP32."""
+        if not self.connected:
+            self.do_connect(self.target_ip)
+            if not self.connected: return
+            
+        try:
+            print(f"> {line}")
+            self.ctrl_sock.sendall((line + "\n").encode("ascii"))
+            # Wait briefly for response (pseudo-shell)
+            self.ctrl_sock.settimeout(0.5)
+            try:
+                while True:
+                    data = self.ctrl_sock.recv(1024)
+                    if not data: break
+                    sys.stdout.write(data.decode("ascii", errors="replace"))
+            except socket.timeout:
+                pass
+            self.ctrl_sock.settimeout(self.timeout)
+            print("") # Newline
+        except socket.error as e:
+            print(f"Error: {e}")
+            self.do_disconnect(None)
+
     # --- Helpers ---
 
     def do_monitor(self, arg):
-        """Monitor data port (STM32 UART bridge). Ctrl+C to exit."""
-        if not self._ensure_connected(): return
-
-        print("Enabling Bridge mode...")
-        resp = self._send_ctrl("BRIDGE")
-        if resp != "OK":
-            print(f"Target refused BRIDGE mode: {resp}")
+        """Launch the Raven Dashboard (TUI)."""
+        if not self.target_ip:
+            print("Not connected.")
             return
 
-        print("Opening monitor on DATA port... (Ctrl+C to exit)")
+        # 1. Release Control (Disconnect)
+        print("Launching Dashboard... (Shell will resume on exit)")
+        self._close_sockets()
+        self.connected = False
         
-        # 1. Open Data Socket
+        # 2. Run Dashboard via pipx
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_path = os.path.join(script_dir, "raven_dashboard.py")
+        
+        import subprocess
         try:
-            self.data_sock = socket.create_connection((self.target_ip, DATA_PORT), timeout=self.timeout)
-            self.data_sock.setblocking(False)
-        except socket.error as e:
-            print(f"Error connecting to data port: {e}")
-            return
-            
-        import threading
-        import select
-        
-        # 2. Start reader thread
-        stop_event = threading.Event()
-        
-        def reader_thread():
-            import collections
-            log_maxlen = 15
-            log_buf = collections.deque(maxlen=log_maxlen)
-            
-            # Pinned status lines (Key -> Content)
-            status_lines = {
-                "RC": "RC: Waiting...",
-                "GPS": "GPS: Waiting...",
-                "Loop": "Loop: Waiting..."
-            }
-            # Order to display them
-            status_order = ["RC", "GPS", "Loop"]
-            
-            rx_buf = b""
-            
-            def redraw():
-                # ANSI Clear Screen + Home
-                sys.stdout.write("\x1b[2J\x1b[H")
-                
-                # Header
-                sys.stdout.write("--- 32Raven Bridge Monitor ---\n")
-                
-                # Logs
-                for l in log_buf:
-                    sys.stdout.write(l + "\n")
-                
-                # Filler to keep status at bottom
-                curr_lines = len(log_buf)
-                if curr_lines < log_maxlen:
-                    sys.stdout.write("\n" * (log_maxlen - curr_lines))
-                    
-                sys.stdout.write("-" * 40 + "\n")
-                
-                # Render status lines
-                for key in status_order:
-                    sys.stdout.write(status_lines[key] + "\n")
-                    
-                sys.stdout.flush()
+            # Explicitly use pipx run to handle dependencies
+            cmd = ["pipx", "run", script_path, self.target_ip]
+            subprocess.call(cmd)
+        except OSError as e:
+            print(f"Error launching dashboard: {e}")
+            print("Ensure 'pipx' is installed and in your PATH.")
 
-            while not stop_event.is_set():
-                try:
-                    ready = select.select([self.data_sock], [], [], 0.1)
-                    if ready[0]:
-                        chunk = self.data_sock.recv(1024)
-                        if not chunk:
-                            break # Closed
-                        
-                        rx_buf += chunk
-                        while b'\n' in rx_buf:
-                            line_end = rx_buf.find(b'\n')
-                            line_bytes = rx_buf[:line_end]
-                            rx_buf = rx_buf[line_end+1:]
-                            
-                            # Decode (ignore errors to drop garbage bytes)
-                            line_str = line_bytes.decode('utf-8', errors='ignore').strip()
-                            if not line_str: continue
-
-                            # Heuristic: Check for our known keys anywhere in the line
-                            # This handles cases where binary data precedes the text in the same chunk
-                            matched_key = None
-                            
-                            # Clean up the line for processing (keep only printable)
-                            # This regex keeps alphanumeric, punctuation and common symbols
-                            clean_line = re.sub(r'[^\x20-\x7E]', '', line_str).strip()
-                            
-                            for key in status_lines:
-                                # Loose matching: look for "KEY: " or "KEY "
-                                if (key + ":") in clean_line or (key + " ") in clean_line:
-                                    # We found a status line. Ensure we capture the whole relevant part.
-                                    # Find the index
-                                    idx = clean_line.find(key)
-                                    if idx >= 0:
-                                        status_lines[key] = clean_line[idx:]
-                                        matched_key = key
-                                        break
-                            
-                            if matched_key:
-                                redraw()
-                            else:
-                                # Strict Log Filter
-                                # We only want to see ESP-IDF logs or clear text messages.
-                                # Binary protocol (0xAA 0x55...) often decodes to "U..." or garbage.
-                                
-                                # Check for ESP-IDF log format: "I (123) tag: message"
-                                is_log = re.match(r'^[IDWEV] \(\d+\) ', clean_line)
-                                
-                                # Check for other informative text (e.g. --- Header --- or "Connected")
-                                is_text = clean_line.startswith("---") or \
-                                          clean_line.startswith("Connected") or \
-                                          clean_line.startswith("State")
-                                
-                                if is_log or is_text:
-                                    log_buf.append(clean_line)
-                                    redraw()
-                                # Else: Drop it (likely binary protocol data)
-                                
-                except (socket.error, ValueError):
-                    break
-        
-        t = threading.Thread(target=reader_thread, daemon=True)
-        t.start()
-        
-        # 3. Writer loop (stdin)
-        print("--- Monitor Active ---")
+        # 3. Reconnect on return
+        print("\nDashboard exited. Reconnecting shell...")
         try:
-            while True:
-                # Check for stdin input (non-blocking if possible, but python stdin is tricky)
-                # We'll use select on stdin if on linux
-                r, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if r:
-                    line = sys.stdin.readline()
-                    if not line: break
-                    self.data_sock.sendall(line.encode("utf-8"))
-        except KeyboardInterrupt:
-            print("\nExiting monitor...")
-        except socket.error:
-            print("\nSocket connection lost.")
-        
-        stop_event.set()
-        t.join(timeout=1.0)
-        self.data_sock.close()
-        self.data_sock = None
-
-        # 4. Disable Bridge (Abort)
-        print("Sending ABORT to exit Bridge mode...")
-        self._send_ctrl("ABORT")
+            # Accessing internal connection logic to restore state
+            self.do_connect(self.target_ip)
+        except Exception as e:
+            print(f"Reconnect failed: {e}")
 
     def _ensure_connected(self):
         if not self.connected:
@@ -527,12 +496,41 @@ def main():
     
     # Exclusive access check
     # We keep the file open until the process exits
-    lock_file = open("/tmp/esp32_client.lock", "w")
-    try:
-        fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except IOError:
-        print("Error: Another instance of esp32_client is running.")
-        sys.exit(1)
+    lock_file = open("/tmp/esp32_client.lock", "a+")
+    
+    def acquire_lock():
+        try:
+            lock_file.seek(0)
+            fcntl.lockf(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            # We got the lock, write our PID
+            lock_file.seek(0)
+            lock_file.truncate()
+            lock_file.write(str(os.getpid()))
+            lock_file.flush()
+            return True
+        except IOError:
+            return False
+
+    if not acquire_lock():
+        # Read the PID of the locking process
+        lock_file.seek(0)
+        try:
+            pid_str = lock_file.read().strip()
+            if pid_str:
+                pid = int(pid_str)
+                print(f"Previous instance running (PID {pid}). Killing it...")
+                try:
+                    os.kill(pid, 15) # 15 = SIGTERM, use 9 if needed
+                    time.sleep(1) # Give it moment to die
+                except OSError:
+                    pass # Maybe it died already
+        except ValueError:
+            pass
+            
+        # Retry lock
+        if not acquire_lock():
+             print("Error: Could not acquire lock even after kill attempt.")
+             sys.exit(1)
 
     target_ip = args.ip
     

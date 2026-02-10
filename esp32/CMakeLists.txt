@@ -6,5 +6,5 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # Link libs directory as a component
 set(EXTRA_COMPONENT_DIRS ../libs)
 
-project(stm32_wifi_flasher)
+project(32Raven_esp32)
 add_compile_options(-Wdouble-promotion)

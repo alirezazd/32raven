@@ -3,10 +3,8 @@
 #include "message.hpp"
 #include <mavlink.h>
 
+#include "ctx.hpp"
 #include "tcp_server.hpp"
-
-// Forward declaration
-struct AppContext;
 
 class CommandHandler {
 public:
@@ -19,23 +17,21 @@ public:
 
   void Init(const Config &cfg);
 
-  enum class Result {
+  enum class TransitionResult {
     kNone,
-    kHandled,
     kUnknown,
     kTransitionToProgram,
     kTransitionToServing,
     kTransitionToBridge,
     kTransitionToDfu,
-    kTransitionToHardError,
-    kReboot
+    kTransitionToHardError
   };
 
   // Dispatch uses a lookup table for O(1) access
-  bool Dispatch(AppContext &ctx, const message::Packet &pkt);
+  void Dispatch(AppContext &ctx, const message::Packet &pkt);
 
   // Dispatch TCP events
-  Result Dispatch(AppContext &ctx, const TcpServer::Event &ev);
+  TransitionResult Dispatch(AppContext &ctx, const TcpServer::Event &ev);
 
   // Dispatch MAVLink messages (Monitoring & Translation)
   void Dispatch(AppContext &ctx, const mavlink_message_t &msg);

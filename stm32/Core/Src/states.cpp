@@ -40,6 +40,12 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
     t.hdg = (uint16_t)(pvt.headMot / 1000); // 1e-5 deg -> cdeg
     t.num_sats = pvt.numSV;
     t.fix_type = pvt.fixType;
+    t.year = pvt.year;
+    t.month = pvt.month;
+    t.day = pvt.day;
+    t.hour = pvt.hour;
+    t.min = pvt.min;
+    t.sec = pvt.sec;
 
     // Update Blackboard
     ctx.sys->GetVehicleState().UpdateGps(t);
@@ -47,9 +53,22 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
     // Forward to ESP32 (if needed immediately, or let FcLink poll the
     // blackboard) For now, let's explicit push to FcLink to maintain original
     // behavior
-    ctx.sys->GetFcLink().SendGps(t);
+    BatteryData bat = {0};
+    ctx.sys->GetFcLink().SendGps(t, bat);
 
     gps_svc.ClearNewDataFlag();
+  }
+
+  // 4. Send TimeSync (1Hz)
+  if (now - last_time_sync_ms_ >= 1000) {
+    last_time_sync_ms_ = now;
+
+    message::TimeSyncMsg msg;
+    msg.timestamp = ctx.sys->Time().Micros();
+    msg.drift_micros = (int32_t)ctx.sys->Time().GetDriftMicros();
+    msg.synced = ctx.sys->Time().IsGpsSynchronized() ? 1 : 0;
+
+    ctx.sys->GetFcLink().SendTimeSync(msg);
   }
 }
 

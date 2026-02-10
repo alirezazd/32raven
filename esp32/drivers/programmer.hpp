@@ -33,6 +33,9 @@ public:
 
     uint32_t sync_timeout_ms = 100;
     uint8_t sync_retries = 10;
+
+    // Baud rate to restore after programming (e.g. 5000000)
+    uint32_t kOperationalBaudRate = 115200;
   };
 
   enum class Target { kStm32, kEsp32 };
