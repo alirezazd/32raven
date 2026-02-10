@@ -1,6 +1,5 @@
 #pragma once
 #include "state_machine.hpp"
-#include <cstddef>
 
 struct AppContext;
 

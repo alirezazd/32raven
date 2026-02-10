@@ -75,10 +75,10 @@ ESP_IP ?= 192.168.4.1
 
 # WiFi Flashing
 flash-wifi-stm32: stm32
-	python3 tools/esp32_client.py $(ESP_IP) flash $(BUILD_DIR)/stm32/stm32-baremetal.bin
+	python3 tools/esp32_client.py $(ESP_IP) flash $(BUILD_DIR)/stm32/32Raven_stm32.bin
 
 flash-wifi-esp32: esp32
 	-pkill -f esp32_client.py || true
-	python3 tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/stm32_wifi_flasher.bin
+	python3 tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/32Raven_esp32.bin
 
 distclean: clean

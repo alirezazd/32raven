@@ -8,6 +8,7 @@
 #include "gpio.hpp"
 #include "i2c.hpp"
 #include "icm20948.hpp"
+#include "icm42688p_reg.hpp" // Added for Config struct enums
 #include "led.hpp"
 #include "time_base.hpp"
 // Note: uart.hpp and system.hpp are consumers, not providers of config types
@@ -78,6 +79,7 @@ constexpr I2CConfig kI2cDefault = {400000,
 constexpr TimeBaseConfig kTimeBaseDefault = {
     83,         // Prescaler
     0xFFFFFFFF, // Period
+    1,          // Compensation (us)
 };
 
 static const GPIO::PinConfig kPins[] = {
@@ -119,7 +121,7 @@ constexpr size_t kUartRxDmaSize = 128;   // Low latency
 constexpr size_t kUartRxRingSize = 1024; // Large capacity
 
 constexpr UartConfig kUart1Config = {
-    115200,               // baudRate (Console)
+    5000000,              // baudRate (Link to ESP32)
     UART_WORDLENGTH_9B,   // wordLength (8 data + 1 parity)
     UART_STOPBITS_1,      // stopBits
     UART_PARITY_EVEN,     // parity
@@ -176,6 +178,8 @@ constexpr SpiConfig kSpi1Config = {SpiPolarity::kHigh, SpiPhase::k2Edge,
 // and reboot/reinit UARTs to 115200.
 constexpr bool kFlashM9nConfig = false;
 
+#include "icm42688p.hpp"
+
 // ICM20948 Configuration
 // Default values match previous driver hardcoded settings
 constexpr Icm20948::Config kIcm20948Config = {
@@ -196,4 +200,44 @@ constexpr Icm20948::Config kIcm20948Config = {
 
     static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
     0xEA,                                       // WHO_AM_I
+};
+
+constexpr Icm42688p::Config kIcm42688pConfig = {
+    static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
+
+    // ODR 8kHz, FS 2000dps/16g
+    Icm42688pReg::Odr::k8kHz, Icm42688pReg::Odr::k8kHz,
+    Icm42688pReg::GyroFs::k2000dps, Icm42688pReg::AccelFs::k16g,
+
+    // UI Filter BW indices (LN mode)
+    // 0=ODR/2, 1=ODR/4, 2=ODR/8, 3=ODR/16
+    2, // gyro_ui_filt_bw  -> ~1 kHz @ 8 kHz ODR
+    3, // accel_ui_filt_bw -> ~500 Hz @ 8 kHz ODR
+
+    // UI Filter order (0 = 1st order, minimum phase)
+    0, // gyro_cfg1
+    0, // accel_cfg1
+
+    // Gyro Notch Filter (hardware) - disabled (do RPM notch in software)
+    0.0f, // notch_freq_hz
+    0,    // notch_bw_idx (ignored)
+
+    // Gyro AAF - disabled (avoid fixed phase delay)
+    true, // gyro_aaf_dis
+    0,    // gyro_aaf_delt (ignored)
+    0,    // gyro_aaf_deltsqr
+    0,    // gyro_aaf_bitshift
+
+    // Accel AAF - disabled
+    true, // accel_aaf_dis
+    0,    // accel_aaf_delt (ignored)
+    0,    // accel_aaf_deltsqr
+    0,    // accel_aaf_bitshift
+
+    // Features
+    true, // enable_fsync_pin9 (GPS PPS -> FSYNC pin9)
+    true, // enable_tmst_regs
+    true, // enable_tmst_fsync
+    0x4,  // fsync_ui_sel: route FSYNC to TMST (no data tagging)
+    true, // fsync_polarity_falling (set false if PPS is rising)
 };

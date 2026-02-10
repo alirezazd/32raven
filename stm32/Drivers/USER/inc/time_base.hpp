@@ -8,8 +8,9 @@
 #define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
 
 struct TimeBaseConfig {
-  uint32_t prescaler; // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz
-  uint32_t period;    // typically 0xFFFFFFFF
+  uint32_t prescaler;     // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz
+  uint32_t period;        // typically 0xFFFFFFFF
+  uint32_t compensation;  // PPS capture compensation in microseconds
 };
 
 class TimeBase {
@@ -19,14 +20,14 @@ public:
   uint32_t Micros() const;
   void DelayMicros(uint32_t us) const;
 
+  bool IsGpsSynchronized() const;
+  uint32_t GetDriftMicros() const;
+
 private:
   friend class System;
   void Init(const Config &config);
 
-  static TimeBase &GetInstance() {
-    static TimeBase instance;
-    return instance;
-  }
+  static TimeBase &GetInstance();
 
   TimeBase() = default;
   ~TimeBase() = default;
@@ -35,6 +36,7 @@ private:
   TimeBase &operator=(const TimeBase &) = delete;
 
   bool initialized_ = false;
+  uint32_t compensation_ = 0;
 };
 
 #endif // USER_DRIVERS_TIMEBASE_HPP

@@ -11,6 +11,15 @@ static void OnPing(AppContext &ctx, const message::Packet &pkt) {
   tx_pkt.header.len = 0;
   ctx.sys->GetFcLink().Send(tx_pkt);
 }
+static void OnConfig(AppContext &ctx, const message::Packet &pkt) {
+  if (pkt.header.len != sizeof(message::ConfigMsg)) {
+    return;
+  }
+  const auto *cfg = (const message::ConfigMsg *)pkt.payload;
+  if (cfg->telemetry_rate_hz > 0) {
+    ctx.telemetry_interval_ms = 1000 / cfg->telemetry_rate_hz;
+  }
+}
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
@@ -20,6 +29,7 @@ static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
 
 static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPing, OnPing},
+    {message::MsgId::kConfig, OnConfig},
     {message::MsgId::kRcChannels, OnRcChannels},
 };
 

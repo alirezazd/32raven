@@ -62,12 +62,19 @@ constexpr uint32_t kKeySbasEnable = 0x10310020;    // CFG-SIGNAL-SBAS_ENA
 
 constexpr uint32_t kKeyItfmEnable = 0x10410013; // CFG-ITFM-ENABLE
 
-constexpr uint32_t kKeyMsgoutNavPvtUart1 =
-    0x20910007; // CFG-MSGOUT-UBX_NAV_PVT_UART1
+constexpr uint32_t kKeyMsgoutNavPvtUart2 =
+    0x20910009; // CFG-MSGOUT-UBX_NAV_PVT_UART2
 
-constexpr uint32_t kKeyUart1Baudrate = 0x40520001;    // CFG-UART1-BAUDRATE
-constexpr uint32_t kKeyUart1OutprotUbx = 0x10740001;  // CFG-UART1OUTPROT-UBX
-constexpr uint32_t kKeyUart1OutprotNmea = 0x10740002; // CFG-UART1OUTPROT-NMEA
+constexpr uint32_t kKeyUart2Baudrate = 0x40530001;    // CFG-UART2-BAUDRATE
+constexpr uint32_t kKeyUart2OutprotUbx = 0x10760001;  // CFG-UART2OUTPROT-UBX
+constexpr uint32_t kKeyUart2OutprotNmea = 0x10760002; // CFG-UART2OUTPROT-NMEA
+
+// Timepulse (TP1) Configuration
+constexpr uint32_t kKeyCfgTp1Ena = 0x10050012;    // CFG-TP-TP1_ENA
+constexpr uint32_t kKeyCfgTp1Period = 0x40050002; // CFG-TP-PERIOD_TP1 (us)
+constexpr uint32_t kKeyCfgTp1Len = 0x40050004;    // CFG-TP-LEN_TP1 (us)
+constexpr uint32_t kKeyCfgTp1TimeGrid =
+    0x20050008; // CFG-TP-TIMEGRID_TP1 (1=GPS)
 
 inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
                         uint8_t &ck_b) {
@@ -164,11 +171,11 @@ void M9N::FlashConfig(uint32_t current_baud) {
   constexpr uint8_t kPersistent = kValsetLayerAll;
 
   // 1) Protocol output selection (must be first to reduce spam)
-  sendCfgValSet<uint8_t>(kKeyUart1OutprotUbx, 1, kPersistent);
-  sendCfgValSet<uint8_t>(kKeyUart1OutprotNmea, 0, kPersistent);
+  sendCfgValSet<uint8_t>(kKeyUart2OutprotUbx, 1, kPersistent);
+  sendCfgValSet<uint8_t>(kKeyUart2OutprotNmea, 0, kPersistent);
 
-  // 2) Enable NAV-PVT output on UART1
-  sendCfgValSet<uint8_t>(kKeyMsgoutNavPvtUart1, 1, kPersistent);
+  // 2) Enable NAV-PVT output on UART2
+  sendCfgValSet<uint8_t>(kKeyMsgoutNavPvtUart2, 1, kPersistent);
 
   // 3) 10 Hz (100 ms)
   sendCfgValSet<uint16_t>(kKeyCfgRateMeasMs, 100, kPersistent);
@@ -186,10 +193,19 @@ void M9N::FlashConfig(uint32_t current_baud) {
   // 6) Interference mitigation (jamming/spoofing detection)
   sendCfgValSet<uint8_t>(kKeyItfmEnable, 1, kPersistent);
 
-  // 7) Baud rate change to 115200 (LAST to avoid race condition!)
+  // 7) Timepulse 1 (PPS) Configuration
+  // Enable TP1, Periodic, 1Hz, 50ms active, GPS Timegrid
+  sendCfgValSet<uint8_t>(kKeyCfgTp1Ena, 1, kPersistent);
+  sendCfgValSet<uint32_t>(kKeyCfgTp1Period, 1000000,
+                          kPersistent); // 1,000,000 us = 1s
+  sendCfgValSet<uint32_t>(kKeyCfgTp1Len, 50000,
+                          kPersistent); // 50,000 us = 50ms
+  sendCfgValSet<uint8_t>(kKeyCfgTp1TimeGrid, 1, kPersistent); // 1 = GPS Time
+
+  // 8) Baud rate change to 115200 (LAST to avoid race condition!)
   // All previous config is sent at current_baud, ensuring reliable delivery.
   // After this command, M9N may switch baud immediately.
-  sendCfgValSet<uint32_t>(kKeyUart1Baudrate, 115200, kPersistent);
+  sendCfgValSet<uint32_t>(kKeyUart2Baudrate, 115200, kPersistent);
 
   // Wait for M9N to apply config and switch baud rate (500ms)
   start = time.Micros();
@@ -232,11 +248,11 @@ void M9N::Init() {
   // which should already be 115200 + golden settings.
 
   // 1) Protocol output selection (reduce spam / ambiguity)
-  sendCfgValSet<uint8_t>(kKeyUart1OutprotUbx, 1);
-  sendCfgValSet<uint8_t>(kKeyUart1OutprotNmea, 0);
+  sendCfgValSet<uint8_t>(kKeyUart2OutprotUbx, 1);
+  sendCfgValSet<uint8_t>(kKeyUart2OutprotNmea, 0);
 
-  // 2) Enable NAV-PVT output on UART1 (1 message per navigation solution)
-  sendCfgValSet<uint8_t>(kKeyMsgoutNavPvtUart1, 1);
+  // 2) Enable NAV-PVT output on UART2 (1 message per navigation solution)
+  sendCfgValSet<uint8_t>(kKeyMsgoutNavPvtUart2, 1);
 
   // 3) 10 Hz (100 ms)
   sendCfgValSet<uint16_t>(kKeyCfgRateMeasMs, 100);
@@ -253,6 +269,12 @@ void M9N::Init() {
 
   // 6) Interference mitigation (jamming/spoofing detection)
   sendCfgValSet<uint8_t>(kKeyItfmEnable, 1);
+
+  // 7) Timepulse 1 (PPS) Configuration (RAM)
+  sendCfgValSet<uint8_t>(kKeyCfgTp1Ena, 1);
+  sendCfgValSet<uint32_t>(kKeyCfgTp1Period, 1000000);
+  sendCfgValSet<uint32_t>(kKeyCfgTp1Len, 50000);
+  sendCfgValSet<uint8_t>(kKeyCfgTp1TimeGrid, 1);
 }
 
 bool M9N::Read(uint8_t &b) {

@@ -1,59 +1,102 @@
 #pragma once
 
-#include "message.hpp"
-#include "ring_buffer.hpp"
-#include "uart.hpp"
+#include "../drivers/uart.hpp"
+#include "message.hpp" // for message::GpsData
+#include <cstdint>
 #include <mavlink.h>
+
+struct RcData {
+  uint16_t channels[18]{};
+  uint8_t count = 0;
+  uint32_t last_update = 0;
+};
 
 class Mavlink {
 public:
-  struct Config {};
+  struct Config {
+    uint8_t sysid = 0;
+    uint8_t compid = 0;
 
-  struct RcData {
-    uint16_t channels[18];
-    uint8_t count;
-    uint32_t last_update;
+    // Telemetry periods in ms (0 = disabled)
+    // Budget: ~125 bytes/sec for ELRS 4-channel mode
+    uint16_t hb_period_ms = 0;   // HEARTBEAT
+    uint16_t gps_period_ms = 0;  // GPS_RAW_INT
+    uint16_t att_period_ms = 0;  // ATTITUDE
+    uint16_t gpos_period_ms = 0; // GLOBAL_POSITION_INT
+    uint16_t batt_period_ms = 0; // BATTERY_STATUS
   };
 
-  static Mavlink &GetInstance() {
-    static Mavlink instance;
-    return instance;
-  }
+  static Mavlink &GetInstance();
 
   void Init(const Config &cfg, Uart *uart);
-  void Poll(uint32_t now);
 
-  // Pop a message from the internal buffer. Returns true if msg valid.
-  bool GetMessage(mavlink_message_t &msg);
+  // RX: reads UART and parses inbound MAVLink (RC override only, for now)
+  void Poll(uint32_t now_ms);
+
+  // TX: called from a dedicated RTOS task at a steady tick (e.g. 10ms)
+  void TxTick(uint32_t now_ms);
+
+  // Latest telemetry from STM32 (25Hz input ok; we downsample on TX)
+  void OfferTelemetry(const message::GpsData &d, uint32_t now_ms);
 
   const RcData &GetRc() const { return rc_; }
 
 private:
-  static constexpr size_t kQueueSize = 10;
-  RingBuffer<mavlink_message_t, kQueueSize> queue_;
-  Mavlink() = default;
-  ~Mavlink() = default;
+  Mavlink();
+  ~Mavlink();
   Mavlink(const Mavlink &) = delete;
   Mavlink &operator=(const Mavlink &) = delete;
 
-  // UART Interface (Exclusive ownership)
+  // ---------- Common ----------
   Uart *uart_ = nullptr;
-  Config cfg_;
   bool initialized_ = false;
+  Config cfg_{};
 
-  // MAVLink Parser State
-  mavlink_message_t rx_msg_;
-  mavlink_status_t rx_status_;
-
-  // Data
+  // ---------- RX (RC only) ----------
   RcData rc_{};
+  mavlink_message_t rx_msg_{};
+  mavlink_status_t rx_status_{};
 
-  // Heartbeat
-  uint32_t last_heartbeat_ = 0;
-  void SendHeartbeat();
+  void HandleRxByte(uint8_t b, uint32_t now_ms);
+  void HandleMessage(const mavlink_message_t &msg, uint32_t now_ms);
 
-public:
-  void SendSystemTime(const message::GpsData &t);
-  void SendGpsRawInt(const message::GpsData &t);
-  void SendGlobalPositionInt(const message::GpsData &t);
+  // ---------- TX: atomic frame writes ----------
+  uint8_t tx_buf_[MAVLINK_MAX_PACKET_LEN]{};
+  uint16_t tx_len_ = 0;
+  uint16_t tx_sent_ = 0;
+
+  bool tx_is_hb_ = false; // only to stamp hb timing
+  void ServiceInFlightTx();
+
+  // ---------- TX: Heartbeat timing ----------
+  static constexpr uint32_t kHbDeadlineMs = 1500; // max allowed gap
+  uint32_t last_hb_done_ms_ = 0;
+
+  // ---------- Latest-only telemetry cache ----------
+  message::GpsData latest_{};
+  bool have_latest_ = false;
+  uint32_t latest_update_ms_ = 0;
+
+  // ---------- Stream scheduler ----------
+  bool schedule_armed_ = false;
+  uint32_t next_hb_ms_ = 0;
+  uint32_t next_gps_ms_ = 0;
+  uint32_t next_att_ms_ = 0;
+  uint32_t next_gpos_ms_ = 0;
+  uint32_t next_batt_ms_ = 0;
+
+  // Helpers
+
+  bool ShouldSendHbNow(uint32_t now_ms) const;
+  void ArmFirstSchedule(uint32_t now_ms);
+
+  // Frame builders (only the ELRS-supported set)
+  void StartHeartbeatFrame();
+  void StartGpsRawIntFrame();
+  void StartAttitudeFrame();
+  void StartGlobalPositionIntFrame();
+  void StartBatteryStatusFrame();
+
+  // Pick next stream to send when idle (hb has priority)
+  void StartNextScheduledFrame(uint32_t now_ms);
 };

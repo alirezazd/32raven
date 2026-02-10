@@ -8,6 +8,7 @@
 #include "fc_link.hpp"
 #include "gpio.hpp"
 #include "icm20948.hpp"
+#include "icm42688p.hpp"
 #include "led.hpp"
 #include "m9n.hpp"
 #include "m9n_service.hpp"
@@ -49,6 +50,7 @@ public:
   M9N &GetGps() { return M9N::GetInstance(); }
   M9NService &ServiceM9N() { return m9n_service_; }
   Icm20948 &GetImu() { return Icm20948::GetInstance(); }
+  Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
 
   VehicleState &GetVehicleState() { return vehicle_state_; }
   FcLink &GetFcLink() { return FcLink::GetInstance(); }

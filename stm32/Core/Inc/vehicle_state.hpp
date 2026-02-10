@@ -16,11 +16,22 @@ struct ImuData {
 
 struct GpsData {
   uint32_t timestamp_us;
-  int32_t lat;  // deg * 1e7
-  int32_t lon;  // deg * 1e7
-  int32_t alt;  // mm (MSL)
-  uint16_t vel; // cm/s
-  uint16_t hdg; // cdeg
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t min;
+  uint8_t sec;
+  uint8_t valid; // PVT validity flags
+
+  uint32_t tAcc; // ns
+  int32_t lat;   // deg * 1e7
+  int32_t lon;   // deg * 1e7
+  int32_t alt;   // mm (MSL)
+  uint32_t hAcc; // mm
+  uint32_t vAcc; // mm
+  uint16_t vel;  // cm/s
+  uint16_t hdg;  // cdeg
   uint8_t num_sats;
   uint8_t fix_type; // 0-1: no fix, 2: 2D, 3: 3D
   bool updated;     // Freshness flag
@@ -30,6 +41,7 @@ struct BatteryData {
   float voltage;
   float current;
   float mah_drawn;
+  uint8_t percentage; // 0-100
 };
 
 // ---------------------------------------------------------

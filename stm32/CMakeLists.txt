@@ -19,7 +19,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Set the project name
-set(CMAKE_PROJECT_NAME stm32-baremetal)
+set(CMAKE_PROJECT_NAME 32Raven_stm32)
 
 # Enable compile command to ease indexing with e.g. clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
@@ -61,6 +61,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/uart.cpp
     Drivers/USER/cc/m9n.cpp
     Drivers/USER/cc/icm20948.cpp
+    Drivers/USER/cc/icm42688p.cpp
     Core/Src/states.cpp
     Services/Src/m9n_service.cpp
     Services/Src/fc_link.cpp
