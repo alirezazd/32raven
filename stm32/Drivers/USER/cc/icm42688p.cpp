@@ -265,6 +265,10 @@ void Icm42688p::OnDrdyIrq(uint32_t now_tick) {
   }
 }
 
+extern "C" void Icm42688pOnDrdyIrq(uint32_t timestamp) {
+  Icm42688p::GetInstance().OnDrdyIrq(timestamp);
+}
+
 void Icm42688p::SpiDoneThunk(void *user, bool ok) {
   static_cast<Icm42688p *>(user)->OnSpiDone(ok);
 }
