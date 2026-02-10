@@ -65,7 +65,7 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern TIM_HandleTypeDef htim2;
 extern void Uart1DmaTxComplete(void);
-extern void Icm20948OnDrdyIrq(uint32_t timestamp);
+extern void Icm42688pOnDrdyIrq(uint32_t timestamp);
 extern void Uart2DmaTxComplete(void);
 extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
@@ -281,7 +281,7 @@ void EXTI15_10_IRQHandler(void) {
 
   if (EXTI->PR & (1u << 10)) {
     EXTI->PR = (1u << 10);
-    Icm20948OnDrdyIrq(now);
+    Icm42688pOnDrdyIrq(now);
   }
 }
 
@@ -423,11 +423,11 @@ void TIM2_IRQHandler(void) {
   if (TIM2->SR & TIM_SR_CC1IF) {
     // Clear CC1 flag
     TIM2->SR = ~TIM_SR_CC1IF;
-    
+
     // Read captured value and apply compensation
     extern uint32_t g_pps_compensation;
     uint32_t capture_val = TIM2->CCR1 - g_pps_compensation;
-    
+
     // Call PPS handler
     TimeBaseOnPpsIrq(capture_val);
   }
