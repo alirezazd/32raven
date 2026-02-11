@@ -41,7 +41,7 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
     const auto &pvt = gps_svc.GetData();
 
     GpsData t;
-    t.timestamp_us = ctx.sys->Time().Micros();
+    t.timestamp_us = ctx.sys->Time().MicrosCorrected();
     t.lat = pvt.lat;
     t.lon = pvt.lon;
     t.alt = pvt.hMSL;
@@ -75,7 +75,7 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
     // TODO: remove – temp rate logger
     static uint32_t imu_cnt = 0;
     static uint32_t imu_log_ms = 0;
-    while (imu.PopSample(raw)) {
+    if (imu.PopSample(raw)) {
       imu_cnt++;
       ImuData d{};
       d.timestamp_us = raw.timestamp_us;
@@ -95,11 +95,30 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
       }
     }
     // TODO: remove – temp rate logger
-    if (now - imu_log_ms >= 1000) {
-      ctx.sys->GetFcLink().SendLog("IMU: %lu Hz ovr:%lu", imu_cnt,
+    // temp rate logger (uses raw TIM2 CNT, 1 MHz assumed)
+    static uint32_t imu_log_t0 = 0;
+    static uint32_t imu_cnt0 = 0;
+
+    uint32_t now_us = TIM2->CNT; // raw 1MHz tick (wraps ~71 min)
+
+    if (imu_log_t0 == 0) {
+      imu_log_t0 = now_us;
+      imu_cnt0 = imu_cnt;
+    }
+
+    uint32_t dt_us = now_us - imu_log_t0;
+    if (dt_us >= 1000000u) {
+      uint32_t dcnt = imu_cnt - imu_cnt0;
+
+      // milli-Hz = samples / seconds * 1000
+      uint32_t hz_x1000 = (uint32_t)((uint64_t)dcnt * 1000000000ull / dt_us);
+
+      ctx.sys->GetFcLink().SendLog("IMU: %lu.%03lu Hz ovr:%lu",
+                                   hz_x1000 / 1000u, hz_x1000 % 1000u,
                                    imu.OverrunCount());
-      imu_cnt = 0;
-      imu_log_ms = now;
+
+      imu_log_t0 = now_us;
+      imu_cnt0 = imu_cnt;
     }
   }
 
@@ -108,7 +127,7 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
     last_time_sync_ms_ = now;
 
     message::TimeSyncMsg msg;
-    msg.timestamp = ctx.sys->Time().Micros();
+    msg.timestamp = ctx.sys->Time().MicrosCorrected();
     msg.drift_micros = (int32_t)ctx.sys->Time().GetDriftMicros();
     msg.synced = ctx.sys->Time().IsGpsSynchronized() ? 1 : 0;
 

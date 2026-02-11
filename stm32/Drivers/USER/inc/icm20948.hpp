@@ -1,7 +1,7 @@
 #pragma once
 
 #include "board.h"
-#include "icm20948_register_map.hpp"
+#include "icm20948_reg.hpp"
 #include <cstdint>
 
 class Icm20948 {

@@ -418,7 +418,7 @@ void TIM2_IRQHandler(void) {
   // Check for Capture/Compare 1 interrupt
   if (TIM2->SR & TIM_SR_CC1IF) {
     // Clear CC1 flag
-    TIM2->SR = ~TIM_SR_CC1IF;
+    TIM2->SR = (uint16_t)~TIM_SR_CC1IF;
 
     // Read captured value and apply compensation
     extern uint32_t g_pps_compensation;

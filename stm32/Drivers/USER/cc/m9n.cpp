@@ -158,7 +158,7 @@ void M9N::FlashConfig(uint32_t current_baud) {
 
   // Small delay for UART to stabilize (100ms)
   auto &time = System::GetInstance().Time();
-  uint64_t start = time.Micros();
+  uint32_t start = time.Micros();
   while ((time.Micros() - start) < MILLIS_TO_MICROS(100)) {
     // Busy wait
   }

@@ -17,7 +17,9 @@ class TimeBase {
 public:
   using Config = TimeBaseConfig;
 
-  uint64_t Micros() const;
+  uint32_t Micros() const;
+  uint64_t MicrosCorrected() const;
+
   void DelayMicros(uint32_t us) const;
 
   bool IsGpsSynchronized() const;
