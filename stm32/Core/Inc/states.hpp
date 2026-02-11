@@ -38,6 +38,7 @@ private:
   } rx_pkt_internal_;
 
   uint32_t last_time_sync_ms_ = 0;
+  uint64_t last_imu_send_us_ = 0;
 };
 
 struct NotIdleState : public IState<AppContext> {

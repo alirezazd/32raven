@@ -33,7 +33,7 @@ void Icm20948::Init(const Config &config) {
 
   // Poll until reset bit clears (timeout 100ms)
   {
-    const uint32_t kStart = System::GetInstance().Time().Micros();
+    const uint64_t kStart = System::GetInstance().Time().Micros();
     while (true) {
       uint8_t pwr =
           ReadReg(0, static_cast<uint8_t>(Register::BANK_0::PWR_MGMT_1));
@@ -48,7 +48,7 @@ void Icm20948::Init(const Config &config) {
 
   // Wake up and set Clock Source
   {
-    const uint32_t kStart = System::GetInstance().Time().Micros();
+    const uint64_t kStart = System::GetInstance().Time().Micros();
     while (true) {
       SelectRegisterBank(0);
 
@@ -217,7 +217,7 @@ uint8_t Icm20948::ReadRegRaw(uint8_t reg) {
 
 void Icm20948::WriteReg(uint8_t bank, uint8_t reg, uint8_t val, bool verify,
                         uint8_t verify_mask) {
-  uint32_t start = System::GetInstance().Time().Micros();
+  uint64_t start = System::GetInstance().Time().Micros();
 
   while (true) {
     SelectRegisterBank(bank);

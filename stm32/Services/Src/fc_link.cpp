@@ -154,6 +154,23 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   Send(pkt);
 }
 
+void FcLink::SendImu(const ImuData &data) {
+  message::ImuData m = {};
+  m.timestamp_us = data.timestamp_us;
+  m.accel[0] = data.accel[0];
+  m.accel[1] = data.accel[1];
+  m.accel[2] = data.accel[2];
+  m.gyro[0] = data.gyro[0];
+  m.gyro[1] = data.gyro[1];
+  m.gyro[2] = data.gyro[2];
+
+  message::Packet pkt;
+  pkt.header.id = (uint8_t)message::MsgId::kImuData;
+  pkt.header.len = sizeof(m);
+  memcpy(pkt.payload, &m, sizeof(m));
+  Send(pkt);
+}
+
 void FcLink::SendLog(const char *format, ...) {
   char buf[128]; // Max payload size relative
   va_list args;

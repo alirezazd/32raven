@@ -89,6 +89,12 @@ struct GpsData {
   int8_t batt_remaining; // %
 } __attribute__((packed));
 
+struct ImuData {
+  uint64_t timestamp_us; // GPS-corrected microseconds
+  float accel[3];        // m/s²  (X, Y, Z)
+  float gyro[3];         // rad/s (X, Y, Z)
+} __attribute__((packed));
+
 struct Packet {
   Header header;
   uint8_t payload[kMaxPayload];

@@ -97,14 +97,20 @@ void Icm42688p::Init(const Config &cfg) {
 
   ConfigureFilters(cfg);
 
+  // INT_CONFIG (0x14): Physical INT1 pin configuration
+  // Bit0=INT1_POLARITY(1=ActiveHigh), Bit1=INT1_DRIVE_CIRCUIT(1=PushPull),
+  // Bit2=INT1_MODE(0=Pulsed)
+  WriteReg(REG_INT_CONFIG,
+           (1u << 1) | (1u << 0)); // Push-Pull, Active High, Pulsed
+
+  // INT_CONFIG1 (0x64): Clear INT_ASYNC_RESET (Bit4) per datasheet
   {
     uint8_t v = ReadReg(REG_INT_CONFIG1);
-    v &= ~(1u << 7); // INT_ASYNC_RESET = 0
-    v |= (1u << 6);  // INT_TPULSE_DURATION = 1 (8us)
-    v |= (1u << 5);  // INT_TDEASSERT_DISABLE = 1
+    v &= ~(1u << 4); // INT_ASYNC_RESET = 0
     WriteReg(REG_INT_CONFIG1, v);
   }
 
+  // INT_CONFIG0 (0x63): UI_DRDY_INT_CLEAR on status read
   {
     uint8_t v = ReadReg(REG_INT_CONFIG0);
     v &= ~(0x3u << 4);
@@ -142,6 +148,11 @@ void Icm42688p::Init(const Config &cfg) {
   WriteReg(REG_ACCEL_CONFIG1, cfg.accel_cfg1);
 
   initialized_ = true;
+
+  // Enable EXTI interrupt for DRDY pin
+  NVIC_SetPriority(IMU_INT_EXTI_IRQn, 4);
+  NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
+
   sys.GetFcLink().SendLog("ICM42688P init OK");
 }
 
@@ -241,11 +252,11 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
   SetBank(0);
 }
 
-void Icm42688p::OnDrdyIrq(uint32_t now_tick) {
+void Icm42688p::OnDrdyIrq() {
   if (!initialized_)
     return;
 
-  last_irq_tick_ = now_tick;
+  last_irq_us_ = System::GetInstance().Time().Micros();
 
   if (inflight_) {
     overrun_++;
@@ -265,9 +276,7 @@ void Icm42688p::OnDrdyIrq(uint32_t now_tick) {
   }
 }
 
-extern "C" void Icm42688pOnDrdyIrq(uint32_t timestamp) {
-  Icm42688p::GetInstance().OnDrdyIrq(timestamp);
-}
+extern "C" void Icm42688pOnDrdyIrq() { Icm42688p::GetInstance().OnDrdyIrq(); }
 
 void Icm42688p::SpiDoneThunk(void *user, bool ok) {
   static_cast<Icm42688p *>(user)->OnSpiDone(ok);
@@ -290,7 +299,7 @@ void Icm42688p::OnSpiDone(bool ok) {
   auto s16 = [&](int idx) -> int16_t { return (int16_t)u16(idx); };
 
   Sample s{};
-  s.irq_tick = last_irq_tick_;
+  s.timestamp_us = last_irq_us_;
   s.accel[0] = s16(0);
   s.accel[1] = s16(2);
   s.accel[2] = s16(4);

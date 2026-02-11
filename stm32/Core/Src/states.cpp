@@ -1,8 +1,17 @@
 #include "states.hpp"
 #include "board.h"
+#include "icm42688p.hpp"
 #include "spi.hpp"
 #include <cstdio>
 #include <cstring>
+
+// Scale factors for ICM-42688-P at ±16g / ±2000dps
+// Accel: 16g / 32768 * 9.80665 = m/s²  per LSB
+// Gyro:  2000 / 32768 * π/180  = rad/s  per LSB
+static constexpr float kAccelScale =
+    16.0f / 32768.0f * 9.80665f; // ~0.00479 m/s²
+static constexpr float kGyroScale =
+    2000.0f / 32768.0f * 3.14159265358979f / 180.0f; // ~0.00107 rad/s
 
 // --- IdleState (Main State) ---
 
@@ -59,7 +68,31 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
     gps_svc.ClearNewDataFlag();
   }
 
-  // 4. Send TimeSync (1Hz)
+  // 4. Process IMU Data
+  {
+    auto &imu = Icm42688p::GetInstance();
+    Icm42688p::Sample raw;
+    if (imu.PopSample(raw)) {
+      ImuData d{};
+      d.timestamp_us = raw.timestamp_us;
+      d.accel[0] = (float)raw.accel[0] * kAccelScale;
+      d.accel[1] = (float)raw.accel[1] * kAccelScale;
+      d.accel[2] = (float)raw.accel[2] * kAccelScale;
+      d.gyro[0] = (float)raw.gyro[0] * kGyroScale;
+      d.gyro[1] = (float)raw.gyro[1] * kGyroScale;
+      d.gyro[2] = (float)raw.gyro[2] * kGyroScale;
+      d.valid = true;
+      ctx.sys->GetVehicleState().UpdateImu(d);
+
+      // Send over telemetry at 50Hz (every 20ms)
+      if (d.timestamp_us - last_imu_send_us_ >= 20000) {
+        last_imu_send_us_ = d.timestamp_us;
+        ctx.sys->GetFcLink().SendImu(d);
+      }
+    }
+  }
+
+  // 5. Send TimeSync (1Hz)
   if (now - last_time_sync_ms_ >= 1000) {
     last_time_sync_ms_ = now;
 
