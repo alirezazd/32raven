@@ -50,10 +50,9 @@ public:
   };
 
   struct Sample {
-    uint32_t irq_tick; // raw TIM2->CNT captured in EXTI
+    uint64_t timestamp_us; // GPS-corrected microseconds from Micros()
     int16_t accel[3];
     int16_t gyro[3];
-    uint16_t tmst_fsync; // optional, 0 if disabled
     uint32_t seq;
   };
 
@@ -65,7 +64,7 @@ public:
   void Init(const Config &cfg);
 
   // Called from EXTI ISR (DRDY)
-  void OnDrdyIrq(uint32_t now_tick);
+  void OnDrdyIrq();
 
   // Called from main loop
   bool PopSample(Sample &out);
@@ -109,8 +108,8 @@ private:
   volatile bool inflight_ = false;
   volatile uint32_t overrun_ = 0;
 
-  // last captured IRQ tick
-  volatile uint32_t last_irq_tick_ = 0;
+  // last captured IRQ timestamp (GPS-corrected us)
+  volatile uint64_t last_irq_us_ = 0;
 
   // sample staging
   Sample sample_ = {};

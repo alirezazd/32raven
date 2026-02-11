@@ -65,7 +65,7 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern TIM_HandleTypeDef htim2;
 extern void Uart1DmaTxComplete(void);
-extern void Icm42688pOnDrdyIrq(uint32_t timestamp);
+extern void Icm42688pOnDrdyIrq(void);
 extern void Uart2DmaTxComplete(void);
 extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
@@ -275,13 +275,9 @@ void DMA1_Stream6_IRQHandler(void) {
 }
 
 void EXTI15_10_IRQHandler(void) {
-  // Timestamp tightly before anything else
-  // We assume TIM2 is running as TimeBase (verified in time_base.cpp)
-  uint32_t now = TIM2->CNT;
-
   if (EXTI->PR & (1u << 10)) {
     EXTI->PR = (1u << 10);
-    Icm42688pOnDrdyIrq(now);
+    Icm42688pOnDrdyIrq();
   }
 }
 

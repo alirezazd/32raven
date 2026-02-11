@@ -7,7 +7,7 @@
 // ---------------------------------------------------------
 
 struct ImuData {
-  uint32_t timestamp_us;
+  uint64_t timestamp_us;
   float accel[3]; // m/s^2
   float gyro[3];  // rad/s
   float mag[3];   // uT
@@ -15,7 +15,7 @@ struct ImuData {
 };
 
 struct GpsData {
-  uint32_t timestamp_us;
+  uint64_t timestamp_us;
   uint16_t year;
   uint8_t month;
   uint8_t day;

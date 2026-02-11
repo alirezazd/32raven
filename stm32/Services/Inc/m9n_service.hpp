@@ -67,7 +67,7 @@ struct ParserContext {
   // Output hooks
   PVTData &pvt_out;
   bool &new_data_out;
-  uint32_t &timestamp_out;
+  uint64_t &timestamp_out;
 
   // Health Stats
   uint32_t checksum_fail_count = 0;
@@ -77,7 +77,7 @@ struct ParserContext {
   // Reference to the state machine to trigger transitions
   StateMachine<ParserContext> *sm = nullptr;
 
-  ParserContext(PVTData &pvt, bool &flag, uint32_t &time_ref)
+  ParserContext(PVTData &pvt, bool &flag, uint64_t &time_ref)
       : pvt_out(pvt), new_data_out(flag), timestamp_out(time_ref) {}
 };
 
@@ -93,7 +93,7 @@ public:
   const PVTData &GetData() const { return pvt_data_; }
   bool NewDataAvailable() const { return new_data_; }
   void ClearNewDataFlag() { new_data_ = false; }
-  uint32_t GetLastFrameTime() const { return last_frame_time_; }
+  uint64_t GetLastFrameTime() const { return last_frame_time_; }
 
   // Stats Access
   uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
@@ -103,7 +103,7 @@ public:
 private:
   PVTData pvt_data_{};
   bool new_data_ = false;
-  uint32_t last_frame_time_ = 0;
+  uint64_t last_frame_time_ = 0;
 
   ParserContext ctx_;
   StateMachine<ParserContext> sm_;

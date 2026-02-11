@@ -94,6 +94,25 @@ static void OnPong(AppContext &ctx, const message::Packet &pkt) {
   // Ping response - ignore
 }
 
+static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
+  if (pkt.header.len != sizeof(message::ImuData)) {
+    ESP_LOGW(kTag, "Invalid IMU Data Length");
+    return;
+  }
+
+  const auto *m = (const message::ImuData *)pkt.payload;
+
+  char buf[128];
+  int len = std::snprintf(
+      buf, sizeof(buf),
+      "IMU: ax=%.3f ay=%.3f az=%.3f gx=%.3f gy=%.3f gz=%.3f\n", m->accel[0],
+      m->accel[1], m->accel[2], m->gyro[0], m->gyro[1], m->gyro[2]);
+
+  if (len > 0) {
+    ctx.sys->Tcp().SendData((uint8_t *)buf, (size_t)len);
+  }
+}
+
 void CommandHandler::Init(const Config &cfg) {
   if (initialized_)
     return;
@@ -109,6 +128,7 @@ void CommandHandler::Init(const Config &cfg) {
   handlers_[(uint8_t)message::MsgId::kLog] = OnLog;
   handlers_[(uint8_t)message::MsgId::kTimeSync] = OnTimeSync;
   handlers_[(uint8_t)message::MsgId::kPong] = OnPong;
+  handlers_[(uint8_t)message::MsgId::kImuData] = OnImuData;
 
   initialized_ = true;
   ESP_LOGI(kTag, "Initialized");
