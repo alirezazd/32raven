@@ -25,6 +25,9 @@ static volatile uint32_t g_time_seq = 0;
 
 uint32_t g_pps_compensation = 0;
 
+// 1/8 smoothing on scaler updates (runs at 1Hz, trivial cost)
+static constexpr uint8_t kScalerAlphaShift = 3;
+
 static inline void TimeSeqBeginWrite() {
   g_time_seq++;
   __DMB();
@@ -59,14 +62,20 @@ extern "C" void TimeBaseOnPpsIrq(uint32_t capture_val) {
 
   if (kDelta > 990000 && kDelta < 1010000) {
     const int32_t kDrift = (int32_t)kDelta - 1000000;
-
     const uint32_t kAbsDrift = (uint32_t)(kDrift >= 0 ? kDrift : -kDrift);
-    const uint32_t kScaler = (uint32_t)(((uint64_t)1000000 << 24) / kDelta);
+
+    const uint32_t target_scaler =
+        (uint32_t)(((uint64_t)1000000 << 24) / kDelta);
+
+    // IIR low-pass: scaler += (target - scaler) / 2^k
+    int32_t err = (int32_t)target_scaler - (int32_t)g_clock_scaler;
+    uint32_t new_scaler =
+        (uint32_t)((int32_t)g_clock_scaler + (err >> kScalerAlphaShift));
 
     TimeSeqBeginWrite();
     g_pps_drift_signed = kDrift;
     g_pps_drift_abs = kAbsDrift;
-    g_clock_scaler = kScaler;
+    g_clock_scaler = new_scaler;
     g_last_pps_capture = capture_val;
     g_total_pps_micros += 1000000ULL;
     g_gps_synced = true;
@@ -93,65 +102,45 @@ void TimeBase::Init(const Config &config) {
   compensation_ = config.compensation;
   g_pps_compensation = config.compensation;
 
-  // Set HAL handle instance to avoid HardFault in ISR (calls
-  // HAL_TIM_IRQHandler)
   htim2.Instance = TIM2;
-  // Initialize state so HAL doesn't think it's uninitialized
   htim2.State = HAL_TIM_STATE_READY;
 
-  // Enable TIM2 clock
   RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
-  // Enable GPIOA clock (for PA15)
   RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
   __DSB();
 
-  // Configure PA15 as TIM2_CH1 (AF1)
-  // MODER: 10 (Alternate Function)
-  // AFR[1] (AFRH): 0001 (AF1) for Pin 15
   GPIOA->MODER &= ~(3U << (15 * 2));
   GPIOA->MODER |= (2U << (15 * 2));
 
   GPIOA->AFR[1] &= ~(0xFU << ((15 - 8) * 4));
   GPIOA->AFR[1] |= (1U << ((15 - 8) * 4));
 
-  // Stop timer and reset control register
   TIM2->CR1 = 0;
-
-  // Only overflow generates update events
   TIM2->CR1 |= TIM_CR1_URS;
 
-  // Configure prescaler and auto-reload
   TIM2->PSC = config.prescaler;
   TIM2->ARR = config.period;
 
-  // Input Capture Channel 1 Configuration (PA15)
-  // CC1S = 01 (IC1 mapped to TI1), IC1F = 1111 (filter = 15)
-  TIM2->CCMR1 =
-      (TIM2->CCMR1 & ~(TIM_CCMR1_CC1S | TIM_CCMR1_IC1F)) |
-      (1U << TIM_CCMR1_CC1S_Pos) | // CC1S = 01 (Input, IC1 mapped to TI1)
-      (15U << TIM_CCMR1_IC1F_Pos); // IC1F = 15 (max filter)
+  TIM2->CCMR1 = (TIM2->CCMR1 & ~(TIM_CCMR1_CC1S | TIM_CCMR1_IC1F)) |
+                (1U << TIM_CCMR1_CC1S_Pos) | (3U << TIM_CCMR1_IC1F_Pos);
 
-  // CC1P = 0, CC1NP = 0 (Rising edge), CC1E = 1 (Enable capture)
   TIM2->CCER = (TIM2->CCER & ~(TIM_CCER_CC1P | TIM_CCER_CC1NP)) | TIM_CCER_CC1E;
 
-  // Enable CC1 interrupt
   TIM2->DIER |= TIM_DIER_CC1IE;
 
-  // Enable IRQ in NVIC
-  NVIC_SetPriority(TIM2_IRQn, 0);
+  NVIC_SetPriority(TIM2_IRQn, 6);
   NVIC_EnableIRQ(TIM2_IRQn);
 
-  // Force update event to load PSC and ARR immediately
   TIM2->EGR = TIM_EGR_UG;
-
-  // Reset counter
   TIM2->CNT = 0;
-
-  // Start timer
   TIM2->CR1 |= TIM_CR1_CEN;
 }
 
-uint64_t TimeBase::Micros() const {
+// Raw, monotonic, fast. Wraps about every 71.6 minutes at 1MHz.
+uint32_t TimeBase::Micros() const { return TIM2->CNT; }
+
+// GPS disciplined time (your old Micros()).
+uint64_t TimeBase::MicrosCorrected() const {
   for (;;) {
     uint32_t s0 = g_time_seq;
     __DMB();
@@ -176,8 +165,8 @@ uint64_t TimeBase::Micros() const {
 
 void TimeBase::DelayMicros(uint32_t us) const {
   uint32_t start = TIM2->CNT;
-  while ((TIM2->CNT - start) < us)
-    ;
+  while ((TIM2->CNT - start) < us) {
+  }
 }
 
 bool TimeBase::IsGpsSynchronized() const { return g_gps_synced; }

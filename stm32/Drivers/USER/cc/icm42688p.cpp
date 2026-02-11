@@ -1,27 +1,28 @@
 #include "icm42688p.hpp"
 
 #include "board.h"
-#include "icm42688p_reg.hpp"
 #include "spi.hpp"
 #include "system.hpp"
 #include <cmath>
 
 using namespace Icm42688pReg;
 
+// ─────────────────────────── CS pin helpers ──────────────────────────────
+
 static inline void CsLow() {
   SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin << 16;
 }
 static inline void CsHigh() { SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin; }
 
-static inline float kPi() { return 3.14159265358979323846f; }
+// ─────────────────────────── Notch filter math ──────────────────────────
 
-static inline float ClampF(float x, float lo, float hi) {
-  if (x < lo)
-    return lo;
-  if (x > hi)
-    return hi;
-  return x;
+static constexpr float kPi = 3.14159265358979323846f;
+
+static inline float Clamp(float x, float lo, float hi) {
+  return (x < lo) ? lo : (x > hi) ? hi : x;
 }
+
+// ─────────────────────────── Init ───────────────────────────────────────
 
 void Icm42688p::Init(const Config &cfg) {
   if (initialized_)
@@ -33,109 +34,122 @@ void Icm42688p::Init(const Config &cfg) {
   sys.Time().DelayMicros(10000);
   spi.SetPrescaler(static_cast<SpiPrescaler>(cfg.spi_prescaler));
 
-  tx_[0] = (uint8_t)(kBurstStartReg | 0x80);
+  // Prepare DMA TX buffer: read command + 0xFF fill
+  tx_[0] = kBurstStartReg | 0x80;
   for (unsigned i = 1; i < kXferLen; i++)
     tx_[i] = 0xFF;
 
   SetBank(0);
 
+  // ── WHOAMI check ──────────────────────────────────────────────────────
   bool ok = false;
   for (int i = 0; i < 5; i++) {
     uint8_t who = ReadReg(REG_WHO_AM_I);
     sys.GetFcLink().SendLog("ICM42688P WHOAMI=0x%02X", who);
-    if (who == WHO_AM_I_VAL || who == WHO_AM_I_VAL_686) {
+    if (who == WHO_AM_I_ICM42688P || who == WHO_AM_I_ICM42686P) {
       ok = true;
       break;
     }
     sys.Time().DelayMicros(1000);
   }
   if (!ok) {
-    sys.GetFcLink().SendLog("ICM42688P WHOAMI mismatch");
+    sys.GetFcLink().SendLog("ICM42688P WHOAMI fail");
     return;
   }
 
-  WriteReg(REG_DEVICE_CONFIG, 0x01);
+  // ── Soft reset ────────────────────────────────────────────────────────
+  WriteReg(REG_DEVICE_CONFIG, DEVICE_CONFIG_SOFT_RESET);
   sys.Time().DelayMicros(2000);
   SetBank(0);
 
   {
     uint8_t who = ReadReg(REG_WHO_AM_I);
-    if (who != WHO_AM_I_VAL && who != WHO_AM_I_VAL_686) {
-      sys.GetFcLink().SendLog("ICM42688P WHOAMI mismatch after reset");
+    if (who != WHO_AM_I_ICM42688P && who != WHO_AM_I_ICM42686P) {
+      sys.GetFcLink().SendLog("ICM42688P WHOAMI fail after reset");
       return;
     }
   }
 
+  // ── INTF_CONFIG1: clock source + disable AFSR ─────────────────────────
+  //   CLKSEL = 01 → PLL auto-select (±1% vs ±8% RC-only)
+  //   AFSR   = 01 → disabled (bit7=0 clear, bit6=1 set)
+  {
+    uint8_t v = ReadReg(REG_INTF_CONFIG1);
+    v &= ~(INTF_CONFIG1_CLKSEL_CLEAR | INTF_CONFIG1_CLKSEL);
+    v |= INTF_CONFIG1_CLKSEL;      // CLKSEL = 01
+    v &= ~INTF_CONFIG1_AFSR_CLEAR; // bit7 = 0
+    v |= INTF_CONFIG1_AFSR_SET;    // bit6 = 1 → AFSR off
+    WriteReg(REG_INTF_CONFIG1, v);
+  }
+
+  // ── FSYNC: route GPS PPS → pin 9 ─────────────────────────────────────
   if (cfg.enable_fsync_pin9) {
     SetBank(1);
-    uint8_t v = ReadReg(REG_INTF_CONFIG5);
-    v &= ~(0x3u << 1);
-    v |= (0x1u << 1);
-    WriteReg(REG_INTF_CONFIG5, v);
+    {
+      uint8_t v = ReadReg(REG_INTF_CONFIG5);
+      v &= ~(0x3u << 1); // PIN9_FUNCTION = 00 (FSYNC, default)
+      WriteReg(REG_INTF_CONFIG5, v);
+    }
     SetBank(0);
   }
 
+  // ── Timestamp + FSYNC config ──────────────────────────────────────────
   if (cfg.enable_tmst_regs || cfg.enable_tmst_fsync) {
     uint8_t tmst = 0;
-    if (cfg.enable_tmst_regs) {
-      tmst |= (1u << 4);
-      tmst |= (1u << 0);
-    }
-    if (cfg.enable_tmst_fsync) {
-      tmst |= (1u << 1);
-    }
+    if (cfg.enable_tmst_regs)
+      tmst |= TMST_CONFIG_TO_REGS_EN | TMST_CONFIG_EN;
+    if (cfg.enable_tmst_fsync)
+      tmst |= TMST_CONFIG_FSYNC_EN;
     WriteReg(REG_TMST_CONFIG, tmst);
   }
 
   if (cfg.enable_fsync_pin9) {
-    uint8_t fs = 0;
-    fs |= (uint8_t)((cfg.fsync_ui_sel & 0x7u) << 4);
+    uint8_t fs = (uint8_t)((cfg.fsync_ui_sel & 0x7u) << 4);
     if (cfg.fsync_polarity_falling)
       fs |= 0x01;
     WriteReg(REG_FSYNC_CONFIG, fs);
   }
 
+  // ── Filters (Banks 1 & 2) ────────────────────────────────────────────
   ConfigureFilters(cfg);
 
-  // INT_CONFIG (0x14): Physical INT1 pin configuration
-  // Bit0=INT1_POLARITY(1=ActiveHigh), Bit1=INT1_DRIVE_CIRCUIT(1=PushPull),
-  // Bit2=INT1_MODE(0=Pulsed)
-  WriteReg(REG_INT_CONFIG,
-           (1u << 1) | (1u << 0)); // Push-Pull, Active High, Pulsed
+  // ── Interrupt configuration ───────────────────────────────────────────
 
+  // INT_CONFIG: Active-High, Push-Pull, Pulsed
+  WriteReg(REG_INT_CONFIG,
+           INT_CONFIG_INT1_DRIVE_CIRCUIT | INT_CONFIG_INT1_POLARITY);
+
+  // INT_CONFIG1: clear INT_ASYNC_RESET, set 8µs pulse, keep deassertion enabled
   {
     uint8_t v = ReadReg(REG_INT_CONFIG1);
-    v &= ~(1u << 7); // INT_ASYNC_RESET = 0
-    v |= (1u << 6);  // INT_TPULSE_DURATION = 1 (8us)
-    v |= (1u << 5);  // INT_TDEASSERT_DISABLE = 1
+    v &= ~INT_CONFIG1_ASYNC_RESET;    // Required per datasheet
+    v |= INT_CONFIG1_TPULSE_DURATION; // 8µs pulse width
+    v &= ~INT_CONFIG1_TDEASSERT_DIS;  // Normal deassertion (reliable edge)
     WriteReg(REG_INT_CONFIG1, v);
   }
 
-  // INT_CONFIG0 (0x63): UI_DRDY_INT_CLEAR on sensor data read
-  // We read data registers in DMA burst (not INT_STATUS), so use
-  // CLEAR_ON_DATA_READ.
+  // INT_CONFIG0: DRDY clears on sensor register read (our DMA reads data regs)
   {
     uint8_t v = ReadReg(REG_INT_CONFIG0);
     v &= ~(0x3u << 4);
-    v |= INT_CONFIG0_CLEAR_ON_SENSOR_REG_READ; // 10b
+    v |= INT_CONFIG0_DRDY_CLEAR_ON_SENSOR_READ;
     WriteReg(REG_INT_CONFIG0, v);
   }
 
+  // INT_SOURCE0: enable DRDY on INT1
   {
-    uint8_t src0 = ReadReg(REG_INT_SOURCE0);
-    src0 |= (1u << 3);
-    WriteReg(REG_INT_SOURCE0, src0);
+    uint8_t v = ReadReg(REG_INT_SOURCE0);
+    v |= INT_SOURCE0_UI_DRDY_INT1_EN;
+    WriteReg(REG_INT_SOURCE0, v);
   }
 
-  {
-    uint8_t pwr = 0;
-    pwr |= (0x3u << 2); // GYRO_MODE = LN
-    pwr |= (0x3u << 0); // ACCEL_MODE = LN
-    WriteReg(REG_PWR_MGMT0, pwr);
-  }
+  // ── Sensor power-on ──────────────────────────────────────────────────
+  WriteReg(REG_PWR_MGMT0, PWR_MGMT0_GYRO_MODE_LN | PWR_MGMT0_ACCEL_MODE_LN);
 
+  // Gyro needs 30ms to start producing valid data
   sys.Time().DelayMicros(30000);
 
+  // ── ODR / Full-Scale / Filter BW ─────────────────────────────────────
   {
     uint8_t g = (uint8_t)((uint8_t)cfg.gyro_fs << 5) | (uint8_t)cfg.gyro_odr;
     uint8_t a = (uint8_t)((uint8_t)cfg.accel_fs << 5) | (uint8_t)cfg.accel_odr;
@@ -152,53 +166,55 @@ void Icm42688p::Init(const Config &cfg) {
 
   initialized_ = true;
 
-  // Enable EXTI interrupt for DRDY pin
+  // ── Enable EXTI for DRDY ─────────────────────────────────────────────
   NVIC_SetPriority(IMU_INT_EXTI_IRQn, 4);
   NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
 
   sys.GetFcLink().SendLog("ICM42688P init OK");
 }
 
+// ─────────────────────────── Filter configuration ───────────────────────
+
 void Icm42688p::ConfigureFilters(const Config &cfg) {
   SetBank(1);
 
+  // ── Gyro notch filter ─────────────────────────────────────────────────
   {
     uint8_t s2 = ReadReg(REG_GYRO_CONFIG_STATIC2);
 
     if (cfg.notch_freq_hz > 0.0f) {
-      s2 &= ~(0x01);
+      s2 &= ~GYRO_CONFIG_STATIC2_NF_DIS;
       WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
 
-      float f = ClampF(cfg.notch_freq_hz, 1.0f, 15999.0f);
-      float coswz = cosf(2.0f * kPi() * f / 32000.0f);
+      float f = Clamp(cfg.notch_freq_hz, 1.0f, 15999.0f);
+      float coswz = cosf(2.0f * kPi * f / 32000.0f);
 
       uint16_t val = 0;
       uint8_t sel = 0;
 
       if (fabsf(coswz) <= 0.875f) {
-        int32_t q = (int32_t)lrintf(coswz * 256.0f);
-        val = (uint16_t)(q & 0x1FF);
+        val = (uint16_t)((int32_t)lrintf(coswz * 256.0f) & 0x1FF);
         sel = 0;
       } else {
         sel = 1;
-        if (coswz > 0.0f) {
-          int32_t q = (int32_t)lrintf(8.0f * (1.0f - coswz) * 256.0f);
-          val = (uint16_t)(q & 0x1FF);
-        } else {
-          int32_t q = (int32_t)lrintf(-8.0f * (1.0f + coswz) * 256.0f);
-          val = (uint16_t)(q & 0x1FF);
-        }
+        if (coswz > 0.0f)
+          val = (uint16_t)((int32_t)lrintf(8.0f * (1.0f - coswz) * 256.0f) &
+                           0x1FF);
+        else
+          val = (uint16_t)((int32_t)lrintf(-8.0f * (1.0f + coswz) * 256.0f) &
+                           0x1FF);
       }
 
+      // Same coefficient for all three axes
       WriteReg(REG_GYRO_CONFIG_STATIC6, (uint8_t)(val & 0xFF));
       WriteReg(REG_GYRO_CONFIG_STATIC7, (uint8_t)(val & 0xFF));
       WriteReg(REG_GYRO_CONFIG_STATIC8, (uint8_t)(val & 0xFF));
 
       uint8_t s9 = 0;
       if (sel)
-        s9 |= (1u << 5) | (1u << 4) | (1u << 3);
+        s9 |= (1u << 5) | (1u << 4) | (1u << 3); // COSWZ_SEL for X/Y/Z
       if (val & 0x100)
-        s9 |= (1u << 2) | (1u << 1) | (1u << 0);
+        s9 |= (1u << 2) | (1u << 1) | (1u << 0); // MSB for X/Y/Z
       WriteReg(REG_GYRO_CONFIG_STATIC9, s9);
 
       uint8_t s10 = ReadReg(REG_GYRO_CONFIG_STATIC10);
@@ -206,18 +222,19 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
       s10 |= (uint8_t)((cfg.notch_bw_idx & 0x7u) << 4);
       WriteReg(REG_GYRO_CONFIG_STATIC10, s10);
     } else {
-      s2 |= 0x01;
+      s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
       WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
     }
   }
 
+  // ── Gyro anti-alias filter ────────────────────────────────────────────
   {
     uint8_t s2 = ReadReg(REG_GYRO_CONFIG_STATIC2);
     if (cfg.gyro_aaf_dis) {
-      s2 |= 0x02;
+      s2 |= GYRO_CONFIG_STATIC2_AAF_DIS;
       WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
     } else {
-      s2 &= ~0x02;
+      s2 &= ~GYRO_CONFIG_STATIC2_AAF_DIS;
       WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
 
       WriteReg(REG_GYRO_CONFIG_STATIC3, (uint8_t)(cfg.gyro_aaf_delt & 0x3F));
@@ -230,15 +247,16 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
     }
   }
 
+  // ── Accel anti-alias filter (Bank 2) ──────────────────────────────────
   SetBank(2);
 
   {
     uint8_t s2 = ReadReg(REG_ACCEL_CONFIG_STATIC2);
     if (cfg.accel_aaf_dis) {
-      s2 |= 0x01;
+      s2 |= ACCEL_CONFIG_STATIC2_AAF_DIS;
       WriteReg(REG_ACCEL_CONFIG_STATIC2, s2);
     } else {
-      s2 &= ~0x01;
+      s2 &= ~ACCEL_CONFIG_STATIC2_AAF_DIS;
       s2 &= ~(0x3Fu << 1);
       s2 |= (uint8_t)((cfg.accel_aaf_delt & 0x3F) << 1);
       WriteReg(REG_ACCEL_CONFIG_STATIC2, s2);
@@ -255,11 +273,13 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
   SetBank(0);
 }
 
+// ─────────────────────────── ISR path ───────────────────────────────────
+
 void Icm42688p::OnDrdyIrq() {
   if (!initialized_)
     return;
 
-  last_irq_us_ = System::GetInstance().Time().Micros();
+  last_irq_us_ = System::GetInstance().Time().MicrosCorrected();
 
   if (inflight_) {
     overrun_++;
@@ -270,9 +290,7 @@ void Icm42688p::OnDrdyIrq() {
   CsLow();
 
   auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
-  bool started =
-      spi.StartTxRxDma(tx_, rx_, kXferLen, &Icm42688p::SpiDoneThunk, this);
-  if (!started) {
+  if (!spi.StartTxRxDma(tx_, rx_, kXferLen, &Icm42688p::SpiDoneThunk, this)) {
     CsHigh();
     inflight_ = false;
     overrun_++;
@@ -294,12 +312,15 @@ void Icm42688p::OnSpiDone(bool ok) {
     return;
   }
 
+  // Burst layout after 1-byte address:
+  //   [0..5]  Accel X/Y/Z (big-endian int16)
+  //   [6..11] Gyro  X/Y/Z (big-endian int16)
+  //   [12..13] Temp        (big-endian int16)
   const uint8_t *p = &rx_[1];
 
-  auto u16 = [&](int idx) -> uint16_t {
-    return (uint16_t)((uint16_t)p[idx] << 8) | (uint16_t)p[idx + 1];
+  auto s16 = [&](int idx) -> int16_t {
+    return (int16_t)((uint16_t)(p[idx] << 8) | p[idx + 1]);
   };
-  auto s16 = [&](int idx) -> int16_t { return (int16_t)u16(idx); };
 
   Sample s{};
   s.timestamp_us = last_irq_us_;
@@ -309,16 +330,19 @@ void Icm42688p::OnSpiDone(bool ok) {
   s.gyro[0] = s16(6);
   s.gyro[1] = s16(8);
   s.gyro[2] = s16(10);
+  s.temp_raw = s16(12);
   s.seq = ++seq_;
 
-  if (!ring_.Push(s)) {
+  if (!sample_buf_.Push(s)) {
     overrun_++;
   }
 
   inflight_ = false;
 }
 
-bool Icm42688p::PopSample(Sample &out) { return ring_.Pop(out); }
+bool Icm42688p::PopSample(Sample &out) { return sample_buf_.Pop(out); }
+
+// ─────────────────────────── SPI helpers (blocking) ─────────────────────
 
 void Icm42688p::SetBank(uint8_t bank) {
   auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
