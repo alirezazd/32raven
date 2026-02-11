@@ -38,6 +38,13 @@ constexpr uint8_t REG_INT_SOURCE0 = 0x65;
 constexpr uint8_t REG_WHO_AM_I = 0x75;
 constexpr uint8_t REG_BANK_SEL = 0x76;
 
+// INT_CONFIG0 Bits (UI_DRDY_INT_CLEAR is bits[5:4])
+constexpr uint8_t INT_CONFIG0_CLEAR_ON_STATUS_READ = 0x0u << 4; // 00
+constexpr uint8_t INT_CONFIG0_CLEAR_ON_STATUS_READ_01 =
+    0x1u << 4; // 01 (still status)
+constexpr uint8_t INT_CONFIG0_CLEAR_ON_SENSOR_REG_READ = 0x2u << 4; // 10
+constexpr uint8_t INT_CONFIG0_CLEAR_ON_BOTH = 0x3u << 4;            // 11
+
 // Bank 1
 constexpr uint8_t REG_GYRO_CONFIG_STATIC2 = 0x0B;
 constexpr uint8_t REG_GYRO_CONFIG_STATIC3 = 0x0C;

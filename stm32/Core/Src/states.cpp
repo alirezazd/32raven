@@ -72,7 +72,11 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
   {
     auto &imu = Icm42688p::GetInstance();
     Icm42688p::Sample raw;
-    if (imu.PopSample(raw)) {
+    // TODO: remove – temp rate logger
+    static uint32_t imu_cnt = 0;
+    static uint32_t imu_log_ms = 0;
+    while (imu.PopSample(raw)) {
+      imu_cnt++;
       ImuData d{};
       d.timestamp_us = raw.timestamp_us;
       d.accel[0] = (float)raw.accel[0] * kAccelScale;
@@ -89,6 +93,13 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
         last_imu_send_us_ = d.timestamp_us;
         ctx.sys->GetFcLink().SendImu(d);
       }
+    }
+    // TODO: remove – temp rate logger
+    if (now - imu_log_ms >= 1000) {
+      ctx.sys->GetFcLink().SendLog("IMU: %lu Hz ovr:%lu", imu_cnt,
+                                   imu.OverrunCount());
+      imu_cnt = 0;
+      imu_log_ms = now;
     }
   }
 
