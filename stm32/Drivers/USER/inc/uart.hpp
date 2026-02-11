@@ -31,7 +31,7 @@ public:
 
   // RX Controls
   void StartRxDma();
-  uint32_t GetLastRxTime() const { return last_idle_time_; }
+  uint64_t GetLastRxTime() const { return last_idle_time_; }
 
   // ISR Callbacks
   void OnUartInterrupt();
@@ -60,7 +60,7 @@ private:
   uint8_t rx_dma_buf_[RxDmaSize];
   uint16_t rx_last_pos_ = 0;
   RingBuffer<uint8_t, RxRingSize> rx_ring_;
-  volatile uint32_t last_idle_time_ = 0;
+  volatile uint64_t last_idle_time_ = 0;
 
   void DrainRx();
 

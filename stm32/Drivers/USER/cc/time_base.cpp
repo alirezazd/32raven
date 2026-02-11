@@ -9,13 +9,30 @@
 // Global handle for HAL compatibility
 TIM_HandleTypeDef htim2;
 
-// Time tracking globals
-static volatile uint32_t g_pps_drift = 0;
+static volatile uint32_t g_pps_drift_abs = 0;
+static volatile int32_t g_pps_drift_signed = 0;
 static volatile bool g_gps_synced = false;
-static volatile uint32_t g_clock_scaler = 16777216; // 2^24 = 1.0x multiplier
+
+// 2^24 = 1.0x multiplier
+static volatile uint32_t g_clock_scaler = 16777216;
+
+// PPS epoch state
 static volatile uint32_t g_last_pps_capture = 0;
-static volatile uint32_t g_total_pps_micros = 0;
+static volatile uint64_t g_total_pps_micros = 0;
+
+// sequence lock for coherent reads of epoch state
+static volatile uint32_t g_time_seq = 0;
+
 uint32_t g_pps_compensation = 0;
+
+static inline void TimeSeqBeginWrite() {
+  g_time_seq++;
+  __DMB();
+}
+static inline void TimeSeqEndWrite() {
+  __DMB();
+  g_time_seq++;
+}
 
 extern "C" void TimeBaseOnPpsIrq(uint32_t capture_val) {
   static uint32_t prev_capture = 0;
@@ -23,33 +40,43 @@ extern "C" void TimeBaseOnPpsIrq(uint32_t capture_val) {
 
   if (first) {
     prev_capture = capture_val;
+
+    TimeSeqBeginWrite();
     g_last_pps_capture = capture_val;
+    g_total_pps_micros = 0;
+    g_clock_scaler = 16777216;
+    g_gps_synced = false;
+    g_pps_drift_abs = 0;
+    g_pps_drift_signed = 0;
+    TimeSeqEndWrite();
+
     first = false;
     return;
   }
 
-  // Calculate ticks since last PPS
-  uint32_t delta = capture_val - prev_capture;
+  const uint32_t kDelta = capture_val - prev_capture;
   prev_capture = capture_val;
 
-  // Validate delta (1s +/- 10ms tolerance)
-  if (delta > 990000 && delta < 1010000) {
-    // Calculate absolute drift in microseconds
-    int32_t drift = (int32_t)delta - 1000000;
-    g_pps_drift = (uint32_t)(drift > 0 ? drift : -drift);
+  if (kDelta > 990000 && kDelta < 1010000) {
+    const int32_t kDrift = (int32_t)kDelta - 1000000;
 
-    // Update clock scaler: (Ideal / Actual) * 2^24
-    // If clock is fast (delta > 1,000,000), scaler becomes < 1.0
-    g_clock_scaler = (uint32_t)(((uint64_t)1000000 << 24) / delta);
+    const uint32_t kAbsDrift = (uint32_t)(kDrift >= 0 ? kDrift : -kDrift);
+    const uint32_t kScaler = (uint32_t)(((uint64_t)1000000 << 24) / kDelta);
 
-    // Update reference point and total time
+    TimeSeqBeginWrite();
+    g_pps_drift_signed = kDrift;
+    g_pps_drift_abs = kAbsDrift;
+    g_clock_scaler = kScaler;
     g_last_pps_capture = capture_val;
-    g_total_pps_micros += 1000000;
+    g_total_pps_micros += 1000000ULL;
     g_gps_synced = true;
+    TimeSeqEndWrite();
   } else {
-    // Out of valid range - report raw delta for debugging
-    g_pps_drift = delta;
+    TimeSeqBeginWrite();
+    g_pps_drift_signed = (int32_t)kDelta; // raw for debug
+    g_pps_drift_abs = kDelta;
     g_gps_synced = false;
+    TimeSeqEndWrite();
   }
 }
 
@@ -124,17 +151,27 @@ void TimeBase::Init(const Config &config) {
   TIM2->CR1 |= TIM_CR1_CEN;
 }
 
-uint32_t TimeBase::Micros() const {
-  uint32_t current_cnt = TIM2->CNT;
+uint64_t TimeBase::Micros() const {
+  for (;;) {
+    uint32_t s0 = g_time_seq;
+    __DMB();
+    if (s0 & 1u)
+      continue;
 
-  // Calculate ticks since last PPS reference point
-  uint32_t ticks_since_pps = current_cnt - g_last_pps_capture;
+    uint32_t last_pps = g_last_pps_capture;
+    uint64_t base_us = g_total_pps_micros;
+    uint32_t scaler = g_clock_scaler;
+    uint32_t cnt = TIM2->CNT;
 
-  // Scale ticks to real microseconds using GPS-corrected scaler
-  uint32_t corrected_elapsed =
-      (uint32_t)(((uint64_t)ticks_since_pps * g_clock_scaler) >> 24);
+    __DMB();
+    uint32_t s1 = g_time_seq;
+    if (s0 != s1)
+      continue;
 
-  return g_total_pps_micros + corrected_elapsed;
+    uint32_t ticks_since_pps = cnt - last_pps;
+    uint64_t corrected_elapsed = (((uint64_t)ticks_since_pps * scaler) >> 24);
+    return base_us + corrected_elapsed;
+  }
 }
 
 void TimeBase::DelayMicros(uint32_t us) const {
@@ -143,6 +180,5 @@ void TimeBase::DelayMicros(uint32_t us) const {
     ;
 }
 
-uint32_t TimeBase::GetDriftMicros() const { return g_pps_drift; }
-
 bool TimeBase::IsGpsSynchronized() const { return g_gps_synced; }
+uint32_t TimeBase::GetDriftMicros() const { return g_pps_drift_abs; }

@@ -5,6 +5,7 @@
 #include "gpio.hpp"
 // #include "i2c.hpp"
 #include "board.h"
+#include "icm42688p.hpp"
 #include "led.hpp"
 #include "spi.hpp"
 #include "stm32f4xx.h"
@@ -13,6 +14,7 @@
 #include "user_config.hpp"
 
 // TODO: Use menuconfig to set these values and auto generate the config
+// TODO: Need a way to change some parameters at runtime
 
 System::System() {
   // Constructor does nothing now, explicit init() required.
@@ -43,7 +45,6 @@ void System::Init(const SystemConfig &config) {
   Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
   Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
   M9N::GetInstance().Init();
-  // Icm20948::GetInstance().Init(kIcm20948Config);
   Icm42688p::GetInstance().Init(kIcm42688pConfig);
 
   // Init Complete: LEAVE LED ON for Debugging

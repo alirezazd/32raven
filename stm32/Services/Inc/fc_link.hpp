@@ -24,6 +24,9 @@ public:
   // Convenience for GpsData from Blackboard
   void SendGps(const GpsData &data, const BatteryData &bat);
 
+  // Convenience for ImuData from Blackboard
+  void SendImu(const ImuData &data);
+
   // Send Log Message
   void SendLog(const char *format, ...);
 
