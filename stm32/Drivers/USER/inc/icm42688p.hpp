@@ -1,6 +1,7 @@
 #pragma once
 
 #include "icm42688p_reg.hpp"
+#include "ring_buffer.hpp"
 #include <cstdint>
 
 class Icm42688p {
@@ -111,7 +112,7 @@ private:
   // last captured IRQ timestamp (GPS-corrected us)
   volatile uint64_t last_irq_us_ = 0;
 
-  // sample staging
-  Sample sample_ = {};
-  volatile bool sample_ready_ = false;
+  // SPSC ring buffer: ISR pushes, main loop pops
+  RingBuffer<Sample, 16> ring_;
+  uint32_t seq_ = 0;
 };

@@ -103,18 +103,21 @@ void Icm42688p::Init(const Config &cfg) {
   WriteReg(REG_INT_CONFIG,
            (1u << 1) | (1u << 0)); // Push-Pull, Active High, Pulsed
 
-  // INT_CONFIG1 (0x64): Clear INT_ASYNC_RESET (Bit4) per datasheet
   {
     uint8_t v = ReadReg(REG_INT_CONFIG1);
-    v &= ~(1u << 4); // INT_ASYNC_RESET = 0
+    v &= ~(1u << 7); // INT_ASYNC_RESET = 0
+    v |= (1u << 6);  // INT_TPULSE_DURATION = 1 (8us)
+    v |= (1u << 5);  // INT_TDEASSERT_DISABLE = 1
     WriteReg(REG_INT_CONFIG1, v);
   }
 
-  // INT_CONFIG0 (0x63): UI_DRDY_INT_CLEAR on status read
+  // INT_CONFIG0 (0x63): UI_DRDY_INT_CLEAR on sensor data read
+  // We read data registers in DMA burst (not INT_STATUS), so use
+  // CLEAR_ON_DATA_READ.
   {
     uint8_t v = ReadReg(REG_INT_CONFIG0);
     v &= ~(0x3u << 4);
-    v |= (0x2u << 4);
+    v |= INT_CONFIG0_CLEAR_ON_SENSOR_REG_READ; // 10b
     WriteReg(REG_INT_CONFIG0, v);
   }
 
@@ -306,21 +309,16 @@ void Icm42688p::OnSpiDone(bool ok) {
   s.gyro[0] = s16(6);
   s.gyro[1] = s16(8);
   s.gyro[2] = s16(10);
-  s.seq = sample_.seq + 1;
+  s.seq = ++seq_;
 
-  sample_ = s;
-  sample_ready_ = true;
+  if (!ring_.Push(s)) {
+    overrun_++;
+  }
 
   inflight_ = false;
 }
 
-bool Icm42688p::PopSample(Sample &out) {
-  if (!sample_ready_)
-    return false;
-  out = sample_;
-  sample_ready_ = false;
-  return true;
-}
+bool Icm42688p::PopSample(Sample &out) { return ring_.Pop(out); }
 
 void Icm42688p::SetBank(uint8_t bank) {
   auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
