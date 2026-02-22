@@ -3,7 +3,6 @@
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h" // IWYU pragma: keep
 #include "freertos/task.h"
-#include "system.hpp"
 #include <cstddef> // for size_t
 
 // LEDC configuration

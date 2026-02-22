@@ -29,6 +29,9 @@ public:
 
   // Send Log Message
   void SendLog(const char *format, ...);
+  
+  // Send Binary Log (format string + raw args, ESP32 does formatting)
+  void SendLogBinary(uint8_t fmt_id, uint8_t argc, const uint32_t *args);
 
   // Send TimeSync
   void SendTimeSync(const message::TimeSyncMsg &msg);

@@ -1,11 +1,32 @@
 #pragma once
 
 #include "stm32f4xx.h"
-#include "user_config.hpp" // SpiConfig, SpiPrescaler, SpiPolarity, SpiPhase, SpiBitOrder
 #include <cstddef>
 #include <cstdint>
 
 enum class SpiInstance { kSpi1 };
+
+enum class SpiPrescaler : uint8_t {
+  kDiv2 = 0,
+  kDiv4 = 1,
+  kDiv8 = 2,
+  kDiv16 = 3,
+  kDiv32 = 4,
+  kDiv64 = 5,
+  kDiv128 = 6,
+  kDiv256 = 7,
+};
+
+enum class SpiPolarity : uint8_t { kLow = 0, kHigh = 1 };
+enum class SpiPhase : uint8_t { k1Edge = 0, k2Edge = 1 };
+enum class SpiBitOrder : uint8_t { kMsbFirst = 0, kLsbFirst = 1 };
+
+struct SpiConfig {
+  SpiPolarity polarity;
+  SpiPhase phase;
+  SpiPrescaler prescaler;
+  SpiBitOrder bit_order;
+};
 
 template <SpiInstance Inst> class Spi {
 public:
@@ -20,6 +41,7 @@ public:
   void Read(uint8_t *rx, size_t len);
 
   void SetPrescaler(SpiPrescaler rate);
+  void EnableIrqs(uint32_t priority = 2);
 
   bool IsInitialized() const { return initialized_; }
 
@@ -29,6 +51,7 @@ public:
 
   bool StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len, SpiDoneCb cb,
                     void *user);
+  bool StartRxDma(uint8_t *rx, size_t len, SpiDoneCb cb, void *user);
   void OnRxDmaTcIrq();
 
   void HandleDmaError(uint32_t isr_flags);
@@ -62,4 +85,8 @@ private:
 
   void Enable();
   void Disable();
+  void EnableDmaClk();
+  void EnableSpiClk();
 };
+
+using Spi1 = Spi<SpiInstance::kSpi1>;

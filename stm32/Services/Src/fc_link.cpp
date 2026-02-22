@@ -94,7 +94,7 @@ void FcLink::Poll() {
 }
 
 bool FcLink::Send(const message::Packet &pkt) {
-  uint8_t buf[256 + sizeof(message::Header) + 2];
+  uint8_t buf[sizeof(message::Packet)];
   // Serialize returns total length
   size_t len = message::Serialize((message::MsgId)pkt.header.id,
                                   (pkt.header.len > 0) ? pkt.payload : nullptr,
@@ -187,6 +187,22 @@ void FcLink::SendLog(const char *format, ...) {
     memcpy(pkt.payload, buf, len);
     Send(pkt);
   }
+}
+
+void FcLink::SendLogBinary(uint8_t fmt_id, uint8_t argc, const uint32_t *args) {
+  // TODO: Support floats and negatives
+  message::LogBinary log;
+  log.fmt_id = fmt_id;
+  log.argc = argc;
+  for (uint8_t i = 0; i < argc && i < 16; i++) {
+    log.args[i] = args[i];
+  }
+
+  message::Packet pkt;
+  pkt.header.id = (uint8_t)message::MsgId::kLog;
+  pkt.header.len = 2 + (argc * 4); // fmt_id + argc + (argc * sizeof(uint32_t))
+  memcpy(pkt.payload, &log, pkt.header.len);
+  Send(pkt);
 }
 
 void FcLink::SendTimeSync(const message::TimeSyncMsg &msg) {

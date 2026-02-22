@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-enum class ErrorCode;
+#include "panic.hpp"
 
 class Uart {
 public:

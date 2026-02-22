@@ -8,10 +8,12 @@
 
 // Global handle for HAL compatibility
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim5;
 
 static volatile uint32_t g_pps_drift_abs = 0;
 static volatile int32_t g_pps_drift_signed = 0;
 static volatile bool g_gps_synced = false;
+static volatile uint32_t g_tim5_tick_count = 0;
 
 // 2^24 = 1.0x multiplier
 static volatile uint32_t g_clock_scaler = 16777216;
@@ -89,6 +91,8 @@ extern "C" void TimeBaseOnPpsIrq(uint32_t capture_val) {
   }
 }
 
+extern "C" void TimeBaseOnTim5Irq(void) { g_tim5_tick_count++; }
+
 TimeBase &TimeBase::GetInstance() {
   static TimeBase instance;
   return instance;
@@ -99,8 +103,8 @@ void TimeBase::Init(const Config &config) {
     ErrorHandler();
   }
   initialized_ = true;
-  compensation_ = config.compensation;
-  g_pps_compensation = config.compensation;
+  compensation_ = config.tim2.compensation;
+  g_pps_compensation = config.tim2.compensation;
 
   htim2.Instance = TIM2;
   htim2.State = HAL_TIM_STATE_READY;
@@ -118,8 +122,8 @@ void TimeBase::Init(const Config &config) {
   TIM2->CR1 = 0;
   TIM2->CR1 |= TIM_CR1_URS;
 
-  TIM2->PSC = config.prescaler;
-  TIM2->ARR = config.period;
+  TIM2->PSC = config.tim2.prescaler;
+  TIM2->ARR = config.tim2.period;
 
   TIM2->CCMR1 = (TIM2->CCMR1 & ~(TIM_CCMR1_CC1S | TIM_CCMR1_IC1F)) |
                 (1U << TIM_CCMR1_CC1S_Pos) | (3U << TIM_CCMR1_IC1F_Pos);
@@ -134,6 +138,31 @@ void TimeBase::Init(const Config &config) {
   TIM2->EGR = TIM_EGR_UG;
   TIM2->CNT = 0;
   TIM2->CR1 |= TIM_CR1_CEN;
+
+  // TIM5: periodic scheduler tick (default 1kHz)
+  htim5.Instance = TIM5;
+  htim5.State = HAL_TIM_STATE_READY;
+
+  RCC->APB1ENR |= RCC_APB1ENR_TIM5EN;
+  __DSB();
+
+  TIM5->CR1 = 0;
+  TIM5->CR1 |= TIM_CR1_URS;
+  if (config.tim5.autoreload_preload) {
+    TIM5->CR1 |= TIM_CR1_ARPE;
+  }
+
+  TIM5->PSC = config.tim5.prescaler;
+  TIM5->ARR = config.tim5.period;
+  TIM5->DIER |= TIM_DIER_UIE;
+  TIM5->SR = 0;
+
+  NVIC_SetPriority(TIM5_IRQn, 7);
+  NVIC_EnableIRQ(TIM5_IRQn);
+
+  TIM5->EGR = TIM_EGR_UG;
+  TIM5->CNT = 0;
+  TIM5->CR1 |= TIM_CR1_CEN;
 }
 
 // Raw, monotonic, fast. Wraps about every 71.6 minutes at 1MHz.
@@ -167,6 +196,15 @@ void TimeBase::DelayMicros(uint32_t us) const {
   uint32_t start = TIM2->CNT;
   while ((TIM2->CNT - start) < us) {
   }
+}
+
+uint32_t TimeBase::ConsumeTim5Ticks() const {
+  uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  uint32_t n = g_tim5_tick_count;
+  g_tim5_tick_count = 0;
+  __set_PRIMASK(primask);
+  return n;
 }
 
 bool TimeBase::IsGpsSynchronized() const { return g_gps_synced; }

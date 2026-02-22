@@ -1,6 +1,6 @@
 #pragma once
 
-enum class ErrorCode;
+#include "panic.hpp"
 
 #include "esp_netif_types.h"
 

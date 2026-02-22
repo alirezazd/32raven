@@ -1,5 +1,6 @@
 #include "system.hpp"
 #include "button.hpp"
+#include "panic.hpp"
 
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
@@ -29,26 +30,53 @@ void System::Init(const SystemConfig &config) {
   HAL_Init();
   ConfigureSystemClock(config);
 
-  // Initialize Drivers
-  // 1. Core IO/LED first for debugging
-  GPIO::GetInstance().Init(kGpioDefault);
-  LED::GetInstance().Init(kLedDefault);
-  LED::GetInstance().Set(true); // Indicator: Boot started
-
-  Spi<SpiInstance::kSpi1>::GetInstance().Init(kSpi1Config);
-  DShotTim1::init(kDshotTim1Default);
-  // I2C<I2CInstance::kI2C1>::GetInstance().Init(kI2cDefault);
-
-  // 2. Complex drivers
-  System::GetInstance().Time().Init(kTimeBaseDefault);
-  Button::GetInstance().Init(kButtonDefault);
-  Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
-  Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
-  M9N::GetInstance().Init();
-  Icm42688p::GetInstance().Init(kIcm42688pConfig);
+  // Initialize components in enum order (defined in system.hpp)
+  for (int i = 0; i < static_cast<int>(Component::kCount); ++i) {
+    InitComponent(static_cast<Component>(i));
+  }
 
   // Init Complete: LEAVE LED ON for Debugging
   // LED::GetInstance().Set(false);
+}
+
+void System::InitComponent(Component c) {
+  switch (c) {
+  case Component::kTimeBase:
+    System::GetInstance().Time().Init(kTimeBaseDefault);
+    break;
+  case Component::kGpio:
+    GPIO::GetInstance().Init(kGpioDefault);
+    break;
+  case Component::kLed:
+    LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
+    LED::GetInstance().Set(true);
+    break;
+  case Component::kUart1:
+    Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
+    break;
+  case Component::kSpi1:
+    Spi1::GetInstance().Init(kSpi1Config);
+    break;
+  case Component::kDshot:
+    DShotTim1::init(kDshotTim1Default);
+    break;
+  case Component::kButton:
+    Button::GetInstance().Init(GPIO::GetInstance(), kButtonDefault);
+    break;
+  case Component::kUart2:
+    Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
+    break;
+  case Component::kM9n:
+    M9N::GetInstance().Init(kM9nConfig);
+    break;
+  case Component::kIcm42688p:
+    Icm42688p::GetInstance().Init(GPIO::GetInstance(),
+                                  Spi1::GetInstance(),
+                                  kIcm42688pConfig);
+    break;
+  case Component::kCount:
+    break;
+  }
 }
 
 void System::ConfigureSystemClock(const SystemConfig &config) {

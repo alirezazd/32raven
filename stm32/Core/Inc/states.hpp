@@ -24,6 +24,11 @@ struct IdleState : public IState<AppContext> {
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
 
+#if defined(STM32F407xx) || defined(STM32F405xx)
+  void OnFastTick(AppContext &ctx, const Icm42688p::Sample &raw) override;
+#endif
+  void StepSlow(AppContext &ctx, SmTick now);
+
 private:
   // Epistole Parser State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };
@@ -39,6 +44,13 @@ private:
 
   uint32_t last_time_sync_ms_ = 0;
   uint64_t last_imu_send_us_ = 0;
+  uint32_t last_slow_us_ = 0;
+
+  // Diagnostic metrics (shared between OnFastTick and StepSlow)
+  uint32_t max_send_us_ = 0;
+  uint32_t max_seq_gap_ = 0;
+  uint32_t max_raw_dt_us_ = 0;
+  uint32_t max_phase_bad_consec_ = 0;
 };
 
 struct NotIdleState : public IState<AppContext> {

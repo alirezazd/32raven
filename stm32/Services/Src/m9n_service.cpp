@@ -1,13 +1,7 @@
 #include "m9n_service.hpp"
+#include "m9n_reg.hpp"
 #include "system.hpp"
 #include "uart.hpp"
-
-namespace {
-constexpr uint8_t SYNC1 = 0xB5;
-constexpr uint8_t SYNC2 = 0x62;
-constexpr uint8_t CLS_NAV = 0x01;
-constexpr uint8_t ID_NAV_PVT = 0x07;
-} // namespace
 
 // Base State
 struct BaseState : public IState<ParserContext> {
@@ -78,15 +72,15 @@ static CkBState s_ck_b;
 // State Implementations
 
 void Sync1State::OnStep(ParserContext &ctx, SmTick) {
-  if (ctx.current_byte == SYNC1) {
+  if (ctx.current_byte == UBX::kSync1) {
     ctx.sm->ReqTransition(s_sync2);
   }
 }
 
 void Sync2State::OnStep(ParserContext &ctx, SmTick) {
-  if (ctx.current_byte == SYNC2) {
+  if (ctx.current_byte == UBX::kSync2) {
     ctx.sm->ReqTransition(s_cls);
-  } else if (ctx.current_byte == SYNC1) {
+  } else if (ctx.current_byte == UBX::kSync1) {
     ctx.sm->ReqTransition(s_sync2);
   } else {
     ctx.sm->ReqTransition(s_sync1);
@@ -161,26 +155,65 @@ void CkAState::OnStep(ParserContext &ctx, SmTick) {
 
 void CkBState::OnStep(ParserContext &ctx, SmTick) {
   ctx.ck_b = ctx.current_byte;
-  if (ctx.ck_b == ctx.ck_b_calc) {
-    if (ctx.cls == CLS_NAV && ctx.id == ID_NAV_PVT &&
-        ctx.len == sizeof(PVTData)) {
-      std::memcpy(&ctx.pvt_out, ctx.payload_buf, sizeof(PVTData));
-      ctx.new_data_out = true;
-      ctx.frame_ok_count++;
-      // Use driver-level timestamp (IDLE IRQ time) for precision
-      ctx.timestamp_out =
-          Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
-    }
-  } else {
+
+  if (ctx.ck_b != ctx.ck_b_calc) {
     ctx.checksum_fail_count++;
+    ctx.sm->ReqTransition(s_sync1);
+    return;
   }
+
+  // checksum OK
+  if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavPvt &&
+      ctx.len == sizeof(PVTData)) {
+    std::memcpy(&ctx.pvt_out, ctx.payload_buf, sizeof(PVTData));
+    ctx.epoch_ready = true;
+
+    ctx.pvt_itow_ms = ctx.pvt_out.iTOW;
+    ctx.pvt_rx_us = Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
+
+    ctx.frame_ok_count++;
+  } else if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavDop &&
+             ctx.len == sizeof(DOPData)) {
+    std::memcpy(&ctx.dop_out, ctx.payload_buf, sizeof(DOPData));
+    ctx.dop_ready = true;
+    ctx.frame_ok_count++;
+  } else if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavCov &&
+             ctx.len == sizeof(COVData)) {
+    std::memcpy(&ctx.cov_out, ctx.payload_buf, sizeof(COVData));
+    ctx.cov_ready = true;
+    ctx.frame_ok_count++;
+  } else if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavEoe &&
+             ctx.len == 4) {
+    uint32_t eoe_itow_ms = (uint32_t)ctx.payload_buf[0] |
+                           ((uint32_t)ctx.payload_buf[1] << 8) |
+                           ((uint32_t)ctx.payload_buf[2] << 16) |
+                           ((uint32_t)ctx.payload_buf[3] << 24);
+
+    uint64_t now_us = Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
+    constexpr uint64_t kMaxAgeUs = 150000;
+
+    if (ctx.epoch_ready && eoe_itow_ms == ctx.pvt_itow_ms &&
+        (uint64_t)(now_us - ctx.pvt_rx_us) < kMaxAgeUs) {
+      ctx.new_data_out = true;
+    }
+
+    ctx.epoch_ready = false;
+    ctx.dop_ready = false;
+    ctx.cov_ready = false;
+
+    ctx.frame_ok_count++; // optional: count EOE as a good frame
+  } else {
+    // some other valid UBX frame; ignore
+    ctx.frame_ok_count++; // optional
+  }
+
   ctx.sm->ReqTransition(s_sync1);
 }
 
 // M9NService Implementation
 
 M9NService::M9NService()
-    : ctx_(pvt_data_, new_data_, last_frame_time_), sm_(ctx_) {
+    : ctx_(pvt_data_, dop_data_, cov_data_, new_data_), sm_(ctx_) {
   ctx_.sm = &sm_;
   sm_.Start(s_sync1, 0);
 }

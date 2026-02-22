@@ -1,5 +1,7 @@
 #pragma once
 
+#include "error_code.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +29,7 @@ enum class MsgId : uint8_t {
   kImuData = 0x11,
   kTimeSync = 0x12,
   kConfig = 0x13,
+  kPanic = 0x14,
 
   // System
   kReboot = 0xC0,   // 192
@@ -78,6 +81,19 @@ struct GpsData {
   uint32_t hAcc; // mm
   uint32_t vAcc; // mm
 
+  // Quality Metrics (DOP)
+  uint16_t gDOP; // Geometric DOP [0.01]
+  uint16_t pDOP; // Position DOP [0.01]
+  uint16_t hDOP; // Horizontal DOP [0.01] //TO DO: Use for arming safety
+  uint16_t vDOP; // Vertical DOP [0.01]
+
+  // Covariance (for Kalman filtering) - simplified
+  uint8_t posCovValid; // Position covariance valid flag
+  uint8_t velCovValid; // Velocity covariance valid flag
+  float posCovNN;      // Position covariance North-North [m²]
+  float posCovEE;      // Position covariance East-East [m²]
+  float posCovDD;      // Position covariance Down-Down [m²]
+
   // Attitude (New)
   int16_t roll;  // cdeg
   int16_t pitch; // cdeg
@@ -95,6 +111,17 @@ struct ImuData {
   float gyro[3];         // rad/s (X, Y, Z)
 } __attribute__((packed));
 
+// Binary log: format string + raw args (ESP32 does vsnprintf)
+struct LogBinary {
+  uint8_t fmt_id;       // Format string ID
+  uint8_t argc;         // Number of uint32_t arguments
+  uint32_t args[16];    // Raw argument values
+} __attribute__((packed));
+
+struct PanicMsg {
+  ErrorCode error_code; // Error code
+} __attribute__((packed));
+
 struct Packet {
   Header header;
   uint8_t payload[kMaxPayload];
@@ -102,6 +129,9 @@ struct Packet {
 };
 
 #pragma pack(pop)
+
+// Overhead: Header(4) + CRC(2)
+static constexpr size_t kPacketOverhead = sizeof(Header) + 2;
 
 // ---------------------------------------------------------
 // Helper: Simple CRC16-CCITT (XMODEM)
@@ -120,6 +150,15 @@ static inline uint16_t Crc16(const uint8_t *data, size_t len) {
     }
   }
   return crc;
+}
+
+// ---------------------------------------------------------
+// Helper: Buffer Inference
+// ---------------------------------------------------------
+template <typename T>
+static constexpr std::array<uint8_t, sizeof(T) + kPacketOverhead>
+MakePacketBuffer(const T &) {
+  return {};
 }
 
 // ---------------------------------------------------------
