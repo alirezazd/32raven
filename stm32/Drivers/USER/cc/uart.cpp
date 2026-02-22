@@ -3,8 +3,27 @@
 #include "user_config.hpp"
 #include <cstring>
 
-#include "critical_section.hpp"
 #include "stm32f4xx.h"
+
+namespace {
+// Mask IRQ priorities 5 and lower while updating shared UART TX state.
+static constexpr uint32_t kMaskPri =
+    (5u << (8u - __NVIC_PRIO_BITS)) & 0xFFu;
+
+struct BasepriGuard {
+  uint32_t old;
+  explicit BasepriGuard(uint32_t new_basepri) : old(__get_BASEPRI()) {
+    __set_BASEPRI(new_basepri);
+    __DSB();
+    __ISB();
+  }
+  ~BasepriGuard() {
+    __set_BASEPRI(old);
+    __DSB();
+    __ISB();
+  }
+};
+} // namespace
 
 // NOTE: These streams match your CubeMX MSP:
 // USART1_TX -> DMA2_Stream7 Channel 4
@@ -98,19 +117,19 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
   if constexpr (Inst == UartInstance::kUart1) {
     __HAL_RCC_DMA2_CLK_ENABLE();
     /* DMA2_Stream2_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA2_Stream2_IRQn, 10, 0);
-    HAL_NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+    NVIC_SetPriority(DMA2_Stream2_IRQn, 10);
+    NVIC_EnableIRQ(DMA2_Stream2_IRQn);
     /* DMA2_Stream7_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA2_Stream7_IRQn, 10, 0);
-    HAL_NVIC_EnableIRQ(DMA2_Stream7_IRQn);
+    NVIC_SetPriority(DMA2_Stream7_IRQn, 10);
+    NVIC_EnableIRQ(DMA2_Stream7_IRQn);
   } else if constexpr (Inst == UartInstance::kUart2) {
     __HAL_RCC_DMA1_CLK_ENABLE();
     /* DMA1_Stream5_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+    NVIC_SetPriority(DMA1_Stream5_IRQn, 5);
+    NVIC_EnableIRQ(DMA1_Stream5_IRQn);
     /* DMA1_Stream6_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+    NVIC_SetPriority(DMA1_Stream6_IRQn, 5);
+    NVIC_EnableIRQ(DMA1_Stream6_IRQn);
   }
   if (initialized_) {
     return;
@@ -146,10 +165,23 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::ReInit(
-    const UartConfig &config) {
-  initialized_ = false;
-  Init(config);
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
+    uint32_t baud_rate) {
+  if (!initialized_)
+    return;
+
+  UART_HandleTypeDef *handle = GetHandle();
+  if (!handle)
+    return;
+
+  // Reconfigure baud rate and re-init peripheral
+  handle->Init.BaudRate = baud_rate;
+  if (HAL_UART_Init(handle) != HAL_OK) {
+    ErrorHandler();
+  }
+
+  // Restart DMA since HAL_UART_Init resets the peripheral state
+  StartRxDma();
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
@@ -436,11 +468,11 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
 
   // Enable Global Interrupt
   if constexpr (Inst == UartInstance::kUart1) {
-    HAL_NVIC_SetPriority(USART1_IRQn, 10, 0);
-    HAL_NVIC_EnableIRQ(USART1_IRQn);
+    NVIC_SetPriority(USART1_IRQn, 10);
+    NVIC_EnableIRQ(USART1_IRQn);
   } else {
-    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(USART2_IRQn);
+    NVIC_SetPriority(USART2_IRQn, 5);
+    NVIC_EnableIRQ(USART2_IRQn);
   }
 }
 

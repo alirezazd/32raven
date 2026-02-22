@@ -8,9 +8,13 @@
 #include "gpio.hpp"
 #include "i2c.hpp"
 #include "icm20948.hpp"
-#include "icm42688p_reg.hpp" // Added for Config struct enums
+#include "icm42688p.hpp"
 #include "led.hpp"
+#include "m9n.hpp"
+#include "spi.hpp"
+#include "stm32f4xx_hal_gpio.h"
 #include "time_base.hpp"
+#include <array>
 // Note: uart.hpp and system.hpp are consumers, not providers of config types
 // now.
 
@@ -77,40 +81,52 @@ constexpr I2CConfig kI2cDefault = {400000,
                                    I2C_NOSTRETCH_DISABLE};
 
 constexpr TimeBaseConfig kTimeBaseDefault = {
-    83,         // Prescaler
-    0xFFFFFFFF, // Period
-    1,          // Compensation (us)
+    .tim2 =
+        {
+            // 1MHz tick
+            .prescaler = 83,      // Prescaler
+            .period = 0xFFFFFFFF, // Period
+            .compensation = 1     // Compensation (us)
+        },
+    .tim5 = {
+        // 1kHz tick
+        .prescaler = 85,           // TIM5 Prescaler
+        .period = 999,             // TIM5 Period
+        .autoreload_preload = true // TIM5 AutoReloadPreload
+    }};
+
+const std::array kGpioDefault = {
+    GPIO::PinConfig{USER_LED_GPIO_PORT,
+                    {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_LOW, 0},
+                    true}, // LED Active Low
+    GPIO::PinConfig{
+        USER_BTN_GPIO_PORT,
+        {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0},
+        false}, // Button Active High
+    GPIO::PinConfig{GPIOB,
+                    {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, 0},
+                    false}, // IMU INT
+    GPIO::PinConfig{GPIOA,
+                    {GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7, GPIO_MODE_AF_PP,
+                     GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1},
+                    false}, // SPI Pins (AF)
+    GPIO::PinConfig{GPIOA,
+                    {GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, 0},
+                    true} // SPI CS Active Low
 };
 
-static const GPIO::PinConfig kPins[] = {
-    {USER_LED_GPIO_PORT,
-     {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0}},
-    {USER_BTN_GPIO_PORT,
-     {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0}},
-    {GPIOB,
-     {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_PULLDOWN,
-      GPIO_SPEED_FREQ_VERY_HIGH, 0}},
+const LED::Config kLedDefault = {
+    .pin = {.port = USER_LED_GPIO_PORT, .number = USER_LED_Pin},
+    .active_low = true};
 
-    {GPIOA,
-     {GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7, GPIO_MODE_AF_PP, GPIO_NOPULL,
-      GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1}},
-
-    {GPIOA,
-     {GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH,
-      0}},
-};
-
-const GPIO::Config kGpioDefault = {kPins, sizeof(kPins) / sizeof(kPins[0])};
-
-// LED: Port, Pin, ActiveLow
-const LED::Config kLedDefault = {USER_LED_GPIO_PORT, USER_LED_Pin,
-                                 true}; // Active Low
-
-// Button: Pin, Debounce, LongPress
 const Button::Config kButtonDefault = {
-    USER_BTN_GPIO_PORT, USER_BTN_Pin,
-    false, // active_low: button drives HIGH when pressed
-    50, 500};
+    .pin = {.port = USER_BTN_GPIO_PORT, .number = USER_BTN_Pin},
+    .active_low = false, // active_low: button drives HIGH when pressed
+    .debounce_ms = 50,
+    .long_press_ms = 500};
 
 constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
@@ -147,98 +163,83 @@ constexpr UartConfig kUart2Config = {
     kUartRxRingSize       // rx_ring_size
 };
 
-// SPI Configuration Struct
-enum class SpiPrescaler : uint8_t {
-  kDiv2 = 0,
-  kDiv4 = 1,
-  kDiv8 = 2,
-  kDiv16 = 3,
-  kDiv32 = 4,
-  kDiv64 = 5,
-  kDiv128 = 6,
-  kDiv256 = 7,
-};
-
-enum class SpiPolarity : uint8_t { kLow = 0, kHigh = 1 };
-enum class SpiPhase : uint8_t { k1Edge = 0, k2Edge = 1 };
-enum class SpiBitOrder : uint8_t { kMsbFirst = 0, kLsbFirst = 1 };
-
-struct SpiConfig {
-  SpiPolarity polarity;
-  SpiPhase phase;
-  SpiPrescaler prescaler;
-  SpiBitOrder bit_order;
-};
-
-constexpr SpiConfig kSpi1Config = {SpiPolarity::kHigh, SpiPhase::k2Edge,
-                                   SpiPrescaler::kDiv32,
-                                   SpiBitOrder::kMsbFirst};
+constexpr SpiConfig kSpi1Config = {
+    .polarity = SpiPolarity::kHigh,
+    .phase = SpiPhase::k2Edge,
+    .prescaler = SpiPrescaler::kDiv32,
+    .bit_order = SpiBitOrder::kMsbFirst};
 
 // Set to true to re-flash M9N persistent configuration on boot.
 // This will force connection at 38400 baud, send golden config to Flash/BBR,
 // and reboot/reinit UARTs to 115200.
-constexpr bool kFlashM9nConfig = false;
+constexpr M9N::Config kM9nConfig = {
+    .flash_config = false,
+    .baud_rate = 115200,
 
-#include "icm42688p.hpp"
+    .protocols = {.outprot_ubx = true, .outprot_nmea = false},
+    .messages = {.nav_pvt = true,
+                 .nav_dop = false,
+                 .nav_cov = true,
+                 .nav_eoe = true},
+    .nav = {.rate_meas_ms = 100, .dyn_model = 7},
+
+    .gnss = {.gps_enable = true,
+             .glo_enable = false,
+             .gal_enable = true,
+             .bds_enable = false,
+             .sbas_enable = true,
+             .itfm_enable = true},
+
+    .tp1 = {.ena = true,
+            .period = 1000000,
+            .len = 50000,
+            .timegrid = 1,
+            .sync_gnss = true,
+            .use_locked = true,
+            .align_to_tow = true,
+            .pol_rising = true,
+            .period_lock = 1000000,
+            .len_lock = 50000},
+
+    .ack_timeout_us = 100000};
 
 // ICM20948 Configuration
 // Default values match previous driver hardcoded settings
 constexpr Icm20948::Config kIcm20948Config = {
-    32,  // dma_buf_size
-    512, // fifo_size
-    // Bank 2 ACCEL_CONFIG
-    0x06, // accel_range: 16G (Bits 2|1)
-    0x19, // accel_dlpf_config: 3 << 3 | 1 (Enabled, ~111Hz BW)
-    0,    // accel_sample_rate_div
-
-    // Bank 2 GYRO_CONFIG_1
-    0x06, // gyro_range: 2000dps (Bits 2|1)
-    0x19, // gyro_dlpf_config: 3 << 3 | 1 (Enabled, ~119Hz BW)
-    0,    // gyro_sample_rate_div
-
-    // Bank 3 AK09916 CNTL2: MODE4 (100Hz) = 0x08 (Bit3)
-    0x08,
-
-    static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
-    0xEA,                                       // WHO_AM_I
+    .dma_buf_size = 32,
+    .fifo_size = 512,
+    .accel = {.range = 0x06,       // 16G (Bits 2|1)
+              .dlpf_config = 0x19, // 3 << 3 | 1 (Enabled, ~111Hz BW)
+              .sample_rate_div = 0},
+    .gyro = {.range = 0x06,       // 2000dps (Bits 2|1)
+             .dlpf_config = 0x19, // 3 << 3 | 1 (Enabled, ~119Hz BW)
+             .sample_rate_div = 0},
+    .mag_rate = 0x08, // Bank 3 AK09916 CNTL2: MODE4 (100Hz) = 0x08 (Bit3)
+    .spi_prescaler = static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
+    .who_am_i = 0xEA,
 };
 
 constexpr Icm42688p::Config kIcm42688pConfig = {
-    static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
+    .spi_prescaler =
+        static_cast<uint8_t>(SpiPrescaler::kDiv4), // ~21MHz on your SPI clock
 
-    // ODR 8kHz, FS 2000dps/16g
-    Icm42688pReg::Odr::k8kHz, Icm42688pReg::Odr::k8kHz,
-    Icm42688pReg::GyroFs::k2000dps, Icm42688pReg::AccelFs::k16g,
+    .rates = {.gyro = Icm42688pReg::Odr::k8kHz,
+              .accel = Icm42688pReg::Odr::k8kHz},
+    .fs = {.gyro = Icm42688pReg::GyroFs::k2000dps,
+           .accel = Icm42688pReg::AccelFs::k8g},
 
-    // UI Filter BW indices (LN mode)
+    // UI filter bandwidth indices (GYRO_ACCEL_CONFIG0)
     // 0=ODR/2, 1=ODR/4, 2=ODR/8, 3=ODR/16
-    2, // gyro_ui_filt_bw  -> ~1 kHz @ 8 kHz ODR
-    3, // accel_ui_filt_bw -> ~500 Hz @ 8 kHz ODR
+    .ui_filter = {.gyro_bw = 2, .accel_bw = 3, .gyro_cfg1 = 0, .accel_cfg1 = 0},
 
-    // UI Filter order (0 = 1st order, minimum phase)
-    0, // gyro_cfg1
-    0, // accel_cfg1
+    // Hardware gyro notch (optional). Keep disabled if doing software RPM
+    // notch.
+    .notch = {.freq_hz = 0.0f, .bw_idx = 0, .enabled = false},
 
-    // Gyro Notch Filter (hardware) - disabled (do RPM notch in software)
-    0.0f, // notch_freq_hz
-    0,    // notch_bw_idx (ignored)
+    // AAF disabled
+    .gyro_aaf = {.dis = true, .delt = 0, .delt_sqr = 0, .bitshift = 0},
+    .accel_aaf = {.dis = true, .delt = 0, .delt_sqr = 0, .bitshift = 0},
 
-    // Gyro AAF - disabled (avoid fixed phase delay)
-    true, // gyro_aaf_dis
-    0,    // gyro_aaf_delt (ignored)
-    0,    // gyro_aaf_deltsqr
-    0,    // gyro_aaf_bitshift
-
-    // Accel AAF - disabled
-    true, // accel_aaf_dis
-    0,    // accel_aaf_delt (ignored)
-    0,    // accel_aaf_deltsqr
-    0,    // accel_aaf_bitshift
-
-    // Features
-    true, // enable_fsync_pin9 (GPS PPS -> FSYNC pin9)
-    true, // enable_tmst_regs
-    true, // enable_tmst_fsync
-    0x4,  // fsync_ui_sel: route FSYNC to TMST (no data tagging)
-    true, // fsync_polarity_falling (set false if PPS is rising)
+    // FIFO watermark records (Packet 3: 16 bytes per record)
+    .fifo = {.watermark_records = 8, .hold_last = false},
 };

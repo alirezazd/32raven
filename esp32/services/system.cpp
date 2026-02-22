@@ -6,6 +6,7 @@
 
 #include "button.hpp"
 #include "led.hpp"
+#include "panic.hpp"
 #include "programmer.hpp"
 #include "tcp_server.hpp"
 #include "uart.hpp"
@@ -16,22 +17,6 @@ extern "C" {
 }
 static constexpr const char *kTag = "system";
 
-// Panic function: Print, LED On, Halt
-static void Panic(const char *msg) {
-  // Configure LED pin (GPIO 8)
-  gpio_reset_pin(GPIO_NUM_8);
-  gpio_set_direction(GPIO_NUM_8, GPIO_MODE_OUTPUT);
-
-  int level = 0;
-  ESP_LOGE(kTag, "PANIC: %s", msg ? msg : "Unknown Error");
-
-  while (true) {
-    gpio_set_level(GPIO_NUM_8, level);
-    level = !level;
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-}
-
 void System::Init() {
   if (initialized_)
     return;
@@ -40,37 +25,39 @@ void System::Init() {
 
   err = LED::GetInstance().Init(LED::Config{});
   if (err != ErrorCode::kOk)
-    Panic("LED Init Failed");
+    Panic(err);
   ESP_LOGI(kTag, "LED driver initialized");
 
   err = Button::GetInstance().Init(kButtonConfig);
   if (err != ErrorCode::kOk)
-    Panic("Button Init Failed");
+    Panic(err);
   ESP_LOGI(kTag, "Button driver initialized");
 
   err = WifiController::GetInstance().Init(WifiController::Config{});
   if (err != ErrorCode::kOk)
-    Panic("Wifi Init Failed");
+    Panic(err);
   ESP_LOGI(kTag, "Wifi driver initialized");
 
-  TcpServer::GetInstance().Init(TcpServer::Config{}, Panic);
+  err = TcpServer::GetInstance().Init(TcpServer::Config{});
+  if (err != ErrorCode::kOk)
+    Panic(err);
   ESP_LOGI(kTag, "TCP Server initialized");
 
   err = uarts_[(int)Uart::Id::kStm32].Init(kStm32UartConfig);
   if (err != ErrorCode::kOk)
-    Panic("STM32 Uart Init Failed");
+    Panic(err);
   ESP_LOGI(kTag, "STM32 Uart initialized");
 
   err = uarts_[(int)Uart::Id::kEp2].Init(kEp2UartConfig);
   if (err != ErrorCode::kOk)
-    Panic("EP2 Uart Init Failed");
+    Panic(err);
   ESP_LOGI(kTag, "EP2 Uart initialized");
 
   auto &stm32_uart = Uart(::Uart::Id::kStm32);
   auto &ep2_uart = Uart(::Uart::Id::kEp2);
   err = Programmer::GetInstance().Init(Programmer::Config{}, &stm32_uart);
   if (err != ErrorCode::kOk)
-    Panic("Programmer Init Failed");
+    Panic(err);
   ESP_LOGI(kTag, "Programmer initialized");
 
   Mavlink::GetInstance().Init(kMavlinkConfig, &ep2_uart);

@@ -1,4 +1,5 @@
 #include "icm20948.hpp"
+#include "gpio.hpp"
 
 #include "system.hpp"
 #include <cstring> // for memcpy
@@ -12,10 +13,11 @@ void Icm20948::SelectRegisterBank(uint8_t bank) {
   // }
 }
 
-void Icm20948::Init(const Config &config) {
+void Icm20948::Init(GPIO &gpio, const Config &config) {
   if (initialized_)
     return;
 
+  gpio_ = &gpio;
   config_ = config;
 
   // Power-up delay
@@ -90,7 +92,7 @@ void Icm20948::Init(const Config &config) {
   ConfigureGyro();
 
   // Configure SPI Speed (Driver side)
-  auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
+  auto &spi = Spi1::GetInstance();
   spi.SetPrescaler(static_cast<SpiPrescaler>(config_.spi_prescaler));
 
   // Initialize DMA TX buffer to 0xFF (Idle MOSI)
@@ -105,28 +107,28 @@ void Icm20948::Init(const Config &config) {
   initialized_ = true;
 
   /* EXTI interrupt init */
-  NVIC_SetPriority(EXTI15_10_IRQn, 4);
+  NVIC_SetPriority(EXTI15_10_IRQn, 2);
   NVIC_EnableIRQ(EXTI15_10_IRQn);
 }
 
 void Icm20948::ConfigureAccel() {
   // Accel Config
   WriteReg(2, static_cast<uint8_t>(Register::BANK_2::ACCEL_CONFIG),
-           config_.accel_range | config_.accel_dlpf_config, true);
+           config_.accel.range | config_.accel.dlpf_config, true);
 
   // Accel Sample Rate Divider (SMPLRT_DIV_2)
   WriteReg(2, static_cast<uint8_t>(Register::BANK_2::ACCEL_SMPLRT_DIV_2),
-           config_.accel_sample_rate_div, true);
+           config_.accel.sample_rate_div, true);
 }
 
 void Icm20948::ConfigureGyro() {
   // Gyro Config
   WriteReg(2, static_cast<uint8_t>(Register::BANK_2::GYRO_CONFIG_1),
-           config_.gyro_range | config_.gyro_dlpf_config, true);
+           config_.gyro.range | config_.gyro.dlpf_config, true);
 
   // Gyro Sample Rate Divider
   WriteReg(2, static_cast<uint8_t>(Register::BANK_2::GYRO_SMPLRT_DIV),
-           config_.gyro_sample_rate_div, true);
+           config_.gyro.sample_rate_div, true);
 }
 
 extern "C" void Icm20948OnDrdyIrq(uint32_t timestamp) {
@@ -136,7 +138,7 @@ extern "C" void Icm20948OnDrdyIrq(uint32_t timestamp) {
 void Icm20948::OnDrdyIrq(uint32_t timestamp) {
   last_drdy_time_ = timestamp;
 
-  auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
+  auto &spi = Spi1::GetInstance();
   if (spi.Busy()) {
     missed_drdy_count_++;
     return;
@@ -167,50 +169,50 @@ void Icm20948::OnDrdyIrq(uint32_t timestamp) {
   // Ensure kDmaBufSize is large enough (header says 32, so 23 is fine).
 
   // CS Low
-  SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin << 16;
+  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, false);
 
   // Start DMA
   bool started = spi.StartTxRxDma(dma_tx_buf_, dma_rx_buf_, kBurstSize,
                                   OnDmaComplete, this);
   if (!started) {
-    SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin;
+    gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, true);
     missed_drdy_count_++;
     return;
   }
 }
 
 void Icm20948::OnDmaComplete(void *user, bool ok) {
+  Icm20948 *self = static_cast<Icm20948 *>(user);
   // CS High
-  SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin;
+  self->gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, true);
 
   if (ok) {
     // TODO: Parse data
-    // Icm20948* self = (Icm20948*)user;
     // Data in self->dma_rx_buf_[1] ...
   }
 }
 
 void Icm20948::WriteRegRaw(uint8_t reg, uint8_t val) {
-  auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
+  auto &spi = Spi1::GetInstance();
   uint8_t tx[2] = {static_cast<uint8_t>(reg & 0x7F), val};
 
   // CS Low
-  SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin << 16;
+  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, false);
   spi.Write(tx, 2);
   // CS High
-  SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin;
+  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, true);
 }
 
 uint8_t Icm20948::ReadRegRaw(uint8_t reg) {
-  auto &spi = Spi<SpiInstance::kSpi1>::GetInstance();
+  auto &spi = Spi1::GetInstance();
   uint8_t tx[2] = {static_cast<uint8_t>(reg | 0x80), 0x00};
   uint8_t rx[2] = {0, 0};
 
   // CS Low
-  SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin << 16;
+  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, false);
   spi.TxRx(tx, rx, 2);
   // CS High
-  SPI1_CS_GPIO_Port->BSRR = (uint32_t)SPI1_CS_Pin;
+  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, true);
 
   return rx[1];
 }

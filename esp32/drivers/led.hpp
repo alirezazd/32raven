@@ -1,7 +1,7 @@
 #pragma once
 #include <cstddef>
 
-enum class ErrorCode;
+#include "error_code.hpp"
 
 extern "C" {
 #include "hal/gpio_types.h" // IWYU pragma: keep

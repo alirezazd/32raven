@@ -15,11 +15,15 @@ idf_component_register(
         "../main/command_handler.cpp"
         "../services/mavlink.cpp"
         "../services/mavlink_tx_task.cpp"
+        "../services/panic.cpp"
+        "../../libs/src/error_code.cpp"
+        "../../libs/inc/error_code.hpp"
+        
     INCLUDE_DIRS
         "."
         "../drivers"
         "../services"
-        "../../libs/include"
+        "../../libs/inc"
         "../../libs/mavlink/common"
 
 )

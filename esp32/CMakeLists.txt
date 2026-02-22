@@ -7,4 +7,4 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 set(EXTRA_COMPONENT_DIRS ../libs)
 
 project(32Raven_esp32)
-add_compile_options(-Wdouble-promotion)
+add_compile_options(-Wdouble-promotion -Werror=switch)

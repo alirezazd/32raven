@@ -1,13 +1,18 @@
 #pragma once
 #include "board.h" // for USER_BTN_GPIO_PORT/Pin and ErrorHandler()
+#include "panic.hpp"
 #include "stm32f4xx.h"
 #include <cstdint>
+
+class GPIO;
 
 class Button {
 public:
   struct Config {
-    GPIO_TypeDef *port;
-    uint16_t pin;           // GPIO_PIN_x bitmask
+    struct Pin {
+      GPIO_TypeDef *port;
+      uint16_t number; // GPIO_PIN_x bitmask
+    } pin;
     bool active_low;        // for your schematic: false
     uint32_t debounce_ms;   // e.g. 50
     uint32_t long_press_ms; // e.g. 500
@@ -28,7 +33,7 @@ public:
 
 private:
   friend class System;
-  void Init(const Config &cfg);
+  void Init(GPIO &gpio, const Config &cfg);
 
   Button() = default;
   ~Button() = default;
@@ -38,6 +43,7 @@ private:
   bool ReadRawPressed() const;
 
   // Config
+  GPIO *gpio_ = nullptr;
   GPIO_TypeDef *port_ = nullptr;
   uint16_t pin_ = 0;
   bool active_low_ = false;

@@ -34,6 +34,20 @@ struct GpsData {
   uint16_t hdg;  // cdeg
   uint8_t num_sats;
   uint8_t fix_type; // 0-1: no fix, 2: 2D, 3: 3D
+  
+  // Quality metrics (DOP)
+  uint16_t gDOP; // Geometric DOP [0.01]
+  uint16_t pDOP; // Position DOP [0.01]
+  uint16_t hDOP; // Horizontal DOP [0.01]
+  uint16_t vDOP; // Vertical DOP [0.01]
+
+  // Covariance (for Kalman filtering)
+  uint8_t posCovValid; // Position covariance valid flag
+  uint8_t velCovValid; // Velocity covariance valid flag
+  float posCovNN;      // Position covariance North-North [m²]
+  float posCovEE;      // Position covariance East-East [m²]
+  float posCovDD;      // Position covariance Down-Down [m²]
+  
   bool updated;     // Freshness flag
 };
 
