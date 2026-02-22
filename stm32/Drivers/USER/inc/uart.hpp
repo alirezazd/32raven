@@ -23,6 +23,7 @@ public:
   void Send(const uint8_t *data, size_t len);
   bool Read(uint8_t &out);
   void FlushRx();
+  void SetBaudRate(uint32_t baud_rate);
 
   // Called from ISR
   void IrqHandler();
@@ -43,7 +44,6 @@ private:
   friend class M9N; // Allow M9N::ConfigureOnce to reinit UART at different baud
                     // rates
   void Init(const UartConfig &config);
-  void ReInit(const UartConfig &config);
 
   Uart() = default;
   ~Uart() = default;

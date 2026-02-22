@@ -1,5 +1,6 @@
 #include "command_handler.hpp"
 #include "message.hpp"
+#include "panic.hpp"
 #include "states.hpp" // For AppContext definition
 #include "system.hpp" // For LED/UART access
 

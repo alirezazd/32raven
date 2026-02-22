@@ -64,14 +64,16 @@ extern DMA_HandleTypeDef hdma_usart1_tx;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern TIM_HandleTypeDef htim2;
+extern TIM_HandleTypeDef htim5;
 extern void Uart1DmaTxComplete(void);
-extern void Icm42688pOnDrdyIrq(void);
+extern void Icm42688pOnIrq(void);
 extern void Uart2DmaTxComplete(void);
 extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
 extern void Uart1RxDmaError(uint32_t);
 extern void Uart2RxDmaError(uint32_t);
 extern void TimeBaseOnPpsIrq(uint32_t capture_val);
+extern void TimeBaseOnTim5Irq(void);
 
 extern void Uart1OnUartInterrupt(void);
 extern void Uart2OnUartInterrupt(void);
@@ -277,7 +279,7 @@ void DMA1_Stream6_IRQHandler(void) {
 void EXTI15_10_IRQHandler(void) {
   if (EXTI->PR & (1u << 10)) {
     EXTI->PR = (1u << 10);
-    Icm42688pOnDrdyIrq();
+    Icm42688pOnIrq();
   }
 }
 
@@ -288,9 +290,6 @@ extern void Spi1DmaError(uint32_t isr);
  * @brief This function handles DMA2 stream0 global interrupt.
  */
 void DMA2_Stream0_IRQHandler(void) {
-  /* USER CODE BEGIN DMA2_Stream0_IRQn 0 */
-
-  /* USER CODE END DMA2_Stream0_IRQn 0 */
   // RX Stream (Stream 0 is Low 0-3)
   const uint32_t lisr = DMA2->LISR;
 
@@ -313,10 +312,6 @@ void DMA2_Stream0_IRQHandler(void) {
                    DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTCIF3);
     Spi1RxDmaComplete();
   }
-
-  /* USER CODE BEGIN DMA2_Stream0_IRQn 1 */
-
-  /* USER CODE END DMA2_Stream0_IRQn 1 */
 }
 
 /**
@@ -426,6 +421,16 @@ void TIM2_IRQHandler(void) {
 
     // Call PPS handler
     TimeBaseOnPpsIrq(capture_val);
+  }
+}
+
+/**
+ * @brief This function handles TIM5 global interrupt.
+ */
+void TIM5_IRQHandler(void) {
+  if (TIM5->SR & TIM_SR_UIF) {
+    TIM5->SR = (uint16_t)~TIM_SR_UIF;
+    TimeBaseOnTim5Irq();
   }
 }
 

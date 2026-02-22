@@ -131,9 +131,7 @@ private:
   class StListening;
   class StCtrl;
   class StCtrlData;
-
-  using ErrorHandler = void (*)(const char *msg);
-  void Init(const Config &cfg, ErrorHandler error_handler = nullptr);
+  ErrorCode Init(const Config &cfg);
 
   // Helpers used by states
   void CloseCtrl();

@@ -7,7 +7,6 @@
 #include "dshot_tim1.hpp"
 #include "fc_link.hpp"
 #include "gpio.hpp"
-#include "icm20948.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
 #include "m9n.hpp"
@@ -25,13 +24,28 @@ public:
     return instance;
   }
 
+  // INITIALIZATION ORDER: Reorder these enum values to change init sequence
+  enum class Component {
+    kTimeBase = 0,
+    kGpio,
+    kLed,
+    kUart1,
+
+    // SECONDARY DRIVERS
+    kSpi1,
+    kDshot,
+    kButton,
+    kUart2,
+    kM9n,
+    kIcm42688p,
+    kCount // Must be last
+  };
+
   void Init(const SystemConfig &config);
 
   LED &Led() { return LED::GetInstance(); }
 
-  Spi<SpiInstance::kSpi1> &GetSpi() {
-    return Spi<SpiInstance::kSpi1>::GetInstance();
-  }
+  Spi1 &GetSpi() { return Spi1::GetInstance(); }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
   Button &Btn() { return Button::GetInstance(); }
@@ -57,6 +71,8 @@ public:
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
 
 private:
+  void InitComponent(Component c);
+
   bool initialized_ = false;
   M9NService m9n_service_;
   VehicleState vehicle_state_;

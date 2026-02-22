@@ -1,6 +1,6 @@
 #pragma once
 
-enum class ErrorCode;
+#include "error_code.hpp"
 #include "timebase.hpp"
 
 extern "C" {

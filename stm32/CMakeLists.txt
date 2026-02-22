@@ -60,12 +60,13 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/button.cpp
     Drivers/USER/cc/uart.cpp
     Drivers/USER/cc/m9n.cpp
-    Drivers/USER/cc/icm20948.cpp
     Drivers/USER/cc/icm42688p.cpp
     Core/Src/states.cpp
     Services/Src/m9n_service.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp
+    Services/Src/panic.cpp
+    ../libs/src/error_code.cpp
 )
 
 # Create binary file
@@ -86,7 +87,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/inc
     Core/Inc
     Services/Inc
-    ../libs/include
+    ../libs/inc
 )
 
 # Add project symbols (macros)
@@ -98,6 +99,7 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     -fno-rtti
     -fno-exceptions
     -Wdouble-promotion
+    -Werror=switch
 )
 
 # Remove wrong libob.a library dependency when using cpp files

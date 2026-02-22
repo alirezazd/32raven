@@ -2,12 +2,13 @@
 #include "ctx.hpp"
 #include "mavlink.hpp"
 #include "state_machine.hpp"
+#include "states.hpp"
 #include <cstdio>
 
 #include "message.hpp"
 #include "tcp_server.hpp"
-#include "user_config.hpp" // Added for scheduler ratestdio>
 
+#include "panic.hpp"
 #include "system.hpp"
 
 extern "C" {
@@ -21,12 +22,40 @@ static constexpr const char *kTag = "cmd";
 
 static void OnLog(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
-  if (pkt.header.len > 0) {
-    char buf[257];
-    memcpy(buf, pkt.payload, pkt.header.len);
-    buf[pkt.header.len] = '\0';
-    ESP_LOGI("FC", "%s", buf);
+  if (pkt.header.len == 0) return;
+  
+  // Check if binary format (starts with fmt_id byte < 32)
+  if (pkt.payload[0] < 32 && pkt.header.len >= 2) {
+    const auto *log = (const message::LogBinary *)pkt.payload;
+    
+    // Format string table
+    static const char *fmt_table[] = {
+      nullptr,  // ID 0 unused
+      "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu TSync=%lu Step=%lu Slow=%lu Send=%lu",  // ID 1
+      "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu Loss=%lu",                // ID 2
+    };
+    
+    if (log->fmt_id > 0 && log->fmt_id < sizeof(fmt_table)/sizeof(fmt_table[0])) {
+      const char *fmt = fmt_table[log->fmt_id];
+      if (fmt && log->argc <= 16) {
+        // Do the formatting on ESP32 (fast CPU)
+        char buf[256];
+        snprintf(buf, sizeof(buf), fmt, 
+                 log->args[0], log->args[1], log->args[2], log->args[3],
+                 log->args[4], log->args[5], log->args[6], log->args[7],
+                 log->args[8], log->args[9], log->args[10], log->args[11],
+                 log->args[12], log->args[13], log->args[14], log->args[15]);
+        ESP_LOGI("FC", "%s", buf);
+        return;
+      }
+    }
   }
+  
+  // Fallback: text format
+  char buf[257];
+  memcpy(buf, pkt.payload, pkt.header.len);
+  buf[pkt.header.len] = '\0';
+  ESP_LOGI("FC", "%s", buf);
 }
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
@@ -113,6 +142,31 @@ static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
   }
 }
 
+static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
+  if (pkt.header.len != sizeof(message::PanicMsg)) {
+    ESP_LOGW(kTag, "Invalid Panic Message Length");
+    return;
+  }
+
+  const auto *m = (const message::PanicMsg *)pkt.payload;
+
+  // In DFU mode, we ignore the panic to allow for flashing/debugging
+  if (ctx.sm->CurrentState() == (const IState<AppContext> *)ctx.dfu_state) {
+    static int64_t last_log_us = 0;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - last_log_us >= 2000000) {
+      ESP_LOGE(kTag, "STM32 Panic (Ignored in DFU): Code 0x%X: %s",
+               m->error_code,
+               GetMessage(static_cast<ErrorCode>(m->error_code)));
+      last_log_us = now_us;
+    }
+    return;
+  }
+
+  // Enter panic state with error code - this will never return
+  Panic(static_cast<ErrorCode>(m->error_code));
+}
+
 void CommandHandler::Init(const Config &cfg) {
   if (initialized_)
     return;
@@ -129,6 +183,7 @@ void CommandHandler::Init(const Config &cfg) {
   handlers_[(uint8_t)message::MsgId::kTimeSync] = OnTimeSync;
   handlers_[(uint8_t)message::MsgId::kPong] = OnPong;
   handlers_[(uint8_t)message::MsgId::kImuData] = OnImuData;
+  handlers_[(uint8_t)message::MsgId::kPanic] = OnPanic;
 
   initialized_ = true;
   ESP_LOGI(kTag, "Initialized");

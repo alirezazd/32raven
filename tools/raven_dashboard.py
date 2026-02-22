@@ -76,14 +76,19 @@ class GpsWidget(Static):
     vel = reactive(0)
     hdg = reactive(0)
     h_acc = reactive(0)
+    hdop = reactive(0)
+    vdop = reactive(0)
     drift = reactive(0)
     synced = reactive(False)
 
     def render(self) -> str:
         fix_s = f"[bold green]{self.fix}D[/]" if self.fix > 0 else "[red]No Fix[/]"
         sync_s = "[green]●[/]" if self.synced else "[red]●[/]"
+        hdop_s = f"{self.hdop / 100:.1f}" if self.hdop > 0 else "--"
+        vdop_s = f"{self.vdop / 100:.1f}" if self.vdop > 0 else "--"
         return (
-            f"[b]GPS[/b]  {fix_s}  {self.sats} sats  {self.utc_time}\n"
+            f"[b]GPS[/b]  {fix_s}  {self.sats} sats  {self.utc_time}  "
+            f"HDOP {hdop_s}  VDOP {vdop_s}\n"
             f"  {self.lat / 1e7:+.6f}°  {self.lon / 1e7:+.6f}°  "
             f"Alt {self.alt / 1000:.1f}m\n"
             f"  Vel {self.vel}cm/s  Hdg {self.hdg / 100:.0f}°  "
@@ -472,6 +477,10 @@ class DashboardApp(App):
                 w.hdg = int(kv["hdg"])
             if "hac" in kv:
                 w.h_acc = int(kv["hac"])
+            if "hdop" in kv:
+                w.hdop = int(kv["hdop"])
+            if "vdop" in kv:
+                w.vdop = int(kv["vdop"])
             if "t" in kv:
                 w.utc_time = kv["t"]
         except (ValueError, KeyError):

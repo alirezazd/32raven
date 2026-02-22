@@ -4,17 +4,26 @@
 #include "icm20948_reg.hpp"
 #include <cstdint>
 
+class GPIO;
+
 class Icm20948 {
 public:
   struct Config {
     size_t dma_buf_size;
     size_t fifo_size;
-    uint8_t accel_range;
-    uint8_t accel_dlpf_config;
-    uint8_t accel_sample_rate_div;
-    uint8_t gyro_range;
-    uint8_t gyro_dlpf_config;
-    uint8_t gyro_sample_rate_div;
+
+    struct Accel {
+      uint8_t range;
+      uint8_t dlpf_config;
+      uint8_t sample_rate_div;
+    } accel;
+
+    struct Gyro {
+      uint8_t range;
+      uint8_t dlpf_config;
+      uint8_t sample_rate_div;
+    } gyro;
+
     uint8_t mag_rate;
     uint8_t spi_prescaler; // Cast from SpiPrescaler
     uint8_t who_am_i;
@@ -41,7 +50,7 @@ private:
   Icm20948(const Icm20948 &) = delete;
   Icm20948 &operator=(const Icm20948 &) = delete;
 
-  void Init(const Config &config);
+  void Init(GPIO &gpio, const Config &config);
   void SelectRegisterBank(uint8_t bank);
   void WriteReg(uint8_t bank, uint8_t reg, uint8_t val, bool verify = false,
                 uint8_t verify_mask = 0xFF);
@@ -55,6 +64,7 @@ private:
   void ConfigureGyro();
 
   Config config_;
+  GPIO *gpio_ = nullptr;
   volatile uint8_t last_bank_ = 0;
   volatile uint32_t last_drdy_time_ = 0;
   volatile uint32_t missed_drdy_count_ = 0;

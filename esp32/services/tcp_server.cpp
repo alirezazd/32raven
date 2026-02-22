@@ -26,7 +26,7 @@ static inline size_t RbFree(size_t head, size_t tail, size_t cap) {
 
 // ---------------- TcpServer core ----------------
 
-void TcpServer::Init(const Config &cfg, ErrorHandler error_handler) {
+ErrorCode TcpServer::Init(const Config &cfg) {
   cfg_ = cfg;
 
   // wire internal SM context
@@ -34,6 +34,7 @@ void TcpServer::Init(const Config &cfg, ErrorHandler error_handler) {
   ctx_.sm = &sm_;
 
   ESP_LOGI(kTag, "initialized on port %d", cfg.ctrl_port);
+  return ErrorCode::kOk;
 }
 
 void TcpServer::Stop() {

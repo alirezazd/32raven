@@ -1,13 +1,15 @@
 #include "button.hpp"
+#include "gpio.hpp"
 
-void Button::Init(const Config &cfg) {
+void Button::Init(GPIO &gpio, const Config &cfg) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kButtonReinit);
   }
   initialized_ = true;
+  gpio_ = &gpio;
 
-  port_ = cfg.port;
-  pin_ = cfg.pin;
+  port_ = cfg.pin.port;
+  pin_ = cfg.pin.number;
   active_low_ = cfg.active_low;
   debounce_ms_ = cfg.debounce_ms;
   long_press_ms_ = cfg.long_press_ms;
@@ -27,13 +29,13 @@ void Button::Init(const Config &cfg) {
 }
 
 bool Button::ReadRawPressed() const {
-  const bool kPinHigh = (port_->IDR & pin_) != 0;
+  const bool kPinHigh = gpio_->ReadPin(port_, pin_);
   return active_low_ ? !kPinHigh : kPinHigh;
 }
 
 void Button::Poll(uint32_t now_ms) {
   if (!initialized_)
-    return;
+    Panic(ErrorCode::kButtonReinit);
 
   const bool kRaw = ReadRawPressed();
 

@@ -27,7 +27,7 @@ bool FcLink::PerformHandshake() {
 
   uint8_t tx_buf[32];
   size_t tx_len = message::Serialize(message::MsgId::kPing, nullptr, 0, tx_buf);
-  const int kDurationMs = 1000;
+  const int kDurationMs = 2000;
   const int kPeriodMs = 20;
   const int kAttempts = kDurationMs / kPeriodMs;
 
@@ -66,7 +66,8 @@ bool FcLink::SendPacket(const message::Packet &pkt) {
   if (!initialized_ || !uart_)
     return false;
 
-  uint8_t tx[256 + 32]; // Max payload + header
+  uint8_t tx[message::kMaxPayload +
+             message::kPacketOverhead]; // Max payload + header + crc
   size_t len = message::Serialize((message::MsgId)pkt.header.id, pkt.payload,
                                   pkt.header.len, tx);
   uart_->Write(tx, len);
@@ -79,9 +80,6 @@ bool FcLink::IsConnected() const { return (rx_state_ != RxState::kMagic1); }
 
 void FcLink::Poll(uint32_t now) {
   (void)now;
-  if (!initialized_ || !uart_)
-    return;
-
   if (!initialized_ || !uart_)
     return;
 
@@ -120,8 +118,6 @@ void FcLink::Poll(uint32_t now) {
       rx_state_ = RxState::kCrc2;
       break;
     case RxState::kCrc2:
-      rx_pkt_internal_.crc |= ((uint16_t)b << 8);
-
       rx_pkt_internal_.crc |= ((uint16_t)b << 8);
 
       {

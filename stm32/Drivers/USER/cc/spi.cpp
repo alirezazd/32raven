@@ -1,26 +1,18 @@
 #include "spi.hpp"
-#include "critical_section.hpp"
 #include "system.hpp"
 
 template <SpiInstance Inst> void Spi<Inst>::Init(const SpiConfig &config) {
   /* DMA controller clock enable */
-  __HAL_RCC_DMA2_CLK_ENABLE();
+  //__HAL_RCC_DMA2_CLK_ENABLE();
+  EnableDmaClk();
 
-  /* DMA interrupt init */
-  /* DMA2_Stream0_IRQn interrupt configuration */
-  NVIC_SetPriority(DMA2_Stream0_IRQn, 7);
-  NVIC_EnableIRQ(DMA2_Stream0_IRQn);
-  /* DMA2_Stream3_IRQn interrupt configuration */
-  NVIC_SetPriority(DMA2_Stream3_IRQn, 7);
-  NVIC_EnableIRQ(DMA2_Stream3_IRQn);
+  /* DMA interrupt init (now called manually by user to set priority) */
 
   // Bare Metal Init
   SPI_TypeDef *spi = Hw();
 
   // Enable Clock
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    __HAL_RCC_SPI1_CLK_ENABLE();
-  }
+  EnableSpiClk();
 
   // 1. Disable SPI
   spi->CR1 &= ~SPI_CR1_SPE;
@@ -63,6 +55,37 @@ template <SpiInstance Inst> void Spi<Inst>::Init(const SpiConfig &config) {
   // 5. Enable SPI
   Enable();
   initialized_ = true;
+}
+
+template <SpiInstance Inst> void Spi<Inst>::EnableDmaClk() {
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+    (void)RCC->AHB1ENR; // readback delay
+  } else {
+    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
+  }
+}
+
+template <SpiInstance Inst> void Spi<Inst>::EnableSpiClk() {
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
+    (void)RCC->APB2ENR; // readback delay
+  } else {
+    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
+  }
+}
+
+template <SpiInstance Inst> void Spi<Inst>::EnableIrqs(uint32_t priority) {
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    /* DMA2_Stream0_IRQn interrupt configuration */
+    NVIC_SetPriority(DMA2_Stream0_IRQn, priority);
+    NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+    /* DMA2_Stream3_IRQn interrupt configuration */
+    NVIC_SetPriority(DMA2_Stream3_IRQn, priority);
+    NVIC_EnableIRQ(DMA2_Stream3_IRQn);
+  } else {
+    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
+  }
 }
 
 template <SpiInstance Inst>
@@ -175,18 +198,15 @@ template <SpiInstance Inst> bool Spi<Inst>::Busy() const { return busy_; }
 template <SpiInstance Inst>
 bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
                              SpiDoneCb cb, void *user) {
-  {
-    BasepriGuard g(kMaskPri);
-    if (busy_ || len == 0 || len > 0xFFFF) {
-      return false;
-    }
-    busy_ = true;
-    cb_ = cb;
-    user_ = user;
-    tx_ = tx;
-    rx_ = rx;
-    len_ = static_cast<uint16_t>(len);
+  if (busy_ || len == 0 || len > 0xFFFF) {
+    return false;
   }
+  busy_ = true;
+  cb_ = cb;
+  user_ = user;
+  tx_ = tx;
+  rx_ = rx;
+  len_ = static_cast<uint16_t>(len);
 
   SPI_TypeDef *spi = Hw();
 
@@ -316,6 +336,8 @@ template <SpiInstance Inst> void Spi<Inst>::OnRxDmaTcIrq() {
                       DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CFEIF0) |
                      (DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTEIF3 |
                       DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3);
+  } else {
+    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 
   // Clear IRQ flags
@@ -344,12 +366,9 @@ template <SpiInstance Inst> void Spi<Inst>::OnRxDmaTcIrq() {
   SpiDoneCb cb = nullptr;
   void *user = nullptr;
 
-  {
-    BasepriGuard g(kMaskPri);
-    busy_ = false;
-    cb = cb_;
-    user = user_;
-  }
+  busy_ = false;
+  cb = cb_;
+  user = user_;
 
   if (cb) {
     cb(user, true); // ok=true
@@ -368,6 +387,15 @@ template <SpiInstance Inst> void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
   // Disable SPI DMA Requests
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    DMA2->LIFCR = (DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTEIF0 |
+                   DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CFEIF0) |
+                  (DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTEIF3 |
+                   DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3);
+  } else {
+    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
+  }
+
   // Disable Streams
   DmaDisableAndWait(rx_stream);
   DmaDisableAndWait(tx_stream);
@@ -382,12 +410,9 @@ template <SpiInstance Inst> void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
   SpiDoneCb cb = nullptr;
   void *user = nullptr;
 
-  {
-    BasepriGuard g(kMaskPri);
-    busy_ = false;
-    cb = cb_;
-    user = user_;
-  }
+  busy_ = false;
+  cb = cb_;
+  user = user_;
 
   if (cb) {
     cb(user, false); // ok=false
@@ -398,9 +423,9 @@ template class Spi<SpiInstance::kSpi1>;
 
 extern "C" {
 void Spi1RxDmaComplete() {
-  Spi<SpiInstance::kSpi1>::GetInstance().OnRxDmaTcIrq();
+  Spi1::GetInstance().OnRxDmaTcIrq();
 }
 void Spi1DmaError(uint32_t isr) {
-  Spi<SpiInstance::kSpi1>::GetInstance().HandleDmaError(isr);
+  Spi1::GetInstance().HandleDmaError(isr);
 }
 }

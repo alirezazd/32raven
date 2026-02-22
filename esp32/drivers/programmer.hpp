@@ -2,7 +2,7 @@
 #include "mbedtls/sha256.h" // IWYU pragma: keep
 #include "uart.hpp"
 
-enum class ErrorCode;
+#include "error_code.hpp"
 
 extern "C" {
 #include "esp_ota_ops.h"

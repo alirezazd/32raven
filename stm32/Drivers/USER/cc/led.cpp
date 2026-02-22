@@ -1,35 +1,21 @@
 #include "led.hpp"
 #include "board.h"
+#include "panic.hpp"
 
-void LED::Init(const Config &cfg) {
+void LED::Init(GPIO &gpio, const Config &cfg) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kLedReinit);
   }
   initialized_ = true;
-
-  port_ = cfg.port;
-  pin_ = cfg.pin;
+  gpio_ = &gpio;
+  port_ = cfg.pin.port;
+  pin_ = cfg.pin.number;
   active_low_ = cfg.active_low;
-
-  // Default: LED OFF
   Set(false);
 }
 
-void LED::Set(bool on) {
-  // Map logical state to electrical level
-  const bool drive_high = active_low_ ? !on : on;
+void LED::Set(bool on) { gpio_->WritePin(port_, pin_, active_low_ ? !on : on); }
 
-  if (drive_high) {
-    port_->BSRR = pin_; // set output high
-  } else {
-    port_->BSRR = uint32_t(pin_) << 16; // set output low
-  }
-}
-
-bool LED::IsOn() const {
-  // Read output latch, not input
-  const bool pin_high = (port_->ODR & pin_) != 0;
-  return active_low_ ? !pin_high : pin_high;
-}
+bool LED::IsOn() const { return gpio_->ReadPin(port_, pin_) == !active_low_; }
 
 void LED::Toggle() { Set(!IsOn()); }
