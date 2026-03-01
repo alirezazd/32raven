@@ -26,7 +26,9 @@ int main(void) {
     // Run control step ONLY when a new IMU sample is ready
     Icm42688p::Sample raw;
     if (Icm42688p::GetInstance().WaitAndGetLatest(last_imu_seq, raw)) {
-      ctx.sm->OnFastTick(raw);
+      if (ctx.fast_tick_state) {
+        ctx.fast_tick_state->OnFastTick(ctx, raw);
+      }
     }
     // Cooperative state step (consumes TIM5 slow-task ticks)
     ctx.sm->Step(static_cast<SmTick>(ctx.sys->Time().MicrosCorrected()));

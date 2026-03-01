@@ -16,6 +16,4 @@ CompileFlags:
 If:
   PathMatch: (^|.*/)(libs/).*
 CompileFlags:
-  CompilationDatabase: build/esp32
-  Remove:
-    [-fno-tree-switch-conversion, -fno-shrink-wrap, -fstrict-volatile-bitfields]
+  CompilationDatabase: build/stm32

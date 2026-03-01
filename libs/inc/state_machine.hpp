@@ -1,10 +1,6 @@
 #pragma once
 #include <cstdint>
 
-#if defined(STM32F407xx) || defined(STM32F405xx)
-#include "icm42688p.hpp"
-#endif
-
 using SmTick = uint32_t;
 
 struct SmEvent {
@@ -25,13 +21,6 @@ template <typename Context> struct IState {
     (void)ev;
     (void)now;
   }
-
-#if defined(STM32F407xx) || defined(STM32F405xx)
-  virtual void OnFastTick(Context &ctx, const Icm42688p::Sample &sample) {
-    (void)ctx;
-    (void)sample;
-  }
-#endif
 };
 
 template <typename Context> class StateMachine {
@@ -62,13 +51,6 @@ public:
       TransitionTo(*t, now);
     }
   }
-
-#if defined(STM32F407xx) || defined(STM32F405xx)
-  void OnFastTick(const Icm42688p::Sample &sample) {
-    if (current_)
-      current_->OnFastTick(ctx_, sample);
-  }
-#endif
 
   void PostEvent(const SmEvent &ev, SmTick now) {
     if (current_)

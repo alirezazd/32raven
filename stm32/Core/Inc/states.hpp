@@ -1,13 +1,21 @@
 #pragma once
 #include "state_machine.hpp"
 #include "system.hpp"
+#include "icm42688p.hpp"
 
 struct IdleState;
 struct NotIdleState;
+struct AppContext;
+
+struct IFastTickState {
+  virtual ~IFastTickState() = default;
+  virtual void OnFastTick(AppContext &ctx, const Icm42688p::Sample &raw) = 0;
+};
 
 struct AppContext {
   System *sys;
   StateMachine<AppContext> *sm;
+  IFastTickState *fast_tick_state = nullptr;
 
   IdleState *idle;
   NotIdleState *not_idle;
@@ -15,18 +23,15 @@ struct AppContext {
   uint32_t telemetry_interval_ms;
 };
 
-#include "dispatcher.hpp"
 #include "message.hpp"
 
-struct IdleState : public IState<AppContext> {
+struct IdleState : public IState<AppContext>, public IFastTickState {
   const char *Name() const override { return "Idle"; }
   void OnEnter(AppContext &ctx, SmTick now) override;
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
 
-#if defined(STM32F407xx) || defined(STM32F405xx)
   void OnFastTick(AppContext &ctx, const Icm42688p::Sample &raw) override;
-#endif
   void StepSlow(AppContext &ctx, SmTick now);
 
 private:
