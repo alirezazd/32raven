@@ -49,17 +49,11 @@ public:
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
   Button &Btn() { return Button::GetInstance(); }
-  Uart<UartInstance::kUart1> &GetUart() {
-    return Uart<UartInstance::kUart1>::GetInstance();
-  }
+  Uart1 &GetUart() { return Uart1::GetInstance(); }
   // Alias for clarity (Console)
-  Uart<UartInstance::kUart1> &GetUart1() {
-    return Uart<UartInstance::kUart1>::GetInstance();
-  }
+  Uart1 &GetUart1() { return Uart1::GetInstance(); }
   // GPS UART
-  Uart<UartInstance::kUart2> &GetUart2() {
-    return Uart<UartInstance::kUart2>::GetInstance();
-  }
+  Uart2 &GetUart2() { return Uart2::GetInstance(); }
 
   M9N &GetGps() { return M9N::GetInstance(); }
   M9NService &ServiceM9N() { return m9n_service_; }

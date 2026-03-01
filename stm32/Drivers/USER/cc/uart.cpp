@@ -1,6 +1,5 @@
 #include "uart.hpp"
 #include "system.hpp"
-#include "user_config.hpp"
 #include <cstring>
 
 #include "stm32f4xx.h"
@@ -148,13 +147,13 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
     handle->Instance = USART2;
   }
 
-  handle->Init.BaudRate = config.baudRate;
-  handle->Init.WordLength = config.wordLength;
-  handle->Init.StopBits = config.stopBits;
-  handle->Init.Parity = config.parity;
-  handle->Init.Mode = config.mode;
-  handle->Init.HwFlowCtl = config.hwFlowCtl;
-  handle->Init.OverSampling = config.overSampling;
+  handle->Init.BaudRate = config.baud_rate;
+  handle->Init.WordLength = static_cast<uint32_t>(config.word_length);
+  handle->Init.StopBits = static_cast<uint32_t>(config.stop_bits);
+  handle->Init.Parity = static_cast<uint32_t>(config.parity);
+  handle->Init.Mode = static_cast<uint32_t>(config.mode);
+  handle->Init.HwFlowCtl = static_cast<uint32_t>(config.hw_flow_control);
+  handle->Init.OverSampling = static_cast<uint32_t>(config.over_sampling);
 
   if (HAL_UART_Init(handle) != HAL_OK) {
     ErrorHandler();
@@ -573,36 +572,23 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::DrainRx() {
   rx_last_pos_ = head_pos;
 }
 
-// Explicit Instantiations
-// Explicit Instantiations
+// Explicit instantiations
 template class Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
                     kUartRxRingSize>;
 template class Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
                     kUartRxRingSize>;
 
 extern "C" {
-void Uart1DmaTxComplete() {
-  Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .IrqHandler();
-}
+void Uart1DmaTxComplete() { Uart1::GetInstance().IrqHandler(); }
 
-void Uart2DmaTxComplete() {
-  Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .IrqHandler();
-}
+void Uart2DmaTxComplete() { Uart2::GetInstance().IrqHandler(); }
 
 void Uart1DmaError(uint32_t isr_flags) {
-  Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .HandleDmaError(isr_flags);
+  Uart1::GetInstance().HandleDmaError(isr_flags);
 }
 
 void Uart2DmaError(uint32_t isr_flags) {
-  Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .HandleDmaError(isr_flags);
+  Uart2::GetInstance().HandleDmaError(isr_flags);
 }
 
 void Uart1RxDmaIrq() {
@@ -610,52 +596,24 @@ void Uart1RxDmaIrq() {
 }
 
 void Uart1RxDmaError(uint32_t isr_flags) {
-  Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .HandleRxDmaError(isr_flags);
+  Uart1::GetInstance().HandleRxDmaError(isr_flags);
 }
 
 void Uart2RxDmaError(uint32_t isr_flags) {
-  Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .HandleRxDmaError(isr_flags);
+  Uart2::GetInstance().HandleRxDmaError(isr_flags);
 }
 
 // Wrappers for interrupts
 
-void Uart1OnUartInterrupt() {
-  Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .OnUartInterrupt();
-}
+void Uart1OnUartInterrupt() { Uart1::GetInstance().OnUartInterrupt(); }
 
-void Uart2OnUartInterrupt() {
-  Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .OnUartInterrupt();
-}
+void Uart2OnUartInterrupt() { Uart2::GetInstance().OnUartInterrupt(); }
 
-void Uart1OnRxHalfCplt() {
-  Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .OnRxHalfCplt();
-}
+void Uart1OnRxHalfCplt() { Uart1::GetInstance().OnRxHalfCplt(); }
 
-void Uart1OnRxCplt() {
-  Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .OnRxCplt();
-}
+void Uart1OnRxCplt() { Uart1::GetInstance().OnRxCplt(); }
 
-void Uart2OnRxHalfCplt() {
-  Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .OnRxHalfCplt();
-}
+void Uart2OnRxHalfCplt() { Uart2::GetInstance().OnRxHalfCplt(); }
 
-void Uart2OnRxCplt() {
-  Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
-       kUartRxRingSize>::GetInstance()
-      .OnRxCplt();
-}
+void Uart2OnRxCplt() { Uart2::GetInstance().OnRxCplt(); }
 }

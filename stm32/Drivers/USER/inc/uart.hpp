@@ -1,13 +1,59 @@
 #pragma once
 
 #include "board.h"
-#include "user_config.hpp" // For kUartDefault and UartConfig
+#include "ring_buffer.hpp"
 #include <cstddef>
 #include <cstdint>
 
 enum class UartInstance { kUart1, kUart2 };
 
-#include "ring_buffer.hpp"
+enum class UartWordLength : uint32_t {
+  k8Bits = UART_WORDLENGTH_8B,
+  k9Bits = UART_WORDLENGTH_9B,
+};
+
+enum class UartStopBits : uint32_t {
+  k1 = UART_STOPBITS_1,
+  k2 = UART_STOPBITS_2,
+};
+
+enum class UartParity : uint32_t {
+  kNone = UART_PARITY_NONE,
+  kEven = UART_PARITY_EVEN,
+  kOdd = UART_PARITY_ODD,
+};
+
+enum class UartMode : uint32_t {
+  kRx = UART_MODE_RX,
+  kTx = UART_MODE_TX,
+  kTxRx = UART_MODE_TX_RX,
+};
+
+enum class UartHwFlowControl : uint32_t {
+  kNone = UART_HWCONTROL_NONE,
+  kRts = UART_HWCONTROL_RTS,
+  kCts = UART_HWCONTROL_CTS,
+  kRtsCts = UART_HWCONTROL_RTS_CTS,
+};
+
+enum class UartOverSampling : uint32_t {
+  k16 = UART_OVERSAMPLING_16,
+  k8 = UART_OVERSAMPLING_8,
+};
+
+struct UartConfig {
+  uint32_t baud_rate;
+  UartWordLength word_length;
+  UartStopBits stop_bits;
+  UartParity parity;
+  UartMode mode;
+  UartHwFlowControl hw_flow_control;
+  UartOverSampling over_sampling;
+};
+
+constexpr size_t kUartTxBufSize = 256;
+constexpr size_t kUartRxDmaSize = 128;
+constexpr size_t kUartRxRingSize = 1024;
 
 template <UartInstance Inst, size_t TxBufferSize = kUartTxBufSize,
           size_t RxDmaSize = kUartRxDmaSize,
@@ -75,3 +121,6 @@ private:
   volatile uint32_t uart_ne_err_ = 0;
   volatile uint32_t uart_pe_err_ = 0;
 };
+
+using Uart1 = Uart<UartInstance::kUart1>;
+using Uart2 = Uart<UartInstance::kUart2>;
