@@ -52,7 +52,7 @@ void System::InitComponent(Component c) {
     LED::GetInstance().Set(true);
     break;
   case Component::kUart1:
-    Uart<UartInstance::kUart1>::GetInstance().Init(kUart1Config);
+    Uart1::GetInstance().Init(kUart1Config);
     break;
   case Component::kSpi1:
     Spi1::GetInstance().Init(kSpi1Config);
@@ -64,7 +64,7 @@ void System::InitComponent(Component c) {
     Button::GetInstance().Init(GPIO::GetInstance(), kButtonDefault);
     break;
   case Component::kUart2:
-    Uart<UartInstance::kUart2>::GetInstance().Init(kUart2Config);
+    Uart2::GetInstance().Init(kUart2Config);
     break;
   case Component::kM9n:
     M9N::GetInstance().Init(kM9nConfig);

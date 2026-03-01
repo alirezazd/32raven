@@ -14,9 +14,8 @@
 #include "spi.hpp"
 #include "stm32f4xx_hal_gpio.h"
 #include "time_base.hpp"
+#include "uart.hpp"
 #include <array>
-// Note: uart.hpp and system.hpp are consumers, not providers of config types
-// now.
 
 // System Configuration Struct
 struct SystemConfig {
@@ -24,20 +23,6 @@ struct SystemConfig {
   RCC_ClkInitTypeDef clk;
   uint32_t flashLatency;
   uint32_t voltageScaling;
-};
-
-// UART Configuration Struct
-struct UartConfig {
-  uint32_t baudRate;
-  uint32_t wordLength;
-  uint32_t stopBits;
-  uint32_t parity;
-  uint32_t mode;
-  uint32_t hwFlowCtl;
-  uint32_t overSampling;
-  size_t tx_buffer_size;
-  size_t rx_dma_size;
-  size_t rx_ring_size;
 };
 
 // Default Configuration values
@@ -132,35 +117,24 @@ constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
 };
 
-// Buffer size constants used by templates
-constexpr size_t kUartTxBufSize = 256;
-constexpr size_t kUartRxDmaSize = 128;   // Low latency
-constexpr size_t kUartRxRingSize = 1024; // Large capacity
-
 constexpr UartConfig kUart1Config = {
-    5000000,              // baudRate (Link to ESP32)
-    UART_WORDLENGTH_9B,   // wordLength (8 data + 1 parity)
-    UART_STOPBITS_1,      // stopBits
-    UART_PARITY_EVEN,     // parity
-    UART_MODE_TX_RX,      // mode
-    UART_HWCONTROL_NONE,  // hwFlowCtl
-    UART_OVERSAMPLING_16, // overSampling
-    kUartTxBufSize,       // tx_buffer_size
-    kUartRxDmaSize,       // rx_dma_size
-    kUartRxRingSize       // rx_ring_size
+    .baud_rate = 5000000, // Link to ESP32
+    .word_length = UartWordLength::k9Bits,
+    .stop_bits = UartStopBits::k1,
+    .parity = UartParity::kEven,
+    .mode = UartMode::kTxRx,
+    .hw_flow_control = UartHwFlowControl::kNone,
+    .over_sampling = UartOverSampling::k16,
 };
 
 constexpr UartConfig kUart2Config = {
-    115200,               // baudRate (GPS M9N)
-    UART_WORDLENGTH_8B,   // wordLength
-    UART_STOPBITS_1,      // stopBits
-    UART_PARITY_NONE,     // parity
-    UART_MODE_TX_RX,      // mode
-    UART_HWCONTROL_NONE,  // hwFlowCtl
-    UART_OVERSAMPLING_16, // overSampling
-    kUartTxBufSize,       // tx_buffer_size
-    kUartRxDmaSize,       // rx_dma_size
-    kUartRxRingSize       // rx_ring_size
+    .baud_rate = 115200, // GPS M9N
+    .word_length = UartWordLength::k8Bits,
+    .stop_bits = UartStopBits::k1,
+    .parity = UartParity::kNone,
+    .mode = UartMode::kTxRx,
+    .hw_flow_control = UartHwFlowControl::kNone,
+    .over_sampling = UartOverSampling::k16,
 };
 
 constexpr SpiConfig kSpi1Config = {
