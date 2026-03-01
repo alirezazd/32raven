@@ -86,6 +86,7 @@ static uint32_t g_prof_fast_us = 0;   // OnFastTick max
 void IdleState::OnEnter(AppContext &ctx, SmTick now) {
   (void)now;
   ctx.sys->Led().Set(false);
+  ctx.fast_tick_state = this;
 
   // Init Protocol Links
   ctx.sys->GetCommandHandler().Init();
@@ -367,8 +368,10 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 }
 
 void IdleState::OnExit(AppContext &ctx, SmTick now) {
-  (void)ctx;
   (void)now;
+  if (ctx.fast_tick_state == this) {
+    ctx.fast_tick_state = nullptr;
+  }
 }
 
 // --- NotIdleState (Unused) ---
