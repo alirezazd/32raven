@@ -11,19 +11,10 @@ endif()
 # -----------------------------------------------------------------------------
 # Inputs
 # -----------------------------------------------------------------------------
-set(IDF_PATH "" CACHE PATH "Path to esp-idf (or set env IDF_PATH)")
-if(NOT IDF_PATH AND DEFINED ENV{IDF_PATH})
-  set(IDF_PATH "$ENV{IDF_PATH}")
-endif()
-if(NOT IDF_PATH)
-  message(FATAL_ERROR
-    "IDF_PATH is required.\n"
-    "Set env: export IDF_PATH=/path/to/esp-idf\n"
-    "or pass: -DIDF_PATH=/path/to/esp-idf"
-  )
-endif()
-if(NOT EXISTS "${IDF_PATH}/export.sh")
-  message(FATAL_ERROR "IDF_PATH is invalid: '${IDF_PATH}' (missing export.sh)")
+set(IDF_LOCAL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/esp-idf")
+set(IDF_PATH "${IDF_LOCAL_PATH}" CACHE PATH "Path to esp-idf")
+if(DEFINED ENV{IDF_PATH} AND NOT "$ENV{IDF_PATH}" STREQUAL "")
+  set(IDF_PATH "$ENV{IDF_PATH}" CACHE PATH "Path to esp-idf" FORCE)
 endif()
 
 add_compile_options(
@@ -87,6 +78,16 @@ add_custom_target(esp32
   COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh "${LINT_EXCEPTIONS_FILE}"
   COMMAND bash -lc
     "set -euo pipefail; \
+     if [ -z '${IDF_PATH}' ]; then \
+       echo 'IDF_PATH is empty.'; \
+       exit 1; \
+     fi; \
+     if [ ! -f '${IDF_PATH}/export.sh' ]; then \
+       echo \"ESP-IDF not found at '${IDF_PATH}'\"; \
+       echo 'Run: git submodule update --init --recursive third_party/esp-idf'; \
+       echo 'Then: make idf-install'; \
+       exit 1; \
+     fi; \
      . '${IDF_PATH}/export.sh'; \
      idf.py -C '${CMAKE_CURRENT_SOURCE_DIR}/esp32' \
             -B '${CMAKE_CURRENT_BINARY_DIR}/esp32' \

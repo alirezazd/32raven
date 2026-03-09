@@ -8,7 +8,7 @@
 
 void FcLink::Init(AppContext *ctx) { ctx_ = ctx; }
 
-void FcLink::Poll() {
+void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   if (!ctx_)
     return;
 
@@ -16,7 +16,9 @@ void FcLink::Poll() {
 
   // 1. RX Parsing
   uint8_t c;
-  while (uart.Read(c)) {
+  size_t rx_count = 0;
+  while (rx_count < rx_budget && uart.Read(c)) {
+    rx_count++;
     switch (rx_state_) {
     case RxState::kMagic1:
       if (c == message::kMagic1)
@@ -80,10 +82,10 @@ void FcLink::Poll() {
   }
 
   // 2. TX Flushing (RingBuffer -> UART)
-  // Send in chunks of e.g. 32 bytes to not hog DMA/UART if blocking
+  // Send in bounded chunks to keep this path deterministic.
   uint8_t tx_chunk[64];
   size_t n = 0;
-  while (tx_rb_.Pop(c)) {
+  while (n < tx_budget && tx_rb_.Pop(c)) {
     tx_chunk[n++] = c;
     if (n >= sizeof(tx_chunk))
       break;
@@ -154,15 +156,16 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   Send(pkt);
 }
 
-void FcLink::SendImu(const ImuData &data) {
+void FcLink::SendImu(uint64_t timestamp_us, const float accel[3],
+                     const float gyro[3]) {
   message::ImuData m = {};
-  m.timestamp_us = data.timestamp_us;
-  m.accel[0] = data.accel[0];
-  m.accel[1] = data.accel[1];
-  m.accel[2] = data.accel[2];
-  m.gyro[0] = data.gyro[0];
-  m.gyro[1] = data.gyro[1];
-  m.gyro[2] = data.gyro[2];
+  m.timestamp_us = timestamp_us;
+  m.accel[0] = accel[0];
+  m.accel[1] = accel[1];
+  m.accel[2] = accel[2];
+  m.gyro[0] = gyro[0];
+  m.gyro[1] = gyro[1];
+  m.gyro[2] = gyro[2];
 
   message::Packet pkt;
   pkt.header.id = (uint8_t)message::MsgId::kImuData;

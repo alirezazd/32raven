@@ -24,7 +24,7 @@ idf_component_register(
         "../drivers"
         "../services"
         "../../libs/inc"
-        "../../libs/mavlink/common"
+        "../../third_party/mavlink/common"
 
 )
 

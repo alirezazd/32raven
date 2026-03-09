@@ -123,6 +123,10 @@ const char *GetMessage(ErrorCode code) {
     return "IMU DMA buffer too small";
   case ErrorCode::kImuInvalidSampleDetected:
     return "IMU invalid sample detected";
+  case ErrorCode::kImuCalibrationInvalidConfig:
+    return "IMU calibration invalid config";
+  case ErrorCode::kImuCalibrationMotionDetected:
+    return "Motion detected during IMU calibration";
   case ErrorCode::kInvalidFifoWatermarkRecords:
     return "Invalid FIFO watermark records";
   default:

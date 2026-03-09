@@ -30,9 +30,35 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 
 # Enable CMake support for ASM and C languages
 enable_language(C CXX ASM)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
+
+set(STM32_KCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/Kconfig")
+set(STM32_MASTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/32raven.config")
+set(STM32_CONFIG_GENERATOR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_stm32_config.py")
+set(STM32_RUNTIME_CONFIG_HPP
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_config.hpp")
+set(STM32_LIMITS_HPP
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_limits.hpp")
+
+add_custom_command(
+    OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
+    COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
+            --kconfig ${STM32_KCONFIG}
+            --config ${STM32_MASTER_CONFIG}
+            --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
+            --limits-out ${STM32_LIMITS_HPP}
+    DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG} ${STM32_CONFIG_GENERATOR}
+    COMMENT "Generating STM32 configuration headers"
+    VERBATIM)
+
+add_custom_target(generate_stm32_config
+                  DEPENDS ${STM32_RUNTIME_CONFIG_HPP}
+                          ${STM32_LIMITS_HPP})
+add_dependencies(${CMAKE_PROJECT_NAME} generate_stm32_config)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)

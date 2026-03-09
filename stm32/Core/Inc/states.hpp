@@ -1,15 +1,14 @@
 #pragma once
 #include "state_machine.hpp"
 #include "system.hpp"
-#include "icm42688p.hpp"
 
 struct IdleState;
-struct NotIdleState;
 struct AppContext;
 
 struct IFastTickState {
   virtual ~IFastTickState() = default;
-  virtual void OnFastTick(AppContext &ctx, const Icm42688p::Sample &raw) = 0;
+  virtual void OnFastTick(AppContext &ctx,
+                          const Icm42688p::SampleBatch &batch) = 0;
 };
 
 struct AppContext {
@@ -18,7 +17,6 @@ struct AppContext {
   IFastTickState *fast_tick_state = nullptr;
 
   IdleState *idle;
-  NotIdleState *not_idle;
 
   uint32_t telemetry_interval_ms;
 };
@@ -31,7 +29,7 @@ struct IdleState : public IState<AppContext>, public IFastTickState {
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnExit(AppContext &ctx, SmTick now) override;
 
-  void OnFastTick(AppContext &ctx, const Icm42688p::Sample &raw) override;
+  void OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch) override;
   void StepSlow(AppContext &ctx, SmTick now);
 
 private:
@@ -55,12 +53,5 @@ private:
   uint32_t max_send_us_ = 0;
   uint32_t max_seq_gap_ = 0;
   uint32_t max_raw_dt_us_ = 0;
-  uint32_t max_phase_bad_consec_ = 0;
-};
-
-struct NotIdleState : public IState<AppContext> {
-  const char *Name() const override { return "NotIdle"; }
-  void OnEnter(AppContext &ctx, SmTick now) override;
-  void OnStep(AppContext &ctx, SmTick now) override;
-  void OnExit(AppContext &ctx, SmTick now) override;
+  uint32_t prev_imu_seq_ = 0;
 };

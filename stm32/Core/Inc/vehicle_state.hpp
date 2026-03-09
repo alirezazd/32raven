@@ -6,14 +6,6 @@
 // POD (Plain Old Data) Sensor Packets
 // ---------------------------------------------------------
 
-struct ImuData {
-  uint64_t timestamp_us;
-  float accel[3]; // m/s^2
-  float gyro[3];  // rad/s
-  float mag[3];   // uT
-  bool valid;
-};
-
 struct GpsData {
   uint64_t timestamp_us;
   uint16_t year;
@@ -66,13 +58,6 @@ class VehicleState {
 public:
   // --- WRITERS (Called by Drivers) ---
 
-  void UpdateImu(const ImuData &data) {
-    // Atomic copy usually safe for struct on 32-bit if aligned,
-    // but for larger structs in RTOS preemption, consider critical section.
-    // For bare metal/cooperative, this is fine.
-    imu_ = data;
-  }
-
   void UpdateGps(const GpsData &data) {
     gps_ = data;
     gps_.updated = true;
@@ -83,7 +68,6 @@ public:
   // --- READERS (Called by Logic/Consumers) ---
 
   // Fast access for Control Loop (High Frequency)
-  const ImuData &GetImu() const { return imu_; }
   const BatteryData &GetBattery() const { return bat_; }
 
   // Polling access for Telemetry/Log (Low Frequency)
@@ -98,7 +82,6 @@ public:
   }
 
 private:
-  ImuData imu_{};
   GpsData gps_{};
   BatteryData bat_{};
 };

@@ -6,7 +6,6 @@
 #include "gpio.hpp"
 // #include "i2c.hpp"
 #include "board.h"
-#include "icm42688p.hpp"
 #include "led.hpp"
 #include "spi.hpp"
 #include "stm32f4xx.h"

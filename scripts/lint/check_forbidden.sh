@@ -4,7 +4,7 @@
 # Returns 1 (error) if found, 0 (ok) if clean.
 
 TARGET_DIRS="."
-EXCLUDE_DIRS={.git,build,cmake}
+EXCLUDE_DIRS=(.git build cmake third_party)
 FORBIDDEN_HEADERS="iostream sstream locale regex vector list map set unordered_map unordered_set"
 FORBIDDEN_KEYWORDS=" new" # Space prefix to avoid matching 'newline' etc.
 
@@ -25,6 +25,11 @@ if [ ! -f "$EXCEPTIONS_FILE" ]; then
     EXCEPTIONS_FILE=$(mktemp)
 fi
 
+GREP_EXCLUDES=()
+for excluded in "${EXCLUDE_DIRS[@]}"; do
+    GREP_EXCLUDES+=(--exclude-dir="$excluded")
+done
+
 for dir in $TARGET_DIRS; do
     if [ ! -d "$dir" ]; then continue; fi
     
@@ -32,7 +37,7 @@ for dir in $TARGET_DIRS; do
     for header in $FORBIDDEN_HEADERS; do
         # grep recursively, finding usages
         # exclude the script itself and build dirs if any
-        MATCHES=$(grep -rn --exclude-dir=$EXCLUDE_DIRS --include=*.cpp --include=*.hpp "#include <$header>" "$dir" | grep -vFf "$EXCEPTIONS_FILE")
+        MATCHES=$(grep -rn "${GREP_EXCLUDES[@]}" --include=*.cpp --include=*.hpp "#include <$header>" "$dir" | grep -vFf "$EXCEPTIONS_FILE")
         if [ ! -z "$MATCHES" ]; then
             echo "ERROR: Forbidden header <$header> found:"
             echo "$MATCHES"
@@ -42,7 +47,7 @@ for dir in $TARGET_DIRS; do
     
     # 2. Check Allocation (new)
     # Be careful with this pattern, trying to verify 'new ' usage
-    MATCHES_NEW=$(grep -rn --exclude-dir=$EXCLUDE_DIRS --include=*.cpp --include=*.hpp " new " "$dir" | grep -vE "placement new|//|/\\*" | grep -vFf "$EXCEPTIONS_FILE")
+    MATCHES_NEW=$(grep -rn "${GREP_EXCLUDES[@]}" --include=*.cpp --include=*.hpp " new " "$dir" | grep -vE "placement new|//|/\\*" | grep -vFf "$EXCEPTIONS_FILE")
     if [ ! -z "$MATCHES_NEW" ]; then
          echo "ERROR: Forbidden keyword 'new' found (use static allocation):"
          echo "$MATCHES_NEW"
@@ -51,7 +56,7 @@ for dir in $TARGET_DIRS; do
 
     # 3. Check Types (double)
     # Exclude comments
-    MATCHES_DOUBLE=$(grep -rn --exclude-dir=$EXCLUDE_DIRS --include=*.cpp --include=*.hpp " double " "$dir" | grep -vE "//|/\\*" | grep -vFf "$EXCEPTIONS_FILE")
+    MATCHES_DOUBLE=$(grep -rn "${GREP_EXCLUDES[@]}" --include=*.cpp --include=*.hpp " double " "$dir" | grep -vE "//|/\\*" | grep -vFf "$EXCEPTIONS_FILE")
     if [ ! -z "$MATCHES_DOUBLE" ]; then
          echo "ERROR: Forbidden type 'double' found (use float):"
          echo "$MATCHES_DOUBLE"

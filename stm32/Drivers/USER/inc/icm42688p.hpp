@@ -2,6 +2,7 @@
 
 #include "icm42688p_reg.hpp"
 #include "spi.hpp"
+#include "stm32_limits.hpp"
 #include <atomic>
 #include <cstdint>
 
@@ -9,6 +10,9 @@ class GPIO;
 
 class Icm42688p {
 public:
+  static constexpr uint16_t kMaxWatermarkRecords =
+      stm32_limits::kIcm42688pMaxWatermarkRecords;
+
   struct Config {
     uint8_t spi_prescaler;
 
@@ -46,6 +50,12 @@ public:
       uint16_t watermark_records;
       bool hold_last;
     } fifo;
+
+    struct Calibration {
+      uint32_t gyro_duration_us;
+      uint32_t gyro_timeout_us;
+      uint32_t gyro_still_threshold_raw;
+    } calibration;
   };
 
   struct Sample {
@@ -54,6 +64,11 @@ public:
     int16_t gyro[3];
     int16_t temp_raw;
     uint32_t seq;
+  };
+
+  struct SampleBatch {
+    uint8_t count;
+    Sample samples[kMaxWatermarkRecords];
   };
 
   // DEBUG_DIAG_BEGIN (remove block when debug campaign is complete)
@@ -76,7 +91,9 @@ public:
 
   void Init(GPIO &gpio, Spi1 &spi, const Config &cfg);
   void OnIrq();
-  bool WaitAndGetLatest(uint32_t &last_seq, Sample &out);
+  bool WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out);
+  bool PeekLatestBatch(SampleBatch &out) const;
+  void CalibrateGyro();
 
   uint32_t ImuPathOverrun() const {
     return overrun_.load(std::memory_order_relaxed);
@@ -119,6 +136,7 @@ private:
   void CsHigh();
 
   void CheckWhoAmI();
+  void ValidateConfig(const Config &cfg);
   void SoftReset();
   void SetClockSource(); // INTF_CONFIG1: AFSR off + CLKSEL=PLL
   void SetInterfaceConfig(const Config &cfg);
@@ -130,17 +148,18 @@ private:
 
   void SetTimestampConfig();
   void ClearUserOffsets();
+  void WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
+                            int16_t z_offset_lsb);
   void ConfigureFifo();
   void SetupDmaBuffer();
 
   static void SpiDoneThunk(void *user, bool ok);
   void OnSpiDone(bool ok);
-  void PublishLatest(const Sample &s_in);
+  void PublishLatestBatch(const SampleBatch &batch);
   bool ParsePacket3Record(const uint8_t *rec, Sample &out);
   void UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us);
   // Packet3 record stride remains 16 bytes in FIFO stream layout.
   static constexpr uint16_t kPacketBytes = 16;
-  static constexpr uint16_t kMaxWatermarkRecords = 8;
   static constexpr uint16_t kMaxReadBytes = kMaxWatermarkRecords * kPacketBytes;
 
   uint16_t fifo_wm_records_{0};
@@ -173,12 +192,15 @@ private:
   int64_t host_offset_us_{0};
   bool host_sync_inited_{false};
   bool fifo_hold_last_data_en_{false};
+  Icm42688pReg::GyroFs gyro_fs_{};
+  Icm42688pReg::Odr gyro_odr_{};
+  Config::Calibration calibration_cfg_{};
 
   bool initialized_{false};
   GPIO *gpio_{nullptr};
   Spi1 *spi_{nullptr};
 
-  alignas(8) Sample mailbox_[2]{};
+  alignas(8) SampleBatch mailbox_[2]{};
   std::atomic<uint8_t> mailbox_idx_{0};
   std::atomic<uint32_t> tick_seq_{0};
   std::atomic<uint32_t> drop_cnt_{0};
