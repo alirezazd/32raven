@@ -5,6 +5,34 @@
 
 class M9N {
 public:
+  enum class BaudRate : uint32_t {
+    k9600 = 9600,
+    k19200 = 19200,
+    k38400 = 38400,
+    k57600 = 57600,
+    k115200 = 115200,
+    k230400 = 230400,
+    k460800 = 460800,
+    k921600 = 921600,
+  };
+
+  enum class DynamicModel : uint8_t {
+    kPortable = 0,
+    kStationary = 2,
+    kPedestrian = 3,
+    kAutomotive = 4,
+    kSea = 5,
+    kAirborne1g = 6,
+    kAirborne2g = 7,
+    kAirborne4g = 8,
+    kWrist = 9,
+    kBike = 10,
+  };
+
+  static constexpr uint32_t ToBaudRateValue(BaudRate baud_rate) {
+    return static_cast<uint32_t>(baud_rate);
+  }
+
   static M9N &GetInstance() {
     static M9N instance;
     return instance;
@@ -12,7 +40,7 @@ public:
 
   struct Config {
     bool flash_config;
-    uint32_t baud_rate;
+    BaudRate baud_rate;
 
     struct Protocols {
       bool outprot_ubx;
@@ -28,7 +56,7 @@ public:
 
     struct Navigation {
       uint16_t rate_meas_ms;
-      uint8_t dyn_model;
+      DynamicModel dyn_model;
     } nav;
 
     struct Constellations {
@@ -62,7 +90,7 @@ private:
   friend class System;
 
   void Init(const Config &config);
-  void FlashConfig(uint32_t current_baud = 38400);
+  void FlashConfig(BaudRate current_baud = BaudRate::k38400);
 
   void ApplyConfig(uint8_t layer);
 

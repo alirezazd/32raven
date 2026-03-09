@@ -267,5 +267,263 @@ config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
     default 64
 
 endmenu
+
+menu "ICM20948"
+
+config STM32_IMU_ICM20948_DMA_BUF_SIZE
+    int "DMA buffer size"
+    range 1 255
+    default 32
+
+config STM32_IMU_ICM20948_FIFO_SIZE
+    int "FIFO size"
+    range 1 4096
+    default 512
+
+config STM32_IMU_ICM20948_ACCEL_RANGE
+    hex "Accel range register value"
+    range 0x00 0xff
+    default 0x06
+
+config STM32_IMU_ICM20948_ACCEL_DLPF_CONFIG
+    hex "Accel DLPF config register value"
+    range 0x00 0xff
+    default 0x19
+
+config STM32_IMU_ICM20948_ACCEL_SAMPLE_RATE_DIV
+    int "Accel sample rate divider"
+    range 0 255
+    default 0
+
+config STM32_IMU_ICM20948_GYRO_RANGE
+    hex "Gyro range register value"
+    range 0x00 0xff
+    default 0x06
+
+config STM32_IMU_ICM20948_GYRO_DLPF_CONFIG
+    hex "Gyro DLPF config register value"
+    range 0x00 0xff
+    default 0x19
+
+config STM32_IMU_ICM20948_GYRO_SAMPLE_RATE_DIV
+    int "Gyro sample rate divider"
+    range 0 255
+    default 0
+
+config STM32_IMU_ICM20948_MAG_RATE
+    hex "Magnetometer rate register value"
+    range 0x00 0xff
+    default 0x08
+
+choice
+    prompt "ICM20948 SPI prescaler"
+    default STM32_IMU_ICM20948_SPI_PRESCALER_DIV32
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV2
+    bool "div2"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV4
+    bool "div4"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV8
+    bool "div8"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV16
+    bool "div16"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV32
+    bool "div32"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV64
+    bool "div64"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV128
+    bool "div128"
+
+config STM32_IMU_ICM20948_SPI_PRESCALER_DIV256
+    bool "div256"
+
+endchoice
+
+endmenu
+endmenu
+
+menu "GPS"
+menu "M9N"
+
+config STM32_GPS_M9N_FLASH_CONFIG
+    bool "Flash persistent configuration on boot"
+    default n
+
+choice
+    prompt "UART baud rate"
+    default STM32_GPS_M9N_BAUD_115200
+
+config STM32_GPS_M9N_BAUD_9600
+    bool "9600"
+
+config STM32_GPS_M9N_BAUD_19200
+    bool "19200"
+
+config STM32_GPS_M9N_BAUD_38400
+    bool "38400"
+
+config STM32_GPS_M9N_BAUD_57600
+    bool "57600"
+
+config STM32_GPS_M9N_BAUD_115200
+    bool "115200"
+
+config STM32_GPS_M9N_BAUD_230400
+    bool "230400"
+
+config STM32_GPS_M9N_BAUD_460800
+    bool "460800"
+
+config STM32_GPS_M9N_BAUD_921600
+    bool "921600"
+
+endchoice
+
+config STM32_GPS_M9N_PROTOCOL_UBX
+    bool "Enable UBX output"
+    default y
+
+config STM32_GPS_M9N_PROTOCOL_NMEA
+    bool "Enable NMEA output"
+    default n
+
+config STM32_GPS_M9N_MSG_NAV_PVT
+    bool "Enable NAV-PVT"
+    default y
+
+config STM32_GPS_M9N_MSG_NAV_DOP
+    bool "Enable NAV-DOP"
+    default n
+
+config STM32_GPS_M9N_MSG_NAV_COV
+    bool "Enable NAV-COV"
+    default y
+
+config STM32_GPS_M9N_MSG_NAV_EOE
+    bool "Enable NAV-EOE"
+    default y
+
+config STM32_GPS_M9N_RATE_MEAS_MS
+    int "Measurement rate (ms)"
+    range 25 10000
+    default 100
+
+choice
+    prompt "Dynamic model"
+    default STM32_GPS_M9N_DYN_MODEL_AIRBORNE_2G
+
+config STM32_GPS_M9N_DYN_MODEL_PORTABLE
+    bool "Portable"
+
+config STM32_GPS_M9N_DYN_MODEL_STATIONARY
+    bool "Stationary"
+
+config STM32_GPS_M9N_DYN_MODEL_PEDESTRIAN
+    bool "Pedestrian"
+
+config STM32_GPS_M9N_DYN_MODEL_AUTOMOTIVE
+    bool "Automotive"
+
+config STM32_GPS_M9N_DYN_MODEL_SEA
+    bool "Sea"
+
+config STM32_GPS_M9N_DYN_MODEL_AIRBORNE_1G
+    bool "Airborne <1g"
+
+config STM32_GPS_M9N_DYN_MODEL_AIRBORNE_2G
+    bool "Airborne <2g"
+
+config STM32_GPS_M9N_DYN_MODEL_AIRBORNE_4G
+    bool "Airborne <4g"
+
+config STM32_GPS_M9N_DYN_MODEL_WRIST
+    bool "Wrist"
+
+config STM32_GPS_M9N_DYN_MODEL_BIKE
+    bool "Bike / Motorbike"
+
+endchoice
+
+config STM32_GPS_M9N_GNSS_GPS
+    bool "Enable GPS constellation"
+    default y
+
+config STM32_GPS_M9N_GNSS_GLO
+    bool "Enable GLONASS constellation"
+    default n
+
+config STM32_GPS_M9N_GNSS_GAL
+    bool "Enable Galileo constellation"
+    default y
+
+config STM32_GPS_M9N_GNSS_BDS
+    bool "Enable BeiDou constellation"
+    default n
+
+config STM32_GPS_M9N_GNSS_SBAS
+    bool "Enable SBAS"
+    default y
+
+config STM32_GPS_M9N_GNSS_ITFM
+    bool "Enable ITFM"
+    default y
+
+config STM32_GPS_M9N_TP1_ENA
+    bool "Enable TP1"
+    default y
+
+config STM32_GPS_M9N_TP1_PERIOD
+    int "TP1 period"
+    range 1 1000000000
+    default 1000000
+
+config STM32_GPS_M9N_TP1_LEN
+    int "TP1 pulse length"
+    range 1 1000000000
+    default 50000
+
+config STM32_GPS_M9N_TP1_TIMEGRID
+    int "TP1 timegrid"
+    range 0 255
+    default 1
+
+config STM32_GPS_M9N_TP1_SYNC_GNSS
+    bool "TP1 sync GNSS"
+    default y
+
+config STM32_GPS_M9N_TP1_USE_LOCKED
+    bool "TP1 use locked"
+    default y
+
+config STM32_GPS_M9N_TP1_ALIGN_TO_TOW
+    bool "TP1 align to TOW"
+    default y
+
+config STM32_GPS_M9N_TP1_POL_RISING
+    bool "TP1 rising polarity"
+    default y
+
+config STM32_GPS_M9N_TP1_PERIOD_LOCK
+    int "TP1 locked period"
+    range 1 1000000000
+    default 1000000
+
+config STM32_GPS_M9N_TP1_LEN_LOCK
+    int "TP1 locked pulse length"
+    range 1 1000000000
+    default 50000
+
+config STM32_GPS_M9N_ACK_TIMEOUT_US
+    int "ACK timeout (us)"
+    range 1 10000000
+    default 100000
+
+endmenu
 endmenu
 endmenu

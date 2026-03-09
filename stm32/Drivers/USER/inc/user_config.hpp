@@ -7,10 +7,8 @@
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
 #include "i2c.hpp"
-#include "icm20948.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
-#include "m9n.hpp"
 #include "spi.hpp"
 #include "stm32_config.hpp"
 #include "stm32f4xx_hal_gpio.h"
@@ -143,53 +141,3 @@ constexpr SpiConfig kSpi1Config = {
     .phase = SpiPhase::k2Edge,
     .prescaler = SpiPrescaler::kDiv32,
     .bit_order = SpiBitOrder::kMsbFirst};
-
-// Set to true to re-flash M9N persistent configuration on boot.
-// This will force connection at 38400 baud, send golden config to Flash/BBR,
-// and reboot/reinit UARTs to 115200.
-constexpr M9N::Config kM9nConfig = {
-    .flash_config = false,
-    .baud_rate = 115200,
-
-    .protocols = {.outprot_ubx = true, .outprot_nmea = false},
-    .messages = {.nav_pvt = true,
-                 .nav_dop = false,
-                 .nav_cov = true,
-                 .nav_eoe = true},
-    .nav = {.rate_meas_ms = 100, .dyn_model = 7},
-
-    .gnss = {.gps_enable = true,
-             .glo_enable = false,
-             .gal_enable = true,
-             .bds_enable = false,
-             .sbas_enable = true,
-             .itfm_enable = true},
-
-    .tp1 = {.ena = true,
-            .period = 1000000,
-            .len = 50000,
-            .timegrid = 1,
-            .sync_gnss = true,
-            .use_locked = true,
-            .align_to_tow = true,
-            .pol_rising = true,
-            .period_lock = 1000000,
-            .len_lock = 50000},
-
-    .ack_timeout_us = 100000};
-
-// ICM20948 Configuration
-// Default values match previous driver hardcoded settings
-constexpr Icm20948::Config kIcm20948Config = {
-    .dma_buf_size = 32,
-    .fifo_size = 512,
-    .accel = {.range = 0x06,       // 16G (Bits 2|1)
-              .dlpf_config = 0x19, // 3 << 3 | 1 (Enabled, ~111Hz BW)
-              .sample_rate_div = 0},
-    .gyro = {.range = 0x06,       // 2000dps (Bits 2|1)
-             .dlpf_config = 0x19, // 3 << 3 | 1 (Enabled, ~119Hz BW)
-             .sample_rate_div = 0},
-    .mag_rate = 0x08, // Bank 3 AK09916 CNTL2: MODE4 (100Hz) = 0x08 (Bit3)
-    .spi_prescaler = static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
-    .who_am_i = 0xEA,
-};

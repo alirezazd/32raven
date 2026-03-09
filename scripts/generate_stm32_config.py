@@ -27,6 +27,41 @@ SPI_PRESCALER_CHOICES = {
     "STM32_IMU_SPI_PRESCALER_DIV256": "SpiPrescaler::kDiv256",
 }
 
+ICM20948_SPI_PRESCALER_CHOICES = {
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV2": "SpiPrescaler::kDiv2",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV4": "SpiPrescaler::kDiv4",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV8": "SpiPrescaler::kDiv8",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV16": "SpiPrescaler::kDiv16",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV32": "SpiPrescaler::kDiv32",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV64": "SpiPrescaler::kDiv64",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV128": "SpiPrescaler::kDiv128",
+    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV256": "SpiPrescaler::kDiv256",
+}
+
+M9N_BAUD_RATE_CHOICES = {
+    "STM32_GPS_M9N_BAUD_9600": "M9N::BaudRate::k9600",
+    "STM32_GPS_M9N_BAUD_19200": "M9N::BaudRate::k19200",
+    "STM32_GPS_M9N_BAUD_38400": "M9N::BaudRate::k38400",
+    "STM32_GPS_M9N_BAUD_57600": "M9N::BaudRate::k57600",
+    "STM32_GPS_M9N_BAUD_115200": "M9N::BaudRate::k115200",
+    "STM32_GPS_M9N_BAUD_230400": "M9N::BaudRate::k230400",
+    "STM32_GPS_M9N_BAUD_460800": "M9N::BaudRate::k460800",
+    "STM32_GPS_M9N_BAUD_921600": "M9N::BaudRate::k921600",
+}
+
+M9N_DYNAMIC_MODEL_CHOICES = {
+    "STM32_GPS_M9N_DYN_MODEL_PORTABLE": "M9N::DynamicModel::kPortable",
+    "STM32_GPS_M9N_DYN_MODEL_STATIONARY": "M9N::DynamicModel::kStationary",
+    "STM32_GPS_M9N_DYN_MODEL_PEDESTRIAN": "M9N::DynamicModel::kPedestrian",
+    "STM32_GPS_M9N_DYN_MODEL_AUTOMOTIVE": "M9N::DynamicModel::kAutomotive",
+    "STM32_GPS_M9N_DYN_MODEL_SEA": "M9N::DynamicModel::kSea",
+    "STM32_GPS_M9N_DYN_MODEL_AIRBORNE_1G": "M9N::DynamicModel::kAirborne1g",
+    "STM32_GPS_M9N_DYN_MODEL_AIRBORNE_2G": "M9N::DynamicModel::kAirborne2g",
+    "STM32_GPS_M9N_DYN_MODEL_AIRBORNE_4G": "M9N::DynamicModel::kAirborne4g",
+    "STM32_GPS_M9N_DYN_MODEL_WRIST": "M9N::DynamicModel::kWrist",
+    "STM32_GPS_M9N_DYN_MODEL_BIKE": "M9N::DynamicModel::kBike",
+}
+
 ODR_CHOICES = {
     "STM32_IMU_GYRO_ODR_32KHZ": "Icm42688pReg::Odr::k32kHz",
     "STM32_IMU_GYRO_ODR_16KHZ": "Icm42688pReg::Odr::k16kHz",
@@ -122,6 +157,9 @@ def _emit_limits_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str:
 
 def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str:
     spi_prescaler = _choice_value(kconf, SPI_PRESCALER_CHOICES)
+    icm20948_spi_prescaler = _choice_value(kconf, ICM20948_SPI_PRESCALER_CHOICES)
+    m9n_baud_rate = _choice_value(kconf, M9N_BAUD_RATE_CHOICES)
+    m9n_dynamic_model = _choice_value(kconf, M9N_DYNAMIC_MODEL_CHOICES)
     gyro_odr = _choice_value(kconf, ODR_CHOICES)
     accel_odr = _choice_value(kconf, ACCEL_ODR_CHOICES)
     gyro_fs = _choice_value(kconf, GYRO_FS_CHOICES)
@@ -132,6 +170,8 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
             #pragma once
 
             #include "icm42688p.hpp"
+            #include "icm20948.hpp"
+            #include "m9n.hpp"
             #include "spi.hpp"
             #include "stm32_limits.hpp"
 
@@ -177,6 +217,63 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                     .gyro_timeout_s = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_S")},
                     .gyro_still_threshold_raw = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW")},
                 }},
+            }};
+
+            inline constexpr Icm20948::Config kIcm20948Config = {{
+                .dma_buf_size = {_sym_int(kconf, "STM32_IMU_ICM20948_DMA_BUF_SIZE")},
+                .fifo_size = {_sym_int(kconf, "STM32_IMU_ICM20948_FIFO_SIZE")},
+                .accel = {{
+                    .range = {_sym(kconf, "STM32_IMU_ICM20948_ACCEL_RANGE").str_value},
+                    .dlpf_config = {_sym(kconf, "STM32_IMU_ICM20948_ACCEL_DLPF_CONFIG").str_value},
+                    .sample_rate_div = {_sym_int(kconf, "STM32_IMU_ICM20948_ACCEL_SAMPLE_RATE_DIV")},
+                }},
+                .gyro = {{
+                    .range = {_sym(kconf, "STM32_IMU_ICM20948_GYRO_RANGE").str_value},
+                    .dlpf_config = {_sym(kconf, "STM32_IMU_ICM20948_GYRO_DLPF_CONFIG").str_value},
+                    .sample_rate_div = {_sym_int(kconf, "STM32_IMU_ICM20948_GYRO_SAMPLE_RATE_DIV")},
+                }},
+                .mag_rate = {_sym(kconf, "STM32_IMU_ICM20948_MAG_RATE").str_value},
+                .spi_prescaler = static_cast<uint8_t>({icm20948_spi_prescaler}),
+            }};
+
+            inline constexpr M9N::Config kM9nConfig = {{
+                .flash_config = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_FLASH_CONFIG") else "false"},
+                .baud_rate = {m9n_baud_rate},
+                .protocols = {{
+                    .outprot_ubx = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_PROTOCOL_UBX") else "false"},
+                    .outprot_nmea = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_PROTOCOL_NMEA") else "false"},
+                }},
+                .messages = {{
+                    .nav_pvt = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_PVT") else "false"},
+                    .nav_dop = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_DOP") else "false"},
+                    .nav_cov = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_COV") else "false"},
+                    .nav_eoe = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_EOE") else "false"},
+                }},
+                .nav = {{
+                    .rate_meas_ms = {_sym_int(kconf, "STM32_GPS_M9N_RATE_MEAS_MS")},
+                    .dyn_model = {m9n_dynamic_model},
+                }},
+                .gnss = {{
+                    .gps_enable = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_GNSS_GPS") else "false"},
+                    .glo_enable = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_GNSS_GLO") else "false"},
+                    .gal_enable = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_GNSS_GAL") else "false"},
+                    .bds_enable = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_GNSS_BDS") else "false"},
+                    .sbas_enable = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_GNSS_SBAS") else "false"},
+                    .itfm_enable = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_GNSS_ITFM") else "false"},
+                }},
+                .tp1 = {{
+                    .ena = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_ENA") else "false"},
+                    .period = {_sym_int(kconf, "STM32_GPS_M9N_TP1_PERIOD")},
+                    .len = {_sym_int(kconf, "STM32_GPS_M9N_TP1_LEN")},
+                    .timegrid = {_sym_int(kconf, "STM32_GPS_M9N_TP1_TIMEGRID")},
+                    .sync_gnss = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_SYNC_GNSS") else "false"},
+                    .use_locked = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_USE_LOCKED") else "false"},
+                    .align_to_tow = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_ALIGN_TO_TOW") else "false"},
+                    .pol_rising = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_POL_RISING") else "false"},
+                    .period_lock = {_sym_int(kconf, "STM32_GPS_M9N_TP1_PERIOD_LOCK")},
+                    .len_lock = {_sym_int(kconf, "STM32_GPS_M9N_TP1_LEN_LOCK")},
+                }},
+                .ack_timeout_us = {_sym_int(kconf, "STM32_GPS_M9N_ACK_TIMEOUT_US")},
             }};
             """
     )
