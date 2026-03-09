@@ -26,7 +26,6 @@ public:
 
     uint8_t mag_rate;
     uint8_t spi_prescaler; // Cast from SpiPrescaler
-    uint8_t who_am_i;
 
     static constexpr float kAccelScale = 9.80665f / 2048.0f;
     static constexpr float kGyroScale = 0.01745329f / 16.4f;

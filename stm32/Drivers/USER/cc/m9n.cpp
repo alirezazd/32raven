@@ -75,7 +75,8 @@ void M9N::ApplyConfig(uint8_t layer) {
     Panic(ErrorCode::kM9nVerifyNavEoeFailed);
   if (!SendCfgValSet(kKeyCfgRateMeasMs, config_.nav.rate_meas_ms, layer))
     Panic(ErrorCode::kM9nVerifyRateFailed);
-  if (!SendCfgValSet(kKeyCfgDynModel, config_.nav.dyn_model, layer))
+  if (!SendCfgValSet(kKeyCfgDynModel,
+                     static_cast<uint8_t>(config_.nav.dyn_model), layer))
     Panic(ErrorCode::kM9nVerifyDynModelFailed);
   if (!SendCfgValSet(kKeyGpsEnable,
                      static_cast<uint8_t>(config_.gnss.gps_enable), layer))
@@ -180,11 +181,11 @@ void M9N::ApplyConfig(uint8_t layer) {
   }
 }
 
-void M9N::FlashConfig(uint32_t current_baud) {
+void M9N::FlashConfig(BaudRate current_baud) {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();
 
-  uart.SetBaudRate(current_baud);
+  uart.SetBaudRate(ToBaudRateValue(current_baud));
 
   time.DelayMicros(MILLIS_TO_MICROS(100));
   uart.FlushRx();
@@ -192,11 +193,12 @@ void M9N::FlashConfig(uint32_t current_baud) {
   ApplyConfig(kValsetLayerAll);
 
   // Baud change last, no ACK wait
-  SendCfgValSetRaw<uint32_t>(kKeyUart1Baudrate, config_.baud_rate,
+  SendCfgValSetRaw<uint32_t>(kKeyUart1Baudrate,
+                             ToBaudRateValue(config_.baud_rate),
                              kValsetLayerAll);
 
   time.DelayMicros(MILLIS_TO_MICROS(200)); // settle time
-  uart.SetBaudRate(config_.baud_rate);
+  uart.SetBaudRate(ToBaudRateValue(config_.baud_rate));
   uart.FlushRx();
 }
 
@@ -207,7 +209,7 @@ void M9N::Init(const Config &config) {
   WaitForReady();
 
   if (config_.flash_config)
-    FlashConfig(38400);
+    FlashConfig(BaudRate::k38400);
 
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   uart.FlushRx();
