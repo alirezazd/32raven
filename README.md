@@ -10,7 +10,8 @@ Unlike standard hobbyist stacks, 32Raven utilizes a **decoupled dual-target arch
 
 * **`stm32/` (The Brain):** Real-time, deterministic flight-control logic (sensors, PID loops, low-level drivers) running on STM32F407.
 * **`esp32/` (The Bridge):** High-level communication, telemetry (MAVLink/CRSF), and wireless integration (WiFi/OTA).
-* **`libs/`:** Shared core logic and math utilities used by both targets.
+* **`libs/`:** Shared core logic and math utilities owned by this repo.
+* **`third_party/`:** Vendored external dependencies such as ESP-IDF and MAVLink.
 
 ## Vision & Design Direction
 
@@ -25,7 +26,8 @@ The project is built on a **"Bare-Metal First"** philosophy. Our goal is to elim
 
 * **`stm32/`** — STM32 firmware, drivers, core flight state machine.
 * **`esp32/`** — ESP-IDF firmware, MAVLink/CRSF bridge, and failsafe services.
-* **`libs/`** — Shared headers and portable source code.
+* **`libs/`** — Shared headers and portable source code owned by this repo.
+* **`third_party/`** — External dependencies pinned as submodules.
 * **`tools/`** — Helper scripts for flashing, bridging, and telemetry dashboards.
 * **`scripts/`** — Linting and project automation.
 
@@ -33,26 +35,52 @@ The project is built on a **"Bare-Metal First"** philosophy. Our goal is to elim
 
 * **CMake** (3.22+)
 * **ARM GCC toolchain** (`arm-none-eabi-*`) for STM32
-* **ESP-IDF** for the ESP32 target
+* **ESP-IDF tools** for the ESP32 target
 * **Python 3** for helper tools
 
-> **Note:** Optional local overrides (e.g., `IDF_PATH`, serial port, baud) are read from `user_config.cmake`.
+> **Note:** The repo pins ESP-IDF as a submodule in `third_party/esp-idf` at `v5.5.3`.
+> Run `git submodule update --init --recursive` after cloning.
+> Run `make idf-install` before the first ESP32 build.
+> Optional local overrides (e.g. serial port, baud, alternate `IDF_PATH`) can still be set in `user_config.cmake`.
 
 ---
 
 ## Quick Start
 
-### 1. Configure
+### First-Time Setup
 
 ```bash
-make configure
-
+git submodule update --init --recursive
+make idf-install
 ```
 
-### 2. Build
+### Configuration
+
+```bash
+make 32raven-menuconfig
+```
+
+This opens the 32Raven config tree for both `ESP32` and `STM32` and updates `config/32raven.config`.
+Current generated consumers are on the STM32 side; the ESP32 section is part of the same project-wide menu tree.
+
+### Build
+
+```bash
+make all
+```
+
+### Target-Specific Build
+
+```bash
+make stm32
+make esp32
+```
+
+### Build Targets
 
 | Target             | Command      |
 | ------------------ | ------------ |
+| **32Raven Config** | `make 32raven-menuconfig` |
 | **STM32 Only**     | `make stm32` |
 | **ESP32 Only**     | `make esp32` |
 | **Complete Stack** | `make all`   |
@@ -90,7 +118,7 @@ make flash-wifi-stm32 ESP_IP=192.168.4.1
 ## Technical Notes
 
 * **Generator:** The top-level build uses `GEN` (default `Ninja`). To change: `make configure GEN="Unix Makefiles"`.
-* **Output:** The STM32 binary is generated under `build/stm32/`.
+* **Output:** Build outputs are generator-specific, for example `build/Ninja/stm32/` and `build/Ninja/esp32/`.
 * **Toolchains:** If switching generators or toolchains, always run `make clean` first.
 
 ---

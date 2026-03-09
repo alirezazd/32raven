@@ -1,3 +1,7 @@
-[submodule "libs/mavlink"]
-	path = libs/mavlink
+[submodule "third_party/mavlink"]
+	path = third_party/mavlink
 	url = https://github.com/mavlink/c_library_v2.git
+[submodule "third_party/esp-idf"]
+	path = third_party/esp-idf
+	url = https://github.com/espressif/esp-idf.git
+	branch = v5.5.3

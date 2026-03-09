@@ -245,6 +245,75 @@ enum class AccelFs : uint8_t {
   k2g = 0x03,
 };
 
+static constexpr float GyroRangeDps(GyroFs fs) {
+  switch (fs) {
+  case GyroFs::k2000dps:
+    return 2000.0f;
+  case GyroFs::k1000dps:
+    return 1000.0f;
+  case GyroFs::k500dps:
+    return 500.0f;
+  case GyroFs::k250dps:
+    return 250.0f;
+  case GyroFs::k125dps:
+    return 125.0f;
+  case GyroFs::k62_5dps:
+    return 62.5f;
+  case GyroFs::k31_25dps:
+    return 31.25f;
+  case GyroFs::k15_625dps:
+    return 15.625f;
+  default:
+    return 2000.0f;
+  }
+}
+
+static constexpr float AccelRangeG(AccelFs fs) {
+  switch (fs) {
+  case AccelFs::k16g:
+    return 16.0f;
+  case AccelFs::k8g:
+    return 8.0f;
+  case AccelFs::k4g:
+    return 4.0f;
+  case AccelFs::k2g:
+    return 2.0f;
+  default:
+    return 16.0f;
+  }
+}
+
+static constexpr uint32_t OdrHz(Odr odr) {
+  switch (odr) {
+  case Odr::k32kHz:
+    return 32000;
+  case Odr::k16kHz:
+    return 16000;
+  case Odr::k8kHz:
+    return 8000;
+  case Odr::k4kHz:
+    return 4000;
+  case Odr::k2kHz:
+    return 2000;
+  case Odr::k1kHz:
+    return 1000;
+  case Odr::k500Hz:
+    return 500;
+  case Odr::k200Hz:
+    return 200;
+  case Odr::k100Hz:
+    return 100;
+  case Odr::k50Hz:
+    return 50;
+  case Odr::k25Hz:
+    return 25;
+  case Odr::k12_5Hz:
+    return 13;
+  default:
+    return 0;
+  }
+}
+
 } // namespace Icm42688pReg
 
 // NOLINTEND

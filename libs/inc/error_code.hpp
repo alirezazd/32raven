@@ -62,6 +62,8 @@ enum class ErrorCode : uint32_t {
   kImuNotInitialized,
   kImuDmaBufferTooSmall,
   kImuInvalidSampleDetected,
+  kImuCalibrationInvalidConfig,
+  kImuCalibrationMotionDetected,
   kInvalidFifoWatermarkRecords,
 };
 
