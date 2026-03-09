@@ -119,6 +119,8 @@ const char *GetMessage(ErrorCode code) {
     return "IMU ODR mismatch";
   case ErrorCode::kImuNotInitialized:
     return "IMU Not Initialized";
+  case ErrorCode::kImuReinit:
+    return "IMU re-init";
   case ErrorCode::kImuDmaBufferTooSmall:
     return "IMU DMA buffer too small";
   case ErrorCode::kImuInvalidSampleDetected:
