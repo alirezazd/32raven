@@ -173,8 +173,8 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                     .hold_last = {"true" if _sym_bool(kconf, "STM32_IMU_FIFO_HOLD_LAST") else "false"},
                 }},
                 .calibration = {{
-                    .gyro_duration_us = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_DURATION_US")},
-                    .gyro_timeout_us = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_US")},
+                    .gyro_duration_s = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_DURATION_S")},
+                    .gyro_timeout_s = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_S")},
                     .gyro_still_threshold_raw = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW")},
                 }},
             }};
