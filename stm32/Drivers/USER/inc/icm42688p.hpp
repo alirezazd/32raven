@@ -52,8 +52,8 @@ public:
     } fifo;
 
     struct Calibration {
-      uint32_t gyro_duration_us;
-      uint32_t gyro_timeout_us;
+      uint32_t gyro_duration_s;
+      uint32_t gyro_timeout_s;
       uint32_t gyro_still_threshold_raw;
     } calibration;
   };

@@ -251,15 +251,15 @@ config STM32_IMU_FIFO_HOLD_LAST
     bool "Hold last FIFO sample"
     default n
 
-config STM32_IMU_GYRO_CAL_DURATION_US
-    int "Gyro calibration duration (us)"
-    range 1 20000000
-    default 2000000
+config STM32_IMU_GYRO_CAL_DURATION_S
+    int "Gyro calibration duration (s)"
+    range 1 20
+    default 2
 
-config STM32_IMU_GYRO_CAL_TIMEOUT_US
-    int "Gyro calibration timeout (us)"
-    range 1 60000000
-    default 5000000
+config STM32_IMU_GYRO_CAL_TIMEOUT_S
+    int "Gyro calibration timeout (s)"
+    range 1 60
+    default 5
 
 config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
     int "Gyro calibration stillness threshold (raw)"
