@@ -1,0 +1,271 @@
+mainmenu "32Raven Configuration"
+
+menu "ESP32"
+comment "ESP32 config section reserved. No tunables added yet."
+endmenu
+
+menu "STM32"
+menu "IMU"
+menu "ICM42688P"
+
+choice
+    prompt "SPI prescaler"
+    default STM32_IMU_SPI_PRESCALER_DIV4
+
+config STM32_IMU_SPI_PRESCALER_DIV2
+    bool "div2"
+
+config STM32_IMU_SPI_PRESCALER_DIV4
+    bool "div4"
+
+config STM32_IMU_SPI_PRESCALER_DIV8
+    bool "div8"
+
+config STM32_IMU_SPI_PRESCALER_DIV16
+    bool "div16"
+
+config STM32_IMU_SPI_PRESCALER_DIV32
+    bool "div32"
+
+config STM32_IMU_SPI_PRESCALER_DIV64
+    bool "div64"
+
+config STM32_IMU_SPI_PRESCALER_DIV128
+    bool "div128"
+
+config STM32_IMU_SPI_PRESCALER_DIV256
+    bool "div256"
+
+endchoice
+
+choice
+    prompt "Gyro ODR"
+    default STM32_IMU_GYRO_ODR_8KHZ
+
+config STM32_IMU_GYRO_ODR_32KHZ
+    bool "32 kHz"
+
+config STM32_IMU_GYRO_ODR_16KHZ
+    bool "16 kHz"
+
+config STM32_IMU_GYRO_ODR_8KHZ
+    bool "8 kHz"
+
+config STM32_IMU_GYRO_ODR_4KHZ
+    bool "4 kHz"
+
+config STM32_IMU_GYRO_ODR_2KHZ
+    bool "2 kHz"
+
+config STM32_IMU_GYRO_ODR_1KHZ
+    bool "1 kHz"
+
+config STM32_IMU_GYRO_ODR_500HZ
+    bool "500 Hz"
+
+config STM32_IMU_GYRO_ODR_200HZ
+    bool "200 Hz"
+
+config STM32_IMU_GYRO_ODR_100HZ
+    bool "100 Hz"
+
+config STM32_IMU_GYRO_ODR_50HZ
+    bool "50 Hz"
+
+config STM32_IMU_GYRO_ODR_25HZ
+    bool "25 Hz"
+
+config STM32_IMU_GYRO_ODR_12_5HZ
+    bool "12.5 Hz"
+
+endchoice
+
+choice
+    prompt "Accel ODR"
+    default STM32_IMU_ACCEL_ODR_8KHZ
+
+config STM32_IMU_ACCEL_ODR_32KHZ
+    bool "32 kHz"
+
+config STM32_IMU_ACCEL_ODR_16KHZ
+    bool "16 kHz"
+
+config STM32_IMU_ACCEL_ODR_8KHZ
+    bool "8 kHz"
+
+config STM32_IMU_ACCEL_ODR_4KHZ
+    bool "4 kHz"
+
+config STM32_IMU_ACCEL_ODR_2KHZ
+    bool "2 kHz"
+
+config STM32_IMU_ACCEL_ODR_1KHZ
+    bool "1 kHz"
+
+config STM32_IMU_ACCEL_ODR_500HZ
+    bool "500 Hz"
+
+config STM32_IMU_ACCEL_ODR_200HZ
+    bool "200 Hz"
+
+config STM32_IMU_ACCEL_ODR_100HZ
+    bool "100 Hz"
+
+config STM32_IMU_ACCEL_ODR_50HZ
+    bool "50 Hz"
+
+config STM32_IMU_ACCEL_ODR_25HZ
+    bool "25 Hz"
+
+config STM32_IMU_ACCEL_ODR_12_5HZ
+    bool "12.5 Hz"
+
+endchoice
+
+choice
+    prompt "Gyro full scale"
+    default STM32_IMU_GYRO_FS_2000DPS
+
+config STM32_IMU_GYRO_FS_2000DPS
+    bool "2000 dps"
+
+config STM32_IMU_GYRO_FS_1000DPS
+    bool "1000 dps"
+
+config STM32_IMU_GYRO_FS_500DPS
+    bool "500 dps"
+
+config STM32_IMU_GYRO_FS_250DPS
+    bool "250 dps"
+
+config STM32_IMU_GYRO_FS_125DPS
+    bool "125 dps"
+
+config STM32_IMU_GYRO_FS_62_5DPS
+    bool "62.5 dps"
+
+config STM32_IMU_GYRO_FS_31_25DPS
+    bool "31.25 dps"
+
+config STM32_IMU_GYRO_FS_15_625DPS
+    bool "15.625 dps"
+
+endchoice
+
+choice
+    prompt "Accel full scale"
+    default STM32_IMU_ACCEL_FS_8G
+
+config STM32_IMU_ACCEL_FS_16G
+    bool "16g"
+
+config STM32_IMU_ACCEL_FS_8G
+    bool "8g"
+
+config STM32_IMU_ACCEL_FS_4G
+    bool "4g"
+
+config STM32_IMU_ACCEL_FS_2G
+    bool "2g"
+
+endchoice
+
+config STM32_IMU_UI_FILTER_GYRO_BW
+    int "UI filter gyro bandwidth index"
+    range 0 3
+    default 2
+
+config STM32_IMU_UI_FILTER_ACCEL_BW
+    int "UI filter accel bandwidth index"
+    range 0 3
+    default 3
+
+config STM32_IMU_UI_FILTER_GYRO_CFG1
+    int "UI filter gyro CFG1"
+    range 0 255
+    default 0
+
+config STM32_IMU_UI_FILTER_ACCEL_CFG1
+    int "UI filter accel CFG1"
+    range 0 255
+    default 0
+
+config STM32_IMU_NOTCH_ENABLED
+    bool "Enable hardware gyro notch"
+    default n
+
+config STM32_IMU_NOTCH_FREQ_HZ
+    int "Hardware gyro notch frequency (Hz)"
+    range 0 100000
+    default 0
+
+config STM32_IMU_NOTCH_BW_IDX
+    int "Hardware gyro notch bandwidth index"
+    range 0 255
+    default 0
+
+config STM32_IMU_GYRO_AAF_DISABLE
+    bool "Disable gyro AAF"
+    default y
+
+config STM32_IMU_GYRO_AAF_DELT
+    int "Gyro AAF DELT"
+    range 0 255
+    default 0
+
+config STM32_IMU_GYRO_AAF_DELT_SQR
+    int "Gyro AAF DELT_SQR"
+    range 0 65535
+    default 0
+
+config STM32_IMU_GYRO_AAF_BITSHIFT
+    int "Gyro AAF BITSHIFT"
+    range 0 255
+    default 0
+
+config STM32_IMU_ACCEL_AAF_DISABLE
+    bool "Disable accel AAF"
+    default y
+
+config STM32_IMU_ACCEL_AAF_DELT
+    int "Accel AAF DELT"
+    range 0 255
+    default 0
+
+config STM32_IMU_ACCEL_AAF_DELT_SQR
+    int "Accel AAF DELT_SQR"
+    range 0 65535
+    default 0
+
+config STM32_IMU_ACCEL_AAF_BITSHIFT
+    int "Accel AAF BITSHIFT"
+    range 0 255
+    default 0
+
+config STM32_IMU_FIFO_WATERMARK_RECORDS
+    int "FIFO watermark records"
+    range 1 128
+    default 8
+
+config STM32_IMU_FIFO_HOLD_LAST
+    bool "Hold last FIFO sample"
+    default n
+
+config STM32_IMU_GYRO_CAL_DURATION_US
+    int "Gyro calibration duration (us)"
+    range 1 20000000
+    default 2000000
+
+config STM32_IMU_GYRO_CAL_TIMEOUT_US
+    int "Gyro calibration timeout (us)"
+    range 1 60000000
+    default 5000000
+
+config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
+    int "Gyro calibration stillness threshold (raw)"
+    range 1 32767
+    default 64
+
+endmenu
+endmenu
+endmenu

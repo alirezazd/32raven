@@ -19,11 +19,13 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
   if (initialized_)
     return;
 
+  ValidateConfig(cfg);
+
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
   fifo_wm_records_ = cfg.fifo.watermark_records;
-  if (fifo_wm_records_ == 0 || fifo_wm_records_ > kMaxWatermarkRecords) {
-    Panic(ErrorCode::kInvalidFifoWatermarkRecords);
-  }
+  gyro_fs_ = cfg.fs.gyro;
+  gyro_odr_ = cfg.rates.gyro;
+  calibration_cfg_ = cfg.calibration;
 
   gpio_ = &gpio;
   spi_ = &spi;
@@ -45,8 +47,6 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
   SetInterruptConfig();
 
   ConfigureFilters(cfg);
-  if (cfg.rates.gyro != cfg.rates.accel)
-    Panic(ErrorCode::kImuOdrMismatch);
   SetOdrAndFullScale(cfg);
 
   SetTimestampConfig();
@@ -71,6 +71,27 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
   spi.EnableIrqs(); // SPI DMA interrupts
   NVIC_SetPriority(IMU_INT_EXTI_IRQn, 3);
   NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
+}
+
+void Icm42688p::ValidateConfig(const Config &cfg) {
+  if (cfg.fifo.watermark_records == 0 ||
+      cfg.fifo.watermark_records > kMaxWatermarkRecords) {
+    Panic(ErrorCode::kInvalidFifoWatermarkRecords);
+  }
+
+  if (cfg.rates.gyro != cfg.rates.accel) {
+    Panic(ErrorCode::kImuOdrMismatch);
+  }
+
+  if (Icm42688pReg::OdrHz(cfg.rates.gyro) == 0 ||
+      Icm42688pReg::OdrHz(cfg.rates.accel) == 0) {
+    Panic(ErrorCode::kImuInvalidOdr);
+  }
+
+  if (cfg.calibration.gyro_duration_us == 0 ||
+      cfg.calibration.gyro_timeout_us == 0) {
+    Panic(ErrorCode::kImuCalibrationInvalidConfig);
+  }
 }
 
 // Filter configuration
@@ -278,8 +299,7 @@ void Icm42688p::OnSpiDone(bool ok) {
       return;
     }
 
-    // Drain cap (specialized): read at most fifo_wm_records_ (8) and never
-    // exceed buffer.
+    // Read no more than the configured watermark or the static buffer capacity.
     uint16_t rd_records = avail_records;
     if (rd_records > fifo_wm_records_)
       rd_records = fifo_wm_records_;
@@ -323,21 +343,25 @@ void Icm42688p::OnSpiDone(bool ok) {
       static_cast<uint16_t>(fifo_read_bytes_ / kPacketBytes);
   const uint8_t *p = &fifo_rx_[1];
 
-  // Latest-only semantics: parse last record in the drained block
-  const uint8_t *rec = p + static_cast<uint32_t>(records - 1u) * kPacketBytes;
+  SampleBatch batch{};
+  batch.count = 0;
 
-  Sample s{};
-  if (!ParsePacket3Record(rec, s)) {
-    // Parsing failed (bad header, etc.)
-    last_bad_header_.store(rec[0], std::memory_order_relaxed);
-    parse_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
-    overrun_.fetch_add(1, std::memory_order_relaxed);
-    finish();
-    return;
+  for (uint16_t i = 0; i < records; ++i) {
+    const uint8_t *rec = p + static_cast<uint32_t>(i) * kPacketBytes;
+    Sample s{};
+    if (!ParsePacket3Record(rec, s)) {
+      last_bad_header_.store(rec[0], std::memory_order_relaxed);
+      parse_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
+      overrun_.fetch_add(1, std::memory_order_relaxed);
+      finish();
+      return;
+    }
+
+    s.seq = ++seq_;
+    batch.samples[batch.count++] = s;
   }
 
-  s.seq = ++seq_;
-  PublishLatest(s);
+  PublishLatestBatch(batch);
 
   finish();
 }
@@ -425,29 +449,22 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   return true;
 }
 
-void Icm42688p::PublishLatest(const Sample &s_in) {
+void Icm42688p::PublishLatestBatch(const SampleBatch &batch) {
   const uint8_t kCur = mailbox_idx_.load(std::memory_order_relaxed);
   const uint8_t kNext = (uint8_t)(kCur ^ 1u);
 
-  mailbox_[kNext] = s_in;
+  mailbox_[kNext] = batch;
 
   // Publish payload then publish sequence (release).
   mailbox_idx_.store(kNext, std::memory_order_release);
-  tick_seq_.store(s_in.seq, std::memory_order_release);
+  tick_seq_.store(batch.samples[batch.count - 1u].seq, std::memory_order_release);
   publish_cnt_.fetch_add(1, std::memory_order_relaxed);
 }
 
-bool Icm42688p::WaitAndGetLatest(uint32_t &last_seq, Sample &out) {
+bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
   uint32_t s = tick_seq_.load(std::memory_order_acquire);
   if (s == last_seq) {
     return false;
-  }
-
-  if (last_seq != 0) {
-    const uint32_t kMissed = (uint32_t)(s - last_seq - 1u);
-    if (kMissed) {
-      drop_cnt_.fetch_add(kMissed, std::memory_order_relaxed);
-    }
   }
 
   for (;;) {
@@ -455,7 +472,15 @@ bool Icm42688p::WaitAndGetLatest(uint32_t &last_seq, Sample &out) {
     out = mailbox_[kIdx];
     const uint32_t kS2 = tick_seq_.load(std::memory_order_acquire);
 
-    if (kS2 == s && out.seq == s) {
+    if (kS2 == s && out.count > 0 &&
+        out.samples[out.count - 1u].seq == s) {
+      if (last_seq != 0) {
+        const uint32_t kMissed =
+            (uint32_t)(out.samples[0].seq - last_seq - 1u);
+        if (kMissed) {
+          drop_cnt_.fetch_add(kMissed, std::memory_order_relaxed);
+        }
+      }
       last_seq = s;
       return true;
     }
@@ -465,6 +490,148 @@ bool Icm42688p::WaitAndGetLatest(uint32_t &last_seq, Sample &out) {
       return false;
     }
   }
+}
+
+bool Icm42688p::PeekLatestBatch(SampleBatch &out) const {
+  uint32_t seq = tick_seq_.load(std::memory_order_acquire);
+  if (seq == 0) {
+    return false;
+  }
+
+  for (;;) {
+    const uint8_t idx = mailbox_idx_.load(std::memory_order_acquire);
+    out = mailbox_[idx];
+    const uint32_t seq2 = tick_seq_.load(std::memory_order_acquire);
+
+    if (seq2 == seq && out.count > 0 &&
+        out.samples[out.count - 1u].seq == seq) {
+      return true;
+    }
+
+    if (seq2 == 0) {
+      return false;
+    }
+
+    seq = seq2;
+  }
+}
+
+void Icm42688p::CalibrateGyro() {
+  const uint32_t kDurationUs = calibration_cfg_.gyro_duration_us;
+  const uint32_t kTimeoutUs = calibration_cfg_.gyro_timeout_us;
+  const uint32_t kStillThresholdRaw = calibration_cfg_.gyro_still_threshold_raw;
+  const uint32_t kOdrHz = Icm42688pReg::OdrHz(gyro_odr_);
+  const uint64_t kSampleCountU64 =
+      ((uint64_t)kDurationUs * kOdrHz + SECONDS_TO_MICROS(1) - 1ULL) /
+      SECONDS_TO_MICROS(1);
+
+  const uint32_t kSampleCount =
+      kSampleCountU64 == 0 ? 1u : static_cast<uint32_t>(kSampleCountU64);
+
+  auto &time = System::GetInstance().Time();
+  const uint64_t start_us = time.MicrosCorrected();
+  uint32_t last_seq = LatestSeq();
+  int64_t sum[3] = {0, 0, 0};
+  int16_t min_g[3] = {0, 0, 0};
+  int16_t max_g[3] = {0, 0, 0};
+  uint32_t collected = 0;
+
+  while (collected < kSampleCount) {
+    SampleBatch batch{};
+    if (!WaitAndGetLatestBatch(last_seq, batch)) {
+      if ((uint32_t)(time.MicrosCorrected() - start_us) >= kTimeoutUs) {
+        return;
+      }
+      continue;
+    }
+
+    for (uint8_t i = 0; i < batch.count && collected < kSampleCount; ++i) {
+      const Sample &s = batch.samples[i];
+      for (int axis = 0; axis < 3; ++axis) {
+        if (collected == 0) {
+          min_g[axis] = s.gyro[axis];
+          max_g[axis] = s.gyro[axis];
+        } else {
+          if (s.gyro[axis] < min_g[axis]) {
+            min_g[axis] = s.gyro[axis];
+          }
+          if (s.gyro[axis] > max_g[axis]) {
+            max_g[axis] = s.gyro[axis];
+          }
+        }
+        if (static_cast<uint32_t>(max_g[axis] - min_g[axis]) >
+            kStillThresholdRaw) {
+          Panic(ErrorCode::kImuCalibrationMotionDetected);
+        }
+        sum[axis] += s.gyro[axis];
+      }
+      collected++;
+    }
+  }
+
+  int16_t offset_lsb[3] = {0, 0, 0};
+  const float dps_per_lsb = Icm42688pReg::GyroRangeDps(gyro_fs_) / 32768.0f;
+  for (int axis = 0; axis < 3; ++axis) {
+    const int32_t bias_raw =
+        static_cast<int32_t>(sum[axis] / static_cast<int64_t>(collected));
+    const float bias_dps = static_cast<float>(bias_raw) * dps_per_lsb;
+    int32_t code = static_cast<int32_t>(lrintf(-bias_dps * 32.0f));
+    if (code < -2048) {
+      code = -2048;
+    } else if (code > 2047) {
+      code = 2047;
+    }
+    offset_lsb[axis] = static_cast<int16_t>(code);
+  }
+
+  NVIC_DisableIRQ(IMU_INT_EXTI_IRQn);
+  NVIC_ClearPendingIRQ(IMU_INT_EXTI_IRQn);
+  while (inflight_.load(std::memory_order_acquire)) {
+  }
+
+  SetBank(0);
+  const uint8_t prev_pwr = ReadReg(REG_PWR_MGMT0);
+  WriteReg(REG_PWR_MGMT0, 0x00u);
+  time.DelayMicros(200);
+
+  WriteGyroUserOffsets(offset_lsb[0], offset_lsb[1], offset_lsb[2]);
+
+  tmst_inited_ = false;
+  host_sync_inited_ = false;
+  last_tmst16_ = 0;
+  tmst64_us_ = 0;
+  host_offset_us_ = 0;
+
+  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(REG_INT_STATUS);
+  WriteReg(REG_PWR_MGMT0, prev_pwr);
+  time.DelayMicros(200);
+  time.DelayMicros(MILLIS_TO_MICROS(50));
+  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(REG_INT_STATUS);
+  NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
+}
+
+void Icm42688p::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
+                                     int16_t z_offset_lsb) {
+  auto pack12 = [](int16_t offset_lsb) -> uint16_t {
+    return static_cast<uint16_t>(offset_lsb) & 0x0FFFu;
+  };
+
+  const uint16_t x = pack12(x_offset_lsb);
+  const uint16_t y = pack12(y_offset_lsb);
+  const uint16_t z = pack12(z_offset_lsb);
+
+  SetBank(0);
+  WriteReg(REG_OFFSET_USER0, static_cast<uint8_t>(x & 0xFFu));
+  WriteReg(REG_OFFSET_USER1, static_cast<uint8_t>(((y >> 8) & 0x0Fu) << 4) |
+                                 static_cast<uint8_t>((x >> 8) & 0x0Fu));
+  WriteReg(REG_OFFSET_USER2, static_cast<uint8_t>(y & 0xFFu));
+  WriteReg(REG_OFFSET_USER3, static_cast<uint8_t>(z & 0xFFu));
+
+  const uint8_t user4 = ReadReg(REG_OFFSET_USER4);
+  WriteReg(REG_OFFSET_USER4,
+           static_cast<uint8_t>((user4 & 0xF0u) | ((z >> 8) & 0x0Fu)));
 }
 
 void Icm42688p::CheckWhoAmI() {

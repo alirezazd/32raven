@@ -3,15 +3,30 @@ SHELL := /usr/bin/bash
 CMAKE := /usr/bin/cmake
 RM := /usr/bin/rm
 
-BUILD_DIR ?= build
 GEN ?= Ninja
+empty :=
+space := $(empty) $(empty)
+GEN_DIR := $(subst $(space),_,$(GEN))
+BUILD_ROOT ?= build
+BUILD_DIR ?= $(BUILD_ROOT)/$(GEN_DIR)
+LOCAL_IDF_PATH := $(CURDIR)/third_party/esp-idf
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32
+CLEAN_DIRS := \
+	$(BUILD_DIR)
+
+CLEAN_FILES := \
+	config/32raven.config.old \
+	config/defconfig \
+	stm32/Drivers/USER/inc/stm32_config.hpp \
+	stm32/Drivers/USER/inc/stm32_limits.hpp
+
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig
 
 help:
 	@echo "Targets:"
 	@echo "  configure           - Configure CMake"
 	@echo "  all                 - Build all firmware"
+	@echo "  32raven-menuconfig  - Run 32Raven menuconfig (ESP32 + STM32)"
 	@echo "  esp32               - Build ESP32 firmware"
 	@echo "  stm32               - Build STM32 firmware"
 	@echo "  clean               - Clean build directory"
@@ -21,7 +36,8 @@ help:
 	@echo "  flash-monitor-esp32 - Flash and monitor ESP32 via serial"
 	@echo "  flash-wifi-esp32    - Flash ESP32 via WiFi (OTA)"
 	@echo "  flash-wifi-stm32    - Flash STM32 via WiFi (Bridge)"
-	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_DIR=build, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..."
+	@echo "  idf-install         - Install local ESP-IDF tools for third_party/esp-idf"
+	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_ROOT=build, BUILD_DIR=build/<generator>, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..."
 
 configure:
 	@mkdir -p "$(BUILD_DIR)"
@@ -36,10 +52,11 @@ esp32: configure
 stm32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target stm32
 
-# Helper to extract IDF_PATH from user_config.cmake if it exists
-# We use grep to find the line, reject comments, and cut the value inside quotes
+32raven-menuconfig:
+	python3 scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
+
 IDF_PATH_VAR := $(shell grep "IDF_PATH" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
-export IDF_PATH ?= $(if $(IDF_PATH_VAR),$(IDF_PATH_VAR),)
+export IDF_PATH ?= $(if $(IDF_PATH_VAR),$(IDF_PATH_VAR),$(LOCAL_IDF_PATH))
 
 # Helper to extract ESP_PORT and ESP_BAUD
 ESP_PORT_VAR := $(shell grep "ESP_PORT" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
@@ -52,6 +69,9 @@ endif
 ifneq ($(ESP_BAUD_VAR),)
 	IDF_ARGS += -b $(ESP_BAUD_VAR)
 endif
+
+idf-install:
+	bash -lc "cd \"$(IDF_PATH)\" && ./install.sh"
 
 esp32-menuconfig:
 	bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 menuconfig"
@@ -67,8 +87,10 @@ flash-monitor-esp32: esp32
 clean:
 	@echo "Cleaning ESP-IDF..."
 	-bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 fullclean"
-	@echo "Removing $(BUILD_DIR)/"
-	"$(RM)" -rf "$(BUILD_DIR)"
+	@echo "Removing clean directories"
+	"$(RM)" -rf $(CLEAN_DIRS)
+	@echo "Removing clean files"
+	"$(RM)" -f $(CLEAN_FILES)
 
 # Default ESP32 IP
 ESP_IP ?= 192.168.4.1
@@ -82,3 +104,5 @@ flash-wifi-esp32: esp32
 	python3 tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/32Raven_esp32.bin
 
 distclean: clean
+	@echo "Removing all generator build directories in $(BUILD_ROOT)/"
+	"$(RM)" -rf "$(BUILD_ROOT)"

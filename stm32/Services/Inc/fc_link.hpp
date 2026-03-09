@@ -15,7 +15,7 @@ public:
   }
 
   void Init(AppContext *ctx);
-  void Poll();
+  void Poll(size_t rx_budget = 128, size_t tx_budget = 64);
 
   // Sending Logic
   bool Send(const message::Packet &pkt);
@@ -24,8 +24,8 @@ public:
   // Convenience for GpsData from Blackboard
   void SendGps(const GpsData &data, const BatteryData &bat);
 
-  // Convenience for ImuData from Blackboard
-  void SendImu(const ImuData &data);
+  // Convenience for one IMU sample.
+  void SendImu(uint64_t timestamp_us, const float accel[3], const float gyro[3]);
 
   // Send Log Message
   void SendLog(const char *format, ...);

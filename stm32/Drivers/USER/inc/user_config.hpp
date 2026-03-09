@@ -12,6 +12,7 @@
 #include "led.hpp"
 #include "m9n.hpp"
 #include "spi.hpp"
+#include "stm32_config.hpp"
 #include "stm32f4xx_hal_gpio.h"
 #include "time_base.hpp"
 #include "uart.hpp"
@@ -191,29 +192,4 @@ constexpr Icm20948::Config kIcm20948Config = {
     .mag_rate = 0x08, // Bank 3 AK09916 CNTL2: MODE4 (100Hz) = 0x08 (Bit3)
     .spi_prescaler = static_cast<uint8_t>(SpiPrescaler::kDiv32), // ~2.6MHz
     .who_am_i = 0xEA,
-};
-
-constexpr Icm42688p::Config kIcm42688pConfig = {
-    .spi_prescaler =
-        static_cast<uint8_t>(SpiPrescaler::kDiv4), // ~21MHz on your SPI clock
-
-    .rates = {.gyro = Icm42688pReg::Odr::k8kHz,
-              .accel = Icm42688pReg::Odr::k8kHz},
-    .fs = {.gyro = Icm42688pReg::GyroFs::k2000dps,
-           .accel = Icm42688pReg::AccelFs::k8g},
-
-    // UI filter bandwidth indices (GYRO_ACCEL_CONFIG0)
-    // 0=ODR/2, 1=ODR/4, 2=ODR/8, 3=ODR/16
-    .ui_filter = {.gyro_bw = 2, .accel_bw = 3, .gyro_cfg1 = 0, .accel_cfg1 = 0},
-
-    // Hardware gyro notch (optional). Keep disabled if doing software RPM
-    // notch.
-    .notch = {.freq_hz = 0.0f, .bw_idx = 0, .enabled = false},
-
-    // AAF disabled
-    .gyro_aaf = {.dis = true, .delt = 0, .delt_sqr = 0, .bitshift = 0},
-    .accel_aaf = {.dis = true, .delt = 0, .delt_sqr = 0, .bitshift = 0},
-
-    // FIFO watermark records (Packet 3: 16 bytes per record)
-    .fifo = {.watermark_records = 8, .hold_last = false},
 };

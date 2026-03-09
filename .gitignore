@@ -30,8 +30,14 @@ venv/
 .venv/
 *.pyc
 
+# Kconfig / menuconfig artifacts
+config/32raven.config.old
+config/defconfig
+
 # STM32
 mx.scratch
 *.ioc
 !32Raven.ioc
 user_config.cmake
+stm32/Drivers/USER/inc/stm32_config.hpp
+stm32/Drivers/USER/inc/stm32_limits.hpp
