@@ -60,6 +60,7 @@ enum class ErrorCode : uint32_t {
   kImuInvalidOdr,
   kImuOdrMismatch,
   kImuNotInitialized,
+  kImuReinit,
   kImuDmaBufferTooSmall,
   kImuInvalidSampleDetected,
   kImuCalibrationInvalidConfig,

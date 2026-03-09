@@ -14,7 +14,7 @@ public:
       stm32_limits::kIcm42688pMaxWatermarkRecords;
 
   struct Config {
-    uint8_t spi_prescaler;
+    SpiPrescaler spi_prescaler;
 
     struct Rates {
       Icm42688pReg::Odr gyro;

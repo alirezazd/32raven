@@ -11,27 +11,19 @@
 
 using namespace Icm42688pReg;
 
-static inline float Clamp(float x, float lo, float hi) {
-  return (x < lo) ? lo : (x > hi) ? hi : x;
-}
-
 void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
-  if (initialized_)
-    return;
+  // TODO: Add Calibration
+  if (initialized_) {
+    Panic(ErrorCode::kImuReinit);
+  }
 
   ValidateConfig(cfg);
-
-  fifo_hold_last_data_en_ = cfg.fifo.hold_last;
-  fifo_wm_records_ = cfg.fifo.watermark_records;
-  gyro_fs_ = cfg.fs.gyro;
-  gyro_odr_ = cfg.rates.gyro;
-  calibration_cfg_ = cfg.calibration;
 
   gpio_ = &gpio;
   spi_ = &spi;
 
   System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(10));
-  spi.SetPrescaler(static_cast<SpiPrescaler>(cfg.spi_prescaler));
+  spi.SetPrescaler(cfg.spi_prescaler);
 
   CheckWhoAmI();
   SoftReset();
@@ -98,6 +90,9 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
 
 void Icm42688p::ConfigureFilters(const Config &cfg) {
   static constexpr float kPi = 3.14159265358979323846f;
+  const auto kClampf = [](float x, float lo, float hi) constexpr {
+    return (x < lo) ? lo : (x > hi) ? hi : x;
+  };
   SetBank(1);
 
   // Gyro notch filter (Bank 1)
@@ -107,7 +102,7 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
     // ---- Gyro notch filter (datasheet correct) ----
     if (cfg.notch.enabled && cfg.notch.freq_hz > 0.0f) {
       // Datasheet: supported 1kHz..3kHz
-      float f_hz = Clamp(cfg.notch.freq_hz, 1000.0f, 3000.0f);
+      float f_hz = kClampf(cfg.notch.freq_hz, 1000.0f, 3000.0f);
 
       // Need CLKDIV from Bank 3 reg 0x2A
       SetBank(3);
@@ -438,7 +433,7 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
     if (out.accel[0] == kInvalid16 || out.accel[1] == kInvalid16 ||
         out.accel[2] == kInvalid16 || out.gyro[0] == kInvalid16 ||
         out.gyro[1] == kInvalid16 || out.gyro[2] == kInvalid16) {
-      // Panic(ErrorCode::kImuInvalidSampleDetected);
+      Panic(ErrorCode::kImuInvalidSampleDetected);
       return false;
     }
   }
@@ -457,7 +452,8 @@ void Icm42688p::PublishLatestBatch(const SampleBatch &batch) {
 
   // Publish payload then publish sequence (release).
   mailbox_idx_.store(kNext, std::memory_order_release);
-  tick_seq_.store(batch.samples[batch.count - 1u].seq, std::memory_order_release);
+  tick_seq_.store(batch.samples[batch.count - 1u].seq,
+                  std::memory_order_release);
   publish_cnt_.fetch_add(1, std::memory_order_relaxed);
 }
 
@@ -472,11 +468,9 @@ bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
     out = mailbox_[kIdx];
     const uint32_t kS2 = tick_seq_.load(std::memory_order_acquire);
 
-    if (kS2 == s && out.count > 0 &&
-        out.samples[out.count - 1u].seq == s) {
+    if (kS2 == s && out.count > 0 && out.samples[out.count - 1u].seq == s) {
       if (last_seq != 0) {
-        const uint32_t kMissed =
-            (uint32_t)(out.samples[0].seq - last_seq - 1u);
+        const uint32_t kMissed = (uint32_t)(out.samples[0].seq - last_seq - 1u);
         if (kMissed) {
           drop_cnt_.fetch_add(kMissed, std::memory_order_relaxed);
         }
@@ -755,15 +749,9 @@ void Icm42688p::SetTimestampConfig() {
 
 void Icm42688p::ClearUserOffsets() {
   SetBank(0);
-  WriteReg(REG_OFFSET_USER0, 0x00u);
-  WriteReg(REG_OFFSET_USER1, 0x00u);
-  WriteReg(REG_OFFSET_USER2, 0x00u);
-  WriteReg(REG_OFFSET_USER3, 0x00u);
-  WriteReg(REG_OFFSET_USER4, 0x00u);
-  WriteReg(REG_OFFSET_USER5, 0x00u);
-  WriteReg(REG_OFFSET_USER6, 0x00u);
-  WriteReg(REG_OFFSET_USER7, 0x00u);
-  WriteReg(REG_OFFSET_USER8, 0x00u);
+  for (uint8_t reg = REG_OFFSET_USER0; reg <= REG_OFFSET_USER8; ++reg) {
+    WriteReg(reg, 0x00u);
+  }
 }
 
 void Icm42688p::ConfigureFifo() {
@@ -781,11 +769,10 @@ void Icm42688p::ConfigureFifo() {
   WriteReg(REG_FIFO_CONFIG1,
            0x4B); // FIFO_CONFIG1: resume partial read + accel+gyro+timestamp,
                   // FIFO_TEMP_EN=0, 16-bit (HIRES=0)
-  const uint16_t fifo_wm_bytes =
+  const uint16_t kFifoWmBytes =
       static_cast<uint16_t>(fifo_wm_records_ * kPacketBytes);
-  WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));
-  WriteReg(REG_FIFO_CONFIG3,
-           static_cast<uint8_t>((fifo_wm_bytes >> 8) & 0x0Fu));
+  WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(kFifoWmBytes & 0xFFu));
+  WriteReg(REG_FIFO_CONFIG3, static_cast<uint8_t>((kFifoWmBytes >> 8) & 0x0Fu));
   WriteReg(REG_SIGNAL_PATH_RESET, 0x02); // FIFO_FLUSH
   (void)ReadReg(REG_INT_STATUS);         // clear any pending status bits (R/C)
   WriteReg(REG_FIFO_CONFIG, 0x40);       // FIFO Stream mode

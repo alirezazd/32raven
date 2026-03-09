@@ -136,7 +136,7 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
             #include "stm32_limits.hpp"
 
             inline constexpr Icm42688p::Config kIcm42688pConfig = {{
-                .spi_prescaler = static_cast<uint8_t>({spi_prescaler}),
+                .spi_prescaler = {spi_prescaler},
                 .rates = {{
                     .gyro = {gyro_odr},
                     .accel = {accel_odr},
