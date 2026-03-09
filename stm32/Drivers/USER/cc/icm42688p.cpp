@@ -88,8 +88,8 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
     Panic(ErrorCode::kImuInvalidOdr);
   }
 
-  if (cfg.calibration.gyro_duration_us == 0 ||
-      cfg.calibration.gyro_timeout_us == 0) {
+  if (cfg.calibration.gyro_duration_s == 0 ||
+      cfg.calibration.gyro_timeout_s == 0) {
     Panic(ErrorCode::kImuCalibrationInvalidConfig);
   }
 }
@@ -517,8 +517,10 @@ bool Icm42688p::PeekLatestBatch(SampleBatch &out) const {
 }
 
 void Icm42688p::CalibrateGyro() {
-  const uint32_t kDurationUs = calibration_cfg_.gyro_duration_us;
-  const uint32_t kTimeoutUs = calibration_cfg_.gyro_timeout_us;
+  const uint32_t kDurationUs =
+      SECONDS_TO_MICROS(calibration_cfg_.gyro_duration_s);
+  const uint32_t kTimeoutUs =
+      SECONDS_TO_MICROS(calibration_cfg_.gyro_timeout_s);
   const uint32_t kStillThresholdRaw = calibration_cfg_.gyro_still_threshold_raw;
   const uint32_t kOdrHz = Icm42688pReg::OdrHz(gyro_odr_);
   const uint64_t kSampleCountU64 =
