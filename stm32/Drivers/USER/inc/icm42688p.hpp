@@ -56,6 +56,12 @@ public:
       uint32_t gyro_timeout_s;
       uint32_t gyro_still_threshold_raw;
     } calibration;
+
+    struct Recovery {
+      uint32_t overrun_threshold;
+      uint32_t overrun_window_s;
+      uint32_t fault_led_period_ms;
+    } recovery;
   };
 
   struct Sample {
@@ -92,8 +98,9 @@ public:
   void Init(GPIO &gpio, Spi1 &spi, const Config &cfg);
   void OnIrq();
   bool WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out);
-  bool PeekLatestBatch(SampleBatch &out) const;
+  SampleBatch GetLatestBatch() const;
   void CalibrateGyro();
+  void InjectOverrunFaultForTest();
 
   uint32_t ImuPathOverrun() const {
     return overrun_.load(std::memory_order_relaxed);
@@ -110,9 +117,6 @@ public:
   }
   uint32_t DmaStartFailCount() const {
     return dma_start_fail_cnt_.load(std::memory_order_relaxed);
-  }
-  uint32_t FifoEmptyCount() const {
-    return fifo_empty_cnt_.load(std::memory_order_relaxed);
   }
   uint32_t LastBadHeader() const {
     return last_bad_header_.load(std::memory_order_relaxed);
@@ -152,6 +156,8 @@ private:
                             int16_t z_offset_lsb);
   void ConfigureFifo();
   void SetupDmaBuffer();
+  void RecoverFromFifoFault();
+  void HandleOverrunFault();
 
   static void SpiDoneThunk(void *user, bool ok);
   void OnSpiDone(bool ok);
@@ -163,15 +169,8 @@ private:
   static constexpr uint16_t kMaxReadBytes = kMaxWatermarkRecords * kPacketBytes;
 
   uint16_t fifo_wm_records_{0};
-  uint16_t fifo_read_bytes_{0};
-  uint16_t fifo_xfer_len_{0};
-
   uint8_t fifo_tx_[1 + kMaxReadBytes]{};
   uint8_t fifo_rx_[1 + kMaxReadBytes]{};
-
-  // --- FIFO 2-stage DMA state ---
-  enum class FifoDmaStage : uint8_t { kCount = 0, kData = 1 };
-  FifoDmaStage fifo_stage_ = FifoDmaStage::kCount;
 
   std::atomic<bool> inflight_{false};
   std::atomic<uint32_t> overrun_{0};
@@ -179,10 +178,8 @@ private:
   std::atomic<uint32_t> publish_cnt_{0};
   std::atomic<uint32_t> parse_fail_cnt_{0};
   std::atomic<uint32_t> dma_start_fail_cnt_{0};
-  std::atomic<uint32_t> fifo_empty_cnt_{0};
   std::atomic<uint32_t> last_bad_header_{0};
   volatile uint64_t last_irq_us_{0};
-  volatile uint8_t last_status_{0};
   volatile uint16_t last_count_{0};
 
   uint16_t last_tmst16_{0};
@@ -195,13 +192,16 @@ private:
   Icm42688pReg::GyroFs gyro_fs_{};
   Icm42688pReg::Odr gyro_odr_{};
   Config::Calibration calibration_cfg_{};
+  Config::Recovery recovery_cfg_{};
+  uint64_t last_overrun_fault_us_{0};
+  uint32_t overrun_window_count_{0};
+  std::atomic<bool> inject_overrun_fault_for_test_{false};
 
   bool initialized_{false};
   GPIO *gpio_{nullptr};
   Spi1 *spi_{nullptr};
 
-  alignas(8) SampleBatch mailbox_[2]{};
-  std::atomic<uint8_t> mailbox_idx_{0};
+  alignas(8) SampleBatch published_batch_{};
   std::atomic<uint32_t> tick_seq_{0};
   std::atomic<uint32_t> drop_cnt_{0};
   uint32_t seq_{0};

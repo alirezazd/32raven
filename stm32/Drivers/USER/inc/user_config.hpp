@@ -70,7 +70,6 @@ constexpr TimeBaseConfig kTimeBaseDefault = {
             // 1MHz tick
             .prescaler = 83,      // Prescaler
             .period = 0xFFFFFFFF, // Period
-            .compensation = 1     // Compensation (us)
         },
     .tim5 = {
         // 1kHz tick
@@ -105,12 +104,6 @@ const std::array kGpioDefault = {
 const LED::Config kLedDefault = {
     .pin = {.port = USER_LED_GPIO_PORT, .number = USER_LED_Pin},
     .active_low = true};
-
-const Button::Config kButtonDefault = {
-    .pin = {.port = USER_BTN_GPIO_PORT, .number = USER_BTN_Pin},
-    .active_low = false, // active_low: button drives HIGH when pressed
-    .debounce_ms = 50,
-    .long_press_ms = 500};
 
 constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode

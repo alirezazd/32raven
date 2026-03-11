@@ -131,6 +131,20 @@ const char *GetMessage(ErrorCode code) {
     return "Motion detected during IMU calibration";
   case ErrorCode::kInvalidFifoWatermarkRecords:
     return "Invalid FIFO watermark records";
+  case ErrorCode::kEepromNotInitialized:
+    return "EEPROM emulation not initialized";
+  case ErrorCode::kEepromReinit:
+    return "EEPROM emulation re-init";
+  case ErrorCode::kEepromInvalidConfig:
+    return "EEPROM emulation invalid config";
+  case ErrorCode::kEepromFormatFailed:
+    return "EEPROM emulation format failed";
+  case ErrorCode::kEepromNoValidSlot:
+    return "EEPROM emulation no valid slot";
+  case ErrorCode::kEepromWriteFailed:
+    return "EEPROM emulation write failed";
+  case ErrorCode::kEepromSchemaMismatch:
+    return "EEPROM schema mismatch";
   default:
     return "Unknown error";
   }

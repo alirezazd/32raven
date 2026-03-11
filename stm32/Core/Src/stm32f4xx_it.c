@@ -72,8 +72,8 @@ extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
 extern void Uart1RxDmaError(uint32_t);
 extern void Uart2RxDmaError(uint32_t);
-extern void TimeBaseOnPpsIrq(uint32_t capture_val);
 extern void TimeBaseOnTim5Irq(void);
+extern void ExpressMain(void);
 
 extern void Uart1OnUartInterrupt(void);
 extern void Uart2OnUartInterrupt(void);
@@ -187,6 +187,8 @@ void PendSV_Handler(void) {
 
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
+
+  ExpressMain();
 
   /* USER CODE END PendSV_IRQn 1 */
 }
@@ -409,20 +411,7 @@ void DMA2_Stream7_IRQHandler(void) {
 /**
  * @brief This function handles TIM2 global interrupt.
  */
-void TIM2_IRQHandler(void) {
-  // Check for Capture/Compare 1 interrupt
-  if (TIM2->SR & TIM_SR_CC1IF) {
-    // Clear CC1 flag
-    TIM2->SR = (uint16_t)~TIM_SR_CC1IF;
-
-    // Read captured value and apply compensation
-    extern uint32_t g_pps_compensation;
-    uint32_t capture_val = TIM2->CCR1 - g_pps_compensation;
-
-    // Call PPS handler
-    TimeBaseOnPpsIrq(capture_val);
-  }
-}
+void TIM2_IRQHandler(void) {}
 
 /**
  * @brief This function handles TIM5 global interrupt.

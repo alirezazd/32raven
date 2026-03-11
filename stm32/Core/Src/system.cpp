@@ -6,6 +6,7 @@
 #include "gpio.hpp"
 // #include "i2c.hpp"
 #include "board.h"
+#include "config_store.hpp"
 #include "led.hpp"
 #include "spi.hpp"
 #include "stm32f4xx.h"
@@ -28,11 +29,16 @@ void System::Init(const SystemConfig &config) {
 
   HAL_Init();
   ConfigureSystemClock(config);
+  // Express-lane bottom-half: below IMU EXTI/SPI DMA, above slow/background
+  // work.
+  NVIC_SetPriority(PendSV_IRQn, 4);
 
   // Initialize components in enum order (defined in system.hpp)
   for (int i = 0; i < static_cast<int>(Component::kCount); ++i) {
     InitComponent(static_cast<Component>(i));
   }
+
+  imu_accel_cal_ = ConfigStore::LoadOrInitImuAccelCalibration(EE::GetInstance());
 
   // Init Complete: LEAVE LED ON for Debugging
   // LED::GetInstance().Set(false);
@@ -45,6 +51,9 @@ void System::InitComponent(Component c) {
     break;
   case Component::kGpio:
     GPIO::GetInstance().Init(kGpioDefault);
+    break;
+  case Component::kEe:
+    EE::GetInstance().Init();
     break;
   case Component::kLed:
     LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
@@ -60,7 +69,7 @@ void System::InitComponent(Component c) {
     DShotTim1::init(kDshotTim1Default);
     break;
   case Component::kButton:
-    Button::GetInstance().Init(GPIO::GetInstance(), kButtonDefault);
+    Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
     break;
   case Component::kUart2:
     Uart2::GetInstance().Init(kUart2Config);

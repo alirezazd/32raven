@@ -31,7 +31,7 @@ static void OnLog(AppContext &ctx, const message::Packet &pkt) {
     // Format string table
     static const char *fmt_table[] = {
       nullptr,  // ID 0 unused
-      "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu TSync=%lu Step=%lu Slow=%lu Send=%lu",  // ID 1
+      "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu Send=%lu",  // ID 1
       "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu Loss=%lu",                // ID 2
     };
     
@@ -92,24 +92,6 @@ static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
   // Update Cache (Scheduling handled by Mavlink::Poll RMS)
   ctx.sys->Mavlink().OfferTelemetry(*t,
                                     (uint32_t)(esp_timer_get_time() / 1000));
-}
-
-static void OnTimeSync(AppContext &ctx, const message::Packet &pkt) {
-  if (pkt.header.len != sizeof(message::TimeSyncMsg)) {
-    ESP_LOGW(kTag, "Invalid TimeSync Length");
-    return;
-  }
-  const auto *m = (const message::TimeSyncMsg *)pkt.payload;
-
-  // Format for Monitor Mode (TCP)
-  char buf[128];
-  int len = std::snprintf(
-      buf, sizeof(buf), "[TimeSync] ts=%lu drift=%ld us synced=%d\n",
-      (unsigned long)m->timestamp, (long)m->drift_micros, (int)m->synced);
-
-  if (len > 0) {
-    ctx.sys->Tcp().SendData((uint8_t *)buf, (size_t)len);
-  }
 }
 
 static void OnUnknown(AppContext &ctx, const message::Packet &pkt) {
@@ -180,7 +162,6 @@ void CommandHandler::Init(const Config &cfg) {
   handlers_[(uint8_t)message::MsgId::kRcChannels] = OnRcChannels;
   handlers_[(uint8_t)message::MsgId::kGpsData] = OnGpsData;
   handlers_[(uint8_t)message::MsgId::kLog] = OnLog;
-  handlers_[(uint8_t)message::MsgId::kTimeSync] = OnTimeSync;
   handlers_[(uint8_t)message::MsgId::kPong] = OnPong;
   handlers_[(uint8_t)message::MsgId::kImuData] = OnImuData;
   handlers_[(uint8_t)message::MsgId::kPanic] = OnPanic;

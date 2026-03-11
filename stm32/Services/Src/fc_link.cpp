@@ -207,11 +207,3 @@ void FcLink::SendLogBinary(uint8_t fmt_id, uint8_t argc, const uint32_t *args) {
   memcpy(pkt.payload, &log, pkt.header.len);
   Send(pkt);
 }
-
-void FcLink::SendTimeSync(const message::TimeSyncMsg &msg) {
-  message::Packet pkt;
-  pkt.header.id = (uint8_t)message::MsgId::kTimeSync;
-  pkt.header.len = sizeof(message::TimeSyncMsg);
-  memcpy(pkt.payload, &msg, sizeof(message::TimeSyncMsg));
-  Send(pkt);
-}

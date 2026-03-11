@@ -1,0 +1,13 @@
+[stm32.imu.accel_calibration]
+type_name = "ImuAccelCalibration"
+tag = "IAC1"
+
+[[stm32.imu.accel_calibration.fields]]
+name = "offsets"
+type = "float"
+count = 3
+
+[[stm32.imu.accel_calibration.fields]]
+name = "gains"
+type = "float"
+count = 3

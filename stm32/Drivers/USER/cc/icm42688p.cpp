@@ -21,6 +21,14 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
 
   gpio_ = &gpio;
   spi_ = &spi;
+  fifo_wm_records_ = cfg.fifo.watermark_records;
+  fifo_hold_last_data_en_ = cfg.fifo.hold_last;
+  gyro_fs_ = cfg.fs.gyro;
+  gyro_odr_ = cfg.rates.gyro;
+  calibration_cfg_ = cfg.calibration;
+  recovery_cfg_ = cfg.recovery;
+  last_overrun_fault_us_ = 0;
+  overrun_window_count_ = 0;
 
   System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(10));
   spi.SetPrescaler(cfg.spi_prescaler);
@@ -84,6 +92,10 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
       cfg.calibration.gyro_timeout_s == 0) {
     Panic(ErrorCode::kImuCalibrationInvalidConfig);
   }
+
+  if (cfg.recovery.overrun_threshold == 0 || cfg.recovery.overrun_window_s == 0) {
+    Panic(ErrorCode::kImuOverrun);
+  }
 }
 
 // Filter configuration
@@ -113,9 +125,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
         // Invalid, do not enable notch
         s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
         WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
-        uint8_t bsel = ReadReg(REG_BANK_SEL);
-        System::GetInstance().GetFcLink().SendLog(
-            "BANK_SEL for GYRO_CONFIG_STATIC2=%02X", bsel);
       } else {
         float fdrv = 19.2e6f / (float(clkdiv) * 10.0f);
         float coswz = cosf(2.0f * kPi * (f_hz / fdrv));
@@ -138,9 +147,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
 
         // Enable notch
         s2 &= ~GYRO_CONFIG_STATIC2_NF_DIS;
-        uint8_t bsel = ReadReg(REG_BANK_SEL);
-        System::GetInstance().GetFcLink().SendLog(
-            "BANK_SEL for GYRO_CONFIG_STATIC2=%02X", bsel);
         WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
 
         // Same coefficient for all three axes
@@ -163,9 +169,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
       }
     } else {
       s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
-      uint8_t bsel = ReadReg(REG_BANK_SEL);
-      System::GetInstance().GetFcLink().SendLog(
-          "BANK_SEL for GYRO_CONFIG_STATIC2=%02X", bsel);
       WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
     }
   }
@@ -174,9 +177,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
   {
     uint8_t s2 = ReadReg(REG_GYRO_CONFIG_STATIC2);
     if (cfg.gyro_aaf.dis) {
-      uint8_t bsel = ReadReg(REG_BANK_SEL);
-      System::GetInstance().GetFcLink().SendLog(
-          "BANK_SEL for GYRO_CONFIG_STATIC2=%02X", bsel);
       s2 |= GYRO_CONFIG_STATIC2_AAF_DIS;
       WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
     } else {
@@ -199,9 +199,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
   {
     uint8_t s2 = ReadReg(REG_ACCEL_CONFIG_STATIC2);
     if (cfg.accel_aaf.dis) {
-      uint8_t bsel = ReadReg(REG_BANK_SEL);
-      System::GetInstance().GetFcLink().SendLog(
-          "BANK_SEL for ACCEL_CONFIG_STATIC2=%02X", bsel);
       s2 |= ACCEL_CONFIG_STATIC2_AAF_DIS;
       WriteReg(REG_ACCEL_CONFIG_STATIC2, s2);
     } else {
@@ -226,32 +223,24 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
 
 void Icm42688p::OnIrq() {
   irq_cnt_.fetch_add(1, std::memory_order_relaxed);
-  last_irq_us_ = System::GetInstance().Time().MicrosCorrected();
+  last_irq_us_ = System::GetInstance().Time().Micros();
 
   if (inflight_.exchange(true, std::memory_order_acq_rel)) {
-    overrun_.fetch_add(1, std::memory_order_relaxed);
+    HandleOverrunFault();
     return;
   }
-
-  fifo_stage_ = FifoDmaStage::kCount;
-
-  // Stage 1: read FIFO_COUNTH + FIFO_COUNTL only.
-  // Do not read past COUNTL here, otherwise FIFO_DATA pointer can advance and
-  // stage-2 parsing becomes byte-shifted.
-  fifo_tx_[0] = static_cast<uint8_t>(REG_FIFO_COUNTH | 0x80u);
-  fifo_tx_[1] = 0xFFu;
-  fifo_tx_[2] = 0xFFu;
-
-  fifo_xfer_len_ = 3; // 1 cmd + 2 rx bytes
+  const uint16_t transfer_len =
+      static_cast<uint16_t>(1u + fifo_wm_records_ * kPacketBytes);
+  last_count_ = fifo_wm_records_;
 
   auto &spi = *spi_;
   CsLow();
-  if (!spi.StartTxRxDma(fifo_tx_, fifo_rx_, fifo_xfer_len_,
+  if (!spi.StartTxRxDma(fifo_tx_, fifo_rx_, transfer_len,
                         &Icm42688p::SpiDoneThunk, this)) {
     CsHigh();
     inflight_.store(false, std::memory_order_release);
     dma_start_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
-    overrun_.fetch_add(1, std::memory_order_relaxed);
+    HandleOverrunFault();
   }
 }
 
@@ -267,87 +256,33 @@ void Icm42688p::OnSpiDone(bool ok) {
   auto finish = [&]() { inflight_.store(false, std::memory_order_release); };
 
   if (!ok) {
-    overrun_.fetch_add(1, std::memory_order_relaxed);
+    RecoverFromFifoFault();
+    HandleOverrunFault();
     finish();
     return;
   }
 
-  // Big-endian decode for FIFO_COUNT because FIFO_COUNT_ENDIAN=1.
-  auto be_u16 = [](const uint8_t *q) -> uint16_t {
-    return static_cast<uint16_t>((static_cast<uint16_t>(q[0]) << 8) |
-                                 static_cast<uint16_t>(q[1]));
-  };
-
-  auto &spi = *spi_;
-
-  // ------------------------
-  // Stage 1: FIFO_COUNT read
-  // ------------------------
-  if (fifo_stage_ == FifoDmaStage::kCount) {
-    const uint8_t *r = &fifo_rx_[1]; // rx[0] is dummy (cmd response)
-    last_count_ = be_u16(&r[0]);     // COUNTH, COUNTL (records)
-
-    const uint16_t avail_records = last_count_;
-    if (avail_records == 0) {
-      fifo_empty_cnt_.fetch_add(1, std::memory_order_relaxed);
-      finish();
-      return;
-    }
-
-    // Read no more than the configured watermark or the static buffer capacity.
-    uint16_t rd_records = avail_records;
-    if (rd_records > fifo_wm_records_)
-      rd_records = fifo_wm_records_;
-    if (rd_records > kMaxWatermarkRecords)
-      rd_records = kMaxWatermarkRecords;
-
-    fifo_read_bytes_ = static_cast<uint16_t>(rd_records * kPacketBytes);
-    fifo_xfer_len_ = static_cast<uint16_t>(1u + fifo_read_bytes_);
-
-    // Prepare stage 2: FIFO_DATA burst
-    fifo_tx_[0] = static_cast<uint8_t>(REG_FIFO_DATA | 0x80u);
-    for (uint16_t i = 1; i < fifo_xfer_len_; i++) {
-      fifo_tx_[i] = 0xFFu;
-    }
-
-    fifo_stage_ = FifoDmaStage::kData;
-
-    CsLow();
-    if (!spi.StartTxRxDma(fifo_tx_, fifo_rx_, fifo_xfer_len_,
-                          &Icm42688p::SpiDoneThunk, this)) {
-      CsHigh();
-      inflight_.store(false, std::memory_order_release);
-      dma_start_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
-      overrun_.fetch_add(1, std::memory_order_relaxed);
-    }
-    return;
-  }
-
-  // ------------------------
-  // Stage 2: FIFO_DATA read
-  // ------------------------
-  fifo_stage_ = FifoDmaStage::kCount;
-
-  if ((fifo_read_bytes_ == 0) || ((fifo_read_bytes_ % kPacketBytes) != 0)) {
-    overrun_.fetch_add(1, std::memory_order_relaxed);
+  if (inject_overrun_fault_for_test_.exchange(false,
+                                              std::memory_order_acq_rel)) {
+    RecoverFromFifoFault();
+    HandleOverrunFault();
     finish();
     return;
   }
 
-  const uint16_t records =
-      static_cast<uint16_t>(fifo_read_bytes_ / kPacketBytes);
   const uint8_t *p = &fifo_rx_[1];
 
   SampleBatch batch{};
   batch.count = 0;
 
-  for (uint16_t i = 0; i < records; ++i) {
+  for (uint16_t i = 0; i < fifo_wm_records_; ++i) {
     const uint8_t *rec = p + static_cast<uint32_t>(i) * kPacketBytes;
     Sample s{};
     if (!ParsePacket3Record(rec, s)) {
       last_bad_header_.store(rec[0], std::memory_order_relaxed);
       parse_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
-      overrun_.fetch_add(1, std::memory_order_relaxed);
+      RecoverFromFifoFault();
+      HandleOverrunFault();
       finish();
       return;
     }
@@ -359,6 +294,47 @@ void Icm42688p::OnSpiDone(bool ok) {
   PublishLatestBatch(batch);
 
   finish();
+}
+
+void Icm42688p::RecoverFromFifoFault() {
+  SetBank(0);
+  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(REG_INT_STATUS);
+
+  tmst_inited_ = false;
+  host_sync_inited_ = false;
+  last_tmst16_ = 0;
+  tmst64_us_ = 0;
+  host_offset_us_ = 0;
+  last_count_ = 0;
+}
+
+void Icm42688p::HandleOverrunFault() {
+  overrun_.fetch_add(1, std::memory_order_relaxed);
+
+  const uint64_t now_us = System::GetInstance().Time().Micros();
+  const uint64_t window_us =
+      static_cast<uint64_t>(SECONDS_TO_MICROS(recovery_cfg_.overrun_window_s));
+
+  if (last_overrun_fault_us_ == 0 ||
+      (now_us - last_overrun_fault_us_) > window_us) {
+    overrun_window_count_ = 1;
+  } else {
+    overrun_window_count_++;
+  }
+
+  last_overrun_fault_us_ = now_us;
+
+  if (overrun_window_count_ >= recovery_cfg_.overrun_threshold) {
+    Panic(ErrorCode::kImuOverrun);
+  }
+}
+
+void Icm42688p::InjectOverrunFaultForTest() {
+  // Arm a one-shot recovery fault. The actual fault is injected from the
+  // normal IMU SPI completion path so recovery runs in the same context as a
+  // real transport fault.
+  inject_overrun_fault_for_test_.store(true, std::memory_order_release);
 }
 
 void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
@@ -445,16 +421,15 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
 }
 
 void Icm42688p::PublishLatestBatch(const SampleBatch &batch) {
-  const uint8_t kCur = mailbox_idx_.load(std::memory_order_relaxed);
-  const uint8_t kNext = (uint8_t)(kCur ^ 1u);
-
-  mailbox_[kNext] = batch;
+  published_batch_ = batch;
 
   // Publish payload then publish sequence (release).
-  mailbox_idx_.store(kNext, std::memory_order_release);
   tick_seq_.store(batch.samples[batch.count - 1u].seq,
                   std::memory_order_release);
   publish_cnt_.fetch_add(1, std::memory_order_relaxed);
+
+  // Defer fast-loop consumption out of IRQ/DMA context.
+  SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
 }
 
 bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
@@ -464,8 +439,7 @@ bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
   }
 
   for (;;) {
-    const uint8_t kIdx = mailbox_idx_.load(std::memory_order_acquire);
-    out = mailbox_[kIdx];
+    out = published_batch_;
     const uint32_t kS2 = tick_seq_.load(std::memory_order_acquire);
 
     if (kS2 == s && out.count > 0 && out.samples[out.count - 1u].seq == s) {
@@ -486,24 +460,24 @@ bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
   }
 }
 
-bool Icm42688p::PeekLatestBatch(SampleBatch &out) const {
+Icm42688p::SampleBatch Icm42688p::GetLatestBatch() const {
+  SampleBatch out{};
   uint32_t seq = tick_seq_.load(std::memory_order_acquire);
   if (seq == 0) {
-    return false;
+    return out;
   }
 
   for (;;) {
-    const uint8_t idx = mailbox_idx_.load(std::memory_order_acquire);
-    out = mailbox_[idx];
+    out = published_batch_;
     const uint32_t seq2 = tick_seq_.load(std::memory_order_acquire);
 
     if (seq2 == seq && out.count > 0 &&
         out.samples[out.count - 1u].seq == seq) {
-      return true;
+      return out;
     }
 
     if (seq2 == 0) {
-      return false;
+      return {};
     }
 
     seq = seq2;
@@ -525,7 +499,7 @@ void Icm42688p::CalibrateGyro() {
       kSampleCountU64 == 0 ? 1u : static_cast<uint32_t>(kSampleCountU64);
 
   auto &time = System::GetInstance().Time();
-  const uint64_t start_us = time.MicrosCorrected();
+  const uint64_t start_us = time.Micros();
   uint32_t last_seq = LatestSeq();
   int64_t sum[3] = {0, 0, 0};
   int16_t min_g[3] = {0, 0, 0};
@@ -535,7 +509,7 @@ void Icm42688p::CalibrateGyro() {
   while (collected < kSampleCount) {
     SampleBatch batch{};
     if (!WaitAndGetLatestBatch(last_seq, batch)) {
-      if ((uint32_t)(time.MicrosCorrected() - start_us) >= kTimeoutUs) {
+      if ((uint32_t)(time.Micros() - start_us) >= kTimeoutUs) {
         return;
       }
       continue;
@@ -780,17 +754,11 @@ void Icm42688p::ConfigureFifo() {
 }
 
 void Icm42688p::SetupDmaBuffer() {
-  // Start in count stage. Actual fifo_read_bytes_/fifo_xfer_len_ are computed
-  // per IRQ.
-  fifo_stage_ = FifoDmaStage::kCount;
-
-  // Optional: prefill TX with 0xFF so we only write the command byte at
-  // runtime.
+  // Fixed-burst FIFO reads: read exactly watermark_records packets per IRQ.
   for (uint16_t i = 0; i < sizeof(fifo_tx_); i++) {
     fifo_tx_[i] = 0xFFu;
   }
-  // No fixed command here anymore. OnIrq() writes REG_FIFO_COUNTH|0x80,
-  // and OnSpiDone(count) writes REG_FIFO_DATA|0x80.
+  fifo_tx_[0] = static_cast<uint8_t>(REG_FIFO_DATA | 0x80u);
 }
 // SPI helpers (blocking)
 

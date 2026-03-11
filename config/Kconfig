@@ -8,6 +8,8 @@ menu "STM32"
 menu "IMU"
 menu "ICM42688P"
 
+menu "SPI"
+
 choice
     prompt "SPI prescaler"
     default STM32_IMU_SPI_PRESCALER_DIV4
@@ -37,6 +39,25 @@ config STM32_IMU_SPI_PRESCALER_DIV256
     bool "div256"
 
 endchoice
+
+config STM32_IMU_RECOVERY_OVERRUN_THRESHOLD
+    int "Overrun panic threshold (faults)"
+    range 1 100
+    default 3
+
+config STM32_IMU_RECOVERY_OVERRUN_WINDOW_S
+    int "Overrun threshold window (s)"
+    range 1 60
+    default 1
+
+config STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS
+    int "Recovery fault LED period (ms)"
+    range 20 5000
+    default 200
+
+endmenu
+
+menu "Gyroscope"
 
 choice
     prompt "Gyro ODR"
@@ -81,6 +102,55 @@ config STM32_IMU_GYRO_ODR_12_5HZ
 endchoice
 
 choice
+    prompt "Gyro full scale"
+    default STM32_IMU_GYRO_FS_2000DPS
+
+config STM32_IMU_GYRO_FS_2000DPS
+    bool "2000 dps"
+
+config STM32_IMU_GYRO_FS_1000DPS
+    bool "1000 dps"
+
+config STM32_IMU_GYRO_FS_500DPS
+    bool "500 dps"
+
+config STM32_IMU_GYRO_FS_250DPS
+    bool "250 dps"
+
+config STM32_IMU_GYRO_FS_125DPS
+    bool "125 dps"
+
+config STM32_IMU_GYRO_FS_62_5DPS
+    bool "62.5 dps"
+
+config STM32_IMU_GYRO_FS_31_25DPS
+    bool "31.25 dps"
+
+config STM32_IMU_GYRO_FS_15_625DPS
+    bool "15.625 dps"
+
+endchoice
+
+config STM32_IMU_GYRO_CAL_DURATION_S
+    int "Gyro calibration duration (s)"
+    range 1 20
+    default 2
+
+config STM32_IMU_GYRO_CAL_TIMEOUT_S
+    int "Gyro calibration timeout (s)"
+    range 1 60
+    default 5
+
+config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
+    int "Gyro calibration stillness threshold (raw)"
+    range 1 32767
+    default 64
+
+endmenu
+
+menu "Accelerometer"
+
+choice
     prompt "Accel ODR"
     default STM32_IMU_ACCEL_ODR_8KHZ
 
@@ -123,36 +193,6 @@ config STM32_IMU_ACCEL_ODR_12_5HZ
 endchoice
 
 choice
-    prompt "Gyro full scale"
-    default STM32_IMU_GYRO_FS_2000DPS
-
-config STM32_IMU_GYRO_FS_2000DPS
-    bool "2000 dps"
-
-config STM32_IMU_GYRO_FS_1000DPS
-    bool "1000 dps"
-
-config STM32_IMU_GYRO_FS_500DPS
-    bool "500 dps"
-
-config STM32_IMU_GYRO_FS_250DPS
-    bool "250 dps"
-
-config STM32_IMU_GYRO_FS_125DPS
-    bool "125 dps"
-
-config STM32_IMU_GYRO_FS_62_5DPS
-    bool "62.5 dps"
-
-config STM32_IMU_GYRO_FS_31_25DPS
-    bool "31.25 dps"
-
-config STM32_IMU_GYRO_FS_15_625DPS
-    bool "15.625 dps"
-
-endchoice
-
-choice
     prompt "Accel full scale"
     default STM32_IMU_ACCEL_FS_8G
 
@@ -169,6 +209,10 @@ config STM32_IMU_ACCEL_FS_2G
     bool "2g"
 
 endchoice
+
+endmenu
+
+menu "Filters"
 
 config STM32_IMU_UI_FILTER_GYRO_BW
     int "UI filter gyro bandwidth index"
@@ -242,6 +286,10 @@ config STM32_IMU_ACCEL_AAF_BITSHIFT
     range 0 255
     default 0
 
+endmenu
+
+menu "FIFO"
+
 config STM32_IMU_FIFO_WATERMARK_RECORDS
     int "FIFO watermark records"
     range 1 128
@@ -251,20 +299,7 @@ config STM32_IMU_FIFO_HOLD_LAST
     bool "Hold last FIFO sample"
     default n
 
-config STM32_IMU_GYRO_CAL_DURATION_S
-    int "Gyro calibration duration (s)"
-    range 1 20
-    default 2
-
-config STM32_IMU_GYRO_CAL_TIMEOUT_S
-    int "Gyro calibration timeout (s)"
-    range 1 60
-    default 5
-
-config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
-    int "Gyro calibration stillness threshold (raw)"
-    range 1 32767
-    default 64
+endmenu
 
 endmenu
 
@@ -351,6 +386,8 @@ endmenu
 menu "GPS"
 menu "M9N"
 
+menu "UART"
+
 config STM32_GPS_M9N_FLASH_CONFIG
     bool "Flash persistent configuration on boot"
     default n
@@ -385,6 +422,15 @@ config STM32_GPS_M9N_BAUD_921600
 
 endchoice
 
+config STM32_GPS_M9N_ACK_TIMEOUT_US
+    int "ACK timeout (us)"
+    range 1 10000000
+    default 100000
+
+endmenu
+
+menu "Protocols"
+
 config STM32_GPS_M9N_PROTOCOL_UBX
     bool "Enable UBX output"
     default y
@@ -392,6 +438,10 @@ config STM32_GPS_M9N_PROTOCOL_UBX
 config STM32_GPS_M9N_PROTOCOL_NMEA
     bool "Enable NMEA output"
     default n
+
+endmenu
+
+menu "Messages"
 
 config STM32_GPS_M9N_MSG_NAV_PVT
     bool "Enable NAV-PVT"
@@ -408,6 +458,10 @@ config STM32_GPS_M9N_MSG_NAV_COV
 config STM32_GPS_M9N_MSG_NAV_EOE
     bool "Enable NAV-EOE"
     default y
+
+endmenu
+
+menu "Navigation"
 
 config STM32_GPS_M9N_RATE_MEAS_MS
     int "Measurement rate (ms)"
@@ -450,6 +504,10 @@ config STM32_GPS_M9N_DYN_MODEL_BIKE
 
 endchoice
 
+endmenu
+
+menu "Constellations"
+
 config STM32_GPS_M9N_GNSS_GPS
     bool "Enable GPS constellation"
     default y
@@ -474,31 +532,47 @@ config STM32_GPS_M9N_GNSS_ITFM
     bool "Enable ITFM"
     default y
 
+endmenu
+
+menu "Timepulse"
+
 config STM32_GPS_M9N_TP1_ENA
     bool "Enable TP1"
     default y
 
 config STM32_GPS_M9N_TP1_PERIOD
-    int "TP1 period"
+    int "TP1 period (us)"
     range 1 1000000000
     default 1000000
 
 config STM32_GPS_M9N_TP1_LEN
-    int "TP1 pulse length"
+    int "TP1 pulse length (us)"
     range 1 1000000000
     default 50000
 
-config STM32_GPS_M9N_TP1_TIMEGRID
-    int "TP1 timegrid"
-    range 0 255
-    default 1
+choice
+    prompt "TP1 time grid"
+    default STM32_GPS_M9N_TP1_TIMEGRID_GPS
+
+config STM32_GPS_M9N_TP1_TIMEGRID_UTC
+    bool "UTC"
+
+config STM32_GPS_M9N_TP1_TIMEGRID_GPS
+    bool "GPS"
+
+config STM32_GPS_M9N_TP1_TIMEGRID_GLONASS
+    bool "GLONASS"
+
+config STM32_GPS_M9N_TP1_TIMEGRID_BEIDOU
+    bool "BeiDou"
+
+config STM32_GPS_M9N_TP1_TIMEGRID_GALILEO
+    bool "Galileo"
+
+endchoice
 
 config STM32_GPS_M9N_TP1_SYNC_GNSS
     bool "TP1 sync GNSS"
-    default y
-
-config STM32_GPS_M9N_TP1_USE_LOCKED
-    bool "TP1 use locked"
     default y
 
 config STM32_GPS_M9N_TP1_ALIGN_TO_TOW
@@ -509,21 +583,25 @@ config STM32_GPS_M9N_TP1_POL_RISING
     bool "TP1 rising polarity"
     default y
 
-config STM32_GPS_M9N_TP1_PERIOD_LOCK
-    int "TP1 locked period"
-    range 1 1000000000
-    default 1000000
-
-config STM32_GPS_M9N_TP1_LEN_LOCK
-    int "TP1 locked pulse length"
-    range 1 1000000000
-    default 50000
-
-config STM32_GPS_M9N_ACK_TIMEOUT_US
-    int "ACK timeout (us)"
-    range 1 10000000
-    default 100000
-
 endmenu
+endmenu
+endmenu
+
+menu "Button"
+
+config STM32_BUTTON_ACTIVE_LOW
+    bool "Button active low"
+    default n
+
+config STM32_BUTTON_DEBOUNCE_MS
+    int "Debounce time (ms)"
+    range 0 1000
+    default 50
+
+config STM32_BUTTON_LONG_PRESS_MS
+    int "Long press time (ms)"
+    range 0 10000
+    default 500
+
 endmenu
 endmenu
