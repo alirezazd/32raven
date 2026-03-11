@@ -76,7 +76,6 @@ private:
 
     uint32_t total_size = 0;
     uint32_t written = 0;
-    uint32_t write_addr = 0x08000000; // Start of STM32 Flash
 
     StateMachine<Ctx> *sm = nullptr;
 
@@ -101,7 +100,7 @@ private:
     // verification
     mbedtls_sha256_context sha_ctx;
     uint8_t computed_hash[32];
-    uint32_t verify_addr = 0x08000000;
+    uint32_t verify_offset = 0;
 
     // ESP32 OTA
     esp_ota_handle_t ota_handle = 0;
@@ -160,7 +159,8 @@ private:
   void NrstPulse(uint32_t pulse_ms);
   bool EnterBootloader();   // BOOT0/reset/0x7F/ACK (bounded retries)
   bool GetBootloaderInfo(); // CMD_GET (0x00)
-  bool EraseAll();          // CMD_ERASE (0x43) or CMD_EXT_ERASE (0x44)
+  bool EraseSectors();      // STM32 targeted EXT_ERASE preserving EEPROM
+  bool MassErase();         // Mass erase (STM32 only, no EEPROM preservation)
   bool WriteBlock(uint32_t addr, const uint8_t *data,
                   size_t len); // CMD_WRITE_MEMORY (0x31)
   bool ReadBlock(uint32_t addr, uint8_t *data,

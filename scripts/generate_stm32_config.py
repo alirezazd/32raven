@@ -62,6 +62,14 @@ M9N_DYNAMIC_MODEL_CHOICES = {
     "STM32_GPS_M9N_DYN_MODEL_BIKE": "M9N::DynamicModel::kBike",
 }
 
+M9N_TIMEGRID_CHOICES = {
+    "STM32_GPS_M9N_TP1_TIMEGRID_UTC": "M9N::TimeGrid::kUtc",
+    "STM32_GPS_M9N_TP1_TIMEGRID_GPS": "M9N::TimeGrid::kGps",
+    "STM32_GPS_M9N_TP1_TIMEGRID_GLONASS": "M9N::TimeGrid::kGlonass",
+    "STM32_GPS_M9N_TP1_TIMEGRID_BEIDOU": "M9N::TimeGrid::kBeiDou",
+    "STM32_GPS_M9N_TP1_TIMEGRID_GALILEO": "M9N::TimeGrid::kGalileo",
+}
+
 ODR_CHOICES = {
     "STM32_IMU_GYRO_ODR_32KHZ": "Icm42688pReg::Odr::k32kHz",
     "STM32_IMU_GYRO_ODR_16KHZ": "Icm42688pReg::Odr::k16kHz",
@@ -160,6 +168,7 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
     icm20948_spi_prescaler = _choice_value(kconf, ICM20948_SPI_PRESCALER_CHOICES)
     m9n_baud_rate = _choice_value(kconf, M9N_BAUD_RATE_CHOICES)
     m9n_dynamic_model = _choice_value(kconf, M9N_DYNAMIC_MODEL_CHOICES)
+    m9n_timegrid = _choice_value(kconf, M9N_TIMEGRID_CHOICES)
     gyro_odr = _choice_value(kconf, ODR_CHOICES)
     accel_odr = _choice_value(kconf, ACCEL_ODR_CHOICES)
     gyro_fs = _choice_value(kconf, GYRO_FS_CHOICES)
@@ -169,6 +178,7 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
         f"""\
             #pragma once
 
+            #include "button.hpp"
             #include "icm42688p.hpp"
             #include "icm20948.hpp"
             #include "m9n.hpp"
@@ -217,6 +227,11 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                     .gyro_timeout_s = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_S")},
                     .gyro_still_threshold_raw = {_sym_int(kconf, "STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW")},
                 }},
+                .recovery = {{
+                    .overrun_threshold = {_sym_int(kconf, "STM32_IMU_RECOVERY_OVERRUN_THRESHOLD")},
+                    .overrun_window_s = {_sym_int(kconf, "STM32_IMU_RECOVERY_OVERRUN_WINDOW_S")},
+                    .fault_led_period_ms = {_sym_int(kconf, "STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS")},
+                }},
             }};
 
             inline constexpr Icm20948::Config kIcm20948Config = {{
@@ -234,6 +249,13 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 }},
                 .mag_rate = {_sym(kconf, "STM32_IMU_ICM20948_MAG_RATE").str_value},
                 .spi_prescaler = static_cast<uint8_t>({icm20948_spi_prescaler}),
+            }};
+
+            inline const Button::Config kButtonConfig = {{
+                .pin = {{.port = USER_BTN_GPIO_PORT, .number = USER_BTN_Pin}},
+                .active_low = {"true" if _sym_bool(kconf, "STM32_BUTTON_ACTIVE_LOW") else "false"},
+                .debounce_ms = {_sym_int(kconf, "STM32_BUTTON_DEBOUNCE_MS")},
+                .long_press_ms = {_sym_int(kconf, "STM32_BUTTON_LONG_PRESS_MS")},
             }};
 
             inline constexpr M9N::Config kM9nConfig = {{
@@ -265,13 +287,10 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                     .ena = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_ENA") else "false"},
                     .period = {_sym_int(kconf, "STM32_GPS_M9N_TP1_PERIOD")},
                     .len = {_sym_int(kconf, "STM32_GPS_M9N_TP1_LEN")},
-                    .timegrid = {_sym_int(kconf, "STM32_GPS_M9N_TP1_TIMEGRID")},
+                    .timegrid = {m9n_timegrid},
                     .sync_gnss = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_SYNC_GNSS") else "false"},
-                    .use_locked = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_USE_LOCKED") else "false"},
                     .align_to_tow = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_ALIGN_TO_TOW") else "false"},
                     .pol_rising = {"true" if _sym_bool(kconf, "STM32_GPS_M9N_TP1_POL_RISING") else "false"},
-                    .period_lock = {_sym_int(kconf, "STM32_GPS_M9N_TP1_PERIOD_LOCK")},
-                    .len_lock = {_sym_int(kconf, "STM32_GPS_M9N_TP1_LEN_LOCK")},
                 }},
                 .ack_timeout_us = {_sym_int(kconf, "STM32_GPS_M9N_ACK_TIMEOUT_US")},
             }};

@@ -29,6 +29,14 @@ public:
     kBike = 10,
   };
 
+  enum class TimeGrid : uint8_t {
+    kUtc = 0,
+    kGps = 1,
+    kGlonass = 2,
+    kBeiDou = 3,
+    kGalileo = 4,
+  };
+
   static constexpr uint32_t ToBaudRateValue(BaudRate baud_rate) {
     return static_cast<uint32_t>(baud_rate);
   }
@@ -72,13 +80,10 @@ public:
       bool ena;
       uint32_t period;
       uint32_t len;
-      uint8_t timegrid;
+      TimeGrid timegrid;
       bool sync_gnss;
-      bool use_locked;
       bool align_to_tow;
       bool pol_rising;
-      uint32_t period_lock;
-      uint32_t len_lock;
     } tp1;
 
     uint32_t ack_timeout_us;
