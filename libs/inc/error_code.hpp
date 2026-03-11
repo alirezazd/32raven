@@ -66,6 +66,13 @@ enum class ErrorCode : uint32_t {
   kImuCalibrationInvalidConfig,
   kImuCalibrationMotionDetected,
   kInvalidFifoWatermarkRecords,
+  kEepromNotInitialized,
+  kEepromReinit,
+  kEepromInvalidConfig,
+  kEepromFormatFailed,
+  kEepromNoValidSlot,
+  kEepromWriteFailed,
+  kEepromSchemaMismatch,
 };
 
 const char *GetMessage(ErrorCode code);

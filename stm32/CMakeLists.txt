@@ -31,6 +31,7 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 # Enable CMake support for ASM and C languages
 enable_language(C CXX ASM)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format)
 
 # Create an executable object type
 add_executable(${CMAKE_PROJECT_NAME})
@@ -39,26 +40,71 @@ set(STM32_KCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/Kconfig")
 set(STM32_MASTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/32raven.config")
 set(STM32_CONFIG_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_stm32_config.py")
+set(STM32_EE_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/ee.toml")
+set(STM32_EE_SCHEMA_GENERATOR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_ee_schema.py")
 set(STM32_RUNTIME_CONFIG_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_config.hpp")
 set(STM32_LIMITS_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_limits.hpp")
+set(STM32_EE_SCHEMA_HPP
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/ee_schema.hpp")
 
-add_custom_command(
-    OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
-    COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
-            --kconfig ${STM32_KCONFIG}
-            --config ${STM32_MASTER_CONFIG}
-            --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
-            --limits-out ${STM32_LIMITS_HPP}
-    DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG} ${STM32_CONFIG_GENERATOR}
-    COMMENT "Generating STM32 configuration headers"
-    VERBATIM)
+if(CLANG_FORMAT_EXECUTABLE)
+    add_custom_command(
+        OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
+        COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
+                --kconfig ${STM32_KCONFIG}
+                --config ${STM32_MASTER_CONFIG}
+                --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
+                --limits-out ${STM32_LIMITS_HPP}
+        COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
+                ${STM32_RUNTIME_CONFIG_HPP}
+                ${STM32_LIMITS_HPP}
+        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG} ${STM32_CONFIG_GENERATOR}
+        COMMENT "Generating STM32 configuration headers"
+        VERBATIM)
+else()
+    add_custom_command(
+        OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
+        COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
+                --kconfig ${STM32_KCONFIG}
+                --config ${STM32_MASTER_CONFIG}
+                --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
+                --limits-out ${STM32_LIMITS_HPP}
+        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG} ${STM32_CONFIG_GENERATOR}
+        COMMENT "Generating STM32 configuration headers"
+        VERBATIM)
+endif()
 
 add_custom_target(generate_stm32_config
                   DEPENDS ${STM32_RUNTIME_CONFIG_HPP}
                           ${STM32_LIMITS_HPP})
 add_dependencies(${CMAKE_PROJECT_NAME} generate_stm32_config)
+
+if(CLANG_FORMAT_EXECUTABLE)
+    add_custom_command(
+        OUTPUT ${STM32_EE_SCHEMA_HPP}
+        COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
+                --config ${STM32_EE_CONFIG}
+                --out ${STM32_EE_SCHEMA_HPP}
+        COMMAND ${CLANG_FORMAT_EXECUTABLE} -i ${STM32_EE_SCHEMA_HPP}
+        DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
+        COMMENT "Generating EEPROM schema header"
+        VERBATIM)
+else()
+    add_custom_command(
+        OUTPUT ${STM32_EE_SCHEMA_HPP}
+        COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
+                --config ${STM32_EE_CONFIG}
+                --out ${STM32_EE_SCHEMA_HPP}
+        DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
+        COMMENT "Generating EEPROM schema header"
+        VERBATIM)
+endif()
+
+add_custom_target(generate_ee_schema DEPENDS ${STM32_EE_SCHEMA_HPP})
+add_dependencies(${CMAKE_PROJECT_NAME} generate_ee_schema)
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
@@ -75,6 +121,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/stm32f4xx_it.c
     Core/Src/syscalls.c
     Core/Src/sysmem.c
+    Core/Src/ctx.cpp
     Core/Src/main.cpp
     Core/Src/system.cpp
     Drivers/USER/cc/gpio.cpp
@@ -87,8 +134,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/uart.cpp
     Drivers/USER/cc/m9n.cpp
     Drivers/USER/cc/icm42688p.cpp
+    Drivers/USER/cc/ee.cpp
     Core/Src/states.cpp
     Services/Src/m9n_service.cpp
+    Services/Src/config_store.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp
     Services/Src/panic.cpp

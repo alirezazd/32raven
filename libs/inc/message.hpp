@@ -27,7 +27,6 @@ enum class MsgId : uint8_t {
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kImuData = 0x11,
-  kTimeSync = 0x12,
   kConfig = 0x13,
   kPanic = 0x14,
 
@@ -44,12 +43,6 @@ struct Header {
   uint8_t id;       // MsgId
   uint8_t len;      // Payload Length
 };
-
-struct TimeSyncMsg {
-  uint32_t timestamp;   // Local timestamp (micros)
-  int32_t drift_micros; // Drift from GPS PPS
-  uint8_t synced;       // 1 if synced, 0 otherwise
-} __attribute__((packed));
 
 struct ConfigMsg {
   uint8_t telemetry_rate_hz;
@@ -106,7 +99,7 @@ struct GpsData {
 } __attribute__((packed));
 
 struct ImuData {
-  uint64_t timestamp_us; // GPS-corrected microseconds
+  uint64_t timestamp_us; // Local monotonic microseconds
   float accel[3];        // m/s²  (X, Y, Z)
   float gyro[3];         // rad/s (X, Y, Z)
 } __attribute__((packed));

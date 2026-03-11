@@ -1,27 +1,15 @@
 #pragma once
+#include "ctx.hpp"
 #include "state_machine.hpp"
 #include "system.hpp"
 
 struct IdleState;
-struct AppContext;
 
 struct IFastTickState {
   virtual ~IFastTickState() = default;
   virtual void OnFastTick(AppContext &ctx,
                           const Icm42688p::SampleBatch &batch) = 0;
 };
-
-struct AppContext {
-  System *sys;
-  StateMachine<AppContext> *sm;
-  IFastTickState *fast_tick_state = nullptr;
-
-  IdleState *idle;
-
-  uint32_t telemetry_interval_ms;
-};
-
-#include "message.hpp"
 
 struct IdleState : public IState<AppContext>, public IFastTickState {
   const char *Name() const override { return "Idle"; }
@@ -45,7 +33,6 @@ private:
     uint16_t crc;
   } rx_pkt_internal_;
 
-  uint32_t last_time_sync_ms_ = 0;
   uint64_t last_imu_send_us_ = 0;
   uint32_t last_slow_us_ = 0;
 

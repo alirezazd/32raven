@@ -41,3 +41,4 @@ mx.scratch
 user_config.cmake
 stm32/Drivers/USER/inc/stm32_config.hpp
 stm32/Drivers/USER/inc/stm32_limits.hpp
+stm32/Drivers/USER/inc/ee_schema.hpp

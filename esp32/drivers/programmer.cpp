@@ -11,6 +11,58 @@ extern "C" {
 
 static constexpr char kTag[] = "programmer";
 
+namespace {
+
+struct FlashSector {
+  uint16_t number;
+  uint32_t address;
+  uint32_t size;
+};
+
+struct Stm32FlashLayout {
+  static constexpr uint32_t kBase = 0x08000000u;
+  static constexpr uint32_t kVectorsSize = 16u * 1024u; // sector 0
+  static constexpr uint32_t kAppOffset = 0x0000C000u;   // sector 3
+
+  static constexpr FlashSector kSectors[] = {
+      {0, 0x08000000u, 16u * 1024u},   {1, 0x08004000u, 16u * 1024u},
+      {2, 0x08008000u, 16u * 1024u},   {3, 0x0800C000u, 16u * 1024u},
+      {4, 0x08010000u, 64u * 1024u},   {5, 0x08020000u, 128u * 1024u},
+      {6, 0x08040000u, 128u * 1024u},  {7, 0x08060000u, 128u * 1024u},
+      {8, 0x08080000u, 128u * 1024u},  {9, 0x080A0000u, 128u * 1024u},
+      {10, 0x080C0000u, 128u * 1024u}, {11, 0x080E0000u, 128u * 1024u},
+  };
+
+  static bool ResolveOffset(uint32_t offset, uint32_t total_size,
+                            uint32_t *flash_addr, size_t *max_chunk) {
+    if (offset >= total_size || !flash_addr || !max_chunk) {
+      return false;
+    }
+
+    if (offset < kVectorsSize) {
+      *flash_addr = kBase + offset;
+      *max_chunk = kVectorsSize - offset;
+      return true;
+    }
+
+    if (offset < kAppOffset) {
+      return false;
+    }
+
+    *flash_addr = kBase + offset;
+    *max_chunk = total_size - offset;
+    return true;
+  }
+
+  static bool ContainsOffset(uint32_t offset, uint32_t total_size) {
+    uint32_t flash_addr = 0;
+    size_t max_chunk = 0;
+    return ResolveOffset(offset, total_size, &flash_addr, &max_chunk);
+  }
+};
+
+} // namespace
+
 ErrorCode Programmer::Init(const Config &cfg, Uart *uart) {
   if (initialized_)
     return ErrorCode::kOk;
@@ -251,7 +303,78 @@ bool Programmer::GetBootloaderInfo() {
   return true;
 }
 
-bool Programmer::EraseAll() {
+bool Programmer::EraseSectors() {
+  if (!ctx_.uart)
+    return false;
+
+  uint16_t sectors[10];
+  size_t sector_count = 0;
+
+  sectors[sector_count++] = 0; // vectors
+
+  if (ctx_.total_size > Stm32FlashLayout::kAppOffset) {
+    uint32_t remaining = ctx_.total_size - Stm32FlashLayout::kAppOffset;
+    for (const auto &sector : Stm32FlashLayout::kSectors) {
+      if (sector.number < 3) {
+        continue;
+      }
+      sectors[sector_count++] = sector.number;
+      if (remaining <= sector.size) {
+        break;
+      }
+      remaining -= sector.size;
+    }
+  }
+
+  ESP_LOGI(kTag, "Sending EXT_ERASE (0x44) for %u sector(s)...",
+           (unsigned)sector_count);
+
+  uint8_t cmd[] = {0x44, 0xBB};
+  ctx_.uart->Flush();
+  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  uint8_t ack = 0;
+  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "EXT_ERASE failed to get initial ACK (0x%02X)", ack);
+    return false;
+  }
+
+  const uint16_t count_minus_one = static_cast<uint16_t>(sector_count - 1u);
+  uint8_t payload[2 + sizeof(sectors) + 1] = {};
+  size_t payload_len = 0;
+  uint8_t checksum = 0;
+
+  payload[payload_len++] = (count_minus_one >> 8) & 0xFF;
+  payload[payload_len++] = count_minus_one & 0xFF;
+  checksum ^= payload[0];
+  checksum ^= payload[1];
+
+  for (size_t i = 0; i < sector_count; ++i) {
+    const uint8_t hi = (sectors[i] >> 8) & 0xFF;
+    const uint8_t lo = sectors[i] & 0xFF;
+    payload[payload_len++] = hi;
+    payload[payload_len++] = lo;
+    checksum ^= hi;
+    checksum ^= lo;
+  }
+  payload[payload_len++] = checksum;
+
+  ctx_.uart->Write(payload, payload_len);
+  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+
+  const uint32_t kEraseTimeoutMs = 10000;
+  ack = 0;
+  if (ctx_.uart->Read(&ack, 1, kEraseTimeoutMs) != 1 || ack != 0x79) {
+    ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)", ack);
+    return false;
+  }
+
+  ESP_LOGI(kTag, "EXT_ERASE Success (sectors 0 and 3+ only)");
+  return true;
+}
+
+bool Programmer::MassErase() {
   if (!ctx_.uart)
     return false;
 
@@ -429,7 +552,6 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
   // Reset session
   ctx_.total_size = total_size;
   ctx_.written = 0;
-  ctx_.write_addr = 0x08000000;
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
   ctx_.err = 0;
@@ -485,7 +607,7 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
     ESP_LOGW(kTag, "Failed to get bootloader info, proceeding anyway...");
   }
 
-  if (!EraseAll()) {
+  if (!EraseSectors()) {
     ESP_LOGE(kTag, "Failed to mass erase!");
     ctx_.err = 3; // erase_failed
     ctx_.ready = false;
@@ -645,18 +767,33 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
       // Write block
       // Note: This blocks the main loop, but each block is fast (~25ms @
       // 115200)
-      if (!Programmer::GetInstance().WriteBlock(c.write_addr, block, needed)) {
-        c.err = 4; // write_failed
-        ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)c.write_addr);
-        if (c.sm && c.st_error)
-          c.sm->ReqTransition(*c.st_error);
-        return;
+      uint32_t flash_addr = 0;
+      size_t max_chunk = 0;
+      if (Stm32FlashLayout::ResolveOffset(c.written, c.total_size, &flash_addr,
+                                          &max_chunk)) {
+        if (needed > max_chunk) {
+          c.err = 4;
+          ESP_LOGE(kTag, "Write chunk crossed STM32 image region boundary");
+          if (c.sm && c.st_error)
+            c.sm->ReqTransition(*c.st_error);
+          return;
+        }
+
+        if (!Programmer::GetInstance().WriteBlock(flash_addr, block, needed)) {
+          c.err = 4; // write_failed
+          ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)flash_addr);
+          if (c.sm && c.st_error)
+            c.sm->ReqTransition(*c.st_error);
+          return;
+        }
       }
-      c.write_addr += needed;
     }
 
     // Update ongoing SHA256
-    mbedtls_sha256_update(&c.sha_ctx, block, needed);
+    if (c.target == Target::kEsp32 ||
+        Stm32FlashLayout::ContainsOffset(c.written, c.total_size)) {
+      mbedtls_sha256_update(&c.sha_ctx, block, needed);
+    }
     c.written += needed;
   }
 
@@ -705,26 +842,32 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
 }
 
 void Programmer::VerifyingState::OnEnter(Ctx &c, SmTick) {
-  c.verify_addr = 0x08000000;
+  c.verify_offset = 0;
   // Init SHA256 for readback
   mbedtls_sha256_init(&c.sha_ctx);
   mbedtls_sha256_starts(&c.sha_ctx, 0);
 }
 
 void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
-  // Read back in chunks
-  uint32_t start_addr = 0x08000000;
-  uint32_t offset = c.verify_addr - start_addr;
+  while (c.verify_offset < c.total_size) {
+    uint32_t flash_addr = 0;
+    size_t max_chunk = 0;
+    if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size,
+                                         &flash_addr, &max_chunk)) {
+      c.verify_offset = Stm32FlashLayout::kAppOffset;
+      continue;
+    }
 
-  // Process reasonable chunks (e.g. 256)
-  while (offset < c.total_size) {
     size_t chunk = 256;
-    if (chunk > (c.total_size - offset)) {
-      chunk = c.total_size - offset;
+    if (chunk > (c.total_size - c.verify_offset)) {
+      chunk = c.total_size - c.verify_offset;
+    }
+    if (chunk > max_chunk) {
+      chunk = max_chunk;
     }
 
     uint8_t buf[256];
-    if (!Programmer::GetInstance().ReadBlock(c.verify_addr, buf, chunk)) {
+    if (!Programmer::GetInstance().ReadBlock(flash_addr, buf, chunk)) {
       c.err = 5; // verify_read_failed
       if (c.sm && c.st_error)
         c.sm->ReqTransition(*c.st_error);
@@ -732,11 +875,8 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
     }
 
     mbedtls_sha256_update(&c.sha_ctx, buf, chunk);
-    c.verify_addr += chunk;
-    offset = c.verify_addr - start_addr;
+    c.verify_offset += chunk;
 
-    // Yield occasionally if we are blocking too long
-    // But for performance, maybe do a few? 1 block is fine.
     return;
   }
 

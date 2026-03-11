@@ -105,14 +105,10 @@ void M9N::ApplyConfig(uint8_t layer) {
   // - TP1_LEN (U4)
   // - TP1_TIMEGRID (U1)
   // - TP1_SYNC_GNSS (U1)
-  // - TP1_USE_LOCKED (U1)
   // - TP1_ALIGN_TO_TOW (U1)
   // - TP1_POL (U1)
-  // - TP1_PERIOD_LOCK (U4)
-  // - TP1_LEN_LOCK (U4)
   constexpr uint16_t kPayloadLen = (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) +
-                                   (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1) +
-                                   (4 + 4) + (4 + 4);
+                                   (4 + 1) + (4 + 1) + (4 + 1);
   constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
   uint8_t buf[kPacketLen];
 
@@ -152,15 +148,11 @@ void M9N::ApplyConfig(uint8_t layer) {
   write_key_u1(kKeyCfgTp1Ena, static_cast<uint8_t>(config_.tp1.ena));
   write_key_u4(kKeyCfgTp1Period, config_.tp1.period);
   write_key_u4(kKeyCfgTp1Len, config_.tp1.len);
-  write_key_u1(kKeyCfgTp1TimeGrid, config_.tp1.timegrid);
+  write_key_u1(kKeyCfgTp1TimeGrid, static_cast<uint8_t>(config_.tp1.timegrid));
   write_key_u1(kKeyCfgTp1SyncGnss, static_cast<uint8_t>(config_.tp1.sync_gnss));
-  write_key_u1(kKeyCfgTp1UseLocked,
-               static_cast<uint8_t>(config_.tp1.use_locked));
   write_key_u1(kKeyCfgTp1AlignToTow,
                static_cast<uint8_t>(config_.tp1.align_to_tow));
   write_key_u1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
-  write_key_u4(kKeyCfgTp1PeriodLock, config_.tp1.period_lock);
-  write_key_u4(kKeyCfgTp1LenLock, config_.tp1.len_lock);
 
   // Safety check: ensure we filled exactly the expected payload
   if (idx != 10 + kPayloadLen) {

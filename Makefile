@@ -18,7 +18,8 @@ CLEAN_FILES := \
 	config/32raven.config.old \
 	config/defconfig \
 	stm32/Drivers/USER/inc/stm32_config.hpp \
-	stm32/Drivers/USER/inc/stm32_limits.hpp
+	stm32/Drivers/USER/inc/stm32_limits.hpp \
+	stm32/Drivers/USER/inc/ee_schema.hpp
 
 .PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig
 

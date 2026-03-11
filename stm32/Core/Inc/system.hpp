@@ -1,10 +1,10 @@
-#ifndef CORE_SYSTEM_HPP
-#define CORE_SYSTEM_HPP
+#pragma once
 
 #include "board.h"
 #include "button.hpp"
 #include "command_handler.hpp"
 #include "dshot_tim1.hpp"
+#include "ee.hpp"
 #include "fc_link.hpp"
 #include "gpio.hpp"
 #include "led.hpp"
@@ -15,6 +15,7 @@
 #include "uart.hpp"
 #include "user_config.hpp" // For SystemConfig
 #include "vehicle_state.hpp"
+#include "ee_schema.hpp"
 
 class System {
 public:
@@ -27,6 +28,7 @@ public:
   enum class Component {
     kTimeBase = 0,
     kGpio,
+    kEe,
     kLed,
     kUart1,
 
@@ -47,6 +49,7 @@ public:
   Spi1 &GetSpi() { return Spi1::GetInstance(); }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
+  EE &GetEe() { return EE::GetInstance(); }
   Button &Btn() { return Button::GetInstance(); }
   Uart1 &GetUart() { return Uart1::GetInstance(); }
   // Alias for clarity (Console)
@@ -57,6 +60,12 @@ public:
   M9N &GetGps() { return M9N::GetInstance(); }
   M9NService &ServiceM9N() { return m9n_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
+  const ee_schema::ImuAccelCalibration &GetImuAccelCalibration() const {
+    return imu_accel_cal_;
+  }
+  ee_schema::ImuAccelCalibration &GetImuAccelCalibration() {
+    return imu_accel_cal_;
+  }
 
   VehicleState &GetVehicleState() { return vehicle_state_; }
   FcLink &GetFcLink() { return FcLink::GetInstance(); }
@@ -68,6 +77,7 @@ private:
   bool initialized_ = false;
   M9NService m9n_service_;
   VehicleState vehicle_state_;
+  ee_schema::ImuAccelCalibration imu_accel_cal_{};
 
   System();
   ~System() {}
@@ -77,4 +87,3 @@ private:
 };
 
 #define MICROS() (System::GetInstance().Time().Micros())
-#endif // CORE_SYSTEM_HPP

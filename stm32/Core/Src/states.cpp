@@ -33,10 +33,11 @@ static uint32_t g_dbg_seq_gap_total = 0;
 static uint32_t g_prof_link_us = 0;   // FcLink.Poll()
 static uint32_t g_prof_gps_us = 0;    // GPS byte parsing
 static uint32_t g_prof_gpspub_us = 0; // GPS data publish + SendGps
-static uint32_t g_prof_tsync_us = 0;  // TimeSync send
 static uint32_t g_prof_step_us = 0;   // Total OnStep (may include >1 tick)
 static uint32_t g_prof_fast_us = 0;   // OnFastTick max
 static uint32_t g_fast_last_us = 0;
+static uint32_t g_fault_led_last_toggle_us = 0;
+static uint32_t g_fault_log_last_us = 0;
 
 // --- IdleState (Main State) ---
 
@@ -58,22 +59,22 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
   uint32_t ticks = ctx.sys->Time().ConsumeTim5Ticks();
   if (ticks == 0)
     return;
-  uint32_t step_t0 = (uint32_t)ctx.sys->Time().MicrosCorrected();
-  uint32_t t0 = (uint32_t)ctx.sys->Time().MicrosCorrected();
+  uint32_t step_t0 = ctx.sys->Time().Micros();
+  uint32_t t0 = ctx.sys->Time().Micros();
   StepSlow(ctx, now);
-  uint32_t t1 = (uint32_t)ctx.sys->Time().MicrosCorrected();
+  uint32_t t1 = ctx.sys->Time().Micros();
   uint32_t dt = t1 - t0;
   if (dt > g_dbg_max_slow_us)
     g_dbg_max_slow_us = dt;
 
-  uint32_t step_dt = (uint32_t)ctx.sys->Time().MicrosCorrected() - step_t0;
+  uint32_t step_dt = ctx.sys->Time().Micros() - step_t0;
   if (step_dt > g_prof_step_us)
     g_prof_step_us = step_dt;
 }
 
 void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch) {
   // --- Fast Loop (per IMU burst) ---
-  uint32_t fast_t0 = (uint32_t)ctx.sys->Time().MicrosCorrected();
+  uint32_t fast_t0 = ctx.sys->Time().Micros();
   g_fast_last_us = fast_t0;
 
   auto &imu = Icm42688p::GetInstance();
@@ -103,8 +104,7 @@ void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch)
   uint32_t overruns = imu.ImuPathOverrun();
   if (overruns > 0) {
     if (last.timestamp_us - last_overrun_log_us >= 1000000) {
-      ctx.sys->GetFcLink().SendLog("PANIC [0x00000035]: IMU Path Overrun (%lu)",
-                                   overruns);
+      ctx.sys->GetFcLink().SendLog("IMU_OVERRUN fault=%lu", overruns);
       last_overrun_log_us = last.timestamp_us;
     }
   }
@@ -121,7 +121,7 @@ void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch)
 
   // 3. Controller / Mixer / DShot (future)
 
-  uint32_t t1 = (uint32_t)ctx.sys->Time().MicrosCorrected();
+  uint32_t t1 = ctx.sys->Time().Micros();
 
   // Capture fast-tick duration
   uint32_t fast_dt = (t1 > fast_t0) ? (t1 - fast_t0) : 0;
@@ -131,7 +131,7 @@ void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch)
 
 void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   auto micros = [&]() -> uint32_t {
-    return (uint32_t)ctx.sys->Time().MicrosCorrected();
+    return ctx.sys->Time().Micros();
   };
   auto budget_exhausted = [&]() -> bool {
     return (uint32_t)(micros() - g_fast_last_us) >= kSlowBudgetFromFastUs;
@@ -139,6 +139,26 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
   if (budget_exhausted())
     return;
+
+  auto &imu = Icm42688p::GetInstance();
+
+  if (imu.ImuPathOverrun() > 0) {
+    const uint32_t current_us = micros();
+    const uint32_t fault_led_period_us =
+        MILLIS_TO_MICROS(kIcm42688pConfig.recovery.fault_led_period_ms);
+
+    if ((current_us - g_fault_led_last_toggle_us) >= fault_led_period_us) {
+      ctx.sys->Led().Toggle();
+      g_fault_led_last_toggle_us = current_us;
+    }
+
+    if ((current_us - g_fault_log_last_us) >= SECONDS_TO_MICROS(1)) {
+      uint32_t args[4] = {imu.ImuPathOverrun(), imu.DmaStartFailCount(),
+                          imu.ParseFailCount(), imu.LastBadHeader()};
+      ctx.sys->GetFcLink().SendLogBinary(3, 4, args);
+      g_fault_log_last_us = current_us;
+    }
+  }
 
   // 1. Poll Telemetry Link (UART1 <-> ESP32)
   {
@@ -174,8 +194,9 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   // 3. Best-effort IMU telemetry (50Hz): consumes latest state only.
   {
     uint32_t t0 = micros();
-    Icm42688p::SampleBatch batch{};
-    if (Icm42688p::GetInstance().PeekLatestBatch(batch) && batch.count > 0) {
+    const Icm42688p::SampleBatch batch =
+        Icm42688p::GetInstance().GetLatestBatch();
+    if (batch.count > 0) {
       const Icm42688p::Sample &latest = batch.samples[batch.count - 1u];
       if (latest.timestamp_us - last_imu_send_us_ >= 20000) {
         last_imu_send_us_ = latest.timestamp_us;
@@ -202,7 +223,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     // Note: DOP message disabled (redundant with COV)
 
     GpsData t;
-    t.timestamp_us = ctx.sys->Time().MicrosCorrected();
+    t.timestamp_us = ctx.sys->Time().Micros();
     t.lat = pvt.lat;
     t.lon = pvt.lon;
     t.alt = pvt.hMSL;
@@ -239,23 +260,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
       g_prof_gpspub_us = dt;
   }
 
-  // 5. Send TimeSync (1Hz)
-  if (now - last_time_sync_ms_ >= 1000000) { // now is micros!
-    uint32_t t0 = micros();
-    last_time_sync_ms_ = now;
-
-    message::TimeSyncMsg msg;
-    msg.timestamp = ctx.sys->Time().MicrosCorrected();
-    msg.drift_micros = (int32_t)ctx.sys->Time().GetDriftMicros();
-    msg.synced = ctx.sys->Time().IsGpsSynchronized() ? 1 : 0;
-
-    ctx.sys->GetFcLink().SendTimeSync(msg);
-    uint32_t dt = micros() - t0;
-    if (dt > g_prof_tsync_us)
-      g_prof_tsync_us = dt;
-  }
-
-  // 6. Print Diagnostics (1Hz) - moved from OnFastTick to avoid blocking IMU
+  // 5. Print Diagnostics (1Hz) - moved from OnFastTick to avoid blocking IMU
   static uint32_t last_diag_print = 0;
   static uint32_t last_drop_snapshot = 0;
   static uint32_t high_loss_consec = 0;
@@ -264,7 +269,6 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   if (current_time - last_diag_print >= 1000000) {
     last_diag_print = current_time;
 
-    auto &imu = Icm42688p::GetInstance();
     uint32_t drops_now = imu.MainMissedTicks();
     uint32_t drop_rate_per_sec = drops_now - last_drop_snapshot;
     last_drop_snapshot = drops_now;
@@ -288,13 +292,12 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
         g_dbg_seq_gap_events, g_dbg_seq_gap_total, max_raw_dt_us_);
 
     // Send diagnostics as binary (ESP32 does formatting)
-    // Format ID 1: "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu TSync=%lu
-    // Step=%lu Slow=%lu Send=%lu"
+    // Format ID 1: "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu Send=%lu"
     {
-      uint32_t args[8] = {g_prof_fast_us,    g_prof_link_us,  g_prof_gps_us,
-                          g_prof_gpspub_us,  g_prof_tsync_us, g_prof_step_us,
-                          g_dbg_max_slow_us, max_send_us_};
-      ctx.sys->GetFcLink().SendLogBinary(1, 8, args);
+      uint32_t args[7] = {g_prof_fast_us,   g_prof_link_us, g_prof_gps_us,
+                          g_prof_gpspub_us, g_prof_step_us, g_dbg_max_slow_us,
+                          max_send_us_};
+      ctx.sys->GetFcLink().SendLogBinary(1, 7, args);
     }
 
     // Format ID 2: "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu Loss=%lu"
@@ -317,7 +320,6 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     g_prof_link_us = 0;
     g_prof_gps_us = 0;
     g_prof_gpspub_us = 0;
-    g_prof_tsync_us = 0;
     g_prof_step_us = 0;
     g_prof_fast_us = 0;
   }
