@@ -18,6 +18,7 @@ public:
 
   struct Config {
     gpio_num_t pin = GPIO_NUM_NC;
+    bool active_low = false;
 
     ledc_mode_t speed_mode = LEDC_LOW_SPEED_MODE;
     ledc_timer_t timer_num = LEDC_TIMER_1;
@@ -26,7 +27,6 @@ public:
     ledc_timer_bit_t duty_resolution = LEDC_TIMER_10_BIT;
     uint32_t init_freq_hz = 2000;
     float duty_cycle = 0.5f;
-    bool output_invert = false;
   };
 
   ErrorCode Start(uint32_t freq_hz);

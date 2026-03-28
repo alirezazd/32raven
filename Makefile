@@ -17,6 +17,7 @@ CLEAN_DIRS := \
 CLEAN_FILES := \
 	config/32raven.config.old \
 	config/defconfig \
+	esp32/main/esp32_config.hpp \
 	stm32/Drivers/USER/inc/stm32_config.hpp \
 	stm32/Drivers/USER/inc/stm32_limits.hpp \
 	stm32/Drivers/USER/inc/ee_schema.hpp

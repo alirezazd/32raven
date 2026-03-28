@@ -49,6 +49,65 @@ M9N_BAUD_RATE_CHOICES = {
     "STM32_GPS_M9N_BAUD_921600": "M9N::BaudRate::k921600",
 }
 
+M9N_UART_BAUD_RATE_CHOICES = {
+    "STM32_GPS_M9N_BAUD_9600": "9600",
+    "STM32_GPS_M9N_BAUD_19200": "19200",
+    "STM32_GPS_M9N_BAUD_38400": "38400",
+    "STM32_GPS_M9N_BAUD_57600": "57600",
+    "STM32_GPS_M9N_BAUD_115200": "115200",
+    "STM32_GPS_M9N_BAUD_230400": "230400",
+    "STM32_GPS_M9N_BAUD_460800": "460800",
+    "STM32_GPS_M9N_BAUD_921600": "921600",
+}
+
+FCLINK_UART_BAUD_RATE_CHOICES = {
+    "ESP32_FCLINK_UART_BAUD_9600": "9600",
+    "ESP32_FCLINK_UART_BAUD_19200": "19200",
+    "ESP32_FCLINK_UART_BAUD_38400": "38400",
+    "ESP32_FCLINK_UART_BAUD_57600": "57600",
+    "ESP32_FCLINK_UART_BAUD_115200": "115200",
+    "ESP32_FCLINK_UART_BAUD_230400": "230400",
+    "ESP32_FCLINK_UART_BAUD_460800": "460800",
+    "ESP32_FCLINK_UART_BAUD_921600": "921600",
+    "ESP32_FCLINK_UART_BAUD_1000000": "1000000",
+    "ESP32_FCLINK_UART_BAUD_2000000": "2000000",
+    "ESP32_FCLINK_UART_BAUD_5000000": "5000000",
+}
+
+FCLINK_UART_WORD_LENGTH_CHOICES = {
+    "STM32_FCLINK_UART_WORD_LENGTH_8BITS": "UartWordLength::k8Bits",
+    "STM32_FCLINK_UART_WORD_LENGTH_9BITS": "UartWordLength::k9Bits",
+}
+
+FCLINK_UART_STOP_BITS_CHOICES = {
+    "STM32_FCLINK_UART_STOP_BITS_1": "UartStopBits::k1",
+    "STM32_FCLINK_UART_STOP_BITS_2": "UartStopBits::k2",
+}
+
+FCLINK_UART_PARITY_CHOICES = {
+    "STM32_FCLINK_UART_PARITY_NONE": "UartParity::kNone",
+    "STM32_FCLINK_UART_PARITY_EVEN": "UartParity::kEven",
+    "STM32_FCLINK_UART_PARITY_ODD": "UartParity::kOdd",
+}
+
+FCLINK_UART_MODE_CHOICES = {
+    "STM32_FCLINK_UART_MODE_RX": "UartMode::kRx",
+    "STM32_FCLINK_UART_MODE_TX": "UartMode::kTx",
+    "STM32_FCLINK_UART_MODE_TX_RX": "UartMode::kTxRx",
+}
+
+FCLINK_UART_HW_FLOW_CONTROL_CHOICES = {
+    "STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE": "UartHwFlowControl::kNone",
+    "STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS": "UartHwFlowControl::kRts",
+    "STM32_FCLINK_UART_HW_FLOW_CONTROL_CTS": "UartHwFlowControl::kCts",
+    "STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS_CTS": "UartHwFlowControl::kRtsCts",
+}
+
+FCLINK_UART_OVERSAMPLING_CHOICES = {
+    "STM32_FCLINK_UART_OVERSAMPLING_16": "UartOverSampling::k16",
+    "STM32_FCLINK_UART_OVERSAMPLING_8": "UartOverSampling::k8",
+}
+
 M9N_DYNAMIC_MODEL_CHOICES = {
     "STM32_GPS_M9N_DYN_MODEL_PORTABLE": "M9N::DynamicModel::kPortable",
     "STM32_GPS_M9N_DYN_MODEL_STATIONARY": "M9N::DynamicModel::kStationary",
@@ -68,6 +127,40 @@ M9N_TIMEGRID_CHOICES = {
     "STM32_GPS_M9N_TP1_TIMEGRID_GLONASS": "M9N::TimeGrid::kGlonass",
     "STM32_GPS_M9N_TP1_TIMEGRID_BEIDOU": "M9N::TimeGrid::kBeiDou",
     "STM32_GPS_M9N_TP1_TIMEGRID_GALILEO": "M9N::TimeGrid::kGalileo",
+}
+
+M9N_UART_WORD_LENGTH_CHOICES = {
+    "STM32_GPS_M9N_UART_WORD_LENGTH_8BITS": "UartWordLength::k8Bits",
+    "STM32_GPS_M9N_UART_WORD_LENGTH_9BITS": "UartWordLength::k9Bits",
+}
+
+M9N_UART_STOP_BITS_CHOICES = {
+    "STM32_GPS_M9N_UART_STOP_BITS_1": "UartStopBits::k1",
+    "STM32_GPS_M9N_UART_STOP_BITS_2": "UartStopBits::k2",
+}
+
+M9N_UART_PARITY_CHOICES = {
+    "STM32_GPS_M9N_UART_PARITY_NONE": "UartParity::kNone",
+    "STM32_GPS_M9N_UART_PARITY_EVEN": "UartParity::kEven",
+    "STM32_GPS_M9N_UART_PARITY_ODD": "UartParity::kOdd",
+}
+
+M9N_UART_MODE_CHOICES = {
+    "STM32_GPS_M9N_UART_MODE_RX": "UartMode::kRx",
+    "STM32_GPS_M9N_UART_MODE_TX": "UartMode::kTx",
+    "STM32_GPS_M9N_UART_MODE_TX_RX": "UartMode::kTxRx",
+}
+
+M9N_UART_HW_FLOW_CONTROL_CHOICES = {
+    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_NONE": "UartHwFlowControl::kNone",
+    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_RTS": "UartHwFlowControl::kRts",
+    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_CTS": "UartHwFlowControl::kCts",
+    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_RTS_CTS": "UartHwFlowControl::kRtsCts",
+}
+
+M9N_UART_OVERSAMPLING_CHOICES = {
+    "STM32_GPS_M9N_UART_OVERSAMPLING_16": "UartOverSampling::k16",
+    "STM32_GPS_M9N_UART_OVERSAMPLING_8": "UartOverSampling::k8",
 }
 
 ODR_CHOICES = {
@@ -184,6 +277,26 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
     spi_prescaler = _choice_value(kconf, SPI_PRESCALER_CHOICES)
     icm20948_spi_prescaler = _choice_value(kconf, ICM20948_SPI_PRESCALER_CHOICES)
     m9n_baud_rate = _choice_value(kconf, M9N_BAUD_RATE_CHOICES)
+    m9n_uart_baud_rate = _choice_value(kconf, M9N_UART_BAUD_RATE_CHOICES)
+    fclink_uart_baud_rate = _choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES)
+    fclink_uart_word_length = _choice_value(kconf, FCLINK_UART_WORD_LENGTH_CHOICES)
+    fclink_uart_stop_bits = _choice_value(kconf, FCLINK_UART_STOP_BITS_CHOICES)
+    fclink_uart_parity = _choice_value(kconf, FCLINK_UART_PARITY_CHOICES)
+    fclink_uart_mode = _choice_value(kconf, FCLINK_UART_MODE_CHOICES)
+    fclink_uart_hw_flow_control = _choice_value(
+        kconf, FCLINK_UART_HW_FLOW_CONTROL_CHOICES
+    )
+    fclink_uart_oversampling = _choice_value(
+        kconf, FCLINK_UART_OVERSAMPLING_CHOICES
+    )
+    m9n_uart_word_length = _choice_value(kconf, M9N_UART_WORD_LENGTH_CHOICES)
+    m9n_uart_stop_bits = _choice_value(kconf, M9N_UART_STOP_BITS_CHOICES)
+    m9n_uart_parity = _choice_value(kconf, M9N_UART_PARITY_CHOICES)
+    m9n_uart_mode = _choice_value(kconf, M9N_UART_MODE_CHOICES)
+    m9n_uart_hw_flow_control = _choice_value(
+        kconf, M9N_UART_HW_FLOW_CONTROL_CHOICES
+    )
+    m9n_uart_oversampling = _choice_value(kconf, M9N_UART_OVERSAMPLING_CHOICES)
     m9n_dynamic_model = _choice_value(kconf, M9N_DYNAMIC_MODEL_CHOICES)
     m9n_timegrid = _choice_value(kconf, M9N_TIMEGRID_CHOICES)
     gyro_odr = _choice_value(kconf, ODR_CHOICES)
@@ -202,6 +315,27 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
             #include "rc_receiver.hpp"
             #include "spi.hpp"
             #include "stm32_limits.hpp"
+            #include "uart.hpp"
+
+            inline constexpr UartConfig kUart1Config = {{
+                .baud_rate = {fclink_uart_baud_rate},
+                .word_length = {fclink_uart_word_length},
+                .stop_bits = {fclink_uart_stop_bits},
+                .parity = {fclink_uart_parity},
+                .mode = {fclink_uart_mode},
+                .hw_flow_control = {fclink_uart_hw_flow_control},
+                .over_sampling = {fclink_uart_oversampling},
+            }};
+
+            inline constexpr UartConfig kUart2Config = {{
+                .baud_rate = {m9n_uart_baud_rate},
+                .word_length = {m9n_uart_word_length},
+                .stop_bits = {m9n_uart_stop_bits},
+                .parity = {m9n_uart_parity},
+                .mode = {m9n_uart_mode},
+                .hw_flow_control = {m9n_uart_hw_flow_control},
+                .over_sampling = {m9n_uart_oversampling},
+            }};
 
             inline constexpr Icm42688p::Config kIcm42688pConfig = {{
                 .spi_prescaler = {spi_prescaler},

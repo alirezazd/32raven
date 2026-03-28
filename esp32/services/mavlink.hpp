@@ -2,6 +2,7 @@
 
 #include "../drivers/uart.hpp"
 #include "message.hpp" // for message::GpsData
+#include <array>
 #include <cstdint>
 #include <mavlink.h>
 
@@ -23,21 +24,37 @@ struct RcState {
 class Mavlink {
 public:
   struct Config {
-    uint8_t sysid = 0;
-    uint8_t compid = 0;
+    struct Identity {
+      uint8_t sysid = 0;
+      uint8_t compid = 0;
+    } identity;
 
-    // Telemetry periods in ms (0 = disabled)
-    // Budget: ~125 bytes/sec for ELRS 4-channel mode
-    uint16_t hb_period_ms = 0;   // HEARTBEAT
-    uint16_t gps_period_ms = 0;  // GPS_RAW_INT
-    uint16_t att_period_ms = 0;  // ATTITUDE
-    uint16_t gpos_period_ms = 0; // GLOBAL_POSITION_INT
-    uint16_t batt_period_ms = 0; // BATTERY_STATUS
+    struct Rx {
+      uint16_t read_chunk_size = 0;
+    } rx;
+
+    struct Tx {
+      struct Periods {
+        uint16_t hb_ms = 0;
+        uint16_t gps_ms = 0;
+        uint16_t att_ms = 0;
+        uint16_t gpos_ms = 0;
+        uint16_t batt_ms = 0;
+      } periods;
+
+      struct Schedule {
+        uint16_t hb_deadline_ms = 0;
+        uint16_t gps_start_delay_ms = 0;
+        uint16_t att_start_delay_ms = 0;
+        uint16_t gpos_start_delay_ms = 0;
+        uint16_t batt_start_delay_ms = 0;
+      } schedule;
+    } tx;
   };
 
   static Mavlink &GetInstance();
 
-  void Init(const Config &cfg, Uart *uart);
+  void Init(const Config &cfg, UartEp2 *uart);
 
   // RX: reads UART and parses inbound MAVLink (RC override only, for now)
   void Poll(uint32_t now_ms);
@@ -57,7 +74,7 @@ private:
   Mavlink &operator=(const Mavlink &) = delete;
 
   // ---------- Common ----------
-  Uart *uart_ = nullptr;
+  UartEp2 *uart_ = nullptr;
   bool initialized_ = false;
   Config cfg_{};
 
@@ -65,6 +82,8 @@ private:
   RcState rc_state_{};
   mavlink_message_t rx_msg_{};
   mavlink_status_t rx_status_{};
+  static constexpr size_t kMaxRxReadChunkSize = 256;
+  std::array<uint8_t, kMaxRxReadChunkSize> rx_buf_{};
 
   void HandleRxByte(uint8_t b, uint32_t now_ms);
   void HandleMessage(const mavlink_message_t &msg, uint32_t now_ms);
@@ -78,7 +97,6 @@ private:
   void ServiceInFlightTx();
 
   // ---------- TX: Heartbeat timing ----------
-  static constexpr uint32_t kHbDeadlineMs = 1500; // max allowed gap
   uint32_t last_hb_done_ms_ = 0;
 
   // ---------- Latest-only telemetry cache ----------

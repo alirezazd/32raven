@@ -64,7 +64,7 @@ struct Stm32FlashLayout {
 
 } // namespace
 
-void Programmer::Init(const Config &cfg, Uart *uart) {
+void Programmer::Init(const Config &cfg, UartFcLink *uart) {
   if (initialized_) {
     Panic(ErrorCode::kProgrammerReinit);
   }
@@ -75,6 +75,7 @@ void Programmer::Init(const Config &cfg, Uart *uart) {
   if (!ctx_.uart) {
     Panic(ErrorCode::kProgrammerUartNull);
   }
+  ctx_.restore_baud_rate = ctx_.uart->GetConfig().baud_rate;
 
   // Init pins
   // Bind state pointers
@@ -102,12 +103,12 @@ void Programmer::Init(const Config &cfg, Uart *uart) {
 }
 
 void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
-  const int boot0 = ctx_.cfg.boot0_gpio;
-  const int nrst = ctx_.cfg.nrst_gpio;
+  const gpio_num_t boot0 = ctx_.cfg.boot0_pin;
+  const gpio_num_t nrst = ctx_.cfg.nrst_pin;
 
-  if (boot0 >= 0) {
+  if (boot0 != GPIO_NUM_NC) {
     gpio_config_t io{};
-    io.pin_bit_mask = (1ULL << boot0);
+    io.pin_bit_mask = (1ULL << static_cast<unsigned>(boot0));
     io.mode = GPIO_MODE_OUTPUT;
     io.pull_up_en = GPIO_PULLUP_DISABLE;
     io.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -118,9 +119,9 @@ void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
     Boot0Set(false);
   }
 
-  if (nrst >= 0) {
+  if (nrst != GPIO_NUM_NC) {
     gpio_config_t io{};
-    io.pin_bit_mask = (1ULL << nrst);
+    io.pin_bit_mask = (1ULL << static_cast<unsigned>(nrst));
     io.mode = GPIO_MODE_OUTPUT;
     io.pull_up_en = GPIO_PULLUP_DISABLE;
     io.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -129,31 +130,31 @@ void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
 
     // Default NRST deasserted (high if active-low reset)
     // Default NRST deasserted (high for active-low reset)
-    gpio_set_level((gpio_num_t)nrst, 1);
+    gpio_set_level(nrst, 1);
   }
 }
 
 void Programmer::Boot0Set(bool on) {
-  const int pin = ctx_.cfg.boot0_gpio;
-  if (pin < 0)
+  const gpio_num_t pin = ctx_.cfg.boot0_pin;
+  if (pin == GPIO_NUM_NC)
     return;
 
   // BOOT0 is assumed active-high
-  gpio_set_level((gpio_num_t)pin, on ? 1 : 0);
+  gpio_set_level(pin, on ? 1 : 0);
 }
 
 void Programmer::NrstPulse(uint32_t pulse_ms) {
-  const int pin = ctx_.cfg.nrst_gpio;
-  if (pin < 0)
+  const gpio_num_t pin = ctx_.cfg.nrst_pin;
+  if (pin == GPIO_NUM_NC)
     return;
 
   // NRST is assumed active-low (assert=0, deassert=1)
   const int assert_level = 0;
   const int deassert_level = 1;
 
-  gpio_set_level((gpio_num_t)pin, assert_level);
+  gpio_set_level(pin, assert_level);
   SleepMs(pulse_ms);
-  gpio_set_level((gpio_num_t)pin, deassert_level);
+  gpio_set_level(pin, deassert_level);
 }
 
 bool Programmer::EnterBootloader() {
@@ -431,8 +432,8 @@ bool Programmer::Boot() {
   // Toggle Reset Pin
   NrstPulse(ctx_.cfg.reset_pulse_ms);
 
-  // Restore operational baud rate for Application
-  ctx_.uart->SetBaudRate(ctx_.cfg.kOperationalBaudRate);
+  // Restore application baud rate.
+  ctx_.uart->SetBaudRate(ctx_.restore_baud_rate);
 
   return true;
 }
@@ -644,9 +645,9 @@ void Programmer::Abort(SmTick now) {
 
   sm_.Start(StIdle_, now);
 
-  // Restore operational baud rate
+  // Restore application baud rate.
   if (ctx_.uart) {
-    ctx_.uart->SetBaudRate(ctx_.cfg.kOperationalBaudRate);
+    ctx_.uart->SetBaudRate(ctx_.restore_baud_rate);
   }
 }
 
