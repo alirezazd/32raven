@@ -40,7 +40,7 @@ void System::InitComponent(Component c) {
     ESP_LOGI(kTag, "Button driver initialized");
     break;
   case Component::kWifi:
-    Wifi().Init(::WifiController::Config{});
+    Wifi().Init(kWifiConfig);
     ESP_LOGI(kTag, "Wifi driver initialized");
     break;
   case Component::kTcpServer:

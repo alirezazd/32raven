@@ -27,6 +27,18 @@ void WifiController::Init(const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::kWifiReinit);
   }
+  const char *ssid = cfg.ap.ssid != nullptr ? cfg.ap.ssid : "";
+  const char *password = cfg.ap.password != nullptr ? cfg.ap.password : "";
+  size_t ssid_len = strlen(ssid);
+  size_t password_len = strlen(password);
+  if (ssid_len == 0 || ssid_len > 32 || password_len > 63 ||
+      (password_len > 0 && password_len < 8) || cfg.ap.channel == 0 ||
+      cfg.ap.max_connections == 0 || cfg.ap.beacon_interval_tu < 100 ||
+      cfg.ap.beacon_interval_tu > 60000 ||
+      (cfg.ap.beacon_interval_tu % 100) != 0 ||
+      (cfg.pmf.required && !cfg.pmf.capable)) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
   cfg_ = cfg;
 
   // 1. NVS
@@ -119,16 +131,19 @@ bool WifiController::StartAp() {
 
   // 3. Config
   wifi_config_t ap{};
-  strlcpy((char *)ap.ap.ssid, cfg_.ssid, sizeof(ap.ap.ssid));
-  strlcpy((char *)ap.ap.password, cfg_.pass, sizeof(ap.ap.password));
-  ap.ap.ssid_len = strlen(cfg_.ssid);
-  ap.ap.channel = cfg_.channel;
-  ap.ap.max_connection = cfg_.max_conn;
-  ap.ap.beacon_interval = 100;
+  const char *ssid = cfg_.ap.ssid != nullptr ? cfg_.ap.ssid : "";
+  const char *password = cfg_.ap.password != nullptr ? cfg_.ap.password : "";
+  strlcpy((char *)ap.ap.ssid, ssid, sizeof(ap.ap.ssid));
+  strlcpy((char *)ap.ap.password, password, sizeof(ap.ap.password));
+  ap.ap.ssid_len = strlen(ssid);
+  ap.ap.channel = cfg_.ap.channel;
+  ap.ap.max_connection = cfg_.ap.max_connections;
+  ap.ap.beacon_interval = cfg_.ap.beacon_interval_tu;
+  ap.ap.ssid_hidden = cfg_.ap.hidden ? 1 : 0;
   ap.ap.authmode =
-      (cfg_.pass && cfg_.pass[0] != '\0') ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
-  ap.ap.pmf_cfg.capable = true;
-  ap.ap.pmf_cfg.required = false;
+      (password[0] != '\0') ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+  ap.ap.pmf_cfg.capable = cfg_.pmf.capable;
+  ap.ap.pmf_cfg.required = cfg_.pmf.required;
 
   e = esp_wifi_set_config(WIFI_IF_AP, &ap);
   LogErr("esp_wifi_set_config", e);
@@ -142,10 +157,13 @@ bool WifiController::StartAp() {
     return false;
 
   wifi_on_ = true;
-  ESP_LOGI(kTag, "AP started SSID=%s", cfg_.ssid);
+  ESP_LOGI(kTag, "AP started SSID=%s", ssid);
 
-  // Disable power save to prevent "Assoc Expired" (reason=4) loops
-  esp_wifi_set_ps(WIFI_PS_NONE);
+  // Apply the configured Wi-Fi driver power-save policy.
+  e = esp_wifi_set_ps(cfg_.power_save);
+  if (e != ESP_OK) {
+    ESP_LOGW(kTag, "esp_wifi_set_ps: %s", esp_err_to_name(e));
+  }
 
   return true;
 }
