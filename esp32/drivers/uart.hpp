@@ -3,13 +3,11 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "panic.hpp"
-
 class Uart {
 public:
   enum class Id : uint8_t { kStm32, kEp2, kCount };
   struct Config {
-    int uart_num = 1; // ESP32 UART peripheral number
+    uint8_t uart_num = 1; // ESP32 UART peripheral number
     gpio_num_t tx_gpio = GPIO_NUM_4;
     gpio_num_t rx_gpio = GPIO_NUM_5;
 
@@ -31,7 +29,7 @@ public:
 private:
   friend class System;
 
-  ErrorCode Init(const Config &cfg);
+  void Init(const Config &cfg);
 
   Config cfg_{};
   bool initialized_ = false;

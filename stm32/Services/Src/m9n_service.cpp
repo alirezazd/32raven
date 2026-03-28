@@ -190,10 +190,10 @@ void CkBState::OnStep(ParserContext &ctx, SmTick) {
                            ((uint32_t)ctx.payload_buf[3] << 24);
 
     uint64_t now_us = Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
-    constexpr uint64_t kMaxAgeUs = 150000;
+    constexpr uint64_t max_age_us = 150000;
 
     if (ctx.epoch_ready && eoe_itow_ms == ctx.pvt_itow_ms &&
-        (uint64_t)(now_us - ctx.pvt_rx_us) < kMaxAgeUs) {
+        (uint64_t)(now_us - ctx.pvt_rx_us) < max_age_us) {
       ctx.new_data_out = true;
     }
 

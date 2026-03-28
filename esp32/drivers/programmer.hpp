@@ -2,8 +2,6 @@
 #include "mbedtls/sha256.h" // IWYU pragma: keep
 #include "uart.hpp"
 
-#include "error_code.hpp"
-
 extern "C" {
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
@@ -67,7 +65,7 @@ public:
 
 private:
   friend class System;
-  ErrorCode Init(const Config &cfg, Uart *uart);
+  void Init(const Config &cfg, Uart *uart);
   // ---- Internal context used by StateMachine<Ctx> ----
   struct Ctx {
     Uart *uart = nullptr;

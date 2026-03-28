@@ -1,4 +1,5 @@
 #include "wifi.hpp"
+#include "panic.hpp"
 #include "system.hpp"
 
 extern "C" {
@@ -22,9 +23,10 @@ static inline void LogErr(const char *what, esp_err_t e) {
     ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
 }
 
-ErrorCode WifiController::Init(const Config &cfg) {
-  if (initialized_)
-    return ErrorCode::kOk;
+void WifiController::Init(const Config &cfg) {
+  if (initialized_) {
+    Panic(ErrorCode::kWifiReinit);
+  }
   cfg_ = cfg;
 
   // 1. NVS
@@ -36,21 +38,21 @@ ErrorCode WifiController::Init(const Config &cfg) {
   }
   LogErr("nvs_flash_init", e);
   if (e != ESP_OK) {
-    return ErrorCode::kWifiNvsInitFailed;
+    Panic(ErrorCode::kWifiNvsInitFailed);
   }
 
   // 2. Netif (LwIP)
   e = esp_netif_init();
   LogErr("esp_netif_init", e);
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
-    return ErrorCode::kWifiNetifInitFailed;
+    Panic(ErrorCode::kWifiNetifInitFailed);
   }
 
   // 3. Event Loop
   e = esp_event_loop_create_default();
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
     LogErr("esp_event_loop_create_default", e);
-    return ErrorCode::kWifiEventLoopFailed;
+    Panic(ErrorCode::kWifiEventLoopFailed);
   }
 
   // 4. WiFi Init
@@ -60,7 +62,7 @@ ErrorCode WifiController::Init(const Config &cfg) {
     // already init
   } else if (e != ESP_OK) {
     LogErr("esp_wifi_init", e);
-    return ErrorCode::kWifiInitFailed;
+    Panic(ErrorCode::kWifiInitFailed);
   }
 
   // 5. Storage RAM
@@ -69,12 +71,11 @@ ErrorCode WifiController::Init(const Config &cfg) {
   // Storage failure might be non-critical, but let's be safe?
   // User asked for error handling. Let's assume critical.
   if (e != ESP_OK) {
-    return ErrorCode::kWifiSetStorageFailed;
+    Panic(ErrorCode::kWifiSetStorageFailed);
   }
 
   initialized_ = true;
   ESP_LOGI(kTag, "initialized");
-  return ErrorCode::kOk;
 }
 
 bool WifiController::StartAp() {

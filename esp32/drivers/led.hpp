@@ -1,8 +1,6 @@
 #pragma once
 #include <cstddef>
 
-#include "error_code.hpp"
-
 extern "C" {
 #include "hal/gpio_types.h" // IWYU pragma: keep
 }
@@ -46,7 +44,7 @@ public:
 private:
   friend class System;
 
-  ErrorCode Init(const Config &cfg);
+  void Init(const Config &cfg);
 
   LED() = default;
   ~LED() = default;

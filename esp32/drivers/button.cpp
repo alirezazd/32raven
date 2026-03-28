@@ -1,4 +1,5 @@
 #include "button.hpp"
+#include "panic.hpp"
 
 extern "C" {
 #include "driver/gpio.h"
@@ -7,9 +8,10 @@ extern "C" {
 
 static constexpr const char *kTag = "button";
 
-ErrorCode Button::Init(const Config &cfg) {
-  if (initialized_)
-    return ErrorCode::kOk;
+void Button::Init(const Config &cfg) {
+  if (initialized_) {
+    Panic(ErrorCode::kButtonReinit);
+  }
 
   pin_ = cfg.pin;
   active_low_ = cfg.active_low;
@@ -25,7 +27,7 @@ ErrorCode Button::Init(const Config &cfg) {
   io_conf.pull_up_en = cfg.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 
   if (gpio_config(&io_conf) != ESP_OK) {
-    return ErrorCode::kButtonGpioConfigFailed;
+    Panic(ErrorCode::kButtonGpioConfigFailed);
   }
 
   // Initialize debouncer from current level
@@ -47,31 +49,30 @@ ErrorCode Button::Init(const Config &cfg) {
       (unsigned)cfg.debounce_ms, (unsigned)cfg.long_press_ms);
 
   initialized_ = true;
-  return ErrorCode::kOk;
 }
 
 bool Button::ReadRawPressed() const {
-  const int kLvl = gpio_get_level(pin_);
-  const bool kRawPressed = (kLvl != 0);
-  return active_low_ ? !kRawPressed : kRawPressed;
+  const int lvl = gpio_get_level(pin_);
+  const bool raw_pressed = (lvl != 0);
+  return active_low_ ? !raw_pressed : raw_pressed;
 }
 
 void Button::Poll(TimeMs now_ms) {
   if (!initialized_)
     return;
 
-  const bool kRaw = ReadRawPressed();
+  const bool raw = ReadRawPressed();
 
-  if (kRaw != raw_last_) {
-    ESP_LOGD(kTag, "raw change -> %d at %u ms", (int)kRaw, (unsigned)now_ms);
-    raw_last_ = kRaw;
+  if (raw != raw_last_) {
+    ESP_LOGD(kTag, "raw change -> %d at %u ms", (int)raw, (unsigned)now_ms);
+    raw_last_ = raw;
     raw_last_change_ms_ = now_ms;
   }
 
   // if raw has been stable long enough, accept it
-  if (kRaw != stable_) {
+  if (raw != stable_) {
     if ((TimeMs)(now_ms - raw_last_change_ms_) >= debounce_ms_) {
-      stable_ = kRaw;
+      stable_ = raw;
       ESP_LOGI(kTag, "debounced -> %d at %u ms", (int)stable_,
                (unsigned)now_ms);
 
@@ -101,19 +102,19 @@ void Button::Poll(TimeMs now_ms) {
 }
 
 bool Button::ConsumeLongPress() {
-  const bool kV = ev_long_;
+  const bool v = ev_long_;
   ev_long_ = false;
-  return kV;
+  return v;
 }
 
 bool Button::ConsumePress() {
-  const bool kV = ev_press_;
+  const bool v = ev_press_;
   ev_press_ = false;
-  return kV;
+  return v;
 }
 
 bool Button::ConsumeRelease() {
-  const bool kV = ev_release_;
+  const bool v = ev_release_;
   ev_release_ = false;
-  return kV;
+  return v;
 }

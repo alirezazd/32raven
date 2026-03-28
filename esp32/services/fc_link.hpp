@@ -1,5 +1,6 @@
 #pragma once
 
+#include "mavlink.hpp"
 #include "message.hpp"
 #include "ring_buffer.hpp"
 #include "uart.hpp"
@@ -18,6 +19,7 @@ public:
 
   // API
   bool SendPacket(const message::Packet &pkt);
+  bool SendRcState(const RcState &state);
   bool Dispatch(const message::Packet &pkt);
   bool PerformHandshake(); // Blocking handshake (Ping/Pong)
 
@@ -50,6 +52,9 @@ private:
     kActive
   } state_ = LogicState::kInit;
   uint32_t last_activity_ = 0;
+  // TODO: use fixed smaple rate and get rid of these
+  uint32_t last_rc_forward_ms_ = 0;
+  uint32_t last_radio_status_forward_ms_ = 0;
 
   // Epistole Parser State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };

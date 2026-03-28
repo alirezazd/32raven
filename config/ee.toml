@@ -11,3 +11,17 @@ count = 3
 name = "gains"
 type = "float"
 count = 3
+
+[stm32.rc.calibration]
+type_name = "RcCalibration"
+tag = "RCC1"
+
+[[stm32.rc.calibration.fields]]
+name = "min_us"
+type = "uint16_t"
+count = 4
+
+[[stm32.rc.calibration.fields]]
+name = "max_us"
+type = "uint16_t"
+count = 4

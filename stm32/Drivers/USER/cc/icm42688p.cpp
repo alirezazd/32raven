@@ -1,4 +1,5 @@
 #include "icm42688p.hpp"
+#include "config_storage.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
 
@@ -11,8 +12,7 @@
 
 using namespace Icm42688pReg;
 
-void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
-  // TODO: Add Calibration
+void Icm42688p::Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::kImuReinit);
   }
@@ -21,12 +21,14 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
 
   gpio_ = &gpio;
   spi_ = &spi;
+  ee_ = &ee;
   fifo_wm_records_ = cfg.fifo.watermark_records;
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
   gyro_fs_ = cfg.fs.gyro;
   gyro_odr_ = cfg.rates.gyro;
   calibration_cfg_ = cfg.calibration;
   recovery_cfg_ = cfg.recovery;
+  accel_calibration_ = ConfigStorage::LoadOrInitImuAccelCalibration(ee);
   last_overrun_fault_us_ = 0;
   overrun_window_count_ = 0;
 
@@ -73,6 +75,13 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, const Config &cfg) {
   NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
 }
 
+bool Icm42688p::SaveAccelCalibration() {
+  if (!initialized_ || ee_ == nullptr) {
+    return false;
+  }
+  return ConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
+}
+
 void Icm42688p::ValidateConfig(const Config &cfg) {
   if (cfg.fifo.watermark_records == 0 ||
       cfg.fifo.watermark_records > kMaxWatermarkRecords) {
@@ -93,7 +102,8 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
     Panic(ErrorCode::kImuCalibrationInvalidConfig);
   }
 
-  if (cfg.recovery.overrun_threshold == 0 || cfg.recovery.overrun_window_s == 0) {
+  if (cfg.recovery.overrun_threshold == 0 ||
+      cfg.recovery.overrun_window_s == 0) {
     Panic(ErrorCode::kImuOverrun);
   }
 }
@@ -102,7 +112,7 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
 
 void Icm42688p::ConfigureFilters(const Config &cfg) {
   static constexpr float kPi = 3.14159265358979323846f;
-  const auto kClampf = [](float x, float lo, float hi) constexpr {
+  const auto clampf = [](float x, float lo, float hi) constexpr {
     return (x < lo) ? lo : (x > hi) ? hi : x;
   };
   SetBank(1);
@@ -114,7 +124,7 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
     // ---- Gyro notch filter (datasheet correct) ----
     if (cfg.notch.enabled && cfg.notch.freq_hz > 0.0f) {
       // Datasheet: supported 1kHz..3kHz
-      float f_hz = kClampf(cfg.notch.freq_hz, 1000.0f, 3000.0f);
+      float f_hz = clampf(cfg.notch.freq_hz, 1000.0f, 3000.0f);
 
       // Need CLKDIV from Bank 3 reg 0x2A
       SetBank(3);
@@ -440,20 +450,20 @@ bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
 
   for (;;) {
     out = published_batch_;
-    const uint32_t kS2 = tick_seq_.load(std::memory_order_acquire);
+    const uint32_t s2 = tick_seq_.load(std::memory_order_acquire);
 
-    if (kS2 == s && out.count > 0 && out.samples[out.count - 1u].seq == s) {
+    if (s2 == s && out.count > 0 && out.samples[out.count - 1u].seq == s) {
       if (last_seq != 0) {
-        const uint32_t kMissed = (uint32_t)(out.samples[0].seq - last_seq - 1u);
-        if (kMissed) {
-          drop_cnt_.fetch_add(kMissed, std::memory_order_relaxed);
+        const uint32_t missed = (uint32_t)(out.samples[0].seq - last_seq - 1u);
+        if (missed) {
+          drop_cnt_.fetch_add(missed, std::memory_order_relaxed);
         }
       }
       last_seq = s;
       return true;
     }
 
-    s = kS2;
+    s = s2;
     if (s == last_seq) {
       return false;
     }
@@ -485,18 +495,19 @@ Icm42688p::SampleBatch Icm42688p::GetLatestBatch() const {
 }
 
 void Icm42688p::CalibrateGyro() {
-  const uint32_t kDurationUs =
+  const uint32_t duration_us =
       SECONDS_TO_MICROS(calibration_cfg_.gyro_duration_s);
-  const uint32_t kTimeoutUs =
+  const uint32_t timeout_us =
       SECONDS_TO_MICROS(calibration_cfg_.gyro_timeout_s);
-  const uint32_t kStillThresholdRaw = calibration_cfg_.gyro_still_threshold_raw;
-  const uint32_t kOdrHz = Icm42688pReg::OdrHz(gyro_odr_);
-  const uint64_t kSampleCountU64 =
-      ((uint64_t)kDurationUs * kOdrHz + SECONDS_TO_MICROS(1) - 1ULL) /
+  const uint32_t still_threshold_raw =
+      calibration_cfg_.gyro_still_threshold_raw;
+  const uint32_t odr_hz = Icm42688pReg::OdrHz(gyro_odr_);
+  const uint64_t sample_count_u64 =
+      ((uint64_t)duration_us * odr_hz + SECONDS_TO_MICROS(1) - 1ULL) /
       SECONDS_TO_MICROS(1);
 
-  const uint32_t kSampleCount =
-      kSampleCountU64 == 0 ? 1u : static_cast<uint32_t>(kSampleCountU64);
+  const uint32_t sample_count =
+      sample_count_u64 == 0 ? 1u : static_cast<uint32_t>(sample_count_u64);
 
   auto &time = System::GetInstance().Time();
   const uint64_t start_us = time.Micros();
@@ -506,16 +517,16 @@ void Icm42688p::CalibrateGyro() {
   int16_t max_g[3] = {0, 0, 0};
   uint32_t collected = 0;
 
-  while (collected < kSampleCount) {
+  while (collected < sample_count) {
     SampleBatch batch{};
     if (!WaitAndGetLatestBatch(last_seq, batch)) {
-      if ((uint32_t)(time.Micros() - start_us) >= kTimeoutUs) {
+      if ((uint32_t)(time.Micros() - start_us) >= timeout_us) {
         return;
       }
       continue;
     }
 
-    for (uint8_t i = 0; i < batch.count && collected < kSampleCount; ++i) {
+    for (uint8_t i = 0; i < batch.count && collected < sample_count; ++i) {
       const Sample &s = batch.samples[i];
       for (int axis = 0; axis < 3; ++axis) {
         if (collected == 0) {
@@ -530,7 +541,7 @@ void Icm42688p::CalibrateGyro() {
           }
         }
         if (static_cast<uint32_t>(max_g[axis] - min_g[axis]) >
-            kStillThresholdRaw) {
+            still_threshold_raw) {
           Panic(ErrorCode::kImuCalibrationMotionDetected);
         }
         sum[axis] += s.gyro[axis];
@@ -606,10 +617,10 @@ void Icm42688p::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
 
 void Icm42688p::CheckWhoAmI() {
   auto &time = System::GetInstance().Time();
-  const uint32_t kStart = time.Micros();
+  const uint32_t start = time.Micros();
 
   SetBank(0);
-  while ((uint32_t)(time.Micros() - kStart) < MILLIS_TO_MICROS(1000)) {
+  while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
     uint8_t who = ReadReg(REG_WHO_AM_I);
     if (who == WHO_AM_I_ICM42688P || who == WHO_AM_I_ICM42686P) {
       return;
@@ -695,15 +706,15 @@ void Icm42688p::DisableFsync() {
 void Icm42688p::SetOdrAndFullScale(const Config &cfg) {
   SetBank(0);
   // GYRO_CONFIG0: [7:5]=FS (3b), bit4 reserved, [3:0]=ODR (4b)
-  const uint8_t kGyro =
+  const uint8_t gyro =
       static_cast<uint8_t>(((static_cast<uint8_t>(cfg.fs.gyro) & 0x07u) << 5) |
                            (static_cast<uint8_t>(cfg.rates.gyro) & 0x0Fu));
   // ACCEL_CONFIG0: [7:5]=FS (only 0..3 valid), bit4 reserved, [3:0]=ODR (4b)
-  const uint8_t kAccel =
+  const uint8_t accel =
       static_cast<uint8_t>(((static_cast<uint8_t>(cfg.fs.accel) & 0x03u) << 5) |
                            (static_cast<uint8_t>(cfg.rates.accel) & 0x0Fu));
-  WriteReg(REG_GYRO_CONFIG0, kGyro);
-  WriteReg(REG_ACCEL_CONFIG0, kAccel);
+  WriteReg(REG_GYRO_CONFIG0, gyro);
+  WriteReg(REG_ACCEL_CONFIG0, accel);
 }
 
 void Icm42688p::SetTimestampConfig() {
@@ -743,10 +754,11 @@ void Icm42688p::ConfigureFifo() {
   WriteReg(REG_FIFO_CONFIG1,
            0x4B); // FIFO_CONFIG1: resume partial read + accel+gyro+timestamp,
                   // FIFO_TEMP_EN=0, 16-bit (HIRES=0)
-  const uint16_t kFifoWmBytes =
+  const uint16_t fifo_wm_bytes =
       static_cast<uint16_t>(fifo_wm_records_ * kPacketBytes);
-  WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(kFifoWmBytes & 0xFFu));
-  WriteReg(REG_FIFO_CONFIG3, static_cast<uint8_t>((kFifoWmBytes >> 8) & 0x0Fu));
+  WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));
+  WriteReg(REG_FIFO_CONFIG3,
+           static_cast<uint8_t>((fifo_wm_bytes >> 8) & 0x0Fu));
   WriteReg(REG_SIGNAL_PATH_RESET, 0x02); // FIFO_FLUSH
   (void)ReadReg(REG_INT_STATUS);         // clear any pending status bits (R/C)
   WriteReg(REG_FIFO_CONFIG, 0x40);       // FIFO Stream mode

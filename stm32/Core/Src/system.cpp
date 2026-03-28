@@ -6,7 +6,6 @@
 #include "gpio.hpp"
 // #include "i2c.hpp"
 #include "board.h"
-#include "config_store.hpp"
 #include "led.hpp"
 #include "spi.hpp"
 #include "stm32f4xx.h"
@@ -38,8 +37,6 @@ void System::Init(const SystemConfig &config) {
     InitComponent(static_cast<Component>(i));
   }
 
-  imu_accel_cal_ = ConfigStore::LoadOrInitImuAccelCalibration(EE::GetInstance());
-
   // Init Complete: LEAVE LED ON for Debugging
   // LED::GetInstance().Set(false);
 }
@@ -54,6 +51,10 @@ void System::InitComponent(Component c) {
     break;
   case Component::kEe:
     EE::GetInstance().Init();
+    break;
+  case Component::kRcReceiver:
+    RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
+                                   vehicle_state_, FcLink::GetInstance());
     break;
   case Component::kLed:
     LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
@@ -72,15 +73,16 @@ void System::InitComponent(Component c) {
     Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
     break;
   case Component::kUart2:
-    Uart2::GetInstance().Init(kUart2Config);
+    // GPS/M9N disabled for IMU-only bring-up.
+    // Uart2::GetInstance().Init(kUart2Config);
     break;
   case Component::kM9n:
-    M9N::GetInstance().Init(kM9nConfig);
+    // GPS/M9N disabled for IMU-only bring-up.
+    // M9N::GetInstance().Init(kM9nConfig);
     break;
   case Component::kIcm42688p:
-    Icm42688p::GetInstance().Init(GPIO::GetInstance(),
-                                  Spi1::GetInstance(),
-                                  kIcm42688pConfig);
+    Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance(),
+                                  EE::GetInstance(), kIcm42688pConfig);
     break;
   case Component::kCount:
     break;

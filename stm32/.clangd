@@ -1,5 +1,5 @@
 CompileFlags:
-  CompilationDatabase: ../build/stm32
+  CompilationDatabase: ../build/Ninja/stm32
   Add: 
     - "-I/home/the1/Projects/32raven/stm32/Drivers/USER/inc"
     - "-I/home/the1/Projects/32raven/stm32/Drivers/STM32F4xx_HAL_Driver/Inc"

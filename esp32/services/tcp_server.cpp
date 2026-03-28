@@ -5,6 +5,9 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+
+#include "panic.hpp"
+
 extern "C" {
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h" // IWYU pragma: keep
@@ -26,15 +29,19 @@ static inline size_t RbFree(size_t head, size_t tail, size_t cap) {
 
 // ---------------- TcpServer core ----------------
 
-ErrorCode TcpServer::Init(const Config &cfg) {
+void TcpServer::Init(const Config &cfg) {
+  if (initialized_) {
+    Panic(ErrorCode::kTcpServerError);
+  }
+
   cfg_ = cfg;
 
   // wire internal SM context
   ctx_.self = this;
   ctx_.sm = &sm_;
+  initialized_ = true;
 
   ESP_LOGI(kTag, "initialized on port %d", cfg.ctrl_port);
-  return ErrorCode::kOk;
 }
 
 void TcpServer::Stop() {
@@ -137,10 +144,10 @@ TcpServer::Status TcpServer::GetStatus() const {
 }
 
 bool TcpServer::SetNonblock(int fd) {
-  const int kFl = fcntl(fd, F_GETFL, 0);
-  if (kFl < 0)
+  const int fl = fcntl(fd, F_GETFL, 0);
+  if (fl < 0)
     return false;
-  return fcntl(fd, F_SETFL, kFl | O_NONBLOCK) == 0;
+  return fcntl(fd, F_SETFL, fl | O_NONBLOCK) == 0;
 }
 
 bool TcpServer::SetKeepalive(int fd, const Config &cfg) {
@@ -432,12 +439,12 @@ esp_err_t TcpServer::SendCtrlLine(const char *line) {
   if (!line || ctx_.ctrl_fd < 0)
     return ESP_FAIL;
 
-  const size_t kN = std::strlen(line);
-  if (kN == 0)
+  const size_t n = std::strlen(line);
+  if (n == 0)
     return ESP_OK;
 
   // Best-effort non-blocking send
-  int r = send(ctx_.ctrl_fd, line, kN, 0);
+  int r = send(ctx_.ctrl_fd, line, n, 0);
   if (r < 0) {
     if (errno == EWOULDBLOCK || errno == EAGAIN)
       return ESP_ERR_TIMEOUT;
@@ -481,10 +488,10 @@ bool TcpServer::LinebufAdd(char b) {
     return ctx_.line_len > 0;
   }
 
-  const size_t kCap = sizeof(ctx_.line_buf);
-  const size_t kMax = (cfg_.max_line < (kCap - 1)) ? cfg_.max_line : (kCap - 1);
+  const size_t cap = sizeof(ctx_.line_buf);
+  const size_t max = (cfg_.max_line < (cap - 1)) ? cfg_.max_line : (cap - 1);
 
-  if (ctx_.line_len >= kMax) {
+  if (ctx_.line_len >= max) {
     // line too long -> saturate (truncate), drop extra chars
     return false;
   }
@@ -497,7 +504,7 @@ bool TcpServer::LinebufAdd(char b) {
 // found.
 static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
   const char *p = line;
-  const size_t kLen = std::strlen(key);
+  const size_t len = std::strlen(key);
 
   while (*p) {
     p = SkipSpace(p);
@@ -505,8 +512,8 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
       break;
 
     // find key at token start
-    if (std::strncmp(p, key, kLen) == 0 && p[kLen] == '=') {
-      p += kLen + 1;
+    if (std::strncmp(p, key, len) == 0 && p[len] == '=') {
+      p += len + 1;
 
       int base = 10;
       if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X')) {
@@ -558,7 +565,7 @@ static bool FindStrKV(const char *p, const char *key, char *out_buf,
   if (!p || !key || !out_buf || max_len == 0)
     return false;
 
-  const size_t kLen = std::strlen(key);
+  const size_t len = std::strlen(key);
 
   while (*p) {
     p = SkipSpace(p);
@@ -566,8 +573,8 @@ static bool FindStrKV(const char *p, const char *key, char *out_buf,
       break;
 
     // find key at token start
-    if (std::strncmp(p, key, kLen) == 0 && p[kLen] == '=') {
-      p += kLen + 1;
+    if (std::strncmp(p, key, len) == 0 && p[len] == '=') {
+      p += len + 1;
       // Copy value until space or end
       size_t i = 0;
       while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {

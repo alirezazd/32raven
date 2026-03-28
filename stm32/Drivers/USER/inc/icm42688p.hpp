@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ee.hpp"
+#include "ee_schema.hpp"
 #include "icm42688p_reg.hpp"
 #include "spi.hpp"
 #include "stm32_limits.hpp"
@@ -95,12 +97,19 @@ public:
     return inst;
   }
 
-  void Init(GPIO &gpio, Spi1 &spi, const Config &cfg);
+  void Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg);
   void OnIrq();
   bool WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out);
   SampleBatch GetLatestBatch() const;
   void CalibrateGyro();
   void InjectOverrunFaultForTest();
+  const ee_schema::ImuAccelCalibration &GetAccelCalibration() const {
+    return accel_calibration_;
+  }
+  ee_schema::ImuAccelCalibration &GetAccelCalibration() {
+    return accel_calibration_;
+  }
+  bool SaveAccelCalibration();
 
   uint32_t ImuPathOverrun() const {
     return overrun_.load(std::memory_order_relaxed);
@@ -200,6 +209,8 @@ private:
   bool initialized_{false};
   GPIO *gpio_{nullptr};
   Spi1 *spi_{nullptr};
+  EE *ee_{nullptr};
+  ee_schema::ImuAccelCalibration accel_calibration_{};
 
   alignas(8) SampleBatch published_batch_{};
   std::atomic<uint32_t> tick_seq_{0};

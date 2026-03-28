@@ -29,25 +29,25 @@ void Button::Init(GPIO &gpio, const Config &cfg) {
 }
 
 bool Button::ReadRawPressed() const {
-  const bool kPinHigh = gpio_->ReadPin(port_, pin_);
-  return active_low_ ? !kPinHigh : kPinHigh;
+  const bool pin_high = gpio_->ReadPin(port_, pin_);
+  return active_low_ ? !pin_high : pin_high;
 }
 
 void Button::Poll(uint32_t now_ms) {
   if (!initialized_)
     Panic(ErrorCode::kButtonReinit);
 
-  const bool kRaw = ReadRawPressed();
+  const bool raw = ReadRawPressed();
 
-  if (kRaw != raw_last_) {
-    raw_last_ = kRaw;
+  if (raw != raw_last_) {
+    raw_last_ = raw;
     raw_last_change_ms_ = now_ms;
   }
 
   // Debounce acceptance
-  if (kRaw != stable_) {
+  if (raw != stable_) {
     if ((now_ms - raw_last_change_ms_) >= debounce_ms_) {
-      stable_ = kRaw;
+      stable_ = raw;
 
       if (stable_) {
         pressed_ = true;
@@ -72,19 +72,19 @@ void Button::Poll(uint32_t now_ms) {
 }
 
 bool Button::ConsumePress() {
-  const bool kVal = ev_press_;
+  const bool val = ev_press_;
   ev_press_ = false;
-  return kVal;
+  return val;
 }
 
 bool Button::ConsumeRelease() {
-  const bool kVal = ev_release_;
+  const bool val = ev_release_;
   ev_release_ = false;
-  return kVal;
+  return val;
 }
 
 bool Button::ConsumeLongPress() {
-  const bool kVal = ev_long_;
+  const bool val = ev_long_;
   ev_long_ = false;
-  return kVal;
+  return val;
 }

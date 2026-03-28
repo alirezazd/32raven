@@ -26,28 +26,28 @@ public:
 
   static const DShotTim1Timings &timings() { return getInstance().timings_; }
 
-  static bool sendBits(const uint16_t *interleaved_ccr, uint16_t totalBits) {
-    return getInstance()._sendBits(interleaved_ccr, totalBits);
+  static bool sendBits(const uint16_t *interleaved_ccr, uint16_t total_bits) {
+    return getInstance().SendBitsImpl(interleaved_ccr, total_bits);
   }
 
   void finishAndIdle();
 
 private:
   friend class System;
-  static void init(const Config &config) { getInstance()._init(config); }
+  static void init(const Config &config) { getInstance().Init(config); }
 
   DShotTim1() = default;
   DShotTim1(const DShotTim1 &) = delete;
   DShotTim1 &operator=(const DShotTim1 &) = delete;
 
-  void _init(const Config &config);
-  bool _sendBits(const uint16_t *interleaved_ccr, uint16_t totalBits);
+  void Init(const Config &config);
+  bool SendBitsImpl(const uint16_t *interleaved_ccr, uint16_t total_bits);
 
-  void dma_init_();
-  void tim1_init_(uint16_t period);
-  void configureBurstMode_();
-  void startOutputsOnce_();
-  void startTransfer_(const uint16_t *buf, uint32_t count_words);
+  void DmaInit();
+  void Tim1Init(uint16_t period);
+  void ConfigureBurstMode();
+  void StartOutputsOnce();
+  void StartTransfer(const uint16_t *buf, uint32_t count_words);
 
   static constexpr uint8_t kMotors = 4;
 

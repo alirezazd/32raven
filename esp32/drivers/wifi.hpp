@@ -1,7 +1,5 @@
 #pragma once
 
-#include "panic.hpp"
-
 #include "esp_netif_types.h"
 
 class WifiController {
@@ -25,7 +23,7 @@ public:
 
 private:
   friend class System;
-  ErrorCode Init(const Config &cfg);
+  void Init(const Config &cfg);
   Config cfg_{};
   bool wifi_on_ = false;
   esp_netif_t *ap_netif_ = nullptr;

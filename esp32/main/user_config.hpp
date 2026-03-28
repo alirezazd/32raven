@@ -1,10 +1,9 @@
 #pragma once
 
 #include "button.hpp"
-
-#include "uart.hpp"
-
+#include "buzzer.hpp"
 #include "mavlink.hpp"
+#include "uart.hpp"
 
 // STM32 UART Link Configuration
 constexpr Uart::Config kStm32UartConfig = {
@@ -20,8 +19,8 @@ constexpr Uart::Config kStm32UartConfig = {
 // EP2 Receiver UART Configuration
 constexpr Uart::Config kEp2UartConfig = {
     .uart_num = 1,
-    .tx_gpio = GPIO_NUM_20,
-    .rx_gpio = GPIO_NUM_21,
+    .tx_gpio = GPIO_NUM_21,
+    .rx_gpio = GPIO_NUM_20,
     .baud_rate = 460800, // Fixed ELRS MAVLink rate
     .parity = Uart::Config::Parity::kNone,
     .rx_buf = 2048,
@@ -36,6 +35,10 @@ constexpr Button::Config kButtonConfig = {
     .pulldown = false,
     .debounce_ms = 30,
     .long_press_ms = 500,
+};
+
+constexpr Buzzer::Config kBuzzerConfig = {
+    .pin = GPIO_NUM_10,
 };
 
 constexpr Mavlink::Config kMavlinkConfig = {

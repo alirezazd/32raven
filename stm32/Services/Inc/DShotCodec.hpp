@@ -15,13 +15,13 @@ public:
     return instance;
   }
 
-  static void init(const Config &cfg) { getInstance()._init(cfg); }
+  static void init(const Config &cfg) { getInstance().InitImpl(cfg); }
 
   // Called from PID loop
   // motor values must be 0..2047 (11-bit)
   static void write(const uint16_t motor[4], bool telemetry = false) {
     // TODO: Come up with a better way to do this
-    getInstance()._write(motor, telemetry);
+    getInstance().WriteImpl(motor, telemetry);
   }
 
 private:
@@ -29,10 +29,10 @@ private:
   DShotCodec(const DShotCodec &) = delete;
   DShotCodec &operator=(const DShotCodec &) = delete;
 
-  void _init(const Config &cfg);
-  void _write(const uint16_t motor[4], bool telemetry);
+  void InitImpl(const Config &cfg);
+  void WriteImpl(const uint16_t motor[4], bool telemetry);
 
-  static uint16_t makePacket(uint16_t value11, bool telemetry);
+  static uint16_t MakePacket(uint16_t value11, bool telemetry);
 
   static constexpr uint16_t FRAME_BITS = 16;
   static constexpr uint16_t MAX_GAP_BITS = 8;
