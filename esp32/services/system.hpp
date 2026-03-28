@@ -27,7 +27,7 @@ public:
     kButton,
     kWifi,
     kTcpServer,
-    kStm32Uart,
+    kFcLinkUart,
     kEp2Uart,
     kProgrammer,
     kMavlink,
@@ -46,8 +46,8 @@ public:
   ::Mavlink &Mavlink() { return ::Mavlink::GetInstance(); }
   ::FcLink &FcLink() { return ::FcLink::GetInstance(); }
   ::CommandHandler &CommandHandler() { return ::CommandHandler::GetInstance(); }
-  ::Uart &Uart(::Uart::Id id) { return uarts_[static_cast<unsigned>(id)]; }
-  ::Uart &Uart() { return Uart(::Uart::Id::kStm32); }
+  ::UartFcLink &FcLinkUart() { return ::UartFcLink::GetInstance(); }
+  ::UartEp2 &Ep2Uart() { return ::UartEp2::GetInstance(); }
   ::Programmer &Programmer() { return ::Programmer::GetInstance(); }
   void Init();
   void StopNetwork();
@@ -56,7 +56,6 @@ public:
 private:
   void InitComponent(Component c);
 
-  ::Uart uarts_[(int)::Uart::Id::kCount];
   bool initialized_ = false;
 
   System() = default;

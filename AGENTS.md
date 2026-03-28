@@ -23,6 +23,7 @@ Use this file for repository-wide guidance. More specific `AGENTS.md` files in s
 ## Generated And Derived Files
 
 - Treat these as generated and regenerate them via scripts or the build:
+  - `esp32/main/esp32_config.hpp`
   - `stm32/Drivers/USER/inc/stm32_config.hpp`
   - `stm32/Drivers/USER/inc/stm32_limits.hpp`
   - `stm32/Drivers/USER/inc/ee_schema.hpp`

@@ -39,6 +39,7 @@ mx.scratch
 *.ioc
 !32Raven.ioc
 user_config.cmake
+esp32/main/esp32_config.hpp
 stm32/Drivers/USER/inc/stm32_config.hpp
 stm32/Drivers/USER/inc/stm32_limits.hpp
 stm32/Drivers/USER/inc/ee_schema.hpp

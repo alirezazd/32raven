@@ -12,6 +12,7 @@ extern "C" {
 #include <cstdint>
 #include <cstring>
 
+#include "hal/gpio_types.h"
 #include "state_machine.hpp"
 
 class Programmer {
@@ -22,18 +23,15 @@ public:
   }
 
   struct Config {
-    // STM32 boot control pins (ESP32 GPIO numbers)
-    int boot0_gpio = 6;
-    int nrst_gpio = 7; // active low reset
+    // STM32 boot control pins on the ESP32 side.
+    gpio_num_t boot0_pin = GPIO_NUM_NC;
+    gpio_num_t nrst_pin = GPIO_NUM_NC; // active low reset
 
     uint32_t reset_pulse_ms = 50;
     uint32_t boot_settle_ms = 50;
 
     uint32_t sync_timeout_ms = 100;
     uint8_t sync_retries = 10;
-
-    // Baud rate to restore after programming (e.g. 5000000)
-    uint32_t kOperationalBaudRate = 115200;
   };
 
   enum class Target { kStm32, kEsp32 };
@@ -65,10 +63,10 @@ public:
 
 private:
   friend class System;
-  void Init(const Config &cfg, Uart *uart);
+  void Init(const Config &cfg, UartFcLink *uart);
   // ---- Internal context used by StateMachine<Ctx> ----
   struct Ctx {
-    Uart *uart = nullptr;
+    UartFcLink *uart = nullptr;
     Config cfg{};
     Target target = Target::kStm32;
 
@@ -78,6 +76,7 @@ private:
     StateMachine<Ctx> *sm = nullptr;
 
     bool ready = false;
+    uint32_t restore_baud_rate = 115200;
 
     // staging buffer for bytes coming from HTTP (backpressure lives here)
     static constexpr size_t kBufCap = 8192;

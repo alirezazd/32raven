@@ -59,7 +59,7 @@ void Buzzer::Init(const Config &cfg) {
   channel_cfg.hpoint = 0;
   channel_cfg.sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD;
   channel_cfg.flags.output_invert =
-      static_cast<unsigned int>(cfg.output_invert ? 1U : 0U);
+      static_cast<unsigned int>(cfg.active_low ? 1U : 0U);
 
   if (ledc_channel_config(&channel_cfg) != ESP_OK) {
     Panic(ErrorCode::kBuzzerChannelInitFailed);
@@ -68,9 +68,11 @@ void Buzzer::Init(const Config &cfg) {
   initialized_ = true;
   running_ = false;
 
-  ESP_LOGI(kTag, "init pin=%d timer=%d channel=%d freq=%lu duty_ticks=%lu",
-           static_cast<int>(cfg.pin), static_cast<int>(cfg.timer_num),
-           static_cast<int>(cfg.channel), static_cast<unsigned long>(freq_hz_),
+  ESP_LOGI(kTag,
+           "init pin=%d active_low=%d timer=%d channel=%d freq=%lu duty_ticks=%lu",
+           static_cast<int>(cfg.pin), static_cast<int>(cfg.active_low),
+           static_cast<int>(cfg.timer_num), static_cast<int>(cfg.channel),
+           static_cast<unsigned long>(freq_hz_),
            static_cast<unsigned long>(duty_ticks_));
 }
 

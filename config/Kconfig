@@ -1,10 +1,491 @@
 mainmenu "32Raven Configuration"
 
 menu "ESP32"
-comment "ESP32 config section reserved. No tunables added yet."
+
+menu "PinMap"
+
+menu "Led"
+
+config ESP32_PINMAP_LED_GPIO_NUM
+    int "LED GPIO number"
+    range 0 21
+    default 8
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_LED_ACTIVE_LOW
+    bool "Active low"
+    default y
+    help
+      Invert the LED logical state. Enable this when driving the LED low turns
+      it on.
+
+endmenu
+
+menu "Button"
+
+config ESP32_PINMAP_BUTTON_GPIO_NUM
+    int "Button GPIO number"
+    range 0 21
+    default 9
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_BUTTON_ACTIVE_LOW
+    bool "Active low"
+    default y
+    help
+      Treat a low GPIO level as button-pressed. Enable this for buttons wired
+      to pull the input to ground when pressed.
+
+endmenu
+
+menu "Buzzer"
+
+config ESP32_PINMAP_BUZZER_GPIO_NUM
+    int "Buzzer GPIO number"
+    range 0 21
+    default 10
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_BUZZER_ACTIVE_LOW
+    bool "Active low"
+    default n
+    help
+      Invert the buzzer output polarity. Enable this when the buzzer hardware
+      is active when the drive signal is low.
+
+endmenu
+
+menu "UART"
+
+menu "FcLink"
+
+config ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM
+    int "TX GPIO number"
+    range 0 21
+    default 4
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM
+    int "RX GPIO number"
+    range 0 21
+    default 5
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+endmenu
+
+menu "Ep2"
+
+config ESP32_PINMAP_EP2_UART_TX_GPIO_NUM
+    int "TX GPIO number"
+    range 0 21
+    default 21
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_PINMAP_EP2_UART_RX_GPIO_NUM
+    int "RX GPIO number"
+    range 0 21
+    default 20
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+endmenu
+
+endmenu
+
+menu "Programmer"
+
+config ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM
+    int "BOOT0 GPIO number"
+    range 0 21
+    default 6
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM
+    int "NRST GPIO number"
+    range 0 21
+    default 7
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+endmenu
+
+endmenu
+
+menu "Button"
+
+config ESP32_BUTTON_PULLUP
+    bool "Enable pull-up"
+    default y
+    help
+      Enable the internal pull-up resistor on the button input.
+
+config ESP32_BUTTON_PULLDOWN
+    bool "Enable pull-down"
+    default n
+    help
+      Enable the internal pull-down resistor on the button input.
+
+config ESP32_BUTTON_DEBOUNCE_MS
+    int "Debounce time (ms)"
+    range 0 1000
+    default 30
+    help
+      Minimum stable time before a raw button level change is accepted.
+
+config ESP32_BUTTON_LONG_PRESS_MS
+    int "Long press time (ms)"
+    range 1 10000
+    default 500
+    help
+      Hold time required before the button reports a long-press event.
+
+endmenu
+
+menu "Programmer"
+
+config ESP32_PROGRAMMER_RESET_PULSE_MS
+    int "Reset pulse (ms)"
+    range 1 1000
+    default 50
+    help
+      Duration of the STM32 reset pulse driven by the ESP32 programmer logic.
+
+config ESP32_PROGRAMMER_BOOT_SETTLE_MS
+    int "Boot settle (ms)"
+    range 1 1000
+    default 50
+    help
+      Delay after reset before attempting STM32 ROM bootloader sync.
+
+config ESP32_PROGRAMMER_SYNC_TIMEOUT_MS
+    int "Sync timeout (ms)"
+    range 1 5000
+    default 100
+    help
+      Timeout for each bootloader sync or response wait during programming.
+
+config ESP32_PROGRAMMER_SYNC_RETRIES
+    int "Sync retries"
+    range 1 100
+    default 10
+    help
+      Maximum number of STM32 bootloader sync attempts before the programmer
+      fails initialization.
+
+endmenu
+
+menu "FcLink"
+
+choice
+    prompt "UART baud rate"
+    default ESP32_FCLINK_UART_BAUD_5000000
+    help
+      UART baud rate used by the ESP32 side of FcLink. The STM32 FcLink UART
+      follows this same setting so both ends stay matched.
+
+config ESP32_FCLINK_UART_BAUD_9600
+    bool "9600"
+
+config ESP32_FCLINK_UART_BAUD_19200
+    bool "19200"
+
+config ESP32_FCLINK_UART_BAUD_38400
+    bool "38400"
+
+config ESP32_FCLINK_UART_BAUD_57600
+    bool "57600"
+
+config ESP32_FCLINK_UART_BAUD_115200
+    bool "115200"
+
+config ESP32_FCLINK_UART_BAUD_230400
+    bool "230400"
+
+config ESP32_FCLINK_UART_BAUD_460800
+    bool "460800"
+
+config ESP32_FCLINK_UART_BAUD_921600
+    bool "921600"
+
+config ESP32_FCLINK_UART_BAUD_1000000
+    bool "1000000"
+
+config ESP32_FCLINK_UART_BAUD_2000000
+    bool "2000000"
+
+config ESP32_FCLINK_UART_BAUD_5000000
+    bool "5000000"
+
+endchoice
+
+config ESP32_FCLINK_TELEMETRY_RATE_HZ
+    int "Telemetry rate (Hz)"
+    range 1 255
+    default 25
+    help
+      Telemetry rate advertised to STM32 during FcLink configuration.
+
+config ESP32_FCLINK_HANDSHAKE_TIMEOUT_MS
+    int "Handshake timeout (ms)"
+    range 1 10000
+    default 2000
+    help
+      Total time budget for the ESP32 FcLink startup handshake.
+
+config ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS
+    int "Handshake retry period (ms)"
+    range 1 1000
+    default 20
+    help
+      Delay between repeated FcLink handshake attempts.
+
+config ESP32_FCLINK_RX_READ_CHUNK_SIZE
+    int "RX read chunk size (bytes)"
+    range 1 256
+    default 128
+    help
+      Maximum number of bytes pulled from the UART in one FcLink receive pass.
+
+config ESP32_FCLINK_RX_QUEUE_DEPTH
+    int "RX packet queue depth"
+    range 1 32
+    default 10
+    help
+      Number of parsed incoming FcLink packets buffered for later processing.
+
+endmenu
+
+menu "Mavlink"
+
+menu "Identity"
+
+config ESP32_MAVLINK_SYSID
+    int "System ID"
+    range 1 255
+    default 1
+    help
+      MAVLink system ID advertised by the ESP32 endpoint.
+
+config ESP32_MAVLINK_COMPID
+    int "Component ID"
+    range 0 255
+    default 1
+    help
+      MAVLink component ID advertised by the ESP32 endpoint. The default value
+      1 matches MAV_COMP_ID_AUTOPILOT1.
+
+endmenu
+
+menu "Telemetry"
+
+config ESP32_MAVLINK_HEARTBEAT_PERIOD_MS
+    int "Heartbeat period (ms)"
+    range 1 60000
+    default 1000
+    help
+      Nominal HEARTBEAT transmit cadence.
+
+config ESP32_MAVLINK_GPS_PERIOD_MS
+    int "GPS RAW INT period (ms)"
+    range 0 60000
+    default 2000
+    help
+      GPS_RAW_INT transmit cadence. Set to 0 to disable this stream.
+
+config ESP32_MAVLINK_ATTITUDE_PERIOD_MS
+    int "Attitude period (ms)"
+    range 0 60000
+    default 2000
+    help
+      ATTITUDE transmit cadence. Set to 0 to disable this stream.
+
+config ESP32_MAVLINK_GLOBAL_POSITION_PERIOD_MS
+    int "Global position period (ms)"
+    range 0 60000
+    default 2000
+    help
+      GLOBAL_POSITION_INT transmit cadence. Set to 0 to disable this stream.
+
+config ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS
+    int "Battery status period (ms)"
+    range 0 60000
+    default 2000
+    help
+      BATTERY_STATUS transmit cadence. Set to 0 to disable this stream.
+
+endmenu
+
+menu "Receive"
+
+config ESP32_MAVLINK_RX_READ_CHUNK_SIZE
+    int "UART read chunk size (bytes)"
+    range 1 256
+    default 256
+    help
+      Maximum number of bytes read from the EP2 UART in one MAVLink receive
+      pass.
+
+endmenu
+
+menu "Scheduling"
+
+config ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS
+    int "Heartbeat deadline (ms)"
+    range 1 60000
+    default 1500
+    help
+      Maximum allowed gap between completed HEARTBEAT frames. If this is lower
+      than the heartbeat period, the deadline wins.
+
+config ESP32_MAVLINK_GPS_START_DELAY_MS
+    int "GPS start delay (ms)"
+    range 0 10000
+    default 200
+    help
+      Initial GPS_RAW_INT delay used to stagger the first telemetry burst.
+
+config ESP32_MAVLINK_ATTITUDE_START_DELAY_MS
+    int "Attitude start delay (ms)"
+    range 0 10000
+    default 400
+    help
+      Initial ATTITUDE delay used to stagger the first telemetry burst.
+
+config ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS
+    int "Global position start delay (ms)"
+    range 0 10000
+    default 600
+    help
+      Initial GLOBAL_POSITION_INT delay used to stagger the first telemetry
+      burst.
+
+config ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS
+    int "Battery status start delay (ms)"
+    range 0 10000
+    default 800
+    help
+      Initial BATTERY_STATUS delay used to stagger the first telemetry burst.
+
+endmenu
+
+endmenu
 endmenu
 
 menu "STM32"
+
+menu "FcLink"
+
+menu "UART"
+
+comment "UART baud rate follows ESP32 -> FcLink"
+
+choice
+    prompt "Word length"
+    default STM32_FCLINK_UART_WORD_LENGTH_9BITS
+    help
+      USART1 word length for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_FCLINK_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_FCLINK_UART_STOP_BITS_1
+    help
+      USART1 stop-bit configuration for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_FCLINK_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_FCLINK_UART_PARITY_EVEN
+    help
+      USART1 parity mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_PARITY_NONE
+    bool "None"
+
+config STM32_FCLINK_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_FCLINK_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_FCLINK_UART_MODE_TX_RX
+    help
+      USART1 direction mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_MODE_RX
+    bool "RX"
+
+config STM32_FCLINK_UART_MODE_TX
+    bool "TX"
+
+config STM32_FCLINK_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
+    help
+      USART1 hardware flow control for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_FCLINK_UART_OVERSAMPLING_16
+    help
+      USART1 oversampling mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_FCLINK_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+endmenu
+
+endmenu
+
 menu "IMU"
 menu "ICM42688P"
 
@@ -13,6 +494,10 @@ menu "SPI"
 choice
     prompt "SPI prescaler"
     default STM32_IMU_SPI_PRESCALER_DIV4
+    help
+      SPI bus prescaler used for STM32 communication with the ICM42688P.
+      Lower divisors increase transfer speed, while higher divisors provide
+      more signal margin.
 
 config STM32_IMU_SPI_PRESCALER_DIV2
     bool "div2"
@@ -44,16 +529,24 @@ config STM32_IMU_RECOVERY_OVERRUN_THRESHOLD
     int "Overrun panic threshold (faults)"
     range 1 100
     default 3
+    help
+      Number of FIFO overrun faults allowed inside the configured window before
+      the IMU recovery path escalates to a panic condition.
 
 config STM32_IMU_RECOVERY_OVERRUN_WINDOW_S
     int "Overrun threshold window (s)"
     range 1 60
     default 1
+    help
+      Time window used when counting repeated FIFO overrun faults.
 
 config STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS
     int "Recovery fault LED period (ms)"
     range 20 5000
     default 200
+    help
+      Blink period for the fault LED indication while IMU recovery or panic
+      handling is active.
 
 endmenu
 
@@ -62,6 +555,8 @@ menu "Gyroscope"
 choice
     prompt "Gyro ODR"
     default STM32_IMU_GYRO_ODR_8KHZ
+    help
+      Output data rate programmed into the ICM42688P gyroscope.
 
 config STM32_IMU_GYRO_ODR_32KHZ
     bool "32 kHz"
@@ -104,6 +599,8 @@ endchoice
 choice
     prompt "Gyro full scale"
     default STM32_IMU_GYRO_FS_2000DPS
+    help
+      Full-scale angular-rate range for the gyroscope.
 
 config STM32_IMU_GYRO_FS_2000DPS
     bool "2000 dps"
@@ -135,16 +632,23 @@ config STM32_IMU_GYRO_CAL_DURATION_S
     int "Gyro calibration duration (s)"
     range 1 20
     default 2
+    help
+      Amount of stable sampling time required to complete gyro bias
+      calibration.
 
 config STM32_IMU_GYRO_CAL_TIMEOUT_S
     int "Gyro calibration timeout (s)"
     range 1 60
     default 5
+    help
+      Maximum time allowed for gyro calibration before it aborts.
 
 config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
     int "Gyro calibration stillness threshold (raw)"
     range 1 32767
     default 64
+    help
+      Maximum raw gyro magnitude treated as stationary during calibration.
 
 endmenu
 
@@ -153,6 +657,8 @@ menu "Accelerometer"
 choice
     prompt "Accel ODR"
     default STM32_IMU_ACCEL_ODR_8KHZ
+    help
+      Output data rate programmed into the ICM42688P accelerometer.
 
 config STM32_IMU_ACCEL_ODR_32KHZ
     bool "32 kHz"
@@ -195,6 +701,8 @@ endchoice
 choice
     prompt "Accel full scale"
     default STM32_IMU_ACCEL_FS_8G
+    help
+      Full-scale acceleration range for the accelerometer.
 
 config STM32_IMU_ACCEL_FS_16G
     bool "16g"
@@ -218,73 +726,107 @@ config STM32_IMU_UI_FILTER_GYRO_BW
     int "UI filter gyro bandwidth index"
     range 0 3
     default 2
+    help
+      Raw ICM42688P UI filter bandwidth field for the gyroscope.
 
 config STM32_IMU_UI_FILTER_ACCEL_BW
     int "UI filter accel bandwidth index"
     range 0 3
     default 3
+    help
+      Raw ICM42688P UI filter bandwidth field for the accelerometer.
 
 config STM32_IMU_UI_FILTER_GYRO_CFG1
     int "UI filter gyro CFG1"
     range 0 255
     default 0
+    help
+      Raw CONFIG1 register value used for the gyroscope UI filter path.
 
 config STM32_IMU_UI_FILTER_ACCEL_CFG1
     int "UI filter accel CFG1"
     range 0 255
     default 0
+    help
+      Raw CONFIG1 register value used for the accelerometer UI filter path.
 
 config STM32_IMU_NOTCH_ENABLED
     bool "Enable hardware gyro notch"
     default n
+    help
+      Enable the ICM42688P hardware gyro notch filter.
 
 config STM32_IMU_NOTCH_FREQ_HZ
     int "Hardware gyro notch frequency (Hz)"
     range 0 100000
     default 0
+    help
+      Target center frequency for the hardware gyro notch filter.
 
 config STM32_IMU_NOTCH_BW_IDX
     int "Hardware gyro notch bandwidth index"
     range 0 255
     default 0
+    help
+      Raw bandwidth index programmed into the gyro notch filter registers.
 
 config STM32_IMU_GYRO_AAF_DISABLE
     bool "Disable gyro AAF"
     default y
+    help
+      Disable the gyroscope anti-alias filter. Disable stays closest to the
+      current known-good setup.
 
 config STM32_IMU_GYRO_AAF_DELT
     int "Gyro AAF DELT"
     range 0 255
     default 0
+    help
+      Raw DELT field for the gyroscope anti-alias filter configuration.
 
 config STM32_IMU_GYRO_AAF_DELT_SQR
     int "Gyro AAF DELT_SQR"
     range 0 65535
     default 0
+    help
+      Raw DELT_SQR field for the gyroscope anti-alias filter configuration.
 
 config STM32_IMU_GYRO_AAF_BITSHIFT
     int "Gyro AAF BITSHIFT"
     range 0 255
     default 0
+    help
+      Raw BITSHIFT field for the gyroscope anti-alias filter configuration.
 
 config STM32_IMU_ACCEL_AAF_DISABLE
     bool "Disable accel AAF"
     default y
+    help
+      Disable the accelerometer anti-alias filter. Disable stays closest to
+      the current known-good setup.
 
 config STM32_IMU_ACCEL_AAF_DELT
     int "Accel AAF DELT"
     range 0 255
     default 0
+    help
+      Raw DELT field for the accelerometer anti-alias filter configuration.
 
 config STM32_IMU_ACCEL_AAF_DELT_SQR
     int "Accel AAF DELT_SQR"
     range 0 65535
     default 0
+    help
+      Raw DELT_SQR field for the accelerometer anti-alias filter
+      configuration.
 
 config STM32_IMU_ACCEL_AAF_BITSHIFT
     int "Accel AAF BITSHIFT"
     range 0 255
     default 0
+    help
+      Raw BITSHIFT field for the accelerometer anti-alias filter
+      configuration.
 
 endmenu
 
@@ -294,10 +836,16 @@ config STM32_IMU_FIFO_WATERMARK_RECORDS
     int "FIFO watermark records"
     range 1 128
     default 8
+    help
+      Number of ICM42688P FIFO records read and published per IRQ-driven
+      transfer.
 
 config STM32_IMU_FIFO_HOLD_LAST
     bool "Hold last FIFO sample"
     default n
+    help
+      Keep the last sample in the FIFO on overflow instead of dropping all
+      buffered data.
 
 endmenu
 
@@ -309,50 +857,70 @@ config STM32_IMU_ICM20948_DMA_BUF_SIZE
     int "DMA buffer size"
     range 1 255
     default 32
+    help
+      DMA transfer buffer size used by the legacy ICM20948 driver path.
 
 config STM32_IMU_ICM20948_FIFO_SIZE
     int "FIFO size"
     range 1 4096
     default 512
+    help
+      Software FIFO size reserved for the legacy ICM20948 path.
 
 config STM32_IMU_ICM20948_ACCEL_RANGE
     hex "Accel range register value"
     range 0x00 0xff
     default 0x06
+    help
+      Raw ICM20948 accelerometer range register value.
 
 config STM32_IMU_ICM20948_ACCEL_DLPF_CONFIG
     hex "Accel DLPF config register value"
     range 0x00 0xff
     default 0x19
+    help
+      Raw ICM20948 accelerometer digital low-pass filter register value.
 
 config STM32_IMU_ICM20948_ACCEL_SAMPLE_RATE_DIV
     int "Accel sample rate divider"
     range 0 255
     default 0
+    help
+      Raw ICM20948 accelerometer sample-rate divider.
 
 config STM32_IMU_ICM20948_GYRO_RANGE
     hex "Gyro range register value"
     range 0x00 0xff
     default 0x06
+    help
+      Raw ICM20948 gyroscope range register value.
 
 config STM32_IMU_ICM20948_GYRO_DLPF_CONFIG
     hex "Gyro DLPF config register value"
     range 0x00 0xff
     default 0x19
+    help
+      Raw ICM20948 gyroscope digital low-pass filter register value.
 
 config STM32_IMU_ICM20948_GYRO_SAMPLE_RATE_DIV
     int "Gyro sample rate divider"
     range 0 255
     default 0
+    help
+      Raw ICM20948 gyroscope sample-rate divider.
 
 config STM32_IMU_ICM20948_MAG_RATE
     hex "Magnetometer rate register value"
     range 0x00 0xff
     default 0x08
+    help
+      Raw ICM20948 magnetometer update-rate register value.
 
 choice
     prompt "ICM20948 SPI prescaler"
     default STM32_IMU_ICM20948_SPI_PRESCALER_DIV32
+    help
+      SPI bus prescaler used by the legacy ICM20948 driver path.
 
 config STM32_IMU_ICM20948_SPI_PRESCALER_DIV2
     bool "div2"
@@ -391,10 +959,15 @@ menu "UART"
 config STM32_GPS_M9N_FLASH_CONFIG
     bool "Flash persistent configuration on boot"
     default n
+    help
+      Write the generated M9N configuration into the module's non-volatile
+      storage during initialization.
 
 choice
     prompt "UART baud rate"
     default STM32_GPS_M9N_BAUD_115200
+    help
+      UART2 baud rate used for the STM32 to M9N GPS connection.
 
 config STM32_GPS_M9N_BAUD_9600
     bool "9600"
@@ -422,10 +995,108 @@ config STM32_GPS_M9N_BAUD_921600
 
 endchoice
 
+choice
+    prompt "Word length"
+    default STM32_GPS_M9N_UART_WORD_LENGTH_8BITS
+    help
+      UART2 word length for the STM32 to M9N GPS connection.
+
+config STM32_GPS_M9N_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_GPS_M9N_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_GPS_M9N_UART_STOP_BITS_1
+    help
+      UART2 stop-bit configuration for the STM32 to M9N GPS connection.
+
+config STM32_GPS_M9N_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_GPS_M9N_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_GPS_M9N_UART_PARITY_NONE
+    help
+      UART2 parity mode for the STM32 to M9N GPS connection.
+
+config STM32_GPS_M9N_UART_PARITY_NONE
+    bool "None"
+
+config STM32_GPS_M9N_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_GPS_M9N_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_GPS_M9N_UART_MODE_TX_RX
+    help
+      UART2 direction mode for the STM32 to M9N GPS connection.
+
+config STM32_GPS_M9N_UART_MODE_RX
+    bool "RX"
+
+config STM32_GPS_M9N_UART_MODE_TX
+    bool "TX"
+
+config STM32_GPS_M9N_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_GPS_M9N_UART_HW_FLOW_CONTROL_NONE
+    help
+      UART2 hardware flow control for the STM32 to M9N GPS connection.
+
+config STM32_GPS_M9N_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_GPS_M9N_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_GPS_M9N_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_GPS_M9N_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_GPS_M9N_UART_OVERSAMPLING_16
+    help
+      UART2 oversampling mode for the STM32 to M9N GPS connection.
+
+config STM32_GPS_M9N_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_GPS_M9N_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
 config STM32_GPS_M9N_ACK_TIMEOUT_US
     int "ACK timeout (us)"
     range 1 10000000
     default 100000
+    help
+      Timeout used while waiting for UBX ACK responses from the M9N module.
 
 endmenu
 
@@ -434,10 +1105,14 @@ menu "Protocols"
 config STM32_GPS_M9N_PROTOCOL_UBX
     bool "Enable UBX output"
     default y
+    help
+      Enable binary UBX protocol output from the M9N on UART2.
 
 config STM32_GPS_M9N_PROTOCOL_NMEA
     bool "Enable NMEA output"
     default n
+    help
+      Enable ASCII NMEA sentence output from the M9N on UART2.
 
 endmenu
 
@@ -446,18 +1121,27 @@ menu "Messages"
 config STM32_GPS_M9N_MSG_NAV_PVT
     bool "Enable NAV-PVT"
     default y
+    help
+      Enable the NAV-PVT message carrying primary position, velocity, and time
+      state.
 
 config STM32_GPS_M9N_MSG_NAV_DOP
     bool "Enable NAV-DOP"
     default n
+    help
+      Enable the NAV-DOP message carrying dilution-of-precision metrics.
 
 config STM32_GPS_M9N_MSG_NAV_COV
     bool "Enable NAV-COV"
     default y
+    help
+      Enable the NAV-COV message carrying navigation covariance data.
 
 config STM32_GPS_M9N_MSG_NAV_EOE
     bool "Enable NAV-EOE"
     default y
+    help
+      Enable the NAV-EOE message marking the end of each navigation epoch.
 
 endmenu
 
@@ -467,10 +1151,14 @@ config STM32_GPS_M9N_RATE_MEAS_MS
     int "Measurement rate (ms)"
     range 25 10000
     default 100
+    help
+      Navigation measurement interval requested from the M9N module.
 
 choice
     prompt "Dynamic model"
     default STM32_GPS_M9N_DYN_MODEL_AIRBORNE_2G
+    help
+      Dynamic motion model used by the M9N navigation engine.
 
 config STM32_GPS_M9N_DYN_MODEL_PORTABLE
     bool "Portable"
@@ -511,26 +1199,38 @@ menu "Constellations"
 config STM32_GPS_M9N_GNSS_GPS
     bool "Enable GPS constellation"
     default y
+    help
+      Enable reception and tracking of the GPS constellation.
 
 config STM32_GPS_M9N_GNSS_GLO
     bool "Enable GLONASS constellation"
     default n
+    help
+      Enable reception and tracking of the GLONASS constellation.
 
 config STM32_GPS_M9N_GNSS_GAL
     bool "Enable Galileo constellation"
     default y
+    help
+      Enable reception and tracking of the Galileo constellation.
 
 config STM32_GPS_M9N_GNSS_BDS
     bool "Enable BeiDou constellation"
     default n
+    help
+      Enable reception and tracking of the BeiDou constellation.
 
 config STM32_GPS_M9N_GNSS_SBAS
     bool "Enable SBAS"
     default y
+    help
+      Enable satellite-based augmentation support on the M9N.
 
 config STM32_GPS_M9N_GNSS_ITFM
     bool "Enable ITFM"
     default y
+    help
+      Enable the M9N interference and jamming monitor feature.
 
 endmenu
 
@@ -539,20 +1239,28 @@ menu "Timepulse"
 config STM32_GPS_M9N_TP1_ENA
     bool "Enable TP1"
     default y
+    help
+      Enable the TP1 timepulse output on the M9N.
 
 config STM32_GPS_M9N_TP1_PERIOD
     int "TP1 period (us)"
     range 1 1000000000
     default 1000000
+    help
+      Timepulse period in microseconds for TP1.
 
 config STM32_GPS_M9N_TP1_LEN
     int "TP1 pulse length (us)"
     range 1 1000000000
     default 50000
+    help
+      Timepulse active pulse width in microseconds for TP1.
 
 choice
     prompt "TP1 time grid"
     default STM32_GPS_M9N_TP1_TIMEGRID_GPS
+    help
+      Time reference used for the TP1 output grid.
 
 config STM32_GPS_M9N_TP1_TIMEGRID_UTC
     bool "UTC"
@@ -574,14 +1282,20 @@ endchoice
 config STM32_GPS_M9N_TP1_SYNC_GNSS
     bool "TP1 sync GNSS"
     default y
+    help
+      Synchronize the TP1 output to GNSS time instead of running free.
 
 config STM32_GPS_M9N_TP1_ALIGN_TO_TOW
     bool "TP1 align to TOW"
     default y
+    help
+      Align TP1 edges to GNSS time-of-week boundaries when supported.
 
 config STM32_GPS_M9N_TP1_POL_RISING
     bool "TP1 rising polarity"
     default y
+    help
+      Use rising-edge-active polarity for the TP1 pulse.
 
 endmenu
 endmenu
@@ -592,16 +1306,22 @@ menu "Button"
 config STM32_BUTTON_ACTIVE_LOW
     bool "Button active low"
     default n
+    help
+      Treat a low GPIO level as button-pressed on the STM32 board input.
 
 config STM32_BUTTON_DEBOUNCE_MS
     int "Debounce time (ms)"
     range 0 1000
     default 50
+    help
+      Minimum stable time required before a button state change is accepted.
 
 config STM32_BUTTON_LONG_PRESS_MS
     int "Long press time (ms)"
     range 0 10000
     default 500
+    help
+      Hold time required before the button reports a long-press event.
 
 endmenu
 
@@ -612,66 +1332,98 @@ menu "Enabled Channels"
 config STM32_RC_CHANNEL_1_ENABLED
     bool "Enable channel 1"
     default y
+    help
+      Forward and publish RC receiver channel 1.
 
 config STM32_RC_CHANNEL_2_ENABLED
     bool "Enable channel 2"
     default y
+    help
+      Forward and publish RC receiver channel 2.
 
 config STM32_RC_CHANNEL_3_ENABLED
     bool "Enable channel 3"
     default y
+    help
+      Forward and publish RC receiver channel 3.
 
 config STM32_RC_CHANNEL_4_ENABLED
     bool "Enable channel 4"
     default y
+    help
+      Forward and publish RC receiver channel 4.
 
 config STM32_RC_CHANNEL_5_ENABLED
     bool "Enable channel 5"
     default y
+    help
+      Forward and publish RC receiver channel 5.
 
 config STM32_RC_CHANNEL_6_ENABLED
     bool "Enable channel 6"
     default y
+    help
+      Forward and publish RC receiver channel 6.
 
 config STM32_RC_CHANNEL_7_ENABLED
     bool "Enable channel 7"
     default y
+    help
+      Forward and publish RC receiver channel 7.
 
 config STM32_RC_CHANNEL_8_ENABLED
     bool "Enable channel 8"
     default y
+    help
+      Forward and publish RC receiver channel 8.
 
 config STM32_RC_CHANNEL_9_ENABLED
     bool "Enable channel 9"
     default y
+    help
+      Forward and publish RC receiver channel 9.
 
 config STM32_RC_CHANNEL_10_ENABLED
     bool "Enable channel 10"
     default y
+    help
+      Forward and publish RC receiver channel 10.
 
 config STM32_RC_CHANNEL_11_ENABLED
     bool "Enable channel 11"
     default y
+    help
+      Forward and publish RC receiver channel 11.
 
 config STM32_RC_CHANNEL_12_ENABLED
     bool "Enable channel 12"
     default y
+    help
+      Forward and publish RC receiver channel 12.
 
 config STM32_RC_CHANNEL_13_ENABLED
     bool "Enable channel 13"
     default y
+    help
+      Forward and publish RC receiver channel 13.
 
 config STM32_RC_CHANNEL_14_ENABLED
     bool "Enable channel 14"
     default y
+    help
+      Forward and publish RC receiver channel 14.
 
 config STM32_RC_CHANNEL_15_ENABLED
     bool "Enable channel 15"
     default y
+    help
+      Forward and publish RC receiver channel 15.
 
 config STM32_RC_CHANNEL_16_ENABLED
     bool "Enable channel 16"
     default y
+    help
+      Forward and publish RC receiver channel 16.
 
 endmenu
 endmenu
