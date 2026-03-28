@@ -1,6 +1,6 @@
 #include "system.hpp"
+#include "esp32_config.hpp"
 #include "panic.hpp"
-#include "user_config.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -24,7 +24,7 @@ void System::Init() {
 void System::InitComponent(Component c) {
   switch (c) {
   case Component::kLed:
-    Led().Init(::LED::Config{});
+    Led().Init(kLedConfig);
     ESP_LOGI(kTag, "LED driver initialized");
     break;
   case Component::kBuzzer:
@@ -47,24 +47,24 @@ void System::InitComponent(Component c) {
     Tcp().Init(::TcpServer::Config{});
     ESP_LOGI(kTag, "TCP Server initialized");
     break;
-  case Component::kStm32Uart:
-    uarts_[(int)Uart::Id::kStm32].Init(kStm32UartConfig);
-    ESP_LOGI(kTag, "STM32 Uart initialized");
+  case Component::kFcLinkUart:
+    FcLinkUart().Init(kFcLinkUartConfig);
+    ESP_LOGI(kTag, "FcLink Uart initialized");
     break;
   case Component::kEp2Uart:
-    uarts_[(int)Uart::Id::kEp2].Init(kEp2UartConfig);
+    Ep2Uart().Init(kEp2UartConfig);
     ESP_LOGI(kTag, "EP2 Uart initialized");
     break;
   case Component::kProgrammer:
-    Programmer().Init(::Programmer::Config{}, &Uart(::Uart::Id::kStm32));
+    Programmer().Init(kProgrammerConfig, &FcLinkUart());
     ESP_LOGI(kTag, "Programmer initialized");
     break;
   case Component::kMavlink:
-    Mavlink().Init(kMavlinkConfig, &Uart(::Uart::Id::kEp2));
+    Mavlink().Init(kMavlinkConfig, &Ep2Uart());
     ESP_LOGI(kTag, "Mavlink service initialized");
     break;
   case Component::kFcLink:
-    FcLink().Init(::FcLink::Config{}, &Uart(::Uart::Id::kStm32));
+    FcLink().Init(kFcLinkConfig, &FcLinkUart());
     ESP_LOGI(kTag, "FcLink service initialized");
     break;
   case Component::kCommandHandler:

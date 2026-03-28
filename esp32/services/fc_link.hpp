@@ -1,20 +1,28 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include "mavlink.hpp"
 #include "message.hpp"
-#include "ring_buffer.hpp"
 #include "uart.hpp"
 
 class FcLink {
 public:
-  struct Config {};
+  struct Config {
+    uint8_t telemetry_rate_hz = 25;
+    uint16_t handshake_timeout_ms = 2000;
+    uint16_t handshake_retry_period_ms = 20;
+    uint16_t rx_read_chunk_size = 128;
+    uint8_t rx_queue_depth = 10;
+  };
 
   static FcLink &GetInstance() {
     static FcLink instance;
     return instance;
   }
 
-  void Init(const Config &cfg, Uart *uart);
+  void Init(const Config &cfg, UartFcLink *uart);
   void Poll(uint32_t now);
 
   // API
@@ -36,14 +44,12 @@ private:
   FcLink(const FcLink &) = delete;
   FcLink &operator=(const FcLink &) = delete;
 
-  Uart *uart_ = nullptr;
+  UartFcLink *uart_ = nullptr;
   Config cfg_;
   bool initialized_ = false;
 
-  // RX Data
-  // RX Data
-  static constexpr size_t kQueueSize = 10;
-  RingBuffer<message::Packet, kQueueSize> queue_;
+  static constexpr size_t kMaxRxReadChunkSize = message::kMaxPayload;
+  void *packet_queue_ = nullptr; // QueueHandle_t
 
   // Internal Logic State
   enum class LogicState {

@@ -1,24 +1,35 @@
 #pragma once
+
 #include "hal/gpio_types.h"
+
 #include <cstddef>
 #include <cstdint>
 
-class Uart {
+enum class UartInstance : uint8_t { kFcLink, kEp2 };
+
+enum class UartParity : uint8_t {
+  kNone = 0,
+  kEven = 1,
+  kOdd = 2,
+};
+
+struct UartConfig {
+  gpio_num_t tx_gpio = GPIO_NUM_4;
+  gpio_num_t rx_gpio = GPIO_NUM_5;
+
+  uint32_t baud_rate = 115200;
+  UartParity parity = UartParity::kEven;
+
+  int rx_buf = 2048;
+  int tx_buf = 2048;
+};
+
+template <UartInstance Inst> class Uart {
 public:
-  enum class Id : uint8_t { kStm32, kEp2, kCount };
-  struct Config {
-    uint8_t uart_num = 1; // ESP32 UART peripheral number
-    gpio_num_t tx_gpio = GPIO_NUM_4;
-    gpio_num_t rx_gpio = GPIO_NUM_5;
-
-    uint32_t baud_rate = 115200;
-
-    enum class Parity { kNone = 0, kEven = 1, kOdd = 2 };
-    Parity parity = Parity::kEven;
-
-    int rx_buf = 2048;
-    int tx_buf = 2048;
-  };
+  static Uart &GetInstance() {
+    static Uart instance;
+    return instance;
+  }
 
   int Write(const uint8_t *data, size_t size);
   int Read(uint8_t *data, size_t size, uint32_t timeout_ms = 0);
@@ -26,12 +37,15 @@ public:
   bool DrainTx(uint32_t timeout_ms);
   bool SetBaudRate(uint32_t baud_rate);
 
+  bool IsInitialized() const { return initialized_; }
+  const UartConfig &GetConfig() const { return cfg_; }
+
 private:
   friend class System;
 
-  void Init(const Config &cfg);
+  void Init(const UartConfig &cfg);
 
-  Config cfg_{};
+  UartConfig cfg_{};
   bool initialized_ = false;
 
   Uart() = default;
@@ -39,3 +53,6 @@ private:
   Uart(const Uart &) = delete;
   Uart &operator=(const Uart &) = delete;
 };
+
+using UartFcLink = Uart<UartInstance::kFcLink>;
+using UartEp2 = Uart<UartInstance::kEp2>;

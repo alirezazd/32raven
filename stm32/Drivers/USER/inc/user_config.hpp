@@ -109,26 +109,6 @@ constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600, // mode
 };
 
-constexpr UartConfig kUart1Config = {
-    .baud_rate = 5000000, // Link to ESP32
-    .word_length = UartWordLength::k9Bits,
-    .stop_bits = UartStopBits::k1,
-    .parity = UartParity::kEven,
-    .mode = UartMode::kTxRx,
-    .hw_flow_control = UartHwFlowControl::kNone,
-    .over_sampling = UartOverSampling::k16,
-};
-
-constexpr UartConfig kUart2Config = {
-    .baud_rate = 115200, // GPS M9N
-    .word_length = UartWordLength::k8Bits,
-    .stop_bits = UartStopBits::k1,
-    .parity = UartParity::kNone,
-    .mode = UartMode::kTxRx,
-    .hw_flow_control = UartHwFlowControl::kNone,
-    .over_sampling = UartOverSampling::k16,
-};
-
 constexpr SpiConfig kSpi1Config = {
     .polarity = SpiPolarity::kHigh,
     .phase = SpiPhase::k2Edge,

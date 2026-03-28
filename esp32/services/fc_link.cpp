@@ -1,18 +1,18 @@
 #include "fc_link.hpp"
 #include "mavlink.hpp"
 #include "panic.hpp"
-#include "user_config.hpp"
 #include <cstring>
 
 extern "C" {
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include "freertos/task.h"
 }
 
 static constexpr const char *kTag = "link";
 
-void FcLink::Init(const Config &cfg, Uart *uart) {
+void FcLink::Init(const Config &cfg, UartFcLink *uart) {
   if (initialized_) {
     Panic(ErrorCode::kFcLinkInitFailed);
   }
@@ -20,7 +20,19 @@ void FcLink::Init(const Config &cfg, Uart *uart) {
     Panic(ErrorCode::kFcLinkInitFailed);
   }
   cfg_ = cfg;
+  if (cfg_.telemetry_rate_hz == 0 || cfg_.handshake_timeout_ms == 0 ||
+      cfg_.handshake_retry_period_ms == 0 || cfg_.rx_read_chunk_size == 0 ||
+      cfg_.rx_read_chunk_size > kMaxRxReadChunkSize ||
+      cfg_.rx_queue_depth == 0) {
+    Panic(ErrorCode::kFcLinkInitFailed);
+  }
   uart_ = uart;
+  packet_queue_ =
+      xQueueCreate(static_cast<UBaseType_t>(cfg_.rx_queue_depth),
+                   sizeof(message::Packet));
+  if (packet_queue_ == nullptr) {
+    Panic(ErrorCode::kFcLinkInitFailed);
+  }
   last_rc_forward_ms_ = 0;
   last_radio_status_forward_ms_ = 0;
   initialized_ = true;
@@ -33,17 +45,18 @@ bool FcLink::PerformHandshake() {
 
   last_rc_forward_ms_ = 0;
   last_radio_status_forward_ms_ = 0;
+  xQueueReset((QueueHandle_t)packet_queue_);
   ESP_LOGI(kTag, "Handshake Start...");
 
   uint8_t tx_buf[32];
   size_t tx_len = message::Serialize(message::MsgId::kPing, nullptr, 0, tx_buf);
-  const int duration_ms = 2000;
-  const int period_ms = 20;
-  const int attempts = duration_ms / period_ms;
+  const int attempts =
+      (cfg_.handshake_timeout_ms + cfg_.handshake_retry_period_ms - 1) /
+      cfg_.handshake_retry_period_ms;
 
   for (int i = 0; i < attempts; ++i) {
     uart_->Write(tx_buf, tx_len);
-    vTaskDelay(pdMS_TO_TICKS(period_ms));
+    vTaskDelay(pdMS_TO_TICKS(cfg_.handshake_retry_period_ms));
 
     Poll(0);
 
@@ -54,7 +67,7 @@ bool FcLink::PerformHandshake() {
 
         // Send Configuration
         message::ConfigMsg cfg;
-        cfg.telemetry_rate_hz = kTelemetryRateHz;
+        cfg.telemetry_rate_hz = cfg_.telemetry_rate_hz;
 
         message::Packet cfg_pkt;
         cfg_pkt.header.id = (uint8_t)message::MsgId::kConfig;
@@ -111,7 +124,12 @@ bool FcLink::SendRcState(const RcState &state) {
   return true;
 }
 
-bool FcLink::GetPacket(message::Packet &out_pkt) { return queue_.Pop(out_pkt); }
+bool FcLink::GetPacket(message::Packet &out_pkt) {
+  if (!initialized_ || packet_queue_ == nullptr) {
+    return false;
+  }
+  return xQueueReceive((QueueHandle_t)packet_queue_, &out_pkt, 0) == pdPASS;
+}
 
 bool FcLink::IsConnected() const { return (rx_state_ != RxState::kMagic1); }
 
@@ -120,8 +138,8 @@ void FcLink::Poll(uint32_t now) {
   if (!initialized_ || !uart_)
     return;
 
-  uint8_t buf[128];
-  int n = uart_->Read(buf, sizeof(buf));
+  uint8_t buf[kMaxRxReadChunkSize];
+  int n = uart_->Read(buf, cfg_.rx_read_chunk_size);
 
   for (int i = 0; i < n; ++i) {
     uint8_t b = buf[i];
@@ -178,7 +196,7 @@ void FcLink::Poll(uint32_t now) {
             memcpy(pkt.payload, rx_pkt_internal_.payload, rx_len_);
           pkt.crc = rx_pkt_internal_.crc;
 
-          if (!queue_.Push(pkt)) {
+          if (xQueueSend((QueueHandle_t)packet_queue_, &pkt, 0) != pdPASS) {
           }
         } else {
           ESP_LOGE(kTag, "CRC Fail");
