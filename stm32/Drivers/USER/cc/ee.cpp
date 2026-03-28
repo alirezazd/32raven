@@ -167,19 +167,17 @@ bool BufferIsErased(const uint8_t *data, size_t len) {
   return true;
 }
 
-bool SlotsAreBlank(const SlotState &a, const SlotState &b) {
-  return HeaderIsBlank(a.header) && HeaderIsBlank(b.header);
-}
-
 const SlotState *FindActiveSlotOrPanic(const SlotState &a, const SlotState &b) {
   const SlotState *active = FindActiveSlot(a, b);
   if (active != nullptr) {
     return active;
   }
-  if (SlotsAreBlank(a, b)) {
-    return nullptr;
-  }
-  Panic(ErrorCode::kEepromNoValidSlot);
+  // If both slots are blank, callers will treat EEPROM as empty and
+  // initialize defaults on first write.
+  //
+  // If both slots are present but invalid/corrupt, also fall back to the
+  // "empty EEPROM" path so configuration can self-heal instead of hard
+  // panicking during bring-up.
   return nullptr;
 }
 

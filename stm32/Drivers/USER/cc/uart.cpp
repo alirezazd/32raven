@@ -249,8 +249,8 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
     }
   } // interrupts unmasked here
 
-  const bool kOk = UartTransmitDma<Inst>(ptr, static_cast<uint16_t>(len));
-  if (!kOk) {
+  const bool ok = UartTransmitDma<Inst>(ptr, static_cast<uint16_t>(len));
+  if (!ok) {
     BasepriGuard g2(kMaskPri);
     tx_busy_ = false;
     last_dma_len_ = 0;
@@ -368,9 +368,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleDmaError(
 
   // Send Error Message
   char msg[] = "DMA ERR: 00000000\r\n";
-  const char kHex[] = "0123456789ABCDEF";
+  const char hex[] = "0123456789ABCDEF";
   for (int i = 0; i < 8; i++) {
-    msg[16 - i] = kHex[isr_flags & 0xF];
+    msg[16 - i] = hex[isr_flags & 0xF];
     isr_flags >>= 4;
   }
   Send(msg);
@@ -538,8 +538,8 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::DrainRx() {
   }
 
   // NDTR counts DOWN from Size to 0
-  const uint16_t kCurrentNdtr = s->NDTR;
-  uint16_t head_pos = RxDmaSize - kCurrentNdtr;
+  const uint16_t current_ndtr = s->NDTR;
+  uint16_t head_pos = RxDmaSize - current_ndtr;
   if (head_pos >= RxDmaSize) {
     head_pos = 0;
   }
@@ -552,21 +552,21 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::DrainRx() {
   // Calculate new data
   if (head_pos > rx_last_pos_) {
     // Linear capability (Head > Tail)
-    const size_t kLen = head_pos - rx_last_pos_;
-    size_t written = rx_ring_.PushBlock(&rx_dma_buf_[rx_last_pos_], kLen);
-    rx_drop_bytes_ += (kLen - written);
+    const size_t len = head_pos - rx_last_pos_;
+    size_t written = rx_ring_.PushBlock(&rx_dma_buf_[rx_last_pos_], len);
+    rx_drop_bytes_ += (len - written);
   } else {
     // Wrap-around capability (Head < Tail)
 
     // 1. Tail to End
-    const size_t kLen1 = RxDmaSize - rx_last_pos_;
-    size_t w1 = rx_ring_.PushBlock(&rx_dma_buf_[rx_last_pos_], kLen1);
-    rx_drop_bytes_ += (kLen1 - w1);
+    const size_t len1 = RxDmaSize - rx_last_pos_;
+    size_t w1 = rx_ring_.PushBlock(&rx_dma_buf_[rx_last_pos_], len1);
+    rx_drop_bytes_ += (len1 - w1);
 
     // 2. Start to Head
-    const size_t kLen2 = head_pos;
-    size_t w2 = rx_ring_.PushBlock(&rx_dma_buf_[0], kLen2);
-    rx_drop_bytes_ += (kLen2 - w2);
+    const size_t len2 = head_pos;
+    size_t w2 = rx_ring_.PushBlock(&rx_dma_buf_[0], len2);
+    rx_drop_bytes_ += (len2 - w2);
   }
 
   rx_last_pos_ = head_pos;

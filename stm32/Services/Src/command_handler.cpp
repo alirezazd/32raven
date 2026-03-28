@@ -23,9 +23,12 @@ static void OnConfig(AppContext &ctx, const message::Packet &pkt) {
 }
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
-  (void)ctx;
-  (void)pkt;
-  // TODO: Forward to RC Service
+  if (pkt.header.len != sizeof(message::RcChannelsMsg)) {
+    return;
+  }
+
+  const auto *rc = (const message::RcChannelsMsg *)pkt.payload;
+  ctx.sys->GetRcReceiver().ProcessRawState(*rc, ctx.sys->Time().Micros());
 }
 
 static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {

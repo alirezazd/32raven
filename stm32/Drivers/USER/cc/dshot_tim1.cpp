@@ -24,7 +24,7 @@ static constexpr uint32_t kT0Den = 8u; // 37.5%
 
 // ---------- driver init ----------
 
-void DShotTim1::_init(const Config &config) {
+void DShotTim1::Init(const Config &config) {
   if (initialized_) {
     ErrorHandler();
   }
@@ -49,16 +49,16 @@ void DShotTim1::_init(const Config &config) {
     break;
   }
 
-  dma_init_();
-  tim1_init_(static_cast<uint16_t>(period));
+  DmaInit();
+  Tim1Init(static_cast<uint16_t>(period));
 
   TIM1->DCR = TIM_DMABASE_CCR1 | TIM_DMABURSTLENGTH_4TRANSFERS;
 
   timings_.arr = static_cast<uint16_t>(htim1.Init.Period);
-  const uint32_t kPeriodTicks = timings_.arr + 1u;
+  const uint32_t period_ticks = timings_.arr + 1u;
 
-  timings_.t1h = DivRoundU16(kPeriodTicks * kT1Num, kT1Den);
-  timings_.t0h = DivRoundU16(kPeriodTicks * kT0Num, kT0Den);
+  timings_.t1h = DivRoundU16(period_ticks * kT1Num, kT1Den);
+  timings_.t0h = DivRoundU16(period_ticks * kT0Num, kT0Den);
 
   // idle low
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
@@ -66,13 +66,13 @@ void DShotTim1::_init(const Config &config) {
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_4, 0);
 
-  startOutputsOnce_();
+  StartOutputsOnce();
   busy_ = false;
 }
 
 // ---------- CubeMX-derived init ----------
 
-void DShotTim1::dma_init_() {
+void DShotTim1::DmaInit() {
   /* DMA controller clock enable */
   __HAL_RCC_DMA2_CLK_ENABLE();
 
@@ -82,7 +82,7 @@ void DShotTim1::dma_init_() {
   HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
 }
 
-void DShotTim1::tim1_init_(uint16_t period) {
+void DShotTim1::Tim1Init(uint16_t period) {
   TIM_ClockConfigTypeDef clock_source_config = {0};
   TIM_MasterConfigTypeDef master_config = {0};
   TIM_OC_InitTypeDef config_oc = {0};
@@ -144,7 +144,7 @@ void DShotTim1::tim1_init_(uint16_t period) {
 
 // ---------- runtime ----------
 
-void DShotTim1::startOutputsOnce_() {
+void DShotTim1::StartOutputsOnce() {
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
@@ -153,8 +153,9 @@ void DShotTim1::startOutputsOnce_() {
   HAL_TIM_Base_Start(&htim1);
 }
 
-bool DShotTim1::_sendBits(const uint16_t *interleaved_ccr, uint16_t totalBits) {
-  if (!interleaved_ccr || totalBits == 0)
+bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
+                             uint16_t total_bits) {
+  if (!interleaved_ccr || total_bits == 0)
     return false;
 
   uint32_t primask = __get_PRIMASK();
@@ -166,14 +167,14 @@ bool DShotTim1::_sendBits(const uint16_t *interleaved_ccr, uint16_t totalBits) {
   busy_ = true;
   __set_PRIMASK(primask);
 
-  const uint32_t kCountWords = static_cast<uint32_t>(totalBits) * kMotors;
-  startTransfer_(interleaved_ccr, kCountWords);
+  const uint32_t count_words = static_cast<uint32_t>(total_bits) * kMotors;
+  StartTransfer(interleaved_ccr, count_words);
   return true;
 }
 
 volatile uint32_t g_dshot_dma_done = 0;
 
-void DShotTim1::startTransfer_(const uint16_t *buf, uint32_t count_words) {
+void DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {
   g_dshot_dma_done = 0;
   if (HAL_DMA_Start_IT(&hdma_tim1_up, reinterpret_cast<uint32_t>(buf),
                        reinterpret_cast<uint32_t>(&TIM1->DMAR),

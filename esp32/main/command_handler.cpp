@@ -150,8 +150,9 @@ static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
 }
 
 void CommandHandler::Init(const Config &cfg) {
-  if (initialized_)
-    return;
+  if (initialized_) {
+    Panic(ErrorCode::kCommandInitFailed);
+  }
   cfg_ = cfg;
 
   // Initialize table

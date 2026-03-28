@@ -48,6 +48,11 @@ struct ConfigMsg {
   uint8_t telemetry_rate_hz;
 } __attribute__((packed));
 
+struct RcChannelsMsg {
+  uint16_t channels[16];
+  uint8_t rssi;
+} __attribute__((packed));
+
 struct GpsData {
   // Time
   uint16_t year;

@@ -1,4 +1,6 @@
 #include "fc_link.hpp"
+#include "mavlink.hpp"
+#include "panic.hpp"
 #include "user_config.hpp"
 #include <cstring>
 
@@ -11,10 +13,16 @@ extern "C" {
 static constexpr const char *kTag = "link";
 
 void FcLink::Init(const Config &cfg, Uart *uart) {
-  if (initialized_)
-    return;
+  if (initialized_) {
+    Panic(ErrorCode::kFcLinkInitFailed);
+  }
+  if (uart == nullptr) {
+    Panic(ErrorCode::kFcLinkInitFailed);
+  }
   cfg_ = cfg;
   uart_ = uart;
+  last_rc_forward_ms_ = 0;
+  last_radio_status_forward_ms_ = 0;
   initialized_ = true;
   ESP_LOGI(kTag, "Initialized");
 }
@@ -23,17 +31,19 @@ bool FcLink::PerformHandshake() {
   if (!initialized_ || !uart_)
     return false;
 
+  last_rc_forward_ms_ = 0;
+  last_radio_status_forward_ms_ = 0;
   ESP_LOGI(kTag, "Handshake Start...");
 
   uint8_t tx_buf[32];
   size_t tx_len = message::Serialize(message::MsgId::kPing, nullptr, 0, tx_buf);
-  const int kDurationMs = 2000;
-  const int kPeriodMs = 20;
-  const int kAttempts = kDurationMs / kPeriodMs;
+  const int duration_ms = 2000;
+  const int period_ms = 20;
+  const int attempts = duration_ms / period_ms;
 
-  for (int i = 0; i < kAttempts; ++i) {
+  for (int i = 0; i < attempts; ++i) {
     uart_->Write(tx_buf, tx_len);
-    vTaskDelay(pdMS_TO_TICKS(kPeriodMs));
+    vTaskDelay(pdMS_TO_TICKS(period_ms));
 
     Poll(0);
 
@@ -71,6 +81,33 @@ bool FcLink::SendPacket(const message::Packet &pkt) {
   size_t len = message::Serialize((message::MsgId)pkt.header.id, pkt.payload,
                                   pkt.header.len, tx);
   uart_->Write(tx, len);
+  return true;
+}
+
+bool FcLink::SendRcState(const RcState &state) {
+  if (state.rc.last_update == 0 && state.radio_status.last_update == 0) {
+    return false;
+  }
+  if (state.rc.last_update == last_rc_forward_ms_ &&
+      state.radio_status.last_update == last_radio_status_forward_ms_) {
+    return false;
+  }
+
+  message::RcChannelsMsg msg{};
+  std::memcpy(msg.channels, state.rc.channels, sizeof(msg.channels));
+  msg.rssi = state.radio_status.rssi;
+
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kRcChannels;
+  pkt.header.len = sizeof(msg);
+  std::memcpy(pkt.payload, &msg, sizeof(msg));
+
+  if (!SendPacket(pkt)) {
+    return false;
+  }
+
+  last_rc_forward_ms_ = state.rc.last_update;
+  last_radio_status_forward_ms_ = state.radio_status.last_update;
   return true;
 }
 

@@ -1,16 +1,6 @@
 #include "system.hpp"
-#include "driver/gpio.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "user_config.hpp"
-
-#include "button.hpp"
-#include "led.hpp"
 #include "panic.hpp"
-#include "programmer.hpp"
-#include "tcp_server.hpp"
-#include "uart.hpp"
-#include "wifi.hpp"
+#include "user_config.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -18,93 +8,80 @@ extern "C" {
 static constexpr const char *kTag = "system";
 
 void System::Init() {
-  if (initialized_)
-    return;
-
-  ErrorCode err;
-
-  err = LED::GetInstance().Init(LED::Config{});
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "LED driver initialized");
-
-  err = Button::GetInstance().Init(kButtonConfig);
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "Button driver initialized");
-
-  err = WifiController::GetInstance().Init(WifiController::Config{});
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "Wifi driver initialized");
-
-  err = TcpServer::GetInstance().Init(TcpServer::Config{});
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "TCP Server initialized");
-
-  err = uarts_[(int)Uart::Id::kStm32].Init(kStm32UartConfig);
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "STM32 Uart initialized");
-
-  err = uarts_[(int)Uart::Id::kEp2].Init(kEp2UartConfig);
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "EP2 Uart initialized");
-
-  auto &stm32_uart = Uart(::Uart::Id::kStm32);
-  auto &ep2_uart = Uart(::Uart::Id::kEp2);
-  err = Programmer::GetInstance().Init(Programmer::Config{}, &stm32_uart);
-  if (err != ErrorCode::kOk)
-    Panic(err);
-  ESP_LOGI(kTag, "Programmer initialized");
-
-  Mavlink::GetInstance().Init(kMavlinkConfig, &ep2_uart);
-  ESP_LOGI(kTag, "Mavlink service initialized");
-
-  FcLink::GetInstance().Init(FcLink::Config{}, &stm32_uart);
-  ESP_LOGI(kTag, "FcLink service initialized");
-
-  CommandHandler::GetInstance().Init(CommandHandler::Config{});
-  ESP_LOGI(kTag, "CommandHandler service initialized");
+  if (initialized_) {
+    Panic(ErrorCode::kSystemReinit);
+  }
 
   initialized_ = true;
+
+  for (int i = 0; i < static_cast<int>(Component::kCount); ++i) {
+    InitComponent(static_cast<Component>(i));
+  }
+
+  (void)TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
+}
+
+void System::InitComponent(Component c) {
+  switch (c) {
+  case Component::kLed:
+    Led().Init(::LED::Config{});
+    ESP_LOGI(kTag, "LED driver initialized");
+    break;
+  case Component::kBuzzer:
+    Buzzer().Init(kBuzzerConfig);
+    ESP_LOGI(kTag, "Buzzer driver initialized");
+    break;
+  case Component::kTonePlayer:
+    TonePlayer().Init(::TonePlayer::Config{}, &Buzzer());
+    ESP_LOGI(kTag, "TonePlayer service initialized");
+    break;
+  case Component::kButton:
+    Button().Init(kButtonConfig);
+    ESP_LOGI(kTag, "Button driver initialized");
+    break;
+  case Component::kWifi:
+    Wifi().Init(::WifiController::Config{});
+    ESP_LOGI(kTag, "Wifi driver initialized");
+    break;
+  case Component::kTcpServer:
+    Tcp().Init(::TcpServer::Config{});
+    ESP_LOGI(kTag, "TCP Server initialized");
+    break;
+  case Component::kStm32Uart:
+    uarts_[(int)Uart::Id::kStm32].Init(kStm32UartConfig);
+    ESP_LOGI(kTag, "STM32 Uart initialized");
+    break;
+  case Component::kEp2Uart:
+    uarts_[(int)Uart::Id::kEp2].Init(kEp2UartConfig);
+    ESP_LOGI(kTag, "EP2 Uart initialized");
+    break;
+  case Component::kProgrammer:
+    Programmer().Init(::Programmer::Config{}, &Uart(::Uart::Id::kStm32));
+    ESP_LOGI(kTag, "Programmer initialized");
+    break;
+  case Component::kMavlink:
+    Mavlink().Init(kMavlinkConfig, &Uart(::Uart::Id::kEp2));
+    ESP_LOGI(kTag, "Mavlink service initialized");
+    break;
+  case Component::kFcLink:
+    FcLink().Init(::FcLink::Config{}, &Uart(::Uart::Id::kStm32));
+    ESP_LOGI(kTag, "FcLink service initialized");
+    break;
+  case Component::kCommandHandler:
+    CommandHandler().Init(::CommandHandler::Config{});
+    ESP_LOGI(kTag, "CommandHandler service initialized");
+    break;
+  case Component::kCount:
+    break;
+  }
 }
 
 void System::StopNetwork() {
-  WifiController::GetInstance().Stop();
-  TcpServer::GetInstance().Stop();
+  Wifi().Stop();
+  Tcp().Stop();
 }
 
 void System::StartNetwork() {
-  WifiController::GetInstance().StartAp();
-  TcpServer::GetInstance().Start();
+  Wifi().StartAp();
+  Tcp().Start();
 }
-
-::LED &System::Led() { return LED::GetInstance(); }
-
-::Button &System::Button() { return ::Button::GetInstance(); }
-
-WifiController &System::Wifi() { return WifiController::GetInstance(); }
-
-::TcpServer &System::Tcp() { return ::TcpServer::GetInstance(); }
-
-::Mavlink &System::Mavlink() { return ::Mavlink::GetInstance(); }
-
-::FcLink &System::FcLink() { return ::FcLink::GetInstance(); }
-
-::CommandHandler &System::CommandHandler() {
-  return ::CommandHandler::GetInstance();
-}
-
-::Uart &System::Uart(::Uart::Id id) {
-  if ((int)id < (int)::Uart::Id::kCount) {
-    return uarts_[(int)id];
-  }
-  return uarts_[0]; // fallback
-}
-
-::Uart &System::Uart() { return Uart(::Uart::Id::kStm32); }
-
-::Programmer &System::Programmer() { return ::Programmer::GetInstance(); }

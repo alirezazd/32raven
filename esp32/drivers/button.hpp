@@ -1,6 +1,5 @@
 #pragma once
 
-#include "error_code.hpp"
 #include "timebase.hpp"
 
 extern "C" {
@@ -38,7 +37,7 @@ public:
 private:
   friend class System;
 
-  ErrorCode Init(const Config &cfg);
+  void Init(const Config &cfg);
 
   bool ReadRawPressed() const;
 

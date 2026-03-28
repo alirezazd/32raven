@@ -4,7 +4,6 @@
 #include "system.hpp"
 #include "tcp_server.hpp"
 #include <cstdio>
-#include <cstring>
 
 extern "C" {
 #include "esp_log.h"
@@ -31,6 +30,7 @@ void ServingState::OnEnter(AppContext &ctx, SmTick now) {
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->Mavlink().Poll(now);
+  ctx.sys->FcLink().SendRcState(ctx.sys->Mavlink().GetRcState());
   ctx.sys->FcLink().Poll(now);
 
   message::Packet pkt;

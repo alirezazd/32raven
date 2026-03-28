@@ -1,4 +1,5 @@
 // mavlink_tx_task.cpp
+#include "panic.hpp"
 #include "system.hpp"
 #include "timebase.hpp"
 
@@ -31,6 +32,8 @@ void StartMavlinkTxTask() {
   static constexpr uint32_t kStackWords = 4096 / sizeof(StackType_t);
   static constexpr UBaseType_t kPrio = 10;
 
-  (void)xTaskCreatePinnedToCore(MavlinkTxTask, "mav_tx", kStackWords, nullptr,
-                                kPrio, nullptr, 0);
+  if (xTaskCreatePinnedToCore(MavlinkTxTask, "mav_tx", kStackWords, nullptr,
+                              kPrio, nullptr, 0) != pdPASS) {
+    Panic(ErrorCode::kMavlinkInitFailed);
+  }
 }
