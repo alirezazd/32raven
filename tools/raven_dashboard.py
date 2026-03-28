@@ -16,6 +16,7 @@ import time
 from collections import deque
 from typing import Dict, Optional, Tuple
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
@@ -182,14 +183,24 @@ class TriAxisPlot(Static):
         self._plot.plt.ylim(*self._y_range)
         self.set_interval(1 / PLOT_FPS, self._refresh)
 
+    def on_resize(self, _: events.Resize) -> None:
+        self.force_redraw()
+
     def push_sample(self, x: float, y: float, z: float) -> None:
         for buf, val in zip(self._bufs, (x, y, z)):
             buf.append(val)
         self._sample_idx += 1
         self._dirty = True
 
+    def force_redraw(self) -> None:
+        if not hasattr(self, "_plot"):
+            return
+        self._dirty = True
+        self._plot.refresh(layout=True)
+        self.call_after_refresh(self._refresh)
+
     def _refresh(self) -> None:
-        if not self._dirty:
+        if not self._dirty or not hasattr(self, "_plot"):
             return
         self._dirty = False
         plt = self._plot.plt
@@ -218,73 +229,102 @@ class DashboardApp(App):
     Screen {
         layout: grid;
         grid-size: 2;
-        grid-columns: 1fr 2fr;
+        grid-columns: 36 1fr;
+        background: $surface-darken-3;
+    }
+    Screen.narrow {
+        grid-size: 1 2;
+        grid-columns: 1fr;
+        grid-rows: 16 1fr;
     }
 
     /* Left pane: logs */
     #left-pane {
         height: 100%;
-        border: solid $primary;
+        border: round $primary;
+        background: $surface;
     }
     #left-pane Label {
         text-style: bold;
-        padding: 0 1;
-        color: $text;
+        padding: 0 1 1 1;
+        color: $text-muted;
     }
     #log {
         scrollbar-size: 1 1;
+        padding: 0 1;
     }
     Input {
         dock: bottom;
+        margin: 1 1 1 1;
     }
 
     /* Right pane: telemetry */
     #right-pane {
         height: 100%;
+        border: round $panel;
+        background: $surface;
     }
 
     /* Top telemetry strip */
     #telem-strip {
         height: auto;
         max-height: 12;
-        border-bottom: solid $primary;
+        border-bottom: solid $panel-darken-1;
+    }
+    #telem-strip.stacked {
+        layout: vertical;
+        max-height: 30;
     }
     #gps {
         width: 2fr;
-        padding: 0 1;
-        border-right: solid $primary;
+        padding: 1 2;
+        border-right: solid $panel-darken-1;
     }
     #rc {
         width: 1fr;
-        padding: 0 1;
-        border-right: solid $primary;
+        padding: 1 2;
+        border-right: solid $panel-darken-1;
     }
     #imu_text {
         width: 1fr;
-        padding: 0 1;
+        padding: 1 2;
+    }
+    #telem-strip.stacked #gps,
+    #telem-strip.stacked #rc,
+    #telem-strip.stacked #imu_text {
+        width: 100%;
+        border-right: none;
+    }
+    #telem-strip.stacked #gps,
+    #telem-strip.stacked #rc {
+        border-bottom: solid $primary;
     }
 
     /* Plot area */
     #plot-area {
         height: 1fr;
+        padding: 1 1 0 1;
     }
     #accel_plot {
         height: 1fr;
-        border-bottom: solid $surface-darken-2;
+        border: round $panel-darken-1;
+        margin-bottom: 1;
     }
     #gyro_plot {
         height: 1fr;
+        border: round $panel-darken-1;
     }
     #accel_plot PlotextPlot,
     #gyro_plot PlotextPlot {
         height: 100%;
+        padding: 0 1;
     }
 
     /* Status bar */
     #status {
         height: 1;
         dock: bottom;
-        background: $surface;
+        background: $boost;
         padding: 0 1;
     }
     """
@@ -303,7 +343,9 @@ class DashboardApp(App):
         self._reader: Optional[asyncio.StreamReader] = None
         self._ctrl_writer: Optional[asyncio.StreamWriter] = None
         self._ctrl_reader: Optional[asyncio.StreamReader] = None
+        self._connect_task: Optional[asyncio.Task[None]] = None
         self._connected = False
+        self._rx_buffer = ""
         # Rate counters
         self._imu_count = 0
         self._gps_count = 0
@@ -344,28 +386,46 @@ class DashboardApp(App):
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
     async def on_mount(self) -> None:
+        self.query_one("#log", Log).auto_scroll = True
         self.log_msg(f"Target: {self.target_ip}")
+        self._update_layout_mode(self.size.width)
+        self._set_input_enabled(False)
         self.set_interval(1.0, self._update_rates)
         if self.target_ip:
-            asyncio.create_task(self._connect_and_monitor())
+            self._spawn_connect_task()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self._update_layout_mode(event.size.width)
+        for plot in self.query(TriAxisPlot):
+            plot.force_redraw()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         cmd = event.value.strip()
-        if cmd and self._ctrl_writer:
-            self._ctrl_writer.write(f"{cmd}\n".encode())
-            await self._ctrl_writer.drain()
-            self.log_msg(f"> {cmd}")
+        if not cmd:
+            return
+        if not self._ctrl_writer:
+            self.log_msg("Control socket is not connected.")
             event.input.value = ""
+            return
+        self._ctrl_writer.write(f"{cmd}\n".encode())
+        await self._ctrl_writer.drain()
+        self.log_msg(f"> {cmd}")
+        event.input.value = ""
 
     # ── Actions ───────────────────────────────────────────────────────────
 
     async def action_connect(self) -> None:
         if not self._connected:
-            asyncio.create_task(self._connect_and_monitor())
+            self._spawn_connect_task()
 
     async def action_disconnect(self) -> None:
-        if self._connected:
-            await self._disconnect()
+        if self._connect_task and not self._connect_task.done():
+            self._connect_task.cancel()
+            try:
+                await self._connect_task
+            except asyncio.CancelledError:
+                pass
+        await self._disconnect()
 
     async def action_clear_log(self) -> None:
         self.query_one("#log", Log).clear()
@@ -373,15 +433,43 @@ class DashboardApp(App):
     # ── Connection ────────────────────────────────────────────────────────
 
     def log_msg(self, msg: str) -> None:
-        self.query_one("#log", Log).write(msg)
+        log = self.query_one("#log", Log)
+        lines = str(msg).splitlines() or [""]
+        log.write_lines(lines)
 
     def _set_status(self, text: str, color: str) -> None:
         bar = self.query_one("#status", StatusBar)
         bar.status = text
         bar.color = color
 
+    def _set_input_enabled(self, enabled: bool) -> None:
+        input_widget = self.query_one("#input", Input)
+        input_widget.disabled = not enabled
+        input_widget.placeholder = (
+            "Send command…" if enabled else "Connect to enable control commands"
+        )
+
+    def _update_layout_mode(self, width: int) -> None:
+        self.screen.set_class(width < 140, "narrow")
+        self.query_one("#telem-strip", Horizontal).set_class(width < 180, "stacked")
+
+    def _spawn_connect_task(self) -> None:
+        if self._connect_task and not self._connect_task.done():
+            return
+        self._connect_task = asyncio.create_task(self._connect_and_monitor())
+
+    def _feed_data(self, text: str) -> None:
+        self._rx_buffer += text
+        lines = self._rx_buffer.split("\n")
+        self._rx_buffer = lines.pop() if lines else ""
+        for raw_line in lines:
+            line = raw_line.strip()
+            if line:
+                self._process_line(line)
+
     async def _disconnect(self) -> None:
         self._connected = False
+        self._rx_buffer = ""
         for w in (self._writer, self._ctrl_writer):
             if w:
                 w.close()
@@ -392,6 +480,7 @@ class DashboardApp(App):
         self._writer = self._reader = None
         self._ctrl_writer = self._ctrl_reader = None
         self._set_status("Disconnected", "red")
+        self._set_input_enabled(False)
         self.log_msg("Disconnected.")
 
     async def _connect_and_monitor(self) -> None:
@@ -422,7 +511,9 @@ class DashboardApp(App):
             )
 
             self._connected = True
+            self._rx_buffer = ""
             self._set_status("Connected", "green")
+            self._set_input_enabled(True)
             self.log_msg("Monitor active.")
 
             while self._connected:
@@ -430,15 +521,19 @@ class DashboardApp(App):
                 if not data:
                     break
                 text = data.decode("utf-8", errors="ignore")
-                for line in text.split("\n"):
-                    line = line.strip()
-                    if line:
-                        self._process_line(line)
+                self._feed_data(text)
 
+            if self._rx_buffer.strip():
+                self._process_line(self._rx_buffer.strip())
+
+        except asyncio.CancelledError:
+            self.log_msg("Connection cancelled.")
+            raise
         except Exception as exc:
             self.log_msg(f"Error: {exc}")
-
-        await self._disconnect()
+        finally:
+            self._connect_task = None
+            await self._disconnect()
 
     # ── Telemetry Dispatch ────────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 #include "uart.hpp"
-#include "system.hpp"
+#include "panic.hpp"
 
 extern "C" {
 #include "driver/uart.h"
@@ -7,7 +7,7 @@ extern "C" {
 #include "freertos/task.h"
 }
 
-static uart_port_t ToPort(int n) {
+static uart_port_t ToPort(uint8_t n) {
   switch (n) {
   case 0:
     return UART_NUM_0;
@@ -30,39 +30,41 @@ static uart_parity_t ToParity(Uart::Config::Parity p) {
   return UART_PARITY_DISABLE;
 }
 
-ErrorCode Uart::Init(const Config &cfg) {
+void Uart::Init(const Config &cfg) {
+  if (initialized_) {
+    Panic(ErrorCode::kUartReinit);
+  }
   cfg_ = cfg;
-  const uart_port_t kPort = ToPort(cfg_.uart_num);
+  const uart_port_t port = ToPort(cfg_.uart_num);
 
-  if (kPort == UART_NUM_MAX) {
-    return ErrorCode::kUartInvalidNumber;
+  if (port == UART_NUM_MAX) {
+    Panic(ErrorCode::kUartInvalidNumber);
   }
 
   uart_config_t ucfg{};
-  ucfg.baud_rate = (int)cfg_.baud_rate;
+  ucfg.baud_rate = static_cast<int>(cfg_.baud_rate);
   ucfg.data_bits = UART_DATA_8_BITS;
   ucfg.parity = ToParity(cfg_.parity);
   ucfg.stop_bits = UART_STOP_BITS_1;
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  if (uart_param_config(kPort, &ucfg) != ESP_OK) {
-    return ErrorCode::kUartParamConfigFailed;
+  if (uart_param_config(port, &ucfg) != ESP_OK) {
+    Panic(ErrorCode::kUartParamConfigFailed);
   }
-  if (uart_set_pin(kPort, cfg_.tx_gpio, cfg_.rx_gpio, UART_PIN_NO_CHANGE,
+  if (uart_set_pin(port, cfg_.tx_gpio, cfg_.rx_gpio, UART_PIN_NO_CHANGE,
                    UART_PIN_NO_CHANGE) != ESP_OK) {
-    return ErrorCode::kUartSetPinFailed;
+    Panic(ErrorCode::kUartSetPinFailed);
   }
 
-  // If you ever re-init, call uart_driver_delete(kPort) first.
-  if (uart_driver_install(kPort, cfg_.rx_buf, cfg_.tx_buf, 0, nullptr, 0) !=
+  // If you ever re-init, call uart_driver_delete(port) first.
+  if (uart_driver_install(port, cfg_.rx_buf, cfg_.tx_buf, 0, nullptr, 0) !=
       ESP_OK) {
-    return ErrorCode::kUartDriverInstallFailed;
+    Panic(ErrorCode::kUartDriverInstallFailed);
   }
 
-  (void)uart_flush_input(kPort);
+  (void)uart_flush_input(port);
   initialized_ = true;
-  return ErrorCode::kOk;
 }
 
 int Uart::Write(const uint8_t *data, size_t size) {
@@ -70,11 +72,11 @@ int Uart::Write(const uint8_t *data, size_t size) {
     return -1;
   if (!data || size == 0)
     return 0;
-  const uart_port_t kPort = ToPort(cfg_.uart_num);
+  const uart_port_t port = ToPort(cfg_.uart_num);
 
-  const int kNumBytesWritten =
-      uart_write_bytes(kPort, (const char *)data, (uint32_t)size);
-  return (kNumBytesWritten < 0) ? -1 : kNumBytesWritten;
+  const int num_bytes_written =
+      uart_write_bytes(port, (const char *)data, (uint32_t)size);
+  return (num_bytes_written < 0) ? -1 : num_bytes_written;
 }
 
 int Uart::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
@@ -82,18 +84,18 @@ int Uart::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
     return -1;
   if (!data || size == 0)
     return 0;
-  const uart_port_t kPort = ToPort(cfg_.uart_num);
+  const uart_port_t port = ToPort(cfg_.uart_num);
 
   TickType_t to = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
-  const int kNumBytesRead = uart_read_bytes(kPort, data, (uint32_t)size, to);
-  return (kNumBytesRead < 0) ? -1 : kNumBytesRead;
+  const int num_bytes_read = uart_read_bytes(port, data, (uint32_t)size, to);
+  return (num_bytes_read < 0) ? -1 : num_bytes_read;
 }
 
 void Uart::Flush() {
   if (!initialized_)
     return;
-  const uart_port_t kPort = ToPort(cfg_.uart_num);
-  (void)uart_flush_input(kPort);
+  const uart_port_t port = ToPort(cfg_.uart_num);
+  (void)uart_flush_input(port);
 }
 
 bool Uart::SetBaudRate(uint32_t baud_rate) {
@@ -101,22 +103,22 @@ bool Uart::SetBaudRate(uint32_t baud_rate) {
     return false;
   cfg_.baud_rate = baud_rate;
 
-  const uart_port_t kPort = ToPort(cfg_.uart_num);
+  const uart_port_t port = ToPort(cfg_.uart_num);
 
   uart_config_t ucfg{};
-  ucfg.baud_rate = (int)cfg_.baud_rate;
+  ucfg.baud_rate = static_cast<int>(cfg_.baud_rate);
   ucfg.data_bits = UART_DATA_8_BITS;
   ucfg.parity = ToParity(cfg_.parity);
   ucfg.stop_bits = UART_STOP_BITS_1;
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  return uart_param_config(kPort, &ucfg) == ESP_OK;
+  return uart_param_config(port, &ucfg) == ESP_OK;
 }
 
 bool Uart::DrainTx(uint32_t timeout_ms) {
   if (!initialized_)
     return false;
-  const uart_port_t kPort = ToPort(cfg_.uart_num);
-  return uart_wait_tx_done(kPort, pdMS_TO_TICKS(timeout_ms)) == ESP_OK;
+  const uart_port_t port = ToPort(cfg_.uart_num);
+  return uart_wait_tx_done(port, pdMS_TO_TICKS(timeout_ms)) == ESP_OK;
 }

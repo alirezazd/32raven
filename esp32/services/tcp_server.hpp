@@ -131,7 +131,7 @@ private:
   class StListening;
   class StCtrl;
   class StCtrlData;
-  ErrorCode Init(const Config &cfg);
+  void Init(const Config &cfg);
 
   // Helpers used by states
   void CloseCtrl();
@@ -162,6 +162,7 @@ private:
                                bool nonblocking);
 
   Config cfg_{};
+  bool initialized_ = false;
   bool running_ = false;
 
   // Internal SM instance + states (no heap)

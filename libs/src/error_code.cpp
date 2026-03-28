@@ -7,10 +7,14 @@ const char *GetMessage(ErrorCode code) {
     return "OK";
   case ErrorCode::kUnknown:
     return "Unknown Error";
+  case ErrorCode::kSystemReinit:
+    return "System Re-init";
   case ErrorCode::kTcpServerStartFailed:
     return "TCP Server Start Failed";
   case ErrorCode::kTcpServerAcceptFailed:
     return "TCP Server Accept Failed";
+  case ErrorCode::kLedTaskCreateFailed:
+    return "LED Task Create Failed";
   case ErrorCode::kMavlinkInitFailed:
     return "Mavlink Init Failed";
   case ErrorCode::kFcLinkInitFailed:
@@ -25,6 +29,16 @@ const char *GetMessage(ErrorCode code) {
     return "LED Channel Init Failed";
   case ErrorCode::kLedFadeInstallFailed:
     return "LED Fade Install Failed";
+  case ErrorCode::kBuzzerInvalidConfig:
+    return "Buzzer Invalid Config";
+  case ErrorCode::kBuzzerTimerInitFailed:
+    return "Buzzer Timer Init Failed";
+  case ErrorCode::kBuzzerChannelInitFailed:
+    return "Buzzer Channel Init Failed";
+  case ErrorCode::kBuzzerSetFreqFailed:
+    return "Buzzer Set Frequency Failed";
+  case ErrorCode::kBuzzerSetDutyFailed:
+    return "Buzzer Set Duty Failed";
   case ErrorCode::kButtonGpioConfigFailed:
     return "Button GPIO Config Failed";
   case ErrorCode::kWifiNvsInitFailed:
@@ -37,6 +51,8 @@ const char *GetMessage(ErrorCode code) {
     return "WiFi Init Failed";
   case ErrorCode::kWifiSetStorageFailed:
     return "WiFi Set Storage Failed";
+  case ErrorCode::kWifiReinit:
+    return "WiFi Driver Re-init";
   case ErrorCode::kUartParamConfigFailed:
     return "UART Param Config Failed";
   case ErrorCode::kUartSetPinFailed:
@@ -45,14 +61,26 @@ const char *GetMessage(ErrorCode code) {
     return "UART Driver Install Failed";
   case ErrorCode::kUartInvalidNumber:
     return "UART Invalid Number";
+  case ErrorCode::kUartReinit:
+    return "UART Driver Re-init";
   case ErrorCode::kProgrammerUartNull:
     return "Programmer UART Null";
+  case ErrorCode::kProgrammerReinit:
+    return "Programmer Re-init";
   case ErrorCode::kStm32GpioInitFailed:
     return "STM32 GPIO Init Failed";
   case ErrorCode::kButtonReinit:
     return "Button Driver Re-init";
   case ErrorCode::kLedReinit:
     return "LED Driver Re-init";
+  case ErrorCode::kBuzzerReinit:
+    return "Buzzer Driver Re-init";
+  case ErrorCode::kTonePlayerInitFailed:
+    return "TonePlayer Init Failed";
+  case ErrorCode::kBuzzerNotInitialized:
+    return "Buzzer Not Initialized";
+  case ErrorCode::kBuzzerInvalidArg:
+    return "Buzzer Invalid Argument";
   case ErrorCode::kGpioReinit:
     return "GPIO Driver Re-init";
   case ErrorCode::kGpioInvalidPort:

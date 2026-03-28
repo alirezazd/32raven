@@ -20,6 +20,14 @@ CPP_TYPE_MAP = {
     "uint8_t": "uint8_t",
 }
 
+# Byte sizes used for generated struct/layout calculations.
+TYPE_SIZE_MAP = {
+    "float": 4,
+    "uint32_t": 4,
+    "uint16_t": 2,
+    "uint8_t": 1,
+}
+
 
 def make_tag(tag: str) -> int:
     if len(tag) != 4:
@@ -49,6 +57,26 @@ def field_decl(field: dict[str, object]) -> str:
     return f"  {cpp_type} {name}[{count}];"
 
 
+def align_up(value: int, alignment: int) -> int:
+    return (value + alignment - 1) // alignment * alignment
+
+
+def struct_size(fields: list[dict[str, object]]) -> int:
+    # Mirror the generated C++ layout: 3-word header, natural field alignment,
+    # and final struct alignment to the largest field requirement.
+    offset = 12  # magic + schema_hash + size
+    max_align = 4
+    for field in fields:
+        field_type = str(field["type"])
+        count = int(field.get("count", 1))
+        field_size = TYPE_SIZE_MAP[field_type]
+        field_align = field_size
+        offset = align_up(offset, field_align)
+        offset += field_size * count
+        max_align = max(max_align, field_align)
+    return align_up(offset, max_align)
+
+
 def schema_string(type_name: str, fields: list[dict[str, object]]) -> str:
     parts = [type_name]
     for field in fields:
@@ -62,19 +90,18 @@ def schema_string(type_name: str, fields: list[dict[str, object]]) -> str:
     return "|".join(parts)
 
 
-def emit_blob(namespace: str, blob: dict[str, object]) -> str:
+def emit_blob(blob: dict[str, object]) -> str:
     type_name = str(blob["type_name"])
     tag = str(blob["tag"])
     fields = list(blob["fields"])
     schema = schema_string(type_name, fields)
     schema_hash = fnv1a32(schema)
-    declarations = "\n".join(field_decl(field) for field in fields)
-    payload_words = 3 + sum(int(field.get("count", 1)) for field in fields)
-    expected_size = payload_words * 4
+    declarations = textwrap.indent(
+        "\n".join(field_decl(field) for field in fields), "  "
+    )
+    expected_size = struct_size(fields)
     return textwrap.dedent(
         f"""\
-        namespace {namespace} {{
-
         struct {type_name} {{
           static constexpr uint32_t kMagic = 0x{make_tag(tag):08X}u;
           static constexpr uint32_t kSchemaHash = 0x{schema_hash:08X}u;
@@ -97,25 +124,63 @@ def emit_blob(namespace: str, blob: dict[str, object]) -> str:
         }};
 
         static_assert(sizeof({type_name}) == {expected_size});
-
-        }} // namespace {namespace}
         """
     )
 
 
+def collect_blobs(node: object) -> list[dict[str, object]]:
+    # Walk the STM32 subtree and collect every schema blob definition in order.
+    blobs: list[dict[str, object]] = []
+    if isinstance(node, dict):
+        if {"type_name", "tag", "fields"} <= set(node.keys()):
+            blobs.append(node)
+        for value in node.values():
+            blobs.extend(collect_blobs(value))
+    elif isinstance(node, list):
+        for value in node:
+            blobs.extend(collect_blobs(value))
+    return blobs
+
+
+def emit_layout(blobs: list[dict[str, object]]) -> str:
+    # Emit a packed EEPROM layout so runtime code can use generated offsets
+    # instead of hardcoding them in ConfigStorage.
+    lines = ["namespace layout {", ""]
+    offset = 0
+    for blob in blobs:
+        type_name = str(blob["type_name"])
+        lines.append(
+            f"inline constexpr size_t k{type_name}Offset = {offset}u;"
+        )
+        offset += struct_size(list(blob["fields"]))
+    lines.append("")
+    lines.append(f"inline constexpr size_t kTotalSize = {offset}u;")
+    lines.append("")
+    lines.append("} // namespace layout")
+    return "\n".join(lines)
+
+
 def emit_header(source: pathlib.Path, config: dict[str, object]) -> str:
-    accel_blob = config["stm32"]["imu"]["accel_calibration"]
+    blobs = collect_blobs(config.get("stm32", {}))
+    rendered_blobs = "\n".join(emit_blob(blob) for blob in blobs)
+    rendered_layout = emit_layout(blobs)
     return (
         AUTOGEN_WARNING.format(source=source.name)
         + textwrap.dedent(
             """\
         #pragma once
 
+        #include <cstddef>
         #include <cstdint>
+
+        namespace ee_schema {
 
         """
         )
-        + emit_blob("ee_schema", accel_blob)
+        + rendered_blobs
+        + "\n"
+        + rendered_layout
+        + "\n\n} // namespace ee_schema\n"
     )
 
 

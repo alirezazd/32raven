@@ -6,9 +6,18 @@
 #include <mavlink.h>
 
 struct RcData {
-  uint16_t channels[18]{};
-  uint8_t count = 0;
+  uint16_t channels[16]{};
   uint32_t last_update = 0;
+};
+
+struct RadioStatusData {
+  uint32_t last_update = 0;
+  uint8_t rssi = 0;
+};
+
+struct RcState {
+  RcData rc{};
+  RadioStatusData radio_status{};
 };
 
 class Mavlink {
@@ -39,7 +48,7 @@ public:
   // Latest telemetry from STM32 (25Hz input ok; we downsample on TX)
   void OfferTelemetry(const message::GpsData &d, uint32_t now_ms);
 
-  const RcData &GetRc() const { return rc_; }
+  const RcState &GetRcState() const { return rc_state_; }
 
 private:
   Mavlink();
@@ -53,7 +62,7 @@ private:
   Config cfg_{};
 
   // ---------- RX (RC only) ----------
-  RcData rc_{};
+  RcState rc_state_{};
   mavlink_message_t rx_msg_{};
   mavlink_status_t rx_status_{};
 

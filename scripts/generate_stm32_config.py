@@ -148,15 +148,32 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
 
 def _emit_limits_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str:
     max_records = _sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS")
+    enabled_rc_indices = [
+        channel_index
+        for channel_index in range(16)
+        if _sym_bool(kconf, f"STM32_RC_CHANNEL_{channel_index + 1}_ENABLED")
+    ]
+    rc_indices_init = (
+        "{"
+        + ", ".join(str(channel_index) for channel_index in enabled_rc_indices)
+        + "}"
+        if enabled_rc_indices
+        else "{}"
+    )
     return AUTOGEN_WARNING.format(source=source.name) + textwrap.dedent(
         f"""\
             #pragma once
 
+            #include <array>
+            #include <cstddef>
             #include <cstdint>
 
             namespace stm32_limits {{
 
             inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {max_records};
+            inline constexpr std::size_t kRcEnabledChannelCount = {len(enabled_rc_indices)};
+            inline constexpr std::array<uint8_t, kRcEnabledChannelCount>
+                kRcEnabledChannelIndices = {rc_indices_init};
 
             }} // namespace stm32_limits
             """
@@ -182,6 +199,7 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
             #include "icm42688p.hpp"
             #include "icm20948.hpp"
             #include "m9n.hpp"
+            #include "rc_receiver.hpp"
             #include "spi.hpp"
             #include "stm32_limits.hpp"
 
@@ -256,6 +274,27 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 .active_low = {"true" if _sym_bool(kconf, "STM32_BUTTON_ACTIVE_LOW") else "false"},
                 .debounce_ms = {_sym_int(kconf, "STM32_BUTTON_DEBOUNCE_MS")},
                 .long_press_ms = {_sym_int(kconf, "STM32_BUTTON_LONG_PRESS_MS")},
+            }};
+
+            inline constexpr RcReceiver::Config kRcReceiverConfig = {{
+                .enabled_channels = {{
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_1_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_2_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_3_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_4_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_5_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_6_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_7_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_8_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_9_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_10_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_11_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_12_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_13_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_14_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_15_ENABLED") else "false"},
+                    {"true" if _sym_bool(kconf, "STM32_RC_CHANNEL_16_ENABLED") else "false"},
+                }},
             }};
 
             inline constexpr M9N::Config kM9nConfig = {{

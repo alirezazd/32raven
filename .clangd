@@ -1,7 +1,7 @@
 If:
   PathMatch: (^|.*/)(esp32/).*
 CompileFlags:
-  CompilationDatabase: build/esp32
+  CompilationDatabase: build/Ninja/esp32
   Remove: [
       -fno-tree-switch-conversion,
       -fno-shrink-wrap,
@@ -11,9 +11,9 @@ CompileFlags:
 If:
   PathMatch: (^|.*/)(stm32/).*
 CompileFlags:
-  CompilationDatabase: build/stm32
+  CompilationDatabase: build/Ninja/stm32
 ---
 If:
   PathMatch: (^|.*/)(libs/).*
 CompileFlags:
-  CompilationDatabase: build/stm32
+  CompilationDatabase: build/Ninja/stm32

@@ -10,12 +10,12 @@
 #include "led.hpp"
 #include "m9n.hpp"
 #include "m9n_service.hpp"
+#include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "user_config.hpp" // For SystemConfig
 #include "vehicle_state.hpp"
-#include "ee_schema.hpp"
 
 class System {
 public:
@@ -29,6 +29,7 @@ public:
     kTimeBase = 0,
     kGpio,
     kEe,
+    kRcReceiver,
     kLed,
     kUart1,
 
@@ -58,14 +59,9 @@ public:
   Uart2 &GetUart2() { return Uart2::GetInstance(); }
 
   M9N &GetGps() { return M9N::GetInstance(); }
+  RcReceiver &GetRcReceiver() { return RcReceiver::GetInstance(); }
   M9NService &ServiceM9N() { return m9n_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
-  const ee_schema::ImuAccelCalibration &GetImuAccelCalibration() const {
-    return imu_accel_cal_;
-  }
-  ee_schema::ImuAccelCalibration &GetImuAccelCalibration() {
-    return imu_accel_cal_;
-  }
 
   VehicleState &GetVehicleState() { return vehicle_state_; }
   FcLink &GetFcLink() { return FcLink::GetInstance(); }
@@ -77,7 +73,6 @@ private:
   bool initialized_ = false;
   M9NService m9n_service_;
   VehicleState vehicle_state_;
-  ee_schema::ImuAccelCalibration imu_accel_cal_{};
 
   System();
   ~System() {}

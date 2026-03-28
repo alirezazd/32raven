@@ -22,9 +22,9 @@ inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
 void M9N::WaitForReady() {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();
-  const uint32_t kStart = time.Micros();
+  const uint32_t start = time.Micros();
 
-  while ((uint32_t)(time.Micros() - kStart) < MILLIS_TO_MICROS(1000)) {
+  while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
     uart.FlushRx();
 
     // Any cheap VALSET that triggers an ACK is fine as "ready".
@@ -107,18 +107,18 @@ void M9N::ApplyConfig(uint8_t layer) {
   // - TP1_SYNC_GNSS (U1)
   // - TP1_ALIGN_TO_TOW (U1)
   // - TP1_POL (U1)
-  constexpr uint16_t kPayloadLen = (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) +
+  constexpr uint16_t payload_len = (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) +
                                    (4 + 1) + (4 + 1) + (4 + 1);
-  constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
-  uint8_t buf[kPacketLen];
+  constexpr size_t packet_len = 6 + payload_len + 2;
+  uint8_t buf[packet_len];
 
   // Header
   buf[0] = UBX::kSync1;
   buf[1] = UBX::kSync2;
   buf[2] = UBX::kClsCfg;
   buf[3] = UBX::kIdCfgValset;
-  buf[4] = kPayloadLen & 0xFF;
-  buf[5] = (kPayloadLen >> 8) & 0xFF;
+  buf[4] = payload_len & 0xFF;
+  buf[5] = (payload_len >> 8) & 0xFF;
 
   // Header payload: Version, Layer, Reserved
   buf[6] = kValsetVersion;
@@ -155,18 +155,18 @@ void M9N::ApplyConfig(uint8_t layer) {
   write_key_u1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
 
   // Safety check: ensure we filled exactly the expected payload
-  if (idx != 10 + kPayloadLen) {
+  if (idx != 10 + payload_len) {
     Panic(ErrorCode::kM9nConfigTimepulseBufferError);
   }
 
   // Checksum
   uint8_t ck_a = 0, ck_b = 0;
-  UbxChecksum(&buf[2], 4 + kPayloadLen, ck_a, ck_b);
-  buf[kPacketLen - 2] = ck_a;
-  buf[kPacketLen - 1] = ck_b;
+  UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
+  buf[packet_len - 2] = ck_a;
+  buf[packet_len - 1] = ck_b;
 
   // Send
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, kPacketLen);
+  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
   // Wait for ACK
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
     Panic(ErrorCode::kM9nConfigTimepulseFailed);
@@ -216,12 +216,12 @@ bool M9N::Read(uint8_t &b) {
 bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();
-  const uint32_t kStart = time.Micros();
+  const uint32_t start = time.Micros();
 
   uint8_t frame[10];
   uint8_t idx = 0;
 
-  while ((uint32_t)(time.Micros() - kStart) < config_.ack_timeout_us) {
+  while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
     uint8_t b;
     if (!uart.Read(b))
       continue;
@@ -249,8 +249,8 @@ bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
     if (frame[2] != UBX::kClsAck)
       continue;
 
-    const uint8_t kId = frame[3];
-    if (kId != UBX::kIdAckAck && kId != UBX::kIdAckNak)
+    const uint8_t id = frame[3];
+    if (id != UBX::kIdAckAck && id != UBX::kIdAckNak)
       continue;
 
     if (frame[4] != 0x02 || frame[5] != 0x00)
@@ -264,7 +264,7 @@ bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
       continue;
 
     if (frame[6] == want_cls && frame[7] == want_id) {
-      return kId == UBX::kIdAckAck;
+      return id == UBX::kIdAckAck;
     }
   }
 
@@ -276,17 +276,17 @@ void M9N::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
-  constexpr uint16_t kPayloadLen = 4 + 4 + sizeof(T);
-  constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
+  constexpr uint16_t payload_len = 4 + 4 + sizeof(T);
+  constexpr size_t packet_len = 6 + payload_len + 2;
 
-  uint8_t buf[kPacketLen];
+  uint8_t buf[packet_len];
 
   buf[0] = UBX::kSync1;
   buf[1] = UBX::kSync2;
   buf[2] = UBX::kClsCfg;
   buf[3] = UBX::kIdCfgValset;
-  buf[4] = kPayloadLen & 0xFF;
-  buf[5] = (kPayloadLen >> 8) & 0xFF;
+  buf[4] = payload_len & 0xFF;
+  buf[5] = (payload_len >> 8) & 0xFF;
 
   buf[6] = kValsetVersion;
   buf[7] = layer;
@@ -301,32 +301,32 @@ void M9N::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
   std::memcpy(&buf[14], &value, sizeof(T));
 
   uint8_t ck_a = 0, ck_b = 0;
-  UbxChecksum(&buf[2], 4 + kPayloadLen, ck_a, ck_b);
-  buf[kPacketLen - 2] = ck_a;
-  buf[kPacketLen - 1] = ck_b;
+  UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
+  buf[packet_len - 2] = ck_a;
+  buf[packet_len - 1] = ck_b;
 
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, kPacketLen);
+  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
 }
 
 void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
-  constexpr uint8_t kVersion = 0x00;
-  constexpr uint16_t kPosition = 0;
-  constexpr uint16_t kPayloadLen = 4 + 4; // version/layer/position + 1 key
-  constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
+  constexpr uint8_t version = 0x00;
+  constexpr uint16_t position = 0;
+  constexpr uint16_t payload_len = 4 + 4; // version/layer/position + 1 key
+  constexpr size_t packet_len = 6 + payload_len + 2;
 
-  uint8_t buf[kPacketLen];
+  uint8_t buf[packet_len];
 
   buf[0] = UBX::kSync1;
   buf[1] = UBX::kSync2;
   buf[2] = UBX::kClsCfg;
   buf[3] = UBX::kIdCfgValget;
-  buf[4] = kPayloadLen & 0xFF;
-  buf[5] = (kPayloadLen >> 8) & 0xFF;
+  buf[4] = payload_len & 0xFF;
+  buf[5] = (payload_len >> 8) & 0xFF;
 
-  buf[6] = kVersion;
+  buf[6] = version;
   buf[7] = layer;
-  buf[8] = kPosition & 0xFF;
-  buf[9] = (kPosition >> 8) & 0xFF;
+  buf[8] = position & 0xFF;
+  buf[9] = (position >> 8) & 0xFF;
 
   buf[10] = key & 0xFF;
   buf[11] = (key >> 8) & 0xFF;
@@ -334,11 +334,11 @@ void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
   buf[13] = (key >> 24) & 0xFF;
 
   uint8_t ck_a = 0, ck_b = 0;
-  UbxChecksum(&buf[2], 4 + kPayloadLen, ck_a, ck_b);
-  buf[kPacketLen - 2] = ck_a;
-  buf[kPacketLen - 1] = ck_b;
+  UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
+  buf[packet_len - 2] = ck_a;
+  buf[packet_len - 1] = ck_b;
 
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, kPacketLen);
+  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
 }
 
 template <typename T> bool M9N::WaitForValget(uint32_t key, T expected_value) {
@@ -347,14 +347,14 @@ template <typename T> bool M9N::WaitForValget(uint32_t key, T expected_value) {
 
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();
-  const uint32_t kStart = time.Micros();
+  const uint32_t start = time.Micros();
 
   uint8_t frame[64];
   size_t idx = 0;
   uint16_t payload_len = 0;
   size_t frame_len = 0;
 
-  while ((uint32_t)(time.Micros() - kStart) < config_.ack_timeout_us) {
+  while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
     uint8_t b;
     if (!uart.Read(b))
       continue;
@@ -398,10 +398,11 @@ template <typename T> bool M9N::WaitForValget(uint32_t key, T expected_value) {
     if (ck_a != frame[6 + payload_len] || ck_b != frame[6 + payload_len + 1])
       continue;
 
-    const uint32_t kRespKey = (uint32_t)frame[10] | ((uint32_t)frame[11] << 8) |
+    const uint32_t resp_key = (uint32_t)frame[10] |
+                              ((uint32_t)frame[11] << 8) |
                               ((uint32_t)frame[12] << 16) |
                               ((uint32_t)frame[13] << 24);
-    if (kRespKey != key)
+    if (resp_key != key)
       continue;
 
     T resp_value{};

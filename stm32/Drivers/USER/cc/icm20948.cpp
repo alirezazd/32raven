@@ -35,13 +35,13 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
 
   // Poll until reset bit clears (timeout 100ms)
   {
-    const uint64_t kStart = System::GetInstance().Time().Micros();
+    const uint64_t start = System::GetInstance().Time().Micros();
     while (true) {
       uint8_t pwr =
           ReadReg(0, static_cast<uint8_t>(Register::BANK_0::PWR_MGMT_1));
       if ((pwr & PWR_MGMT_1_BIT::DEVICE_RESET) == 0)
         break;
-      if (System::GetInstance().Time().Micros() - kStart > 100000) {
+      if (System::GetInstance().Time().Micros() - start > 100000) {
         ErrorHandler();
         return;
       }
@@ -50,7 +50,7 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
 
   // Wake up and set Clock Source
   {
-    const uint64_t kStart = System::GetInstance().Time().Micros();
+    const uint64_t start = System::GetInstance().Time().Micros();
     while (true) {
       SelectRegisterBank(0);
 
@@ -63,14 +63,14 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
           ReadRegRaw(static_cast<uint8_t>(Register::BANK_0::PWR_MGMT_1));
 
       // Accept only if SLEEP cleared and CLKSEL == 1
-      const bool kSleepCleared = ((pwr & PWR_MGMT_1_BIT::SLEEP) == 0);
-      const bool kClkselOk = ((pwr & 0x07) == PWR_MGMT_1_BIT::CLKSEL_0);
+      const bool sleep_cleared = ((pwr & PWR_MGMT_1_BIT::SLEEP) == 0);
+      const bool clksel_ok = ((pwr & 0x07) == PWR_MGMT_1_BIT::CLKSEL_0);
 
-      if (kSleepCleared && kClkselOk) {
+      if (sleep_cleared && clksel_ok) {
         break;
       }
 
-      if (System::GetInstance().Time().Micros() - kStart > 100000) {
+      if (System::GetInstance().Time().Micros() - start > 100000) {
         ErrorHandler();
       }
     }

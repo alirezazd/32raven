@@ -1,4 +1,5 @@
 #include "programmer.hpp"
+#include "panic.hpp"
 #include "system.hpp"
 #include "timebase.hpp"
 
@@ -63,15 +64,16 @@ struct Stm32FlashLayout {
 
 } // namespace
 
-ErrorCode Programmer::Init(const Config &cfg, Uart *uart) {
-  if (initialized_)
-    return ErrorCode::kOk;
+void Programmer::Init(const Config &cfg, Uart *uart) {
+  if (initialized_) {
+    Panic(ErrorCode::kProgrammerReinit);
+  }
   ctx_.cfg = cfg;
   ctx_.uart = uart;
   ctx_.sm = &sm_;
 
   if (!ctx_.uart) {
-    return ErrorCode::kProgrammerUartNull;
+    Panic(ErrorCode::kProgrammerUartNull);
   }
 
   // Init pins
@@ -97,16 +99,15 @@ ErrorCode Programmer::Init(const Config &cfg, Uart *uart) {
 
   sm_.Start(StIdle_, 0);
   initialized_ = true;
-  return ErrorCode::kOk;
 }
 
 void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
-  const int kBoot0 = ctx_.cfg.boot0_gpio;
-  const int kNrst = ctx_.cfg.nrst_gpio;
+  const int boot0 = ctx_.cfg.boot0_gpio;
+  const int nrst = ctx_.cfg.nrst_gpio;
 
-  if (kBoot0 >= 0) {
+  if (boot0 >= 0) {
     gpio_config_t io{};
-    io.pin_bit_mask = (1ULL << kBoot0);
+    io.pin_bit_mask = (1ULL << boot0);
     io.mode = GPIO_MODE_OUTPUT;
     io.pull_up_en = GPIO_PULLUP_DISABLE;
     io.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -117,9 +118,9 @@ void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
     Boot0Set(false);
   }
 
-  if (kNrst >= 0) {
+  if (nrst >= 0) {
     gpio_config_t io{};
-    io.pin_bit_mask = (1ULL << kNrst);
+    io.pin_bit_mask = (1ULL << nrst);
     io.mode = GPIO_MODE_OUTPUT;
     io.pull_up_en = GPIO_PULLUP_DISABLE;
     io.pull_down_en = GPIO_PULLDOWN_DISABLE;
@@ -128,31 +129,31 @@ void Programmer::GpioInit() { // TODO: Add a GPIO driver owner and assign pins
 
     // Default NRST deasserted (high if active-low reset)
     // Default NRST deasserted (high for active-low reset)
-    gpio_set_level((gpio_num_t)kNrst, 1);
+    gpio_set_level((gpio_num_t)nrst, 1);
   }
 }
 
 void Programmer::Boot0Set(bool on) {
-  const int kPin = ctx_.cfg.boot0_gpio;
-  if (kPin < 0)
+  const int pin = ctx_.cfg.boot0_gpio;
+  if (pin < 0)
     return;
 
   // BOOT0 is assumed active-high
-  gpio_set_level((gpio_num_t)kPin, on ? 1 : 0);
+  gpio_set_level((gpio_num_t)pin, on ? 1 : 0);
 }
 
 void Programmer::NrstPulse(uint32_t pulse_ms) {
-  const int kPin = ctx_.cfg.nrst_gpio;
-  if (kPin < 0)
+  const int pin = ctx_.cfg.nrst_gpio;
+  if (pin < 0)
     return;
 
   // NRST is assumed active-low (assert=0, deassert=1)
-  const int kAssertLevel = 0;
-  const int kDeassertLevel = 1;
+  const int assert_level = 0;
+  const int deassert_level = 1;
 
-  gpio_set_level((gpio_num_t)kPin, kAssertLevel);
+  gpio_set_level((gpio_num_t)pin, assert_level);
   SleepMs(pulse_ms);
-  gpio_set_level((gpio_num_t)kPin, kDeassertLevel);
+  gpio_set_level((gpio_num_t)pin, deassert_level);
 }
 
 bool Programmer::EnterBootloader() {
@@ -363,9 +364,9 @@ bool Programmer::EraseSectors() {
   ctx_.uart->Write(payload, payload_len);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  const uint32_t kEraseTimeoutMs = 10000;
+  const uint32_t erase_timeout_ms = 10000;
   ack = 0;
-  if (ctx_.uart->Read(&ack, 1, kEraseTimeoutMs) != 1 || ack != 0x79) {
+  if (ctx_.uart->Read(&ack, 1, erase_timeout_ms) != 1 || ack != 0x79) {
     ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)", ack);
     return false;
   }
@@ -406,10 +407,10 @@ bool Programmer::MassErase() {
   // Wait for final ACK - this can take time for full chip erase!
   // Configured wait time might need to be longer.
   // Using a longer timeout here.
-  const uint32_t kEraseTimeoutMs = 10000;
+  const uint32_t erase_timeout_ms = 10000;
 
   ack = 0;
-  if (ctx_.uart->Read(&ack, 1, kEraseTimeoutMs) != 1 || ack != 0x79) {
+  if (ctx_.uart->Read(&ack, 1, erase_timeout_ms) != 1 || ack != 0x79) {
     ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)", ack);
     return false;
   }
@@ -658,8 +659,8 @@ size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
     return 0;
 
   if (data && n) {
-    const size_t kFree = RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
-    size_t take = (n <= kFree) ? n : kFree;
+    const size_t free = RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
+    size_t take = (n <= free) ? n : free;
 
     for (size_t i = 0; i < take; ++i) {
       ctx_.buf[ctx_.tail] = data[i];
@@ -732,9 +733,9 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
     // Determine optimal chunk size based on target capabilities
     // ESP32: Flash sector size (4KB) for efficiency
     // STM32: UART Bootloader protocol limit (256 bytes)
-    const size_t kProtocolLimit = (c.target == Target::kEsp32) ? 4096 : 256;
+    const size_t protocol_limit = (c.target == Target::kEsp32) ? 4096 : 256;
 
-    size_t needed = kProtocolLimit;
+    size_t needed = protocol_limit;
     size_t remaining_file = c.total_size - c.written;
     if (needed > remaining_file)
       needed = remaining_file;

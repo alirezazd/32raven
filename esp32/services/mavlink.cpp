@@ -2,6 +2,7 @@
 
 #include "../drivers/uart.hpp"
 #include "esp_log.h"
+#include "panic.hpp"
 
 static constexpr const char *kTag = "mavlink";
 
@@ -33,9 +34,19 @@ bool Mavlink::ShouldSendHbNow(uint32_t now_ms) const {
 }
 
 void Mavlink::Init(const Config &cfg, Uart *uart) {
+  if (initialized_) {
+    Panic(ErrorCode::kMavlinkInitFailed);
+  }
+  if (uart == nullptr) {
+    Panic(ErrorCode::kMavlinkInitFailed);
+  }
+
   cfg_ = cfg;
   uart_ = uart;
   initialized_ = true;
+  rc_state_ = RcState{};
+  rx_msg_ = mavlink_message_t{};
+  rx_status_ = mavlink_status_t{};
 
   // Clear TX state
   tx_len_ = 0;
@@ -63,12 +74,10 @@ void Mavlink::Poll(uint32_t now_ms) {
 
   uint8_t buf[256];
   int n = uart_->Read(buf, sizeof(buf), 0);
-  if (n <= 0) {
-    return;
-  }
-
-  for (int i = 0; i < n; i++) {
-    HandleRxByte(buf[i], now_ms);
+  if (n > 0) {
+    for (int i = 0; i < n; i++) {
+      HandleRxByte(buf[i], now_ms);
+    }
   }
 }
 
@@ -84,27 +93,31 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, uint32_t now_ms) {
     mavlink_rc_channels_override_t rc{};
     mavlink_msg_rc_channels_override_decode(&msg, &rc);
 
-    rc_.channels[0] = rc.chan1_raw;
-    rc_.channels[1] = rc.chan2_raw;
-    rc_.channels[2] = rc.chan3_raw;
-    rc_.channels[3] = rc.chan4_raw;
-    rc_.channels[4] = rc.chan5_raw;
-    rc_.channels[5] = rc.chan6_raw;
-    rc_.channels[6] = rc.chan7_raw;
-    rc_.channels[7] = rc.chan8_raw;
-    rc_.channels[8] = rc.chan9_raw;
-    rc_.channels[9] = rc.chan10_raw;
-    rc_.channels[10] = rc.chan11_raw;
-    rc_.channels[11] = rc.chan12_raw;
-    rc_.channels[12] = rc.chan13_raw;
-    rc_.channels[13] = rc.chan14_raw;
-    rc_.channels[14] = rc.chan15_raw;
-    rc_.channels[15] = rc.chan16_raw;
-    rc_.channels[16] = rc.chan17_raw;
-    rc_.channels[17] = rc.chan18_raw;
+    rc_state_.rc.channels[0] = rc.chan1_raw;
+    rc_state_.rc.channels[1] = rc.chan2_raw;
+    rc_state_.rc.channels[2] = rc.chan3_raw;
+    rc_state_.rc.channels[3] = rc.chan4_raw;
+    rc_state_.rc.channels[4] = rc.chan5_raw;
+    rc_state_.rc.channels[5] = rc.chan6_raw;
+    rc_state_.rc.channels[6] = rc.chan7_raw;
+    rc_state_.rc.channels[7] = rc.chan8_raw;
+    rc_state_.rc.channels[8] = rc.chan9_raw;
+    rc_state_.rc.channels[9] = rc.chan10_raw;
+    rc_state_.rc.channels[10] = rc.chan11_raw;
+    rc_state_.rc.channels[11] = rc.chan12_raw;
+    rc_state_.rc.channels[12] = rc.chan13_raw;
+    rc_state_.rc.channels[13] = rc.chan14_raw;
+    rc_state_.rc.channels[14] = rc.chan15_raw;
+    rc_state_.rc.channels[15] = rc.chan16_raw;
 
-    rc_.count = 18;
-    rc_.last_update = now_ms;
+    rc_state_.rc.last_update = now_ms;
+    break;
+  }
+  case MAVLINK_MSG_ID_RADIO_STATUS: {
+    mavlink_radio_status_t radio{};
+    mavlink_msg_radio_status_decode(&msg, &radio);
+    rc_state_.radio_status.last_update = now_ms;
+    rc_state_.radio_status.rssi = radio.rssi;
     break;
   }
 

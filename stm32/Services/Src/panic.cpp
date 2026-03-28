@@ -20,12 +20,12 @@ static inline uint32_t Tim2UsNow() { return TIM2->CNT; } // assumes 1 MHz tick
 static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
                             bool want_set, uint32_t timeout_us) {
   if (Tim2Running()) {
-    const uint32_t kStartTime = Tim2UsNow();
+    const uint32_t start_time = Tim2UsNow();
     while (true) {
-      const bool kIsSet = ((*reg) & mask) != 0;
-      if (kIsSet == want_set)
+      const bool is_set = ((*reg) & mask) != 0;
+      if (is_set == want_set)
         return true;
-      if ((uint32_t)(Tim2UsNow() - kStartTime) >= timeout_us)
+      if ((uint32_t)(Tim2UsNow() - start_time) >= timeout_us)
         return false;
     }
   } else {
@@ -33,8 +33,8 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
     // Scale factor chosen to be conservative under typical -O2 clocks.
     volatile uint32_t spins = timeout_us * 16U + 1000U;
     while (spins--) {
-      const bool kIsSet = ((*reg) & mask) != 0;
-      if (kIsSet == want_set)
+      const bool is_set = ((*reg) & mask) != 0;
+      if (is_set == want_set)
         return true;
     }
     return false;
@@ -82,19 +82,19 @@ static void UartSend(const uint8_t *data, size_t len) {
   // Timeouts chosen to avoid hanging forever in panic.
   // At 115200 baud, one byte is ~87 us on the wire (10 bits), so 2 ms is
   // plenty.
-  constexpr uint32_t kTxeTimeoutUs = 2000;
-  constexpr uint32_t kTcTimeoutUs = 20000; // allow a whole packet to drain
+  constexpr uint32_t txe_timeout_us = 2000;
+  constexpr uint32_t tc_timeout_us = 20000; // allow a whole packet to drain
 
   for (size_t i = 0; i < len; ++i) {
     // Wait for TXE
-    if (!WaitCondTimeout(&USART1->SR, USART_SR_TXE, true, kTxeTimeoutUs)) {
+    if (!WaitCondTimeout(&USART1->SR, USART_SR_TXE, true, txe_timeout_us)) {
       return; // bail out, do not hang panic
     }
     USART1->DR = data[i];
   }
 
   // Wait for TC (transmission complete)
-  (void)WaitCondTimeout(&USART1->SR, USART_SR_TC, true, kTcTimeoutUs);
+  (void)WaitCondTimeout(&USART1->SR, USART_SR_TC, true, tc_timeout_us);
 }
 
 // Send Epistole panic message with error code

@@ -3,6 +3,7 @@
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h" // IWYU pragma: keep
 #include "freertos/task.h"
+#include "panic.hpp"
 #include <cstddef> // for size_t
 
 // LEDC configuration
@@ -17,7 +18,11 @@ static constexpr uint32_t kDutyMax = 8191;
 // Internal definitions for static steps if needed, but we use dynamic
 // generation now.
 
-ErrorCode LED::Init(const Config &cfg) {
+void LED::Init(const Config &cfg) {
+  if (initialized_) {
+    Panic(ErrorCode::kLedReinit);
+  }
+
   pin_ = cfg.pin;
   active_low_ = cfg.active_low;
 
@@ -29,7 +34,7 @@ ErrorCode LED::Init(const Config &cfg) {
   timer_conf.freq_hz = kLedcFreq;
   timer_conf.clk_cfg = LEDC_AUTO_CLK;
   if (ledc_timer_config(&timer_conf) != ESP_OK) {
-    return ErrorCode::kLedTimerInitFailed;
+    Panic(ErrorCode::kLedTimerInitFailed);
   }
 
   // Configure LEDC Channel
@@ -42,21 +47,22 @@ ErrorCode LED::Init(const Config &cfg) {
   channel_conf.duty = 0; // Start off
   channel_conf.hpoint = 0;
   if (ledc_channel_config(&channel_conf) != ESP_OK) {
-    return ErrorCode::kLedChannelInitFailed;
+    Panic(ErrorCode::kLedChannelInitFailed);
   }
 
   if (ledc_fade_func_install(0) != ESP_OK) {
-    return ErrorCode::kLedFadeInstallFailed;
+    Panic(ErrorCode::kLedFadeInstallFailed);
   }
 
   // Start OFF deterministically
   Off();
 
-  xTaskCreate(TaskEntry, "led_task", 2048, this, 1,
-              (TaskHandle_t *)&task_handle_);
+  if (xTaskCreate(TaskEntry, "led_task", 2048, this, 1,
+                  (TaskHandle_t *)&task_handle_) != pdPASS) {
+    Panic(ErrorCode::kLedTaskCreateFailed);
+  }
 
   initialized_ = true;
-  return ErrorCode::kOk;
 }
 
 void LED::SetPattern(const Step *steps, size_t count) {

@@ -604,4 +604,75 @@ config STM32_BUTTON_LONG_PRESS_MS
     default 500
 
 endmenu
+
+menu "RC Receiver"
+
+menu "Enabled Channels"
+
+config STM32_RC_CHANNEL_1_ENABLED
+    bool "Enable channel 1"
+    default y
+
+config STM32_RC_CHANNEL_2_ENABLED
+    bool "Enable channel 2"
+    default y
+
+config STM32_RC_CHANNEL_3_ENABLED
+    bool "Enable channel 3"
+    default y
+
+config STM32_RC_CHANNEL_4_ENABLED
+    bool "Enable channel 4"
+    default y
+
+config STM32_RC_CHANNEL_5_ENABLED
+    bool "Enable channel 5"
+    default y
+
+config STM32_RC_CHANNEL_6_ENABLED
+    bool "Enable channel 6"
+    default y
+
+config STM32_RC_CHANNEL_7_ENABLED
+    bool "Enable channel 7"
+    default y
+
+config STM32_RC_CHANNEL_8_ENABLED
+    bool "Enable channel 8"
+    default y
+
+config STM32_RC_CHANNEL_9_ENABLED
+    bool "Enable channel 9"
+    default y
+
+config STM32_RC_CHANNEL_10_ENABLED
+    bool "Enable channel 10"
+    default y
+
+config STM32_RC_CHANNEL_11_ENABLED
+    bool "Enable channel 11"
+    default y
+
+config STM32_RC_CHANNEL_12_ENABLED
+    bool "Enable channel 12"
+    default y
+
+config STM32_RC_CHANNEL_13_ENABLED
+    bool "Enable channel 13"
+    default y
+
+config STM32_RC_CHANNEL_14_ENABLED
+    bool "Enable channel 14"
+    default y
+
+config STM32_RC_CHANNEL_15_ENABLED
+    bool "Enable channel 15"
+    default y
+
+config STM32_RC_CHANNEL_16_ENABLED
+    bool "Enable channel 16"
+    default y
+
+endmenu
+endmenu
 endmenu
