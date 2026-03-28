@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import pathlib
 import textwrap
 
@@ -39,6 +40,16 @@ MAVLINK_HEARTBEAT_DEADLINE_MIN_MS = 1
 MAVLINK_HEARTBEAT_DEADLINE_MAX_MS = 60000
 MAVLINK_START_DELAY_MIN_MS = 0
 MAVLINK_START_DELAY_MAX_MS = 10000
+WIFI_AP_SSID_MIN_LEN = 1
+WIFI_AP_SSID_MAX_LEN = 32
+WIFI_AP_PASSWORD_MAX_LEN = 63
+WIFI_AP_PASSWORD_MIN_LEN = 8
+WIFI_AP_CHANNEL_MIN = 1
+WIFI_AP_CHANNEL_MAX = 13
+WIFI_AP_MAX_CONNECTIONS_MIN = 1
+WIFI_AP_MAX_CONNECTIONS_MAX = 10
+WIFI_AP_BEACON_INTERVAL_MIN_TU = 100
+WIFI_AP_BEACON_INTERVAL_MAX_TU = 60000
 PROGRAMMER_RESET_PULSE_MIN_MS = 1
 PROGRAMMER_RESET_PULSE_MAX_MS = 1000
 PROGRAMMER_BOOT_SETTLE_MIN_MS = 1
@@ -62,6 +73,12 @@ FCLINK_UART_BAUD_RATE_CHOICES = {
     "ESP32_FCLINK_UART_BAUD_5000000": "5000000",
 }
 
+WIFI_POWER_SAVE_CHOICES = {
+    "ESP32_WIFI_POWER_SAVE_NONE": "WIFI_PS_NONE",
+    "ESP32_WIFI_POWER_SAVE_MIN_MODEM": "WIFI_PS_MIN_MODEM",
+    "ESP32_WIFI_POWER_SAVE_MAX_MODEM": "WIFI_PS_MAX_MODEM",
+}
+
 
 def _sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
     sym = kconf.syms.get(name)
@@ -83,6 +100,14 @@ def _choice_value(kconf: kconfiglib.Kconfig, mapping: dict[str, str]) -> str:
         if _sym_bool(kconf, symbol_name):
             return value
     raise ValueError(f"no selected symbol in choice {tuple(mapping.keys())}")
+
+
+def _sym_str(kconf: kconfiglib.Kconfig, name: str) -> str:
+    return _sym(kconf, name).str_value
+
+
+def _cpp_string_literal(value: str) -> str:
+    return json.dumps(value)
 
 
 def _validate_gpio_num(kconf: kconfiglib.Kconfig, name: str) -> None:
@@ -210,6 +235,43 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         _validate_int_range(
             kconf, symbol, MAVLINK_START_DELAY_MIN_MS, MAVLINK_START_DELAY_MAX_MS
         )
+    wifi_ssid = _sym_str(kconf, "ESP32_WIFI_AP_SSID")
+    wifi_password = _sym_str(kconf, "ESP32_WIFI_AP_PASSWORD")
+    if not WIFI_AP_SSID_MIN_LEN <= len(wifi_ssid) <= WIFI_AP_SSID_MAX_LEN:
+        raise ValueError(
+            "ESP32_WIFI_AP_SSID must be between "
+            f"{WIFI_AP_SSID_MIN_LEN} and {WIFI_AP_SSID_MAX_LEN} characters"
+        )
+    if len(wifi_password) > WIFI_AP_PASSWORD_MAX_LEN:
+        raise ValueError(
+            f"ESP32_WIFI_AP_PASSWORD must be at most {WIFI_AP_PASSWORD_MAX_LEN} characters"
+        )
+    if 0 < len(wifi_password) < WIFI_AP_PASSWORD_MIN_LEN:
+        raise ValueError(
+            "ESP32_WIFI_AP_PASSWORD must be empty or at least "
+            f"{WIFI_AP_PASSWORD_MIN_LEN} characters"
+        )
+    _validate_int_range(
+        kconf, "ESP32_WIFI_AP_CHANNEL", WIFI_AP_CHANNEL_MIN, WIFI_AP_CHANNEL_MAX
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_WIFI_AP_MAX_CONNECTIONS",
+        WIFI_AP_MAX_CONNECTIONS_MIN,
+        WIFI_AP_MAX_CONNECTIONS_MAX,
+    )
+    beacon_interval_tu = _sym_int(kconf, "ESP32_WIFI_AP_BEACON_INTERVAL_TU")
+    if not WIFI_AP_BEACON_INTERVAL_MIN_TU <= beacon_interval_tu <= WIFI_AP_BEACON_INTERVAL_MAX_TU:
+        raise ValueError(
+            "ESP32_WIFI_AP_BEACON_INTERVAL_TU must be in the range "
+            f"{WIFI_AP_BEACON_INTERVAL_MIN_TU}..{WIFI_AP_BEACON_INTERVAL_MAX_TU}"
+        )
+    if beacon_interval_tu % 100 != 0:
+        raise ValueError("ESP32_WIFI_AP_BEACON_INTERVAL_TU must be a multiple of 100")
+    if _sym_bool(kconf, "ESP32_WIFI_PMF_REQUIRED") and not _sym_bool(
+        kconf, "ESP32_WIFI_PMF_CAPABLE"
+    ):
+        raise ValueError("ESP32_WIFI_PMF_REQUIRED requires ESP32_WIFI_PMF_CAPABLE")
     _validate_int_range(
         kconf,
         "ESP32_PROGRAMMER_RESET_PULSE_MS",
@@ -254,6 +316,7 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
             #include "mavlink.hpp"
             #include "programmer.hpp"
             #include "uart.hpp"
+            #include "wifi.hpp"
 
             struct PinMap {{
                 gpio_num_t led;
@@ -331,6 +394,24 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 .boot_settle_ms = {_sym_int(kconf, "ESP32_PROGRAMMER_BOOT_SETTLE_MS")},
                 .sync_timeout_ms = {_sym_int(kconf, "ESP32_PROGRAMMER_SYNC_TIMEOUT_MS")},
                 .sync_retries = {_sym_int(kconf, "ESP32_PROGRAMMER_SYNC_RETRIES")},
+            }};
+
+            inline constexpr WifiController::Config kWifiConfig = {{
+                .ap =
+                    {{
+                        .ssid = {_cpp_string_literal(_sym_str(kconf, "ESP32_WIFI_AP_SSID"))},
+                        .password = {_cpp_string_literal(_sym_str(kconf, "ESP32_WIFI_AP_PASSWORD"))},
+                        .channel = {_sym_int(kconf, "ESP32_WIFI_AP_CHANNEL")},
+                        .max_connections = {_sym_int(kconf, "ESP32_WIFI_AP_MAX_CONNECTIONS")},
+                        .beacon_interval_tu = {_sym_int(kconf, "ESP32_WIFI_AP_BEACON_INTERVAL_TU")},
+                        .hidden = {"true" if _sym_bool(kconf, "ESP32_WIFI_AP_HIDDEN") else "false"},
+                    }},
+                .pmf =
+                    {{
+                        .capable = {"true" if _sym_bool(kconf, "ESP32_WIFI_PMF_CAPABLE") else "false"},
+                        .required = {"true" if _sym_bool(kconf, "ESP32_WIFI_PMF_REQUIRED") else "false"},
+                    }},
+                .power_save = {_choice_value(kconf, WIFI_POWER_SAVE_CHOICES)},
             }};
 
             inline constexpr Mavlink::Config kMavlinkConfig = {{

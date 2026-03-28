@@ -78,16 +78,16 @@ config ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM
 
 endmenu
 
-menu "Ep2"
+menu "RC Receiver"
 
-config ESP32_PINMAP_EP2_UART_TX_GPIO_NUM
+config ESP32_PINMAP_RCRX_UART_TX_GPIO_NUM
     int "TX GPIO number"
     range 0 21
     default 21
     help
       ESP32-C3 valid GPIOs are 0 through 21.
 
-config ESP32_PINMAP_EP2_UART_RX_GPIO_NUM
+config ESP32_PINMAP_RCRX_UART_RX_GPIO_NUM
     int "RX GPIO number"
     range 0 21
     default 20
@@ -181,7 +181,94 @@ config ESP32_PROGRAMMER_SYNC_RETRIES
 
 endmenu
 
+menu "Wifi"
+
+menu "Access Point"
+
+config ESP32_WIFI_AP_SSID
+    string "SSID"
+    default "32Raven"
+    help
+      Wi-Fi SoftAP SSID advertised by the ESP32.
+
+config ESP32_WIFI_AP_PASSWORD
+    string "Password"
+    default "32Raven@1234"
+    help
+      Wi-Fi SoftAP password. Leave empty to run the access point as an open
+      network.
+
+config ESP32_WIFI_AP_CHANNEL
+    int "Channel"
+    range 1 13
+    default 1
+    help
+      Primary 2.4 GHz Wi-Fi channel used by the access point.
+
+config ESP32_WIFI_AP_MAX_CONNECTIONS
+    int "Max connections"
+    range 1 10
+    default 1
+    help
+      Maximum number of stations allowed to associate with the SoftAP. ESP32-C3
+      supports up to 10.
+
+config ESP32_WIFI_AP_BEACON_INTERVAL_TU
+    int "Beacon interval (TU)"
+    range 100 60000
+    default 100
+    help
+      Access point beacon interval in time units. This must be a multiple of
+      100 and follows the ESP-IDF SoftAP limits.
+
+config ESP32_WIFI_AP_HIDDEN
+    bool "Hidden SSID"
+    default n
+    help
+      Do not broadcast the SSID in beacons.
+
+endmenu
+
+menu "Protected Management Frames"
+
+config ESP32_WIFI_PMF_CAPABLE
+    bool "Capable"
+    default y
+    help
+      Advertise PMF capability for the SoftAP.
+
+config ESP32_WIFI_PMF_REQUIRED
+    bool "Required"
+    default n
+    help
+      Require PMF for clients connecting to the SoftAP. This also requires PMF
+      capable to be enabled.
+
+endmenu
+
+choice
+    prompt "Power save"
+    default ESP32_WIFI_POWER_SAVE_NONE
+    help
+      Wi-Fi driver power-save mode applied after starting the SoftAP. The
+      current known-good setting is no power save.
+
+config ESP32_WIFI_POWER_SAVE_NONE
+    bool "None"
+
+config ESP32_WIFI_POWER_SAVE_MIN_MODEM
+    bool "Minimum modem"
+
+config ESP32_WIFI_POWER_SAVE_MAX_MODEM
+    bool "Maximum modem"
+
+endchoice
+
+endmenu
+
 menu "FcLink"
+
+menu "Uart"
 
 choice
     prompt "UART baud rate"
@@ -225,6 +312,39 @@ config ESP32_FCLINK_UART_BAUD_5000000
 
 endchoice
 
+choice
+    prompt "Parity"
+    default ESP32_FCLINK_UART_PARITY_EVEN
+    help
+      UART parity for the ESP32 side of FcLink.
+
+config ESP32_FCLINK_UART_PARITY_NONE
+    bool "None"
+
+config ESP32_FCLINK_UART_PARITY_EVEN
+    bool "Even"
+
+config ESP32_FCLINK_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+config ESP32_FCLINK_UART_RX_BUFFER_SIZE
+    int "RX buffer size (bytes)"
+    range 256 16384
+    default 2048
+    help
+      UART driver RX ring-buffer size for the ESP32 FcLink port.
+
+config ESP32_FCLINK_UART_TX_BUFFER_SIZE
+    int "TX buffer size (bytes)"
+    range 256 16384
+    default 2048
+    help
+      UART driver TX ring-buffer size for the ESP32 FcLink port.
+
+endmenu
+
 config ESP32_FCLINK_TELEMETRY_RATE_HZ
     int "Telemetry rate (Hz)"
     range 1 255
@@ -263,6 +383,82 @@ config ESP32_FCLINK_RX_QUEUE_DEPTH
 endmenu
 
 menu "Mavlink"
+
+menu "Uart"
+
+choice
+    prompt "UART baud rate"
+    default ESP32_RCRX_UART_BAUD_460800
+    help
+      UART baud rate for the ESP32 RC receiver port used by MAVLink.
+
+config ESP32_RCRX_UART_BAUD_9600
+    bool "9600"
+
+config ESP32_RCRX_UART_BAUD_19200
+    bool "19200"
+
+config ESP32_RCRX_UART_BAUD_38400
+    bool "38400"
+
+config ESP32_RCRX_UART_BAUD_57600
+    bool "57600"
+
+config ESP32_RCRX_UART_BAUD_115200
+    bool "115200"
+
+config ESP32_RCRX_UART_BAUD_230400
+    bool "230400"
+
+config ESP32_RCRX_UART_BAUD_460800
+    bool "460800"
+
+config ESP32_RCRX_UART_BAUD_921600
+    bool "921600"
+
+config ESP32_RCRX_UART_BAUD_1000000
+    bool "1000000"
+
+config ESP32_RCRX_UART_BAUD_2000000
+    bool "2000000"
+
+config ESP32_RCRX_UART_BAUD_5000000
+    bool "5000000"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default ESP32_RCRX_UART_PARITY_NONE
+    help
+      UART parity for the ESP32 RC receiver port used by MAVLink.
+
+config ESP32_RCRX_UART_PARITY_NONE
+    bool "None"
+
+config ESP32_RCRX_UART_PARITY_EVEN
+    bool "Even"
+
+config ESP32_RCRX_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+config ESP32_RCRX_UART_RX_BUFFER_SIZE
+    int "RX buffer size (bytes)"
+    range 256 16384
+    default 2048
+    help
+      UART driver RX ring-buffer size for the ESP32 RC receiver port.
+
+config ESP32_RCRX_UART_TX_BUFFER_SIZE
+    int "TX buffer size (bytes)"
+    range 256 16384
+    default 256
+    help
+      UART driver TX ring-buffer size for the ESP32 RC receiver port.
+
+endmenu
 
 menu "Identity"
 
@@ -329,7 +525,7 @@ config ESP32_MAVLINK_RX_READ_CHUNK_SIZE
     range 1 256
     default 256
     help
-      Maximum number of bytes read from the EP2 UART in one MAVLink receive
+      Maximum number of bytes read from the RC receiver UART in one MAVLink receive
       pass.
 
 endmenu
