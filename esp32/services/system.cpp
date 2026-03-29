@@ -51,16 +51,16 @@ void System::InitComponent(Component c) {
     FcLinkUart().Init(kFcLinkUartConfig);
     ESP_LOGI(kTag, "FcLink Uart initialized");
     break;
-  case Component::kEp2Uart:
-    Ep2Uart().Init(kEp2UartConfig);
-    ESP_LOGI(kTag, "EP2 Uart initialized");
+  case Component::kRcRxUart:
+    RcRxUart().Init(kRcRxUartConfig);
+    ESP_LOGI(kTag, "RcRx Uart initialized");
     break;
   case Component::kProgrammer:
     Programmer().Init(kProgrammerConfig, &FcLinkUart());
     ESP_LOGI(kTag, "Programmer initialized");
     break;
   case Component::kMavlink:
-    Mavlink().Init(kMavlinkConfig, &Ep2Uart());
+    Mavlink().Init(kMavlinkConfig, &RcRxUart());
     ESP_LOGI(kTag, "Mavlink service initialized");
     break;
   case Component::kFcLink:

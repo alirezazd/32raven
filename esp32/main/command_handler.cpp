@@ -191,13 +191,11 @@ CommandHandler::Dispatch(AppContext &ctx, const TcpServer::Event &ev) {
   switch (ev.id) {
   case TcpServer::EventId::kBegin: {
     ctx.sys->Tcp().StartDownload(ev.begin.size);
+    ctx.sys->Programmer().SetTarget(ev.begin.target);
 
     ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%d",
              (unsigned)ev.begin.size, (unsigned)ev.begin.crc,
              (int)ev.begin.target);
-    // Send handshake ACK
-    ctx.sys->Tcp().SendCtrlLine("OK");
-    ctx.sys->Programmer().SetTarget(ev.begin.target);
     return TransitionResult::kTransitionToProgram;
   }
   case TcpServer::EventId::kAbort: {
@@ -215,7 +213,6 @@ CommandHandler::Dispatch(AppContext &ctx, const TcpServer::Event &ev) {
   case TcpServer::EventId::kBridge: {
     ESP_LOGI(kTag, "TCP: BRIDGE requested");
     ctx.sys->Tcp().EnableBridge();
-    ctx.sys->Tcp().SendCtrlLine("OK");
     return TransitionResult::kNone;
   }
   default:

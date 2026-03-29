@@ -27,8 +27,7 @@ static void MavlinkTxTask(void *) {
 } // namespace
 
 void StartMavlinkTxTask() {
-  // One owner for EP2 UART TX.
-  // Pin to core 1 to isolate from the main state-machine loop (usually core 0).
+  // One owner for RcRx UART TX.
   static constexpr uint32_t kStackWords = 4096 / sizeof(StackType_t);
   static constexpr UBaseType_t kPrio = 10;
 
