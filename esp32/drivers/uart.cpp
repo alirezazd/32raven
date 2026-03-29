@@ -13,10 +13,10 @@ namespace {
 template <UartInstance Inst> constexpr uart_port_t ToPort() {
   if constexpr (Inst == UartInstance::kFcLink) {
     return UART_NUM_0;
-  } else if constexpr (Inst == UartInstance::kEp2) {
+  } else if constexpr (Inst == UartInstance::kRcRx) {
     return UART_NUM_1;
   } else {
-    static_assert(Inst == UartInstance::kFcLink || Inst == UartInstance::kEp2,
+    static_assert(Inst == UartInstance::kFcLink || Inst == UartInstance::kRcRx,
                   "Invalid Uart instance");
   }
 }
@@ -36,6 +36,11 @@ uart_parity_t ToParity(UartParity parity) {
 template <UartInstance Inst> void Uart<Inst>::Init(const UartConfig &cfg) {
   if (initialized_) {
     Panic(ErrorCode::kUartReinit);
+  }
+  if (cfg.tx_gpio == GPIO_NUM_NC || cfg.rx_gpio == GPIO_NUM_NC ||
+      cfg.baud_rate == 0 || cfg.rx_buf < UartConfig::kMinBufferSize ||
+      cfg.tx_buf < UartConfig::kMinBufferSize) {
+    Panic(ErrorCode::kUartParamConfigFailed);
   }
 
   cfg_ = cfg;
@@ -134,4 +139,4 @@ template <UartInstance Inst> bool Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
 }
 
 template class Uart<UartInstance::kFcLink>;
-template class Uart<UartInstance::kEp2>;
+template class Uart<UartInstance::kRcRx>;

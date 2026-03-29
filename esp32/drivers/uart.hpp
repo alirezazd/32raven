@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 
-enum class UartInstance : uint8_t { kFcLink, kEp2 };
+enum class UartInstance : uint8_t { kFcLink, kRcRx };
 
 enum class UartParity : uint8_t {
   kNone = 0,
@@ -14,14 +14,16 @@ enum class UartParity : uint8_t {
 };
 
 struct UartConfig {
-  gpio_num_t tx_gpio = GPIO_NUM_4;
-  gpio_num_t rx_gpio = GPIO_NUM_5;
+  static constexpr int kMinBufferSize = 256;
 
-  uint32_t baud_rate = 115200;
-  UartParity parity = UartParity::kEven;
+  gpio_num_t tx_gpio = GPIO_NUM_NC;
+  gpio_num_t rx_gpio = GPIO_NUM_NC;
 
-  int rx_buf = 2048;
-  int tx_buf = 2048;
+  uint32_t baud_rate = 0;
+  UartParity parity = UartParity::kNone;
+
+  int rx_buf = 0;
+  int tx_buf = 0;
 };
 
 template <UartInstance Inst> class Uart {
@@ -55,4 +57,4 @@ private:
 };
 
 using UartFcLink = Uart<UartInstance::kFcLink>;
-using UartEp2 = Uart<UartInstance::kEp2>;
+using UartRcRx = Uart<UartInstance::kRcRx>;
