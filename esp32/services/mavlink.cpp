@@ -36,7 +36,7 @@ bool Mavlink::ShouldSendHbNow(uint32_t now_ms) const {
   return (int32_t)(now_ms - next_hb_ms_) >= 0;
 }
 
-void Mavlink::Init(const Config &cfg, UartEp2 *uart) {
+void Mavlink::Init(const Config &cfg, UartRcRx *uart) {
   if (initialized_) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }

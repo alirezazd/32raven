@@ -54,7 +54,7 @@ public:
 
   static Mavlink &GetInstance();
 
-  void Init(const Config &cfg, UartEp2 *uart);
+  void Init(const Config &cfg, UartRcRx *uart);
 
   // RX: reads UART and parses inbound MAVLink (RC override only, for now)
   void Poll(uint32_t now_ms);
@@ -74,7 +74,7 @@ private:
   Mavlink &operator=(const Mavlink &) = delete;
 
   // ---------- Common ----------
-  UartEp2 *uart_ = nullptr;
+  UartRcRx *uart_ = nullptr;
   bool initialized_ = false;
   Config cfg_{};
 

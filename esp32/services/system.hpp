@@ -28,7 +28,7 @@ public:
     kWifi,
     kTcpServer,
     kFcLinkUart,
-    kEp2Uart,
+    kRcRxUart,
     kProgrammer,
     kMavlink,
     kFcLink,
@@ -47,7 +47,7 @@ public:
   ::FcLink &FcLink() { return ::FcLink::GetInstance(); }
   ::CommandHandler &CommandHandler() { return ::CommandHandler::GetInstance(); }
   ::UartFcLink &FcLinkUart() { return ::UartFcLink::GetInstance(); }
-  ::UartEp2 &Ep2Uart() { return ::UartEp2::GetInstance(); }
+  ::UartRcRx &RcRxUart() { return ::UartRcRx::GetInstance(); }
   ::Programmer &Programmer() { return ::Programmer::GetInstance(); }
   void Init();
   void StopNetwork();

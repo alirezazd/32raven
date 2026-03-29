@@ -26,6 +26,8 @@ FCLINK_RX_READ_CHUNK_MIN = 1
 FCLINK_RX_READ_CHUNK_MAX = 256
 FCLINK_RX_QUEUE_DEPTH_MIN = 1
 FCLINK_RX_QUEUE_DEPTH_MAX = 32
+UART_BUFFER_SIZE_MIN = 256
+UART_BUFFER_SIZE_MAX = 16384
 MAVLINK_SYSID_MIN = 1
 MAVLINK_SYSID_MAX = 255
 MAVLINK_COMPID_MIN = 0
@@ -71,6 +73,32 @@ FCLINK_UART_BAUD_RATE_CHOICES = {
     "ESP32_FCLINK_UART_BAUD_1000000": "1000000",
     "ESP32_FCLINK_UART_BAUD_2000000": "2000000",
     "ESP32_FCLINK_UART_BAUD_5000000": "5000000",
+}
+
+FCLINK_UART_PARITY_CHOICES = {
+    "ESP32_FCLINK_UART_PARITY_NONE": "UartParity::kNone",
+    "ESP32_FCLINK_UART_PARITY_EVEN": "UartParity::kEven",
+    "ESP32_FCLINK_UART_PARITY_ODD": "UartParity::kOdd",
+}
+
+RCRX_UART_BAUD_RATE_CHOICES = {
+    "ESP32_RCRX_UART_BAUD_9600": "9600",
+    "ESP32_RCRX_UART_BAUD_19200": "19200",
+    "ESP32_RCRX_UART_BAUD_38400": "38400",
+    "ESP32_RCRX_UART_BAUD_57600": "57600",
+    "ESP32_RCRX_UART_BAUD_115200": "115200",
+    "ESP32_RCRX_UART_BAUD_230400": "230400",
+    "ESP32_RCRX_UART_BAUD_460800": "460800",
+    "ESP32_RCRX_UART_BAUD_921600": "921600",
+    "ESP32_RCRX_UART_BAUD_1000000": "1000000",
+    "ESP32_RCRX_UART_BAUD_2000000": "2000000",
+    "ESP32_RCRX_UART_BAUD_5000000": "5000000",
+}
+
+RCRX_UART_PARITY_CHOICES = {
+    "ESP32_RCRX_UART_PARITY_NONE": "UartParity::kNone",
+    "ESP32_RCRX_UART_PARITY_EVEN": "UartParity::kEven",
+    "ESP32_RCRX_UART_PARITY_ODD": "UartParity::kOdd",
 }
 
 WIFI_POWER_SAVE_CHOICES = {
@@ -155,8 +183,8 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         "ESP32_PINMAP_BUZZER_GPIO_NUM",
         "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM",
         "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM",
-        "ESP32_PINMAP_EP2_UART_TX_GPIO_NUM",
-        "ESP32_PINMAP_EP2_UART_RX_GPIO_NUM",
+        "ESP32_PINMAP_RCRX_UART_TX_GPIO_NUM",
+        "ESP32_PINMAP_RCRX_UART_RX_GPIO_NUM",
         "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM",
         "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM",
     )
@@ -192,6 +220,18 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         "ESP32_FCLINK_RX_QUEUE_DEPTH",
         FCLINK_RX_QUEUE_DEPTH_MIN,
         FCLINK_RX_QUEUE_DEPTH_MAX,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_FCLINK_UART_RX_BUFFER_SIZE",
+        UART_BUFFER_SIZE_MIN,
+        UART_BUFFER_SIZE_MAX,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_FCLINK_UART_TX_BUFFER_SIZE",
+        UART_BUFFER_SIZE_MIN,
+        UART_BUFFER_SIZE_MAX,
     )
     _validate_int_range(
         kconf, "ESP32_MAVLINK_SYSID", MAVLINK_SYSID_MIN, MAVLINK_SYSID_MAX
@@ -235,6 +275,18 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         _validate_int_range(
             kconf, symbol, MAVLINK_START_DELAY_MIN_MS, MAVLINK_START_DELAY_MAX_MS
         )
+    _validate_int_range(
+        kconf,
+        "ESP32_RCRX_UART_RX_BUFFER_SIZE",
+        UART_BUFFER_SIZE_MIN,
+        UART_BUFFER_SIZE_MAX,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_RCRX_UART_TX_BUFFER_SIZE",
+        UART_BUFFER_SIZE_MIN,
+        UART_BUFFER_SIZE_MAX,
+    )
     wifi_ssid = _sym_str(kconf, "ESP32_WIFI_AP_SSID")
     wifi_password = _sym_str(kconf, "ESP32_WIFI_AP_PASSWORD")
     if not WIFI_AP_SSID_MIN_LEN <= len(wifi_ssid) <= WIFI_AP_SSID_MAX_LEN:
@@ -304,6 +356,9 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
 
 def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str:
     fclink_uart_baud_rate = _choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES)
+    fclink_uart_parity = _choice_value(kconf, FCLINK_UART_PARITY_CHOICES)
+    rcrx_uart_baud_rate = _choice_value(kconf, RCRX_UART_BAUD_RATE_CHOICES)
+    rcrx_uart_parity = _choice_value(kconf, RCRX_UART_PARITY_CHOICES)
     return AUTOGEN_WARNING.format(source=source.name) + textwrap.dedent(
         f"""\
             #pragma once
@@ -324,8 +379,8 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 gpio_num_t buzzer;
                 gpio_num_t fclink_uart_tx;
                 gpio_num_t fclink_uart_rx;
-                gpio_num_t ep2_uart_tx;
-                gpio_num_t ep2_uart_rx;
+                gpio_num_t rcrx_uart_tx;
+                gpio_num_t rcrx_uart_rx;
                 gpio_num_t programmer_boot0;
                 gpio_num_t programmer_nrst;
             }};
@@ -336,8 +391,8 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 .buzzer = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_BUZZER_GPIO_NUM")}),
                 .fclink_uart_tx = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM")}),
                 .fclink_uart_rx = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM")}),
-                .ep2_uart_tx = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_EP2_UART_TX_GPIO_NUM")}),
-                .ep2_uart_rx = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_EP2_UART_RX_GPIO_NUM")}),
+                .rcrx_uart_tx = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_RCRX_UART_TX_GPIO_NUM")}),
+                .rcrx_uart_rx = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_RCRX_UART_RX_GPIO_NUM")}),
                 .programmer_boot0 = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM")}),
                 .programmer_nrst = static_cast<gpio_num_t>({_sym_int(kconf, "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM")}),
             }};
@@ -365,18 +420,18 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 .tx_gpio = kPinMap.fclink_uart_tx,
                 .rx_gpio = kPinMap.fclink_uart_rx,
                 .baud_rate = {fclink_uart_baud_rate},
-                .parity = UartParity::kEven,
-                .rx_buf = 2048,
-                .tx_buf = 2048,
+                .parity = {fclink_uart_parity},
+                .rx_buf = {_sym_int(kconf, "ESP32_FCLINK_UART_RX_BUFFER_SIZE")},
+                .tx_buf = {_sym_int(kconf, "ESP32_FCLINK_UART_TX_BUFFER_SIZE")},
             }};
 
-            inline constexpr UartConfig kEp2UartConfig = {{
-                .tx_gpio = kPinMap.ep2_uart_tx,
-                .rx_gpio = kPinMap.ep2_uart_rx,
-                .baud_rate = 460800,
-                .parity = UartParity::kNone,
-                .rx_buf = 2048,
-                .tx_buf = 256,
+            inline constexpr UartConfig kRcRxUartConfig = {{
+                .tx_gpio = kPinMap.rcrx_uart_tx,
+                .rx_gpio = kPinMap.rcrx_uart_rx,
+                .baud_rate = {rcrx_uart_baud_rate},
+                .parity = {rcrx_uart_parity},
+                .rx_buf = {_sym_int(kconf, "ESP32_RCRX_UART_RX_BUFFER_SIZE")},
+                .tx_buf = {_sym_int(kconf, "ESP32_RCRX_UART_TX_BUFFER_SIZE")},
             }};
 
             inline constexpr FcLink::Config kFcLinkConfig = {{

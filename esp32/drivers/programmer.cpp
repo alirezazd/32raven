@@ -559,6 +559,10 @@ void Programmer::Start(uint32_t total_size, SmTick now) {
   ctx_.err = 0;
   ctx_.ready = false;
 
+  ESP_LOGI(kTag, "Start target=%s size=%u",
+           (ctx_.target == Target::kEsp32) ? "esp32" : "stm32",
+           (unsigned)total_size);
+
   if (ctx_.target == Target::kEsp32) {
     ESP_LOGI(kTag, "Starting ESP32 OTA...");
     ctx_.ota_part = esp_ota_get_next_update_partition(NULL);
