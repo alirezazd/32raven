@@ -5,7 +5,7 @@
 struct AppContext;
 
 class CommandHandler {
-public:
+ public:
   static CommandHandler &GetInstance() {
     static CommandHandler instance;
     return instance;
@@ -14,7 +14,7 @@ public:
   void Init();
   bool Dispatch(AppContext &ctx, const message::Packet &pkt);
 
-private:
+ private:
   CommandHandler() = default;
   ~CommandHandler() = default;
   CommandHandler(const CommandHandler &) = delete;

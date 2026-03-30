@@ -1,4 +1,5 @@
 #include "gpio.hpp"
+
 #include "board.h"
 
 inline void EnablePortClock(GPIO_TypeDef *port) {
@@ -40,8 +41,7 @@ void GPIO::Init(const PinConfig *pins, size_t pin_count) {
   //    (prevents glitches when switching mode to output)
   for (size_t i = 0; i < pin_count; i++) {
     const auto &pc = pins[i];
-    if (!IsOutputMode(pc.init.Mode))
-      continue;
+    if (!IsOutputMode(pc.init.Mode)) continue;
     bool initial_level = pc.active_low ? true : false;
     WritePin(pc.port, pc.init.Pin, initial_level);
   }

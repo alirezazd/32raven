@@ -1,9 +1,9 @@
 #include "system.hpp"
-#include "button.hpp"
-#include "panic.hpp"
 
+#include "button.hpp"
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
+#include "panic.hpp"
 // #include "i2c.hpp"
 #include "board.h"
 #include "led.hpp"
@@ -43,49 +43,49 @@ void System::Init(const SystemConfig &config) {
 
 void System::InitComponent(Component c) {
   switch (c) {
-  case Component::kTimeBase:
-    System::GetInstance().Time().Init(kTimeBaseDefault);
-    break;
-  case Component::kGpio:
-    GPIO::GetInstance().Init(kGpioDefault);
-    break;
-  case Component::kEe:
-    EE::GetInstance().Init();
-    break;
-  case Component::kRcReceiver:
-    RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
-                                   vehicle_state_, FcLink::GetInstance());
-    break;
-  case Component::kLed:
-    LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
-    LED::GetInstance().Set(true);
-    break;
-  case Component::kUart1:
-    Uart1::GetInstance().Init(kUart1Config);
-    break;
-  case Component::kSpi1:
-    Spi1::GetInstance().Init(kSpi1Config);
-    break;
-  case Component::kDshot:
-    DShotTim1::init(kDshotTim1Default);
-    break;
-  case Component::kButton:
-    Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
-    break;
-  case Component::kUart2:
-    // GPS/M9N disabled for IMU-only bring-up.
-    // Uart2::GetInstance().Init(kUart2Config);
-    break;
-  case Component::kM9n:
-    // GPS/M9N disabled for IMU-only bring-up.
-    // M9N::GetInstance().Init(kM9nConfig);
-    break;
-  case Component::kIcm42688p:
-    Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance(),
-                                  EE::GetInstance(), kIcm42688pConfig);
-    break;
-  case Component::kCount:
-    break;
+    case Component::kTimeBase:
+      System::GetInstance().Time().Init(kTimeBaseDefault);
+      break;
+    case Component::kGpio:
+      GPIO::GetInstance().Init(kGpioDefault);
+      break;
+    case Component::kEe:
+      EE::GetInstance().Init();
+      break;
+    case Component::kRcReceiver:
+      RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
+                                     vehicle_state_, FcLink::GetInstance());
+      break;
+    case Component::kLed:
+      LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
+      LED::GetInstance().Set(true);
+      break;
+    case Component::kUart1:
+      Uart1::GetInstance().Init(kUart1Config);
+      break;
+    case Component::kSpi1:
+      Spi1::GetInstance().Init(kSpi1Config);
+      break;
+    case Component::kDshot:
+      DShotTim1::init(kDshotTim1Default);
+      break;
+    case Component::kButton:
+      Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
+      break;
+    case Component::kUart2:
+      // GPS/M9N disabled for IMU-only bring-up.
+      // Uart2::GetInstance().Init(kUart2Config);
+      break;
+    case Component::kM9n:
+      // GPS/M9N disabled for IMU-only bring-up.
+      // M9N::GetInstance().Init(kM9nConfig);
+      break;
+    case Component::kIcm42688p:
+      Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance(),
+                                    EE::GetInstance(), kIcm42688pConfig);
+      break;
+    case Component::kCount:
+      break;
   }
 }
 

@@ -1,10 +1,11 @@
 #include "rc_receiver.hpp"
 
+#include <cstdio>
+
 #include "config_storage.hpp"
 #include "fc_link.hpp"
 #include "panic.hpp"
 #include "vehicle_state.hpp"
-#include <cstdio>
 
 namespace {
 
@@ -16,7 +17,7 @@ constexpr uint8_t kTxOnMinRssi = 10u;
 constexpr uint32_t kTxOnDebounceUs = 150000u;
 constexpr uint32_t kTxOffDebounceUs = 500000u;
 
-} // namespace
+}  // namespace
 
 void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state,
                       FcLink &fc_link) {

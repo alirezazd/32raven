@@ -1,4 +1,5 @@
 #include "m9n_service.hpp"
+
 #include "m9n_reg.hpp"
 #include "system.hpp"
 #include "uart.hpp"
@@ -6,10 +7,7 @@
 // Base State
 struct BaseState : public IState<ParserContext> {
   const char *Name() const override { return "Base"; }
-  void OnEnter(ParserContext &, SmTick) override {}
   void OnStep(ParserContext &, SmTick) override {}
-  void OnExit(ParserContext &, SmTick) override {}
-  void OnEvent(ParserContext &, const SmEvent &, SmTick) override {}
 };
 
 // State Definitions
@@ -201,10 +199,10 @@ void CkBState::OnStep(ParserContext &ctx, SmTick) {
     ctx.dop_ready = false;
     ctx.cov_ready = false;
 
-    ctx.frame_ok_count++; // optional: count EOE as a good frame
+    ctx.frame_ok_count++;  // optional: count EOE as a good frame
   } else {
     // some other valid UBX frame; ignore
-    ctx.frame_ok_count++; // optional
+    ctx.frame_ok_count++;  // optional
   }
 
   ctx.sm->ReqTransition(s_sync1);
@@ -215,11 +213,11 @@ void CkBState::OnStep(ParserContext &ctx, SmTick) {
 M9NService::M9NService()
     : ctx_(pvt_data_, dop_data_, cov_data_, new_data_), sm_(ctx_) {
   ctx_.sm = &sm_;
-  sm_.Start(s_sync1, 0);
+  sm_.Start(s_sync1);
 }
 
 void M9NService::ProcessByte(uint8_t byte) {
-  ctx_.current_byte = byte; // Set input
+  ctx_.current_byte = byte;  // Set input
 
   // Optimization: Call OnStep directly via StateMachine::Step framework
   // Bypasses PostEvent queue overhead.

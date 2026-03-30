@@ -1,16 +1,17 @@
 #ifndef USER_DRIVERS_TIMEBASE_HPP
 #define USER_DRIVERS_TIMEBASE_HPP
 
-#include "stm32f4xx_hal.h"
 #include <cstdint>
+
+#include "stm32f4xx_hal.h"
 
 #define SECONDS_TO_MICROS(s) ((s) * 1000000u)
 #define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
 
 struct TimeBaseConfig {
   struct Tim2 {
-    uint32_t prescaler; // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz
-    uint32_t period;    // typically 0xFFFFFFFF
+    uint32_t prescaler;  // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz
+    uint32_t period;     // typically 0xFFFFFFFF
   } tim2;
 
   struct Tim5 {
@@ -22,7 +23,7 @@ struct TimeBaseConfig {
 };
 
 class TimeBase {
-public:
+ public:
   using Config = TimeBaseConfig;
 
   uint32_t Micros() const;
@@ -32,7 +33,7 @@ public:
   // TIM5 scheduler tick helpers
   uint32_t ConsumeTim5Ticks() const;
 
-private:
+ private:
   friend class System;
   void Init(const Config &config);
 
@@ -47,4 +48,4 @@ private:
   bool initialized_ = false;
 };
 
-#endif // USER_DRIVERS_TIMEBASE_HPP
+#endif  // USER_DRIVERS_TIMEBASE_HPP

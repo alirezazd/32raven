@@ -9,7 +9,7 @@
 namespace {
 
 constexpr uint32_t kFlashEraseNoError = 0xFFFFFFFFu;
-constexpr uint32_t kSlotMagic = 0x31524545u; // "EER1"
+constexpr uint32_t kSlotMagic = 0x31524545u;  // "EER1"
 
 struct SlotHeader {
   uint32_t magic;
@@ -154,8 +154,8 @@ const SlotDesc &InactiveSlot(const SlotState *active) {
 }
 
 bool VerifySlotPayload(const SlotDesc &slot, const uint8_t *expected) {
-  return std::memcmp(FlashBytes(PayloadAddress(slot)), expected, EE::kCapacity) ==
-         0;
+  return std::memcmp(FlashBytes(PayloadAddress(slot)), expected,
+                     EE::kCapacity) == 0;
 }
 
 bool BufferIsErased(const uint8_t *data, size_t len) {
@@ -181,7 +181,7 @@ const SlotState *FindActiveSlotOrPanic(const SlotState &a, const SlotState &b) {
   return nullptr;
 }
 
-} // namespace
+}  // namespace
 
 void EE::Init() {
   if (initialized_) {
@@ -301,8 +301,7 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
   };
 
   const bool ok =
-      ProgramBytes(inactive.address,
-                   reinterpret_cast<const uint8_t *>(&header),
+      ProgramBytes(inactive.address, reinterpret_cast<const uint8_t *>(&header),
                    sizeof(header)) &&
       VerifySlotPayload(inactive, FlashBytes(PayloadAddress(inactive))) &&
       ValidateSlot(inactive, ReadHeader(inactive));

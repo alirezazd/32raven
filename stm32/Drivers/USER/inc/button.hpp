@@ -1,21 +1,22 @@
 #pragma once
-#include "board.h" // for USER_BTN_GPIO_PORT/Pin and ErrorHandler()
+#include <cstdint>
+
+#include "board.h"  // for USER_BTN_GPIO_PORT/Pin and ErrorHandler()
 #include "panic.hpp"
 #include "stm32f4xx.h"
-#include <cstdint>
 
 class GPIO;
 
 class Button {
-public:
+ public:
   struct Config {
     struct Pin {
       GPIO_TypeDef *port;
-      uint16_t number; // GPIO_PIN_x bitmask
+      uint16_t number;  // GPIO_PIN_x bitmask
     } pin;
-    bool active_low;        // for your schematic: false
-    uint32_t debounce_ms;   // e.g. 50
-    uint32_t long_press_ms; // e.g. 500
+    bool active_low;         // for your schematic: false
+    uint32_t debounce_ms;    // e.g. 50
+    uint32_t long_press_ms;  // e.g. 500
   };
 
   static Button &GetInstance() {
@@ -31,7 +32,7 @@ public:
 
   bool IsPressed() const { return pressed_; }
 
-private:
+ private:
   friend class System;
   void Init(GPIO &gpio, const Config &cfg);
 

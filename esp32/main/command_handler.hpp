@@ -1,13 +1,13 @@
 #pragma once
 
-#include "message.hpp"
 #include <mavlink.h>
 
 #include "ctx.hpp"
+#include "message.hpp"
 #include "tcp_server.hpp"
 
 class CommandHandler {
-public:
+ public:
   struct Config {};
 
   static CommandHandler &GetInstance() {
@@ -36,7 +36,7 @@ public:
   // Dispatch MAVLink messages (Monitoring & Translation)
   void Dispatch(AppContext &ctx, const mavlink_message_t &msg);
 
-private:
+ private:
   CommandHandler() = default;
   ~CommandHandler() = default;
   CommandHandler(const CommandHandler &) = delete;

@@ -5,21 +5,18 @@
 #include "system.hpp"
 #include "timebase.hpp"
 extern "C" {
-#include "freertos/FreeRTOS.h" // IWYU pragma: keep
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
-extern "C" void app_main(void) { // NOLINT as IDF requires app_main
+extern "C" void app_main(void) {  // NOLINT as IDF requires app_main
   System::GetInstance().Init();
-
   AppContext ctx{};
-
   StateMachine<AppContext> sm(ctx);
-  ctx.sm = &sm; // I know it's weird, but it's the only way to do it like a man
-
-  sm.Start(*ctx.serving_state, NowMs());
+  ctx.sm = &sm;
+  sm.Start(*ctx.serving_state);
   while (true) {
     sm.Step(NowMs());
-    vTaskDelay(1); // must block at least 1 tick for watchdog
+    vTaskDelay(1);  // must block at least 1 tick for watchdog
   }
 }

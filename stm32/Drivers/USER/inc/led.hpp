@@ -1,14 +1,15 @@
 #pragma once
-#include "gpio.hpp"
-#include "stm32f4xx.h"
 #include <cstdint>
 
+#include "gpio.hpp"
+#include "stm32f4xx.h"
+
 class LED {
-public:
+ public:
   struct Config {
     struct Pin {
       GPIO_TypeDef *port;
-      uint16_t number; // GPIO_PIN_x bitmask
+      uint16_t number;  // GPIO_PIN_x bitmask
     } pin;
     bool active_low;
   };
@@ -17,7 +18,7 @@ public:
   void Toggle();
   bool IsOn() const;
 
-private:
+ private:
   friend class System;
   void Init(GPIO &gpio, const Config &cfg);
 

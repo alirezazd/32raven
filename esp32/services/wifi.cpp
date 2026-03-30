@@ -1,9 +1,10 @@
 #include "wifi.hpp"
+
 #include "panic.hpp"
 #include "system.hpp"
 
 extern "C" {
-#include "driver/gpio.h" // IWYU pragma: keep
+#include "driver/gpio.h"  // IWYU pragma: keep
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_log.h"
@@ -19,8 +20,7 @@ extern "C" {
 static constexpr const char *kTag = "wifi";
 
 static inline void LogErr(const char *what, esp_err_t e) {
-  if (e != ESP_OK)
-    ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
+  if (e != ESP_OK) ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
 }
 
 void WifiController::Init(const Config &cfg) {
@@ -95,8 +95,7 @@ bool WifiController::StartAp() {
     ESP_LOGE(kTag, "StartAp called before init");
     return false;
   }
-  if (wifi_on_)
-    return true;
+  if (wifi_on_) return true;
 
   // 1. Create AP Netif if needed
   if (!ap_netif_) {
@@ -112,8 +111,7 @@ bool WifiController::StartAp() {
     // Attach AP netif to Wi-Fi
     esp_err_t e = esp_netif_attach_wifi_ap(ap_netif_);
     LogErr("esp_netif_attach_wifi_ap", e);
-    if (e != ESP_OK)
-      return false;
+    if (e != ESP_OK) return false;
 
     // Register default handlers
     e = esp_wifi_set_default_wifi_ap_handlers();
@@ -126,8 +124,7 @@ bool WifiController::StartAp() {
   // 2. Set Mode
   esp_err_t e = esp_wifi_set_mode(WIFI_MODE_AP);
   LogErr("esp_wifi_set_mode", e);
-  if (e != ESP_OK)
-    return false;
+  if (e != ESP_OK) return false;
 
   // 3. Config
   wifi_config_t ap{};
@@ -140,21 +137,18 @@ bool WifiController::StartAp() {
   ap.ap.max_connection = cfg_.ap.max_connections;
   ap.ap.beacon_interval = cfg_.ap.beacon_interval_tu;
   ap.ap.ssid_hidden = cfg_.ap.hidden ? 1 : 0;
-  ap.ap.authmode =
-      (password[0] != '\0') ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+  ap.ap.authmode = (password[0] != '\0') ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
   ap.ap.pmf_cfg.capable = cfg_.pmf.capable;
   ap.ap.pmf_cfg.required = cfg_.pmf.required;
 
   e = esp_wifi_set_config(WIFI_IF_AP, &ap);
   LogErr("esp_wifi_set_config", e);
-  if (e != ESP_OK)
-    return false;
+  if (e != ESP_OK) return false;
 
   // 4. Start
   e = esp_wifi_start();
   LogErr("esp_wifi_start", e);
-  if (e != ESP_OK)
-    return false;
+  if (e != ESP_OK) return false;
 
   wifi_on_ = true;
   ESP_LOGI(kTag, "AP started SSID=%s", ssid);
@@ -169,12 +163,10 @@ bool WifiController::StartAp() {
 }
 
 void WifiController::Stop() {
-  if (!wifi_on_)
-    return;
+  if (!wifi_on_) return;
 
   esp_err_t e = esp_wifi_stop();
-  if (e != ESP_OK)
-    ESP_LOGW(kTag, "esp_wifi_stop: %s", esp_err_to_name(e));
+  if (e != ESP_OK) ESP_LOGW(kTag, "esp_wifi_stop: %s", esp_err_to_name(e));
 
   // No need to deinit, we usually keep driver alive
   wifi_on_ = false;

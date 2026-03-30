@@ -1,13 +1,15 @@
 #include "dshot_tim1.hpp"
+
+#include <cstdint>
+
 #include "DShotCodec.hpp"
 #include "stm32f4xx_hal.h"
 #include "system.hpp"
-#include <cstdint>
 
 extern "C" {
 TIM_HandleTypeDef htim1;
 DMA_HandleTypeDef hdma_tim1_up;
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim); // NOLINT
+void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);  // NOLINT
 }
 
 // ---------- local helpers ----------
@@ -18,9 +20,9 @@ static uint16_t DivRoundU16(uint32_t num, uint32_t den) {
 
 // DShot duty ratios
 static constexpr uint32_t kT1Num = 3u;
-static constexpr uint32_t kT1Den = 4u; // 75%
+static constexpr uint32_t kT1Den = 4u;  // 75%
 static constexpr uint32_t kT0Num = 3u;
-static constexpr uint32_t kT0Den = 8u; // 37.5%
+static constexpr uint32_t kT0Den = 8u;  // 37.5%
 
 // ---------- driver init ----------
 
@@ -38,15 +40,15 @@ void DShotTim1::Init(const Config &config) {
   // DShot150 = 150kHz -> 6.67us. 168e6 / 150e3 = 1120 ticks.
 
   switch (config.mode) {
-  case DShotMode::DSHOT600:
-    period = 280 - 1;
-    break;
-  case DShotMode::DSHOT300:
-    period = 560 - 1;
-    break;
-  case DShotMode::DSHOT150:
-    period = 1120 - 1;
-    break;
+    case DShotMode::DSHOT600:
+      period = 280 - 1;
+      break;
+    case DShotMode::DSHOT300:
+      period = 560 - 1;
+      break;
+    case DShotMode::DSHOT150:
+      period = 1120 - 1;
+      break;
   }
 
   DmaInit();
@@ -96,15 +98,13 @@ void DShotTim1::Tim1Init(uint16_t period) {
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-    ErrorHandler();
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK) ErrorHandler();
 
   clock_source_config.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim1, &clock_source_config) != HAL_OK)
     ErrorHandler();
 
-  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-    ErrorHandler();
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) ErrorHandler();
 
   master_config.MasterOutputTrigger = TIM_TRGO_RESET;
   master_config.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
@@ -155,8 +155,7 @@ void DShotTim1::StartOutputsOnce() {
 
 bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
                              uint16_t total_bits) {
-  if (!interleaved_ccr || total_bits == 0)
-    return false;
+  if (!interleaved_ccr || total_bits == 0) return false;
 
   uint32_t primask = __get_PRIMASK();
   __disable_irq();
@@ -190,7 +189,7 @@ void DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {
 
 void DShotTim1::finishAndIdle() {
   __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_UPDATE);
-  (void)HAL_DMA_Abort(&hdma_tim1_up); // safe even if already stopped // NOLINT
+  (void)HAL_DMA_Abort(&hdma_tim1_up);  // safe even if already stopped // NOLINT
 
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
   __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
@@ -203,14 +202,14 @@ void DShotTim1::finishAndIdle() {
 
 // ---------- DMA callbacks ----------
 
-extern "C" void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma) { // NOLINT
+extern "C" void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma) {  // NOLINT
   if (hdma == &hdma_tim1_up) {
     g_dshot_dma_done = 1;
     DShotTim1::getInstance().finishAndIdle();
   }
 }
 
-extern "C" void HAL_DMA_XferErrorCallback(DMA_HandleTypeDef *hdma) { // NOLINT
+extern "C" void HAL_DMA_XferErrorCallback(DMA_HandleTypeDef *hdma) {  // NOLINT
   if (hdma == &hdma_tim1_up) {
     DShotTim1::getInstance().finishAndIdle();
   }

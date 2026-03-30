@@ -5,9 +5,9 @@
 class DShotTim1;
 
 class DShotCodec {
-public:
+ public:
   struct Config {
-    uint8_t gap_bits; // extra idle bits after 16-bit frame (0..8)
+    uint8_t gap_bits;  // extra idle bits after 16-bit frame (0..8)
   };
 
   static DShotCodec &getInstance() {
@@ -24,7 +24,7 @@ public:
     getInstance().WriteImpl(motor, telemetry);
   }
 
-private:
+ private:
   DShotCodec() = default;
   DShotCodec(const DShotCodec &) = delete;
   DShotCodec &operator=(const DShotCodec &) = delete;

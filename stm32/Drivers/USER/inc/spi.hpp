@@ -1,8 +1,9 @@
 #pragma once
 
-#include "stm32f4xx.h"
 #include <cstddef>
 #include <cstdint>
+
+#include "stm32f4xx.h"
 
 enum class SpiInstance { kSpi1 };
 
@@ -28,8 +29,9 @@ struct SpiConfig {
   SpiBitOrder bit_order;
 };
 
-template <SpiInstance Inst> class Spi {
-public:
+template <SpiInstance Inst>
+class Spi {
+ public:
   static Spi &GetInstance() {
     static Spi instance;
     return instance;
@@ -56,7 +58,7 @@ public:
 
   void HandleDmaError(uint32_t isr_flags);
 
-private:
+ private:
   friend class System;
   void Init(const SpiConfig &config);
 

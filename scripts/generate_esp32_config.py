@@ -18,12 +18,12 @@ ESP32C3_GPIO_MIN = 0
 ESP32C3_GPIO_MAX = 21
 FCLINK_TELEMETRY_RATE_MIN = 1
 FCLINK_TELEMETRY_RATE_MAX = 255
-FCLINK_HANDSHAKE_TIMEOUT_MIN_MS = 1
-FCLINK_HANDSHAKE_TIMEOUT_MAX_MS = 10000
+FCLINK_RC_FORWARD_RATE_MIN = 1
+FCLINK_RC_FORWARD_RATE_MAX = 255
+FCLINK_HANDSHAKE_ATTEMPTS_MIN = 1
+FCLINK_HANDSHAKE_ATTEMPTS_MAX = 1000
 FCLINK_HANDSHAKE_RETRY_PERIOD_MIN_MS = 1
 FCLINK_HANDSHAKE_RETRY_PERIOD_MAX_MS = 1000
-FCLINK_RX_READ_CHUNK_MIN = 1
-FCLINK_RX_READ_CHUNK_MAX = 256
 FCLINK_RX_QUEUE_DEPTH_MIN = 1
 FCLINK_RX_QUEUE_DEPTH_MAX = 32
 UART_BUFFER_SIZE_MIN = 256
@@ -193,27 +193,27 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
     _validate_unique_gpio_assignments(kconf, gpio_symbols)
     _validate_int_range(
         kconf,
-        "ESP32_FCLINK_TELEMETRY_RATE_HZ",
+        "STM32_FCLINK_TELEMETRY_RATE_HZ",
         FCLINK_TELEMETRY_RATE_MIN,
         FCLINK_TELEMETRY_RATE_MAX,
     )
     _validate_int_range(
         kconf,
-        "ESP32_FCLINK_HANDSHAKE_TIMEOUT_MS",
-        FCLINK_HANDSHAKE_TIMEOUT_MIN_MS,
-        FCLINK_HANDSHAKE_TIMEOUT_MAX_MS,
+        "ESP32_FCLINK_RC_FORWARD_RATE_HZ",
+        FCLINK_RC_FORWARD_RATE_MIN,
+        FCLINK_RC_FORWARD_RATE_MAX,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_FCLINK_HANDSHAKE_ATTEMPTS",
+        FCLINK_HANDSHAKE_ATTEMPTS_MIN,
+        FCLINK_HANDSHAKE_ATTEMPTS_MAX,
     )
     _validate_int_range(
         kconf,
         "ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS",
         FCLINK_HANDSHAKE_RETRY_PERIOD_MIN_MS,
         FCLINK_HANDSHAKE_RETRY_PERIOD_MAX_MS,
-    )
-    _validate_int_range(
-        kconf,
-        "ESP32_FCLINK_RX_READ_CHUNK_SIZE",
-        FCLINK_RX_READ_CHUNK_MIN,
-        FCLINK_RX_READ_CHUNK_MAX,
     )
     _validate_int_range(
         kconf,
@@ -363,6 +363,7 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
         f"""\
             #pragma once
 
+            #include <cstddef>
             #include "hal/gpio_types.h"
             #include "button.hpp"
             #include "buzzer.hpp"
@@ -434,12 +435,13 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
                 .tx_buf = {_sym_int(kconf, "ESP32_RCRX_UART_TX_BUFFER_SIZE")},
             }};
 
+            inline constexpr std::size_t kFcLinkRxPacketQueueDepth =
+                {_sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH")};
+
             inline constexpr FcLink::Config kFcLinkConfig = {{
-                .telemetry_rate_hz = {_sym_int(kconf, "ESP32_FCLINK_TELEMETRY_RATE_HZ")},
-                .handshake_timeout_ms = {_sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_TIMEOUT_MS")},
+                .rc_forward_rate_hz = {_sym_int(kconf, "ESP32_FCLINK_RC_FORWARD_RATE_HZ")},
+                .handshake_attempts = {_sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_ATTEMPTS")},
                 .handshake_retry_period_ms = {_sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS")},
-                .rx_read_chunk_size = {_sym_int(kconf, "ESP32_FCLINK_RX_READ_CHUNK_SIZE")},
-                .rx_queue_depth = {_sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH")},
             }};
 
             inline constexpr Programmer::Config kProgrammerConfig = {{

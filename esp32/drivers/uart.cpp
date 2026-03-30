@@ -4,13 +4,14 @@
 
 extern "C" {
 #include "driver/uart.h"
-#include "freertos/FreeRTOS.h" // IWYU pragma: keep
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
 namespace {
 
-template <UartInstance Inst> constexpr uart_port_t ToPort() {
+template <UartInstance Inst>
+constexpr uart_port_t ToPort() {
   if constexpr (Inst == UartInstance::kFcLink) {
     return UART_NUM_0;
   } else if constexpr (Inst == UartInstance::kRcRx) {
@@ -31,12 +32,10 @@ uart_parity_t ToParity(UartParity parity) {
   return UART_PARITY_DISABLE;
 }
 
-} // namespace
+}  // namespace
 
-template <UartInstance Inst> void Uart<Inst>::Init(const UartConfig &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kUartReinit);
-  }
+template <UartInstance Inst>
+void Uart<Inst>::Init(const UartConfig &cfg) {
   if (cfg.tx_gpio == GPIO_NUM_NC || cfg.rx_gpio == GPIO_NUM_NC ||
       cfg.baud_rate == 0 || cfg.rx_buf < UartConfig::kMinBufferSize ||
       cfg.tx_buf < UartConfig::kMinBufferSize) {
@@ -67,61 +66,77 @@ template <UartInstance Inst> void Uart<Inst>::Init(const UartConfig &cfg) {
   }
 
   (void)uart_flush_input(port);
-  initialized_ = true;
 }
 
 template <UartInstance Inst>
 int Uart<Inst>::Write(const uint8_t *data, size_t size) {
-  if (!initialized_) {
-    return -1;
-  }
-  if (!data || size == 0) {
+  if (size == 0) {
     return 0;
+  }
+  if (!data) {
+    Panic(ErrorCode::kUartInvalidArg);
   }
 
   constexpr uart_port_t port = ToPort<Inst>();
   const int num_bytes_written =
       uart_write_bytes(port, (const char *)data, (uint32_t)size);
-  return (num_bytes_written < 0) ? -1 : num_bytes_written;
+  if (num_bytes_written < 0) {
+    Panic(ErrorCode::kUartOperationFailed);
+  }
+  return num_bytes_written;
 }
 
 template <UartInstance Inst>
 int Uart<Inst>::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
-  if (!initialized_) {
-    return -1;
-  }
-  if (!data || size == 0) {
+  if (size == 0) {
     return 0;
+  }
+  if (!data) {
+    Panic(ErrorCode::kUartInvalidArg);
   }
 
   constexpr uart_port_t port = ToPort<Inst>();
   TickType_t timeout_ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
   const int num_bytes_read =
       uart_read_bytes(port, data, (uint32_t)size, timeout_ticks);
-  return (num_bytes_read < 0) ? -1 : num_bytes_read;
-}
-
-template <UartInstance Inst> void Uart<Inst>::Flush() {
-  if (!initialized_) {
-    return;
+  if (num_bytes_read < 0) {
+    Panic(ErrorCode::kUartOperationFailed);
   }
-
-  constexpr uart_port_t port = ToPort<Inst>();
-  (void)uart_flush_input(port);
+  return num_bytes_read;
 }
 
-template <UartInstance Inst> bool Uart<Inst>::DrainTx(uint32_t timeout_ms) {
-  if (!initialized_) {
-    return false;
+template <UartInstance Inst>
+size_t Uart<Inst>::BufferedRxBytes() const {
+  constexpr uart_port_t port = ToPort<Inst>();
+  size_t buffered_bytes = 0;
+  if (uart_get_buffered_data_len(port, &buffered_bytes) != ESP_OK) {
+    Panic(ErrorCode::kUartOperationFailed);
   }
-
-  constexpr uart_port_t port = ToPort<Inst>();
-  return uart_wait_tx_done(port, pdMS_TO_TICKS(timeout_ms)) == ESP_OK;
+  return buffered_bytes;
 }
 
-template <UartInstance Inst> bool Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
-  if (!initialized_ || baud_rate == 0) {
-    return false;
+template <UartInstance Inst>
+void Uart<Inst>::Flush() {
+  if (uart_flush_input(ToPort<Inst>()) != ESP_OK) {
+    Panic(ErrorCode::kUartOperationFailed);
+  }
+}
+
+template <UartInstance Inst>
+void Uart<Inst>::DrainTx(uint32_t timeout_ms) {
+  constexpr uart_port_t port = ToPort<Inst>();
+  if (uart_wait_tx_done(port, pdMS_TO_TICKS(timeout_ms)) != ESP_OK) {
+    Panic(ErrorCode::kUartOperationFailed);
+  }
+}
+
+template <UartInstance Inst>
+void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
+  if (cfg_.baud_rate == 0) {
+    Panic(ErrorCode::kUartNotInitialized);
+  }
+  if (baud_rate == 0) {
+    Panic(ErrorCode::kUartInvalidArg);
   }
 
   cfg_.baud_rate = baud_rate;
@@ -135,7 +150,9 @@ template <UartInstance Inst> bool Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  return uart_param_config(port, &ucfg) == ESP_OK;
+  if (uart_param_config(port, &ucfg) != ESP_OK) {
+    Panic(ErrorCode::kUartOperationFailed);
+  }
 }
 
 template class Uart<UartInstance::kFcLink>;

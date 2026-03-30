@@ -12,9 +12,11 @@ struct SmEvent {
 template <typename Context> struct IState {
   virtual ~IState() = default;
   virtual const char *Name() const = 0;
-  virtual void OnEnter(Context &ctx, SmTick now) = 0;
+  virtual void OnEnter(Context &ctx) { (void)ctx; }
   virtual void OnStep(Context &ctx, SmTick now) = 0;
-  virtual void OnExit(Context &ctx, SmTick now) = 0;
+  virtual void OnExit(Context &ctx) {
+    (void)ctx;
+  }
 
   virtual void OnEvent(Context &ctx, const SmEvent &ev, SmTick now) {
     (void)ctx;
@@ -27,10 +29,10 @@ template <typename Context> class StateMachine {
 public:
   explicit StateMachine(Context &ctx) : ctx_(ctx) {}
 
-  void Start(IState<Context> &initial, SmTick now) {
+  void Start(IState<Context> &initial) {
     current_ = &initial;
     next_ = nullptr;
-    current_->OnEnter(ctx_, now);
+    current_->OnEnter(ctx_);
   }
 
   void Step(SmTick now) {
@@ -70,9 +72,9 @@ private:
     if (current_ == &target)
       return; // ignore self transition
     if (current_)
-      current_->OnExit(ctx_, now);
+      current_->OnExit(ctx_);
     current_ = &target;
-    current_->OnEnter(ctx_, now);
+    current_->OnEnter(ctx_);
   }
 
   Context &ctx_;

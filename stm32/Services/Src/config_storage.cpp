@@ -40,10 +40,10 @@ ee_schema::RcCalibration MakeDefaultRcCalibration() {
   return cal;
 }
 
-} // namespace
+}  // namespace
 
-ee_schema::ImuAccelCalibration
-ConfigStorage::LoadOrInitImuAccelCalibration(EE &ee) {
+ee_schema::ImuAccelCalibration ConfigStorage::LoadOrInitImuAccelCalibration(
+    EE &ee) {
   ee_schema::ImuAccelCalibration cal{};
   if (!ee.ReadObject(cal, ee_schema::layout::kImuAccelCalibrationOffset)) {
     Panic(ErrorCode::kEepromInvalidConfig);
@@ -93,8 +93,8 @@ ee_schema::RcCalibration ConfigStorage::LoadOrInitRcCalibration(EE &ee) {
   return cal;
 }
 
-bool ConfigStorage::SaveRcCalibration(
-    EE &ee, const ee_schema::RcCalibration &cal) {
+bool ConfigStorage::SaveRcCalibration(EE &ee,
+                                      const ee_schema::RcCalibration &cal) {
   ee_schema::RcCalibration to_write = cal;
   ee_schema::RcCalibration::PopulateHeader(to_write);
   return ee.WriteObject(to_write, ee_schema::layout::kRcCalibrationOffset);

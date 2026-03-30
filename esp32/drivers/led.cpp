@@ -1,10 +1,12 @@
 #include "led.hpp"
-#include "driver/gpio.h" // IWYU pragma: keep
+
+#include <cstddef>  // for size_t
+
+#include "driver/gpio.h"  // IWYU pragma: keep
 #include "driver/ledc.h"
-#include "freertos/FreeRTOS.h" // IWYU pragma: keep
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 #include "panic.hpp"
-#include <cstddef> // for size_t
 
 // LEDC configuration
 static constexpr ledc_mode_t kLedcMode = LEDC_LOW_SPEED_MODE;
@@ -19,6 +21,10 @@ static constexpr uint32_t kDutyMax = 8191;
 // generation now.
 
 void LED::Init(const Config &cfg) {
+  static constexpr uint32_t kTaskStackBytes = 2048;
+  static StaticTask_t task_buffer;
+  static StackType_t task_stack[kTaskStackBytes];
+
   if (initialized_) {
     Panic(ErrorCode::kLedReinit);
   }
@@ -44,7 +50,7 @@ void LED::Init(const Config &cfg) {
   channel_conf.channel = kLedcChannel;
   channel_conf.intr_type = LEDC_INTR_DISABLE;
   channel_conf.timer_sel = kLedcTimer;
-  channel_conf.duty = 0; // Start off
+  channel_conf.duty = 0;  // Start off
   channel_conf.hpoint = 0;
   if (ledc_channel_config(&channel_conf) != ESP_OK) {
     Panic(ErrorCode::kLedChannelInitFailed);
@@ -57,8 +63,9 @@ void LED::Init(const Config &cfg) {
   // Start OFF deterministically
   Off();
 
-  if (xTaskCreate(TaskEntry, "led_task", 2048, this, 1,
-                  (TaskHandle_t *)&task_handle_) != pdPASS) {
+  task_handle_ = xTaskCreateStatic(TaskEntry, "led_task", kTaskStackBytes, this,
+                                   1, task_stack, &task_buffer);
+  if (task_handle_ == nullptr) {
     Panic(ErrorCode::kLedTaskCreateFailed);
   }
 
@@ -99,16 +106,14 @@ void LED::SetPattern(Pattern p, uint32_t period_ms) {
 }
 
 void LED::On() {
-  if (!initialized_)
-    return;
+  if (!initialized_) return;
   static const Step kOnStep = {100, 0, 1000};
   is_on_ = true;
   SetPattern(&kOnStep, 1);
 }
 
 void LED::Off() {
-  if (!initialized_)
-    return;
+  if (!initialized_) return;
   static const Step kOffStep = {0, 0, 1000};
   is_on_ = false;
   SetPattern(&kOffStep, 1);
@@ -148,9 +153,9 @@ void LED::Task() {
       ledc_fade_start(kLedcMode, kLedcChannel, LEDC_FADE_NO_WAIT);
       // Wait for fade to complete or new pattern
       if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(s.fade_ms)) > 0) {
-        ledc_stop(kLedcMode, kLedcChannel, target_duty); // Stop at current
+        ledc_stop(kLedcMode, kLedcChannel, target_duty);  // Stop at current
         step_idx = 0;
-        continue; // Restart loop with new pattern
+        continue;  // Restart loop with new pattern
       }
     } else {
       ledc_set_duty(kLedcMode, kLedcChannel, target_duty);
