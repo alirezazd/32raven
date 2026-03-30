@@ -1,14 +1,15 @@
 #include "icm42688p.hpp"
+
+#include <cmath>
+#include <cstdio>
+
+#include "board.h"
 #include "config_storage.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
-
-#include "board.h"
 #include "spi.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
-#include <cmath>
-#include <cstdio>
 
 using namespace Icm42688pReg;
 
@@ -70,7 +71,7 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg) {
   // EXTI->PR = (1u << 10);
 
   initialized_ = true;
-  spi.EnableIrqs(); // SPI DMA interrupts
+  spi.EnableIrqs();  // SPI DMA interrupts
   NVIC_SetPriority(IMU_INT_EXTI_IRQn, 3);
   NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
 }
@@ -165,10 +166,8 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
         WriteReg(REG_GYRO_CONFIG_STATIC8, (uint8_t)(val & 0xFF));
 
         uint8_t s9 = 0;
-        if (sel)
-          s9 |= (1u << 5) | (1u << 4) | (1u << 3);
-        if (val & 0x100)
-          s9 |= (1u << 2) | (1u << 1) | (1u << 0);
+        if (sel) s9 |= (1u << 5) | (1u << 4) | (1u << 3);
+        if (val & 0x100) s9 |= (1u << 2) | (1u << 1) | (1u << 0);
         WriteReg(REG_GYRO_CONFIG_STATIC9, s9);
 
         uint8_t s10 = ReadReg(REG_GYRO_CONFIG_STATIC10);
@@ -376,8 +375,7 @@ void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
 }
 
 bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
-  if (!rec)
-    return false;
+  if (!rec) return false;
 
   // Header check for Packet3 accel+gyro+temp+timestamp, 16-bit mode.
   // Accept both normal packets (0x68) and ODR-change-tagged variants (0x6C).
@@ -635,7 +633,7 @@ void Icm42688p::SoftReset() {
   SetBank(0);
 
   uint8_t v = ReadReg(REG_DEVICE_CONFIG);
-  v |= 0x01u; // SOFT_RESET_CONFIG = 1, preserve SPI_MODE + reserved
+  v |= 0x01u;  // SOFT_RESET_CONFIG = 1, preserve SPI_MODE + reserved
   WriteReg(REG_DEVICE_CONFIG, v);
 
   System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(1));
@@ -699,7 +697,7 @@ void Icm42688p::DisableFsync() {
   // Preserve reserved bits: bit7 and bits3:2
   // Clear only: FSYNC_UI_SEL (6:4), FSYNC_UI_FLAG_CLEAR_SEL (1),
   // FSYNC_POLARITY (0)
-  v &= static_cast<uint8_t>(~0x73u); // ~0b01110011
+  v &= static_cast<uint8_t>(~0x73u);  // ~0b01110011
   WriteReg(REG_FSYNC_CONFIG, v);
 }
 
@@ -741,27 +739,27 @@ void Icm42688p::ClearUserOffsets() {
 
 void Icm42688p::ConfigureFifo() {
   SetBank(0);
-  uint8_t v = ReadReg(REG_INT_CONFIG0); // Preserve reserved [7:6], replace
-                                        // [5:0]
+  uint8_t v = ReadReg(REG_INT_CONFIG0);  // Preserve reserved [7:6], replace
+                                         // [5:0]
   v = static_cast<uint8_t>((v & 0xC0u) | 0x0Au);
   WriteReg(REG_INT_CONFIG0, v);
-  v = ReadReg(REG_INT_SOURCE0); // Preserve reserved bit7, clear bits6:0
-  v = static_cast<uint8_t>((v & 0x80u) | 0x04u); // FIFO_THS -> INT1 only
-  WriteReg(REG_INT_SOURCE0, v); // Packet3, 16-bit, timestamp, DMA-safe
+  v = ReadReg(REG_INT_SOURCE0);  // Preserve reserved bit7, clear bits6:0
+  v = static_cast<uint8_t>((v & 0x80u) | 0x04u);  // FIFO_THS -> INT1 only
+  WriteReg(REG_INT_SOURCE0, v);  // Packet3, 16-bit, timestamp, DMA-safe
   v = ReadReg(REG_FIFO_CONFIG);
-  v &= 0x3F; // clear bits 7:6 → FIFO_MODE = 00 (bypass)
+  v &= 0x3F;  // clear bits 7:6 → FIFO_MODE = 00 (bypass)
   WriteReg(REG_FIFO_CONFIG, v);
   WriteReg(REG_FIFO_CONFIG1,
-           0x4B); // FIFO_CONFIG1: resume partial read + accel+gyro+timestamp,
-                  // FIFO_TEMP_EN=0, 16-bit (HIRES=0)
+           0x4B);  // FIFO_CONFIG1: resume partial read + accel+gyro+timestamp,
+                   // FIFO_TEMP_EN=0, 16-bit (HIRES=0)
   const uint16_t fifo_wm_bytes =
       static_cast<uint16_t>(fifo_wm_records_ * kPacketBytes);
   WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));
   WriteReg(REG_FIFO_CONFIG3,
            static_cast<uint8_t>((fifo_wm_bytes >> 8) & 0x0Fu));
-  WriteReg(REG_SIGNAL_PATH_RESET, 0x02); // FIFO_FLUSH
-  (void)ReadReg(REG_INT_STATUS);         // clear any pending status bits (R/C)
-  WriteReg(REG_FIFO_CONFIG, 0x40);       // FIFO Stream mode
+  WriteReg(REG_SIGNAL_PATH_RESET, 0x02);  // FIFO_FLUSH
+  (void)ReadReg(REG_INT_STATUS);          // clear any pending status bits (R/C)
+  WriteReg(REG_FIFO_CONFIG, 0x40);        // FIFO Stream mode
   SetupDmaBuffer();
 }
 

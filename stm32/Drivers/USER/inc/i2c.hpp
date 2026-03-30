@@ -17,8 +17,9 @@ struct I2CConfig {
   uint32_t noStretchMode;
 };
 
-template <I2CInstance Inst> class I2C {
-public:
+template <I2CInstance Inst>
+class I2C {
+ public:
   using Config = I2CConfig;
 
   static I2C &GetInstance() {
@@ -29,10 +30,10 @@ public:
     return instance;
   }
 
-private:
+ private:
   friend class System;
 
-private:
+ private:
   I2C();
   ~I2C();
 
@@ -45,4 +46,4 @@ private:
   bool initialized_ = false;
 };
 
-#endif // USER_DRIVERS_I2C_HPP
+#endif  // USER_DRIVERS_I2C_HPP

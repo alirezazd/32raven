@@ -89,11 +89,11 @@ constexpr uint8_t REG_ACCEL_CONFIG_STATIC4 = 0x05;
 constexpr uint8_t DEVICE_CONFIG_SOFT_RESET = 1u << 0;
 
 // INT_CONFIG (0x14)
-constexpr uint8_t INT_CONFIG_INT1_MODE = 1u << 2; // 0=Pulsed, 1=Latched
+constexpr uint8_t INT_CONFIG_INT1_MODE = 1u << 2;  // 0=Pulsed, 1=Latched
 constexpr uint8_t INT_CONFIG_INT1_DRIVE_CIRCUIT =
-    1u << 1; // 0=OpenDrain, 1=PushPull
+    1u << 1;  // 0=OpenDrain, 1=PushPull
 constexpr uint8_t INT_CONFIG_INT1_POLARITY = 1u
-                                             << 0; // 0=ActiveLow, 1=ActiveHigh
+                                             << 0;  // 0=ActiveLow, 1=ActiveHigh
 
 // FIFO_CONFIG (0x16)
 constexpr uint8_t FIFO_CONFIG_MODE_BYPASS = 0x0u << 6;
@@ -106,16 +106,16 @@ constexpr uint8_t INT_STATUS_FIFO_THS_INT = 1u << 2;
 constexpr uint8_t INT_STATUS_FIFO_FULL_INT = 1u << 1;
 
 // INTF_CONFIG0 (0x4C)
-constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_REC = 1u << 6;  // Record mode
-constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_BYTE = 0u << 6; // Byte mode
+constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_REC = 1u << 6;   // Record mode
+constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_BYTE = 0u << 6;  // Byte mode
 constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_ENDIAN_LITTLE = 0u << 5;
 constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_ENDIAN_BIG = 1u << 5;
 constexpr uint8_t INTF_CONFIG0_SENSOR_DATA_ENDIAN_LITTLE = 0u << 4;
 constexpr uint8_t INTF_CONFIG0_SENSOR_DATA_ENDIAN_BIG = 1u << 4;
 
-constexpr uint8_t INTF_CONFIG0_UI_SIFS_CFG_MASK = 0x03u;        // bits [1:0]
-constexpr uint8_t INTF_CONFIG0_UI_SIFS_CFG_DISABLE_SPI = 0x02u; // 10b
-constexpr uint8_t INTF_CONFIG0_UI_SIFS_CFG_DISABLE_I2C = 0x03u; // 11b
+constexpr uint8_t INTF_CONFIG0_UI_SIFS_CFG_MASK = 0x03u;         // bits [1:0]
+constexpr uint8_t INTF_CONFIG0_UI_SIFS_CFG_DISABLE_SPI = 0x02u;  // 10b
+constexpr uint8_t INTF_CONFIG0_UI_SIFS_CFG_DISABLE_I2C = 0x03u;  // 11b
 
 constexpr uint8_t INTF_CONFIG1_RTC_MODE_MASK = 0x04u;
 constexpr uint8_t INTF_CONFIG1_RTC_MODE_EN = 0x04u;
@@ -129,17 +129,17 @@ constexpr uint8_t INTF_CONFIG1_CLKSEL_DIS = 0x03u;
 constexpr uint8_t INTF_CONFIG1_ACCEL_LP_CLK_SEL = 1u << 3;
 
 // PWR_MGMT0 (0x4E)
-constexpr uint8_t PWR_MGMT0_TEMP_DIS = 1u << 5;        // 1=temperature sensor off
-constexpr uint8_t PWR_MGMT0_GYRO_MODE_LN = 0x3u << 2;  // Low Noise
-constexpr uint8_t PWR_MGMT0_ACCEL_MODE_LN = 0x3u << 0; // Low Noise
+constexpr uint8_t PWR_MGMT0_TEMP_DIS = 1u << 5;  // 1=temperature sensor off
+constexpr uint8_t PWR_MGMT0_GYRO_MODE_LN = 0x3u << 2;   // Low Noise
+constexpr uint8_t PWR_MGMT0_ACCEL_MODE_LN = 0x3u << 0;  // Low Noise
 
 // TMST_CONFIG (0x54)
 constexpr uint8_t TMST_CONFIG_TO_REGS_EN = 1u
                                            << 4;  // Timestamp readable via regs
 constexpr uint8_t TMST_CONFIG_RES = 1u << 3;      // 0=1µs, 1=16µs/RTC
-constexpr uint8_t TMST_CONFIG_DELTA_EN = 1u << 2; // Delta timestamp
-constexpr uint8_t TMST_CONFIG_FSYNC_EN = 1u << 1; // FSYNC timestamp latch
-constexpr uint8_t TMST_CONFIG_EN = 1u << 0;       // Master enable
+constexpr uint8_t TMST_CONFIG_DELTA_EN = 1u << 2;  // Delta timestamp
+constexpr uint8_t TMST_CONFIG_FSYNC_EN = 1u << 1;  // FSYNC timestamp latch
+constexpr uint8_t TMST_CONFIG_EN = 1u << 0;        // Master enable
 
 // FIFO_CONFIG1 bit definitions (datasheet-correct)
 constexpr uint8_t FIFO_CONFIG1_ACCEL_EN = 1u << 0;
@@ -151,10 +151,10 @@ constexpr uint8_t FIFO_CONFIG1_WM_GT_TH = 1u << 5;
 constexpr uint8_t FIFO_CONFIG1_RESUME_PARTIAL_RD = 1u << 6;
 
 // FSYNC_CONFIG (0x62)
-constexpr uint8_t FSYNC_CONFIG_UI_SEL_MASK = 0x70; // bits [6:4]
+constexpr uint8_t FSYNC_CONFIG_UI_SEL_MASK = 0x70;  // bits [6:4]
 constexpr uint8_t FSYNC_CONFIG_UI_SEL_SHIFT = 4;
 constexpr uint8_t FSYNC_CONFIG_POLARITY = 1u << 0;
-constexpr uint8_t FSYNC_UI_SEL_DISABLE = 0x0; // 000 = no tagging
+constexpr uint8_t FSYNC_UI_SEL_DISABLE = 0x0;  // 000 = no tagging
 
 // INT_CONFIG0 (0x63) — UI_DRDY_INT_CLEAR bits [5:4]
 constexpr uint8_t REG_INT_CONFIG0 = 0x63;
@@ -170,10 +170,10 @@ constexpr uint8_t INT_CONFIG0_FIFO_FULL_CLEAR_ON_BOTH = 0x3u << 0;
 
 // INT_CONFIG1 (0x64)
 constexpr uint8_t INT_CONFIG1_TPULSE_DURATION =
-    1u << 6; // 0=100µs (default), 1=8µs
-constexpr uint8_t INT_CONFIG1_TDEASSERT_DIS = 1u << 5; // Disable deassertion
+    1u << 6;  // 0=100µs (default), 1=8µs
+constexpr uint8_t INT_CONFIG1_TDEASSERT_DIS = 1u << 5;  // Disable deassertion
 constexpr uint8_t INT_CONFIG1_ASYNC_RESET =
-    1u << 4; // 1=Reset (default), 0=Enable proper INT pin function
+    1u << 4;  // 1=Reset (default), 0=Enable proper INT pin function
 
 // INT_SOURCE0 (0x65)
 constexpr uint8_t INT_SOURCE0_UI_FSYNC_INT1_EN = 1u << 6;
@@ -247,73 +247,73 @@ enum class AccelFs : uint8_t {
 
 static constexpr float GyroRangeDps(GyroFs fs) {
   switch (fs) {
-  case GyroFs::k2000dps:
-    return 2000.0f;
-  case GyroFs::k1000dps:
-    return 1000.0f;
-  case GyroFs::k500dps:
-    return 500.0f;
-  case GyroFs::k250dps:
-    return 250.0f;
-  case GyroFs::k125dps:
-    return 125.0f;
-  case GyroFs::k62_5dps:
-    return 62.5f;
-  case GyroFs::k31_25dps:
-    return 31.25f;
-  case GyroFs::k15_625dps:
-    return 15.625f;
-  default:
-    return 2000.0f;
+    case GyroFs::k2000dps:
+      return 2000.0f;
+    case GyroFs::k1000dps:
+      return 1000.0f;
+    case GyroFs::k500dps:
+      return 500.0f;
+    case GyroFs::k250dps:
+      return 250.0f;
+    case GyroFs::k125dps:
+      return 125.0f;
+    case GyroFs::k62_5dps:
+      return 62.5f;
+    case GyroFs::k31_25dps:
+      return 31.25f;
+    case GyroFs::k15_625dps:
+      return 15.625f;
+    default:
+      return 2000.0f;
   }
 }
 
 static constexpr float AccelRangeG(AccelFs fs) {
   switch (fs) {
-  case AccelFs::k16g:
-    return 16.0f;
-  case AccelFs::k8g:
-    return 8.0f;
-  case AccelFs::k4g:
-    return 4.0f;
-  case AccelFs::k2g:
-    return 2.0f;
-  default:
-    return 16.0f;
+    case AccelFs::k16g:
+      return 16.0f;
+    case AccelFs::k8g:
+      return 8.0f;
+    case AccelFs::k4g:
+      return 4.0f;
+    case AccelFs::k2g:
+      return 2.0f;
+    default:
+      return 16.0f;
   }
 }
 
 static constexpr uint32_t OdrHz(Odr odr) {
   switch (odr) {
-  case Odr::k32kHz:
-    return 32000;
-  case Odr::k16kHz:
-    return 16000;
-  case Odr::k8kHz:
-    return 8000;
-  case Odr::k4kHz:
-    return 4000;
-  case Odr::k2kHz:
-    return 2000;
-  case Odr::k1kHz:
-    return 1000;
-  case Odr::k500Hz:
-    return 500;
-  case Odr::k200Hz:
-    return 200;
-  case Odr::k100Hz:
-    return 100;
-  case Odr::k50Hz:
-    return 50;
-  case Odr::k25Hz:
-    return 25;
-  case Odr::k12_5Hz:
-    return 13;
-  default:
-    return 0;
+    case Odr::k32kHz:
+      return 32000;
+    case Odr::k16kHz:
+      return 16000;
+    case Odr::k8kHz:
+      return 8000;
+    case Odr::k4kHz:
+      return 4000;
+    case Odr::k2kHz:
+      return 2000;
+    case Odr::k1kHz:
+      return 1000;
+    case Odr::k500Hz:
+      return 500;
+    case Odr::k200Hz:
+      return 200;
+    case Odr::k100Hz:
+      return 100;
+    case Odr::k50Hz:
+      return 50;
+    case Odr::k25Hz:
+      return 25;
+    case Odr::k12_5Hz:
+      return 13;
+    default:
+      return 0;
   }
 }
 
-} // namespace Icm42688pReg
+}  // namespace Icm42688pReg
 
 // NOLINTEND

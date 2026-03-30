@@ -24,21 +24,28 @@ constexpr const char kErrorRtttl[] = "Error:d=32,o=6,b=180:a,p,a,p,a,p,a,p,a";
 
 const char *BuiltinToneToRtttl(TonePlayer::BuiltinTone tone) {
   switch (tone) {
-  case TonePlayer::BuiltinTone::kBeep:
-    return kBeepRtttl;
-  case TonePlayer::BuiltinTone::kConfirm:
-    return kConfirmRtttl;
-  case TonePlayer::BuiltinTone::kWarning:
-    return kWarningRtttl;
-  case TonePlayer::BuiltinTone::kError:
-    return kErrorRtttl;
-  default:
-    return nullptr;
+    case TonePlayer::BuiltinTone::kBeep:
+      return kBeepRtttl;
+    case TonePlayer::BuiltinTone::kConfirm:
+      return kConfirmRtttl;
+    case TonePlayer::BuiltinTone::kWarning:
+      return kWarningRtttl;
+    case TonePlayer::BuiltinTone::kError:
+      return kErrorRtttl;
+    default:
+      return nullptr;
   }
 }
-} // namespace
+}  // namespace
 
 void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
+  static constexpr uint32_t kTaskStackBytes = 3072;
+  static StaticQueue_t request_queue_buffer;
+  static uint8_t
+      request_queue_storage[kPendingRequestQueueDepth * sizeof(PendingRequest)];
+  static StaticTask_t task_buffer;
+  static StackType_t task_stack[kTaskStackBytes];
+
   if (initialized_) {
     Panic(ErrorCode::kTonePlayerInitFailed);
   }
@@ -52,12 +59,15 @@ void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
   playback_volume_ = cfg_.volume;
   (void)buzzer_->SetDutyCycle(DutyCycleForVolume(playback_volume_));
   (void)buzzer_->Stop();
-  request_queue_ = xQueueCreate(kPendingRequestQueueDepth, sizeof(PendingRequest));
+  request_queue_ =
+      xQueueCreateStatic(kPendingRequestQueueDepth, sizeof(PendingRequest),
+                         request_queue_storage, &request_queue_buffer);
   if (request_queue_ == nullptr) {
     Panic(ErrorCode::kTonePlayerInitFailed);
   }
-  if (xTaskCreate(TaskEntry, "tone_player", 3072, this, 1,
-                  (TaskHandle_t *)&task_handle_) != pdPASS) {
+  task_handle_ = xTaskCreateStatic(TaskEntry, "tone_player", kTaskStackBytes,
+                                   this, 1, task_stack, &task_buffer);
+  if (task_handle_ == nullptr) {
     Panic(ErrorCode::kTonePlayerInitFailed);
   }
   initialized_ = true;
@@ -73,12 +83,12 @@ bool TonePlayer::PlayRtttl(const char *rtttl, int volume) {
   return xQueueSend((QueueHandle_t)request_queue_, &request, 0) == pdPASS;
 }
 
-bool TonePlayer::PlayBuiltin(BuiltinTone tone, int volume) {
+void TonePlayer::PlayBuiltin(BuiltinTone tone, int volume) {
   const char *rtttl = BuiltinToneToRtttl(tone);
   if (rtttl == nullptr) {
-    return false;
+    return;
   }
-  return PlayRtttl(rtttl, volume);
+  (void)PlayRtttl(rtttl, volume);
 }
 
 void TonePlayer::Stop() {
@@ -345,29 +355,29 @@ uint32_t TonePlayer::NoteToFrequencyHz(char note, bool sharp, bool flat,
                                        uint32_t octave) {
   int semitone = -1;
   switch (note) {
-  case 'c':
-    semitone = 0;
-    break;
-  case 'd':
-    semitone = 2;
-    break;
-  case 'e':
-    semitone = 4;
-    break;
-  case 'f':
-    semitone = 5;
-    break;
-  case 'g':
-    semitone = 7;
-    break;
-  case 'a':
-    semitone = 9;
-    break;
-  case 'b':
-    semitone = 11;
-    break;
-  default:
-    return 0;
+    case 'c':
+      semitone = 0;
+      break;
+    case 'd':
+      semitone = 2;
+      break;
+    case 'e':
+      semitone = 4;
+      break;
+    case 'f':
+      semitone = 5;
+      break;
+    case 'g':
+      semitone = 7;
+      break;
+    case 'a':
+      semitone = 9;
+      break;
+    case 'b':
+      semitone = 11;
+      break;
+    default:
+      return 0;
   }
 
   if (sharp) {

@@ -1,21 +1,30 @@
 #!/bin/bash
 # check_forbidden.sh
-# Scans source code for forbidden headers and keywords (new/delete).
+# Scans source code for forbidden headers, keywords, and dynamic-allocation APIs.
 # Returns 1 (error) if found, 0 (ok) if clean.
 
-TARGET_DIRS="."
 EXCLUDE_DIRS=(.git build cmake third_party)
 FORBIDDEN_HEADERS="iostream sstream locale regex vector list map set unordered_map unordered_set"
 FORBIDDEN_KEYWORDS=" new" # Space prefix to avoid matching 'newline' etc.
+FORBIDDEN_FREERTOS_DYNAMIC_APIS="xTaskCreate xTaskCreatePinnedToCore xQueueCreate xSemaphoreCreateBinary xSemaphoreCreateCounting xSemaphoreCreateMutex xSemaphoreCreateRecursiveMutex xTimerCreate xEventGroupCreate xStreamBufferCreate xMessageBufferCreate pvPortMalloc"
 
 echo "Running static check for forbidden C++ features..."
 
 EXIT_CODE=0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 if [ "$#" -ge 1 ]; then
     EXCEPTIONS_FILE="$1"
+    shift
 else
-    EXCEPTIONS_FILE="forbidden_exceptions.txt"
+    EXCEPTIONS_FILE="${SCRIPT_DIR}/forbidden_exceptions.txt"
+fi
+
+if [ "$#" -ge 1 ]; then
+    TARGET_DIRS=("$@")
+else
+    TARGET_DIRS=("${REPO_ROOT}")
 fi
 
 # Ensure the exceptions file exists (create empty if neither arg nor local file exists)
@@ -30,7 +39,7 @@ for excluded in "${EXCLUDE_DIRS[@]}"; do
     GREP_EXCLUDES+=(--exclude-dir="$excluded")
 done
 
-for dir in $TARGET_DIRS; do
+for dir in "${TARGET_DIRS[@]}"; do
     if [ ! -d "$dir" ]; then continue; fi
     
     # 1. Check Headers
@@ -62,6 +71,16 @@ for dir in $TARGET_DIRS; do
          echo "$MATCHES_DOUBLE"
          EXIT_CODE=1
     fi
+
+    # 4. Check FreeRTOS dynamic allocation APIs
+    for api in $FORBIDDEN_FREERTOS_DYNAMIC_APIS; do
+        MATCHES_API=$(grep -rn "${GREP_EXCLUDES[@]}" --include=*.cpp --include=*.hpp "${api}(" "$dir" | grep -vFf "$EXCEPTIONS_FILE")
+        if [ ! -z "$MATCHES_API" ]; then
+            echo "ERROR: Forbidden FreeRTOS dynamic allocation API '${api}' found:"
+            echo "$MATCHES_API"
+            EXIT_CODE=1
+        fi
+    done
 done
 
 if [ $EXIT_CODE -eq 0 ]; then

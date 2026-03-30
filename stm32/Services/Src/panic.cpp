@@ -1,10 +1,12 @@
 #include "panic.hpp"
-#include "board.h"
-#include "message.hpp"
-#include "stm32f4xx.h"
+
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+
+#include "board.h"
+#include "message.hpp"
+#include "stm32f4xx.h"
 
 // -----------------------------
 // Helpers
@@ -13,7 +15,7 @@
 // Return a monotonically increasing microsecond-ish counter if TIM2 is running.
 // This works even with IRQs disabled.
 static inline bool Tim2Running() { return (TIM2->CR1 & TIM_CR1_CEN) != 0; }
-static inline uint32_t Tim2UsNow() { return TIM2->CNT; } // assumes 1 MHz tick
+static inline uint32_t Tim2UsNow() { return TIM2->CNT; }  // assumes 1 MHz tick
 
 // Wait until (cond) is true, but bail out after timeout_us.
 // If TIM2 is not running, falls back to a bounded spin count.
@@ -23,10 +25,8 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
     const uint32_t start_time = Tim2UsNow();
     while (true) {
       const bool is_set = ((*reg) & mask) != 0;
-      if (is_set == want_set)
-        return true;
-      if ((uint32_t)(Tim2UsNow() - start_time) >= timeout_us)
-        return false;
+      if (is_set == want_set) return true;
+      if ((uint32_t)(Tim2UsNow() - start_time) >= timeout_us) return false;
     }
   } else {
     // Bounded loop fallback. Not time-accurate, but guarantees progress.
@@ -34,8 +34,7 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
     volatile uint32_t spins = timeout_us * 16U + 1000U;
     while (spins--) {
       const bool is_set = ((*reg) & mask) != 0;
-      if (is_set == want_set)
-        return true;
+      if (is_set == want_set) return true;
     }
     return false;
   }
@@ -45,14 +44,12 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
 static void DelayMs(uint32_t ms) {
   if (!Tim2Running()) {
     // TIM2 not running, fallback to busy loop
-    for (volatile uint32_t i = 0; i < ms * 10000; ++i)
-      ;
+    for (volatile uint32_t i = 0; i < ms * 10000; ++i);
     return;
   }
   uint32_t start = TIM2->CNT;
-  uint32_t target = ms * 1000; // 1MHz = 1us per tick
-  while ((uint32_t)(TIM2->CNT - start) < target)
-    ;
+  uint32_t target = ms * 1000;  // 1MHz = 1us per tick
+  while ((uint32_t)(TIM2->CNT - start) < target);
 }
 
 // Raw GPIO LED toggle (PA1, active low on this board)
@@ -83,12 +80,12 @@ static void UartSend(const uint8_t *data, size_t len) {
   // At 115200 baud, one byte is ~87 us on the wire (10 bits), so 2 ms is
   // plenty.
   constexpr uint32_t txe_timeout_us = 2000;
-  constexpr uint32_t tc_timeout_us = 20000; // allow a whole packet to drain
+  constexpr uint32_t tc_timeout_us = 20000;  // allow a whole packet to drain
 
   for (size_t i = 0; i < len; ++i) {
     // Wait for TXE
     if (!WaitCondTimeout(&USART1->SR, USART_SR_TXE, true, txe_timeout_us)) {
-      return; // bail out, do not hang panic
+      return;  // bail out, do not hang panic
     }
     USART1->DR = data[i];
   }

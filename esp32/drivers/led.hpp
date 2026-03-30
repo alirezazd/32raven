@@ -2,11 +2,11 @@
 #include <cstddef>
 
 extern "C" {
-#include "hal/gpio_types.h" // IWYU pragma: keep
+#include "hal/gpio_types.h"  // IWYU pragma: keep
 }
 
 class LED {
-public:
+ public:
   static LED &GetInstance() {
     static LED instance;
     return instance;
@@ -41,7 +41,7 @@ public:
 
   bool IsInitialized() const { return initialized_; }
 
-private:
+ private:
   friend class System;
 
   void Init(const Config &cfg);
@@ -59,7 +59,7 @@ private:
   bool is_on_ = false;
   bool initialized_ = false;
 
-  void *task_handle_ = nullptr; // TaskHandle_t
+  void *task_handle_ = nullptr;  // TaskHandle_t
 
   const Step *current_steps_ = nullptr;
   size_t current_step_count_ = 0;

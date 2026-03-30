@@ -5,7 +5,7 @@
 #include <type_traits>
 
 class EE {
-public:
+ public:
   static constexpr uint32_t kSectorSize = 16u * 1024u;
   static constexpr uint32_t kHeaderSize = 16u;
   static constexpr uint32_t kCapacity = kSectorSize - kHeaderSize;
@@ -28,17 +28,19 @@ public:
   bool Read(void *dst, size_t len, size_t offset = 0) const;
   bool Write(const void *src, size_t len, size_t offset = 0);
 
-  template <typename T> bool ReadObject(T &dst, size_t offset = 0) const {
+  template <typename T>
+  bool ReadObject(T &dst, size_t offset = 0) const {
     static_assert(std::is_trivially_copyable_v<T>);
     return Read(&dst, sizeof(T), offset);
   }
 
-  template <typename T> bool WriteObject(const T &src, size_t offset = 0) {
+  template <typename T>
+  bool WriteObject(const T &src, size_t offset = 0) {
     static_assert(std::is_trivially_copyable_v<T>);
     return Write(&src, sizeof(T), offset);
   }
 
-private:
+ private:
   friend class System;
 
   EE() = default;

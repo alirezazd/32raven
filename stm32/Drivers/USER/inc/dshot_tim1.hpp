@@ -12,7 +12,7 @@ struct DShotTim1Timings {
 enum class DShotMode : uint8_t { DSHOT150, DSHOT300, DSHOT600 };
 
 class DShotTim1 {
-public:
+ public:
   static DShotTim1 &getInstance() {
     static DShotTim1 instance;
     return instance;
@@ -32,7 +32,7 @@ public:
 
   void finishAndIdle();
 
-private:
+ private:
   friend class System;
   static void init(const Config &config) { getInstance().Init(config); }
 

@@ -1,9 +1,9 @@
 #pragma once
 
-#include "stm32_limits.hpp"
-
 #include <array>
 #include <cstdint>
+
+#include "stm32_limits.hpp"
 
 // ---------------------------------------------------------
 // POD (Plain Old Data) Sensor Packets
@@ -17,40 +17,40 @@ struct GpsData {
   uint8_t hour;
   uint8_t min;
   uint8_t sec;
-  uint8_t valid; // PVT validity flags
+  uint8_t valid;  // PVT validity flags
 
-  uint32_t tAcc; // ns
-  int32_t lat;   // deg * 1e7
-  int32_t lon;   // deg * 1e7
-  int32_t alt;   // mm (MSL)
-  uint32_t hAcc; // mm
-  uint32_t vAcc; // mm
-  uint16_t vel;  // cm/s
-  uint16_t hdg;  // cdeg
+  uint32_t tAcc;  // ns
+  int32_t lat;    // deg * 1e7
+  int32_t lon;    // deg * 1e7
+  int32_t alt;    // mm (MSL)
+  uint32_t hAcc;  // mm
+  uint32_t vAcc;  // mm
+  uint16_t vel;   // cm/s
+  uint16_t hdg;   // cdeg
   uint8_t num_sats;
-  uint8_t fix_type; // 0-1: no fix, 2: 2D, 3: 3D
+  uint8_t fix_type;  // 0-1: no fix, 2: 2D, 3: 3D
 
   // Quality metrics (DOP)
-  uint16_t gDOP; // Geometric DOP [0.01]
-  uint16_t pDOP; // Position DOP [0.01]
-  uint16_t hDOP; // Horizontal DOP [0.01]
-  uint16_t vDOP; // Vertical DOP [0.01]
+  uint16_t gDOP;  // Geometric DOP [0.01]
+  uint16_t pDOP;  // Position DOP [0.01]
+  uint16_t hDOP;  // Horizontal DOP [0.01]
+  uint16_t vDOP;  // Vertical DOP [0.01]
 
   // Covariance (for Kalman filtering)
-  uint8_t posCovValid; // Position covariance valid flag
-  uint8_t velCovValid; // Velocity covariance valid flag
-  float posCovNN;      // Position covariance North-North [m²]
-  float posCovEE;      // Position covariance East-East [m²]
-  float posCovDD;      // Position covariance Down-Down [m²]
+  uint8_t posCovValid;  // Position covariance valid flag
+  uint8_t velCovValid;  // Velocity covariance valid flag
+  float posCovNN;       // Position covariance North-North [m²]
+  float posCovEE;       // Position covariance East-East [m²]
+  float posCovDD;       // Position covariance Down-Down [m²]
 
-  bool updated; // Freshness flag
+  bool updated;  // Freshness flag
 };
 
 struct BatteryData {
   float voltage;
   float current;
   float mah_drawn;
-  uint8_t percentage; // 0-100
+  uint8_t percentage;  // 0-100
 };
 
 struct RcData {
@@ -66,7 +66,7 @@ struct RcData {
 // ---------------------------------------------------------
 
 class VehicleState {
-public:
+ public:
   // --- WRITERS (Called by Drivers) ---
 
   void UpdateGps(const GpsData &data) {
@@ -106,7 +106,7 @@ public:
     return false;
   }
 
-private:
+ private:
   GpsData gps_{};
   BatteryData bat_{};
   RcData rc_{};

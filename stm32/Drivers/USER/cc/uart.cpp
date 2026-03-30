@@ -1,13 +1,13 @@
 #include "uart.hpp"
-#include "system.hpp"
+
 #include <cstring>
 
 #include "stm32f4xx.h"
+#include "system.hpp"
 
 namespace {
 // Mask IRQ priorities 5 and lower while updating shared UART TX state.
-static constexpr uint32_t kMaskPri =
-    (5u << (8u - __NVIC_PRIO_BITS)) & 0xFFu;
+static constexpr uint32_t kMaskPri = (5u << (8u - __NVIC_PRIO_BITS)) & 0xFFu;
 
 struct BasepriGuard {
   uint32_t old;
@@ -22,7 +22,7 @@ struct BasepriGuard {
     __ISB();
   }
 };
-} // namespace
+}  // namespace
 
 // NOTE: These streams match your CubeMX MSP:
 // USART1_TX -> DMA2_Stream7 Channel 4
@@ -166,12 +166,10 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
     uint32_t baud_rate) {
-  if (!initialized_)
-    return;
+  if (!initialized_) return;
 
   UART_HandleTypeDef *handle = GetHandle();
-  if (!handle)
-    return;
+  if (!handle) return;
 
   // Reconfigure baud rate and re-init peripheral
   handle->Init.BaudRate = baud_rate;
@@ -237,8 +235,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
     len = tx_buffer_.ContiguousReadable(ptr);
 
     if (len > 0 && ptr != nullptr) {
-      if (len > 0xFFFFu)
-        len = 0xFFFFu;
+      if (len > 0xFFFFu) len = 0xFFFFu;
       tx_busy_ = true;
       last_dma_len_ = static_cast<uint16_t>(len);
     } else {
@@ -247,7 +244,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
       handle->Instance->CR3 &= ~USART_CR3_DMAT;
       return;
     }
-  } // interrupts unmasked here
+  }  // interrupts unmasked here
 
   const bool ok = UartTransmitDma<Inst>(ptr, static_cast<uint16_t>(len));
   if (!ok) {
@@ -420,7 +417,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
 
   // 5. Set NDTR (Number of Data to Transfer)
   s->NDTR = RxDmaSize;
-  rx_last_pos_ = 0; // Reset software pointer since DMA starts from 0
+  rx_last_pos_ = 0;  // Reset software pointer since DMA starts from 0
 
   // 6. Configure CR
   // CHSEL=4 (100), MINC, CIRC
@@ -431,7 +428,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
           DMA_SxCR_PINC | DMA_SxCR_CIRC | DMA_SxCR_DBM | DMA_SxCR_CT);
 
   // Set bits
-  cr |= (4UL << DMA_SxCR_CHSEL_Pos); // Channel 4
+  cr |= (4UL << DMA_SxCR_CHSEL_Pos);  // Channel 4
   // DIR is 00 (Periph-to-Mem) by default, no need to set
   cr |= DMA_SxCR_MINC;
   cr |= DMA_SxCR_CIRC;
@@ -490,14 +487,10 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::OnUartInterrupt() {
 
   // Check for Errors
   if (sr & (USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)) {
-    if (sr & USART_SR_ORE)
-      uart_ore_err_++;
-    if (sr & USART_SR_FE)
-      uart_fe_err_++;
-    if (sr & USART_SR_NE)
-      uart_ne_err_++;
-    if (sr & USART_SR_PE)
-      uart_pe_err_++;
+    if (sr & USART_SR_ORE) uart_ore_err_++;
+    if (sr & USART_SR_FE) uart_fe_err_++;
+    if (sr & USART_SR_NE) uart_ne_err_++;
+    if (sr & USART_SR_PE) uart_pe_err_++;
     drain = true;
   }
 

@@ -24,15 +24,24 @@ static void MavlinkTxTask(void *) {
   }
 }
 
-} // namespace
+}  // namespace
 
 void StartMavlinkTxTask() {
   // One owner for RcRx UART TX.
-  static constexpr uint32_t kStackWords = 4096 / sizeof(StackType_t);
+  static constexpr uint32_t kStackBytes = 4096;
   static constexpr UBaseType_t kPrio = 10;
+  static StaticTask_t task_buffer;
+  static StackType_t task_stack[kStackBytes];
+  static TaskHandle_t task_handle = nullptr;
 
-  if (xTaskCreatePinnedToCore(MavlinkTxTask, "mav_tx", kStackWords, nullptr,
-                              kPrio, nullptr, 0) != pdPASS) {
+  if (task_handle != nullptr) {
+    Panic(ErrorCode::kMavlinkInitFailed);
+  }
+
+  task_handle = xTaskCreateStaticPinnedToCore(MavlinkTxTask, "mav_tx",
+                                              kStackBytes, nullptr, kPrio,
+                                              task_stack, &task_buffer, 0);
+  if (task_handle == nullptr) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
 }

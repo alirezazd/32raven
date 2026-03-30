@@ -1,11 +1,13 @@
 #include "states.hpp"
+
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 #include "board.h"
 #include "panic.hpp"
 #include "spi.hpp"
 #include "user_config.hpp"
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 
 static constexpr float kPi = 3.14159265358979f;
 static constexpr float kG = 9.80665f;
@@ -19,7 +21,7 @@ static constexpr float kGyroScale =
     (kPi / 180.0f);
 
 static constexpr uint32_t kLossPanicPerSec =
-    Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u; // 0.5%
+    Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u;  // 0.5%
 static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 static constexpr uint32_t kSlowBudgetFromFastUs = 700;
 static constexpr bool kEnableImuDebugLog = false;
@@ -31,19 +33,18 @@ static uint32_t g_dbg_seq_gap_events = 0;
 static uint32_t g_dbg_seq_gap_total = 0;
 
 // Per-section profiling (max µs per 1Hz window)
-static uint32_t g_prof_link_us = 0;   // FcLink.Poll()
-static uint32_t g_prof_gps_us = 0;    // GPS byte parsing
-static uint32_t g_prof_gpspub_us = 0; // GPS data publish + SendGps
-static uint32_t g_prof_step_us = 0;   // Total OnStep (may include >1 tick)
-static uint32_t g_prof_fast_us = 0;   // OnFastTick max
+static uint32_t g_prof_link_us = 0;    // FcLink.Poll()
+static uint32_t g_prof_gps_us = 0;     // GPS byte parsing
+static uint32_t g_prof_gpspub_us = 0;  // GPS data publish + SendGps
+static uint32_t g_prof_step_us = 0;    // Total OnStep (may include >1 tick)
+static uint32_t g_prof_fast_us = 0;    // OnFastTick max
 static uint32_t g_fast_last_us = 0;
 static uint32_t g_fault_led_last_toggle_us = 0;
 static uint32_t g_fault_log_last_us = 0;
 
 // --- IdleState (Main State) ---
 
-void IdleState::OnEnter(AppContext &ctx, SmTick now) {
-  (void)now;
+void IdleState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().Set(false);
   ctx.fast_tick_state = this;
 
@@ -58,22 +59,20 @@ void IdleState::OnEnter(AppContext &ctx, SmTick now) {
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
   // Slow path is best-effort: never let backlog starve IMU fast loop.
   uint32_t ticks = ctx.sys->Time().ConsumeTim5Ticks();
-  if (ticks == 0)
-    return;
+  if (ticks == 0) return;
   uint32_t step_t0 = ctx.sys->Time().Micros();
   uint32_t t0 = ctx.sys->Time().Micros();
   StepSlow(ctx, now);
   uint32_t t1 = ctx.sys->Time().Micros();
   uint32_t dt = t1 - t0;
-  if (dt > g_dbg_max_slow_us)
-    g_dbg_max_slow_us = dt;
+  if (dt > g_dbg_max_slow_us) g_dbg_max_slow_us = dt;
 
   uint32_t step_dt = ctx.sys->Time().Micros() - step_t0;
-  if (step_dt > g_prof_step_us)
-    g_prof_step_us = step_dt;
+  if (step_dt > g_prof_step_us) g_prof_step_us = step_dt;
 }
 
-void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch) {
+void IdleState::OnFastTick(AppContext &ctx,
+                           const Icm42688p::SampleBatch &batch) {
   // --- Fast Loop (per IMU burst) ---
   uint32_t fast_t0 = ctx.sys->Time().Micros();
   g_fast_last_us = fast_t0;
@@ -85,8 +84,7 @@ void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch)
   uint32_t seq_gap = 0;
   if (prev_imu_seq_ != 0 && first.seq > prev_imu_seq_) {
     seq_gap = first.seq - prev_imu_seq_ - 1u;
-    if (seq_gap > max_seq_gap_)
-      max_seq_gap_ = seq_gap;
+    if (seq_gap > max_seq_gap_) max_seq_gap_ = seq_gap;
     if (seq_gap > 0) {
       g_dbg_seq_gap_events++;
       g_dbg_seq_gap_total += seq_gap;
@@ -115,8 +113,7 @@ void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch)
     if (i > 0) {
       const uint32_t dt_us =
           (uint32_t)(raw.timestamp_us - batch.samples[i - 1u].timestamp_us);
-      if (dt_us > max_raw_dt_us_)
-        max_raw_dt_us_ = dt_us;
+      if (dt_us > max_raw_dt_us_) max_raw_dt_us_ = dt_us;
     }
   }
 
@@ -126,20 +123,16 @@ void IdleState::OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch)
 
   // Capture fast-tick duration
   uint32_t fast_dt = (t1 > fast_t0) ? (t1 - fast_t0) : 0;
-  if (fast_dt > g_prof_fast_us)
-    g_prof_fast_us = fast_dt;
+  if (fast_dt > g_prof_fast_us) g_prof_fast_us = fast_dt;
 }
 
 void IdleState::StepSlow(AppContext &ctx, SmTick now) {
-  auto micros = [&]() -> uint32_t {
-    return ctx.sys->Time().Micros();
-  };
+  auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
   auto budget_exhausted = [&]() -> bool {
     return (uint32_t)(micros() - g_fast_last_us) >= kSlowBudgetFromFastUs;
   };
 
-  if (budget_exhausted())
-    return;
+  if (budget_exhausted()) return;
 
   auto &imu = Icm42688p::GetInstance();
 
@@ -166,12 +159,10 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     uint32_t t0 = micros();
     ctx.sys->GetFcLink().Poll(32, 32);
     uint32_t dt = micros() - t0;
-    if (dt > g_prof_link_us)
-      g_prof_link_us = dt;
+    if (dt > g_prof_link_us) g_prof_link_us = dt;
   }
   ctx.sys->GetRcReceiver().Poll(micros());
-  if (budget_exhausted())
-    return;
+  if (budget_exhausted()) return;
 
   // 2. Poll GPS (UART2 <-> M9N)
   // GPS/M9N disabled for IMU-only bring-up.
@@ -191,8 +182,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   //   if (dt > g_prof_gps_us)
   //     g_prof_gps_us = dt;
   // }
-  if (budget_exhausted())
-    return;
+  if (budget_exhausted()) return;
 
   // 3. Best-effort IMU telemetry (50Hz): consumes latest state only.
   {
@@ -213,8 +203,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
       }
     }
     uint32_t dt = micros() - t0;
-    if (dt > max_send_us_)
-      max_send_us_ = dt;
+    if (dt > max_send_us_) max_send_us_ = dt;
   }
 
   // 4. Process GPS Data (Decoupled)
@@ -291,14 +280,16 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
     if (kEnableImuDebugLog) {
       ctx.sys->GetFcLink().SendLog(
-          "IMU_DBG irq=%lu pub=%lu miss=%lu ovr=%lu dma=%lu prs=%lu cnt=%lu sg=%lu/%lu dt=%lu",
+          "IMU_DBG irq=%lu pub=%lu miss=%lu ovr=%lu dma=%lu prs=%lu cnt=%lu "
+          "sg=%lu/%lu dt=%lu",
           imu.IrqCount(), imu.PublishCount(), drops_now, imu.ImuPathOverrun(),
           imu.DmaStartFailCount(), imu.ParseFailCount(), imu.LastFifoCount(),
           g_dbg_seq_gap_events, g_dbg_seq_gap_total, max_raw_dt_us_);
     }
 
     // Send diagnostics as binary (ESP32 does formatting)
-    // Format ID 1: "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu Send=%lu"
+    // Format ID 1: "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu
+    // Slow=%lu Send=%lu"
     {
       uint32_t args[7] = {g_prof_fast_us,   g_prof_link_us, g_prof_gps_us,
                           g_prof_gpspub_us, g_prof_step_us, g_dbg_max_slow_us,
@@ -306,11 +297,11 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
       ctx.sys->GetFcLink().SendLogBinary(1, 7, args);
     }
 
-    // Format ID 2: "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu Loss=%lu"
+    // Format ID 2: "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu
+    // Loss=%lu"
     {
-      uint32_t args[6] = {g_dbg_max_gps_bytes,   max_seq_gap_,
-                          max_raw_dt_us_,        drop_rate_per_sec,
-                          0u,                    high_loss_consec};
+      uint32_t args[6] = {g_dbg_max_gps_bytes, max_seq_gap_, max_raw_dt_us_,
+                          drop_rate_per_sec,   0u,           high_loss_consec};
       ctx.sys->GetFcLink().SendLogBinary(2, 6, args);
     }
 
@@ -331,8 +322,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   }
 }
 
-void IdleState::OnExit(AppContext &ctx, SmTick now) {
-  (void)now;
+void IdleState::OnExit(AppContext &ctx) {
   if (ctx.fast_tick_state == this) {
     ctx.fast_tick_state = nullptr;
   }

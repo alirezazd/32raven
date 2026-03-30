@@ -13,14 +13,15 @@ struct IFastTickState {
 
 struct IdleState : public IState<AppContext>, public IFastTickState {
   const char *Name() const override { return "Idle"; }
-  void OnEnter(AppContext &ctx, SmTick now) override;
+  void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
-  void OnExit(AppContext &ctx, SmTick now) override;
+  void OnExit(AppContext &ctx) override;
 
-  void OnFastTick(AppContext &ctx, const Icm42688p::SampleBatch &batch) override;
+  void OnFastTick(AppContext &ctx,
+                  const Icm42688p::SampleBatch &batch) override;
   void StepSlow(AppContext &ctx, SmTick now);
 
-private:
+ private:
   // Epistole Parser State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };
   RxState rx_state_ = RxState::kMagic1;

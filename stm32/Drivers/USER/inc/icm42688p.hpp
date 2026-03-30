@@ -1,17 +1,18 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
+
 #include "ee.hpp"
 #include "ee_schema.hpp"
 #include "icm42688p_reg.hpp"
 #include "spi.hpp"
 #include "stm32_limits.hpp"
-#include <atomic>
-#include <cstdint>
 
 class GPIO;
 
 class Icm42688p {
-public:
+ public:
   static constexpr uint16_t kMaxWatermarkRecords =
       stm32_limits::kIcm42688pMaxWatermarkRecords;
 
@@ -136,7 +137,7 @@ public:
   }
   bool IsInitialized() const { return initialized_; }
 
-private:
+ private:
   Icm42688p() = default;
   ~Icm42688p() = default;
   Icm42688p(const Icm42688p &) = delete;
@@ -151,10 +152,10 @@ private:
   void CheckWhoAmI();
   void ValidateConfig(const Config &cfg);
   void SoftReset();
-  void SetClockSource(); // INTF_CONFIG1: AFSR off + CLKSEL=PLL
+  void SetClockSource();  // INTF_CONFIG1: AFSR off + CLKSEL=PLL
   void SetInterfaceConfig(const Config &cfg);
-  void DisableFsync();       // FSYNC_UI_SEL = 0
-  void SetInterruptConfig(); // INT_CONFIG=0x03, INT_CONFIG1=0x60
+  void DisableFsync();        // FSYNC_UI_SEL = 0
+  void SetInterruptConfig();  // INT_CONFIG=0x03, INT_CONFIG1=0x60
 
   void ConfigureFilters(const Config &cfg);
   void SetOdrAndFullScale(const Config &cfg);

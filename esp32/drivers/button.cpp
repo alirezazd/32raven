@@ -1,4 +1,5 @@
 #include "button.hpp"
+
 #include "panic.hpp"
 
 extern "C" {
@@ -58,8 +59,7 @@ bool Button::ReadRawPressed() const {
 }
 
 void Button::Poll(TimeMs now_ms) {
-  if (!initialized_)
-    return;
+  if (!initialized_) return;
 
   const bool raw = ReadRawPressed();
 

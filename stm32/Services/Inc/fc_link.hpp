@@ -8,7 +8,7 @@
 struct AppContext;
 
 class FcLink {
-public:
+ public:
   static FcLink &GetInstance() {
     static FcLink instance;
     return instance;
@@ -25,15 +25,16 @@ public:
   void SendGps(const GpsData &data, const BatteryData &bat);
 
   // Convenience for one IMU sample.
-  void SendImu(uint64_t timestamp_us, const float accel[3], const float gyro[3]);
+  void SendImu(uint64_t timestamp_us, const float accel[3],
+               const float gyro[3]);
 
   // Send Log Message
   void SendLog(const char *format, ...);
-  
+
   // Send Binary Log (format string + raw args, ESP32 does formatting)
   void SendLogBinary(uint8_t fmt_id, uint8_t argc, const uint32_t *args);
 
-private:
+ private:
   FcLink() = default;
   ~FcLink() = default;
   FcLink(const FcLink &) = delete;

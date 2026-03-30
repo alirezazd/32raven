@@ -14,11 +14,11 @@
 #include "spi.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-#include "user_config.hpp" // For SystemConfig
+#include "user_config.hpp"  // For SystemConfig
 #include "vehicle_state.hpp"
 
 class System {
-public:
+ public:
   static System &GetInstance() {
     static System instance;
     return instance;
@@ -40,7 +40,7 @@ public:
     kUart2,
     kM9n,
     kIcm42688p,
-    kCount // Must be last
+    kCount  // Must be last
   };
 
   void Init(const SystemConfig &config);
@@ -67,7 +67,7 @@ public:
   FcLink &GetFcLink() { return FcLink::GetInstance(); }
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
 
-private:
+ private:
   void InitComponent(Component c);
 
   bool initialized_ = false;

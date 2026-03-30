@@ -1,10 +1,11 @@
 #pragma once
 
-#include "error_code.hpp"
 #include <cstdint>
 
+#include "error_code.hpp"
+
 class M9N {
-public:
+ public:
   enum class BaudRate : uint32_t {
     k9600 = 9600,
     k19200 = 19200,
@@ -91,7 +92,7 @@ public:
 
   bool Read(uint8_t &b);
 
-private:
+ private:
   friend class System;
 
   void Init(const Config &config);
@@ -107,7 +108,8 @@ private:
 
   void SendCfgValGet(uint32_t key, uint8_t layer);
 
-  template <typename T> bool WaitForValget(uint32_t key, T expected_value);
+  template <typename T>
+  bool WaitForValget(uint32_t key, T expected_value);
 
   void WaitForReady();
   bool WaitForAck(uint8_t want_cls, uint8_t want_id);

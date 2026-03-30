@@ -1,8 +1,9 @@
 #include "panic.hpp"
+
 #include "driver/gpio.h"
 #include "esp32_config.hpp"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h" // IWYU pragma: keep
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 
 static constexpr const char *kTag = "panic";

@@ -1,19 +1,19 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
+
 #include "ee.hpp"
 #include "ee_schema.hpp"
 #include "message.hpp"
 #include "stm32_limits.hpp"
 #include "vehicle_state.hpp"
 
-#include <array>
-#include <cstdint>
-
 class FcLink;
 class VehicleState;
 
 class RcReceiver {
-public:
+ public:
   struct Config {
     bool enabled_channels[16]{};
   };
@@ -39,7 +39,7 @@ public:
 
   bool SaveCalibration();
 
-private:
+ private:
   friend class System;
 
   void Init(const Config &cfg, EE &ee, VehicleState &vehicle_state,

@@ -3,11 +3,11 @@
 #include "timebase.hpp"
 
 extern "C" {
-#include "driver/gpio.h" // IWYU pragma: keep
+#include "driver/gpio.h"  // IWYU pragma: keep
 }
 
 class Button {
-public:
+ public:
   static Button &GetInstance() {
     static Button instance;
     return instance;
@@ -34,7 +34,7 @@ public:
   bool IsPressed() const { return pressed_; }
   bool IsInitialized() const { return initialized_; }
 
-private:
+ private:
   friend class System;
 
   void Init(const Config &cfg);

@@ -1,16 +1,17 @@
 #include "tcp_server.hpp"
 
+#include <fcntl.h>
+
 #include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
 
 #include "panic.hpp"
 
 extern "C" {
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h" // IWYU pragma: keep
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 #include "lwip/inet.h"
 #include "lwip/sockets.h"
@@ -45,8 +46,7 @@ void TcpServer::Init(const Config &cfg) {
 }
 
 void TcpServer::Stop() {
-  if (!running_)
-    return;
+  if (!running_) return;
 
   running_ = false;
 
@@ -60,8 +60,7 @@ void TcpServer::Stop() {
 }
 
 void TcpServer::Poll(SmTick now) {
-  if (!running_)
-    return;
+  if (!running_) return;
 
   ctx_.now = now;
 
@@ -110,8 +109,7 @@ void TcpServer::StopDownload() {
 }
 
 int TcpServer::ReadDownload(uint8_t *dst, size_t max_len) {
-  if (!dst || max_len == 0)
-    return 0;
+  if (!dst || max_len == 0) return 0;
 
   size_t n = 0;
   while (n < max_len && down_head_ != down_tail_) {
@@ -145,14 +143,12 @@ TcpServer::Status TcpServer::GetStatus() const {
 
 bool TcpServer::SetNonblock(int fd) {
   const int fl = fcntl(fd, F_GETFL, 0);
-  if (fl < 0)
-    return false;
+  if (fl < 0) return false;
   return fcntl(fd, F_SETFL, fl | O_NONBLOCK) == 0;
 }
 
 bool TcpServer::SetKeepalive(int fd, const Config &cfg) {
-  if (cfg.keepalive_idle_s <= 0)
-    return true;
+  if (cfg.keepalive_idle_s <= 0) return true;
 
   int yes = 1;
   if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) != 0)
@@ -172,8 +168,7 @@ bool TcpServer::SetKeepalive(int fd, const Config &cfg) {
 bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port, int backlog,
                                  bool nonblocking) {
   out_fd = (int)socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-  if (out_fd < 0)
-    return false;
+  if (out_fd < 0) return false;
 
   int opt = 1;
   (void)setsockopt(out_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -195,8 +190,7 @@ bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port, int backlog,
     return false;
   }
 
-  if (nonblocking)
-    (void)SetNonblock(out_fd);
+  if (nonblocking) (void)SetNonblock(out_fd);
 
   return true;
 }
@@ -246,31 +240,27 @@ void TcpServer::CloseAll() {
 // ---------------- Accept helpers ----------------
 
 void TcpServer::AcceptCtrl() {
-  if (ctx_.ctrl_listen_fd < 0)
-    return;
+  if (ctx_.ctrl_listen_fd < 0) return;
 
   // single control client: reject new connections if already connected
   if (ctx_.ctrl_fd >= 0) {
     sockaddr_in tmp{};
     socklen_t len = sizeof(tmp);
     int fd = accept(ctx_.ctrl_listen_fd, (sockaddr *)&tmp, &len);
-    if (fd >= 0)
-      close(fd); // reject
+    if (fd >= 0) close(fd);  // reject
     return;
   }
 
   sockaddr_in cli{};
   socklen_t len = sizeof(cli);
   int fd = accept(ctx_.ctrl_listen_fd, (sockaddr *)&cli, &len);
-  if (fd < 0)
-    return;
+  if (fd < 0) return;
 
-  if (cfg_.nonblocking)
-    (void)SetNonblock(fd);
+  if (cfg_.nonblocking) (void)SetNonblock(fd);
   (void)SetKeepalive(fd, cfg_);
 
   ctx_.ctrl_fd = fd;
-  ctx_.ctrl_peer_ipv4 = cli.sin_addr.s_addr; // network byte order
+  ctx_.ctrl_peer_ipv4 = cli.sin_addr.s_addr;  // network byte order
 
   ESP_LOGI(kTag, "Ctrl connected fd=%d ip=%x", fd,
            (unsigned)ctx_.ctrl_peer_ipv4);
@@ -284,16 +274,14 @@ void TcpServer::AcceptCtrl() {
 }
 
 void TcpServer::AcceptData() {
-  if (ctx_.data_listen_fd < 0)
-    return;
+  if (ctx_.data_listen_fd < 0) return;
 
   // accept data only if ctrl exists (single session)
   if (ctx_.ctrl_fd < 0) {
     sockaddr_in tmp{};
     socklen_t len = sizeof(tmp);
     int fd = accept(ctx_.data_listen_fd, (sockaddr *)&tmp, &len);
-    if (fd >= 0)
-      close(fd); // reject when no control session
+    if (fd >= 0) close(fd);  // reject when no control session
     return;
   }
 
@@ -302,16 +290,14 @@ void TcpServer::AcceptData() {
     sockaddr_in tmp{};
     socklen_t len = sizeof(tmp);
     int fd = accept(ctx_.data_listen_fd, (sockaddr *)&tmp, &len);
-    if (fd >= 0)
-      close(fd);
+    if (fd >= 0) close(fd);
     return;
   }
 
   sockaddr_in cli{};
   socklen_t len = sizeof(cli);
   int fd = accept(ctx_.data_listen_fd, (sockaddr *)&cli, &len);
-  if (fd < 0)
-    return;
+  if (fd < 0) return;
 
   ESP_LOGI(kTag, "Data connected fd=%d", fd);
 
@@ -321,8 +307,7 @@ void TcpServer::AcceptData() {
     return;
   }
 
-  if (cfg_.nonblocking)
-    (void)SetNonblock(fd);
+  if (cfg_.nonblocking) (void)SetNonblock(fd);
   (void)SetKeepalive(fd, cfg_);
 
   ctx_.data_fd = fd;
@@ -335,11 +320,10 @@ void TcpServer::AcceptData() {
 // ---------------- RX pumps ----------------
 
 void TcpServer::PumpCtrlRx() {
-  if (ctx_.ctrl_fd < 0)
-    return;
+  if (ctx_.ctrl_fd < 0) return;
 
   uint8_t buf[256];
-  for (int iter = 0; iter < 4; ++iter) { // bounded work per tick
+  for (int iter = 0; iter < 4; ++iter) {  // bounded work per tick
     int r = recv(ctx_.ctrl_fd, buf, sizeof(buf), 0);
     if (r > 0) {
       // ESP_LOGI(kTag, "Ctrl rx %d bytes", r);
@@ -363,8 +347,7 @@ void TcpServer::PumpCtrlRx() {
     }
 
     // r < 0
-    if (errno == EWOULDBLOCK || errno == EAGAIN)
-      return;
+    if (errno == EWOULDBLOCK || errno == EAGAIN) return;
 
     // real error
     CloseCtrl();
@@ -373,11 +356,10 @@ void TcpServer::PumpCtrlRx() {
 }
 
 void TcpServer::PumpDataRx() {
-  if (ctx_.data_fd < 0)
-    return;
+  if (ctx_.data_fd < 0) return;
 
   uint8_t buf[1024];
-  for (int iter = 0; iter < 4; ++iter) { // bounded work
+  for (int iter = 0; iter < 4; ++iter) {  // bounded work
     // Flow control: check space before pulling from TCP
     bool enabled = download_enabled_;
     size_t free = RbFree(down_head_, down_tail_, kDownCap);
@@ -425,8 +407,7 @@ void TcpServer::PumpDataRx() {
       return;
     }
 
-    if (errno == EWOULDBLOCK || errno == EAGAIN)
-      return;
+    if (errno == EWOULDBLOCK || errno == EAGAIN) return;
 
     CloseData();
     return;
@@ -436,18 +417,15 @@ void TcpServer::PumpDataRx() {
 // ---------------- CTRL TX ----------------
 
 esp_err_t TcpServer::SendCtrlLine(const char *line) {
-  if (!line || ctx_.ctrl_fd < 0)
-    return ESP_FAIL;
+  if (!line || ctx_.ctrl_fd < 0) return ESP_FAIL;
 
   const size_t n = std::strlen(line);
-  if (n == 0)
-    return ESP_OK;
+  if (n == 0) return ESP_OK;
 
   // Best-effort non-blocking send
   int r = send(ctx_.ctrl_fd, line, n, 0);
   if (r < 0) {
-    if (errno == EWOULDBLOCK || errno == EAGAIN)
-      return ESP_ERR_TIMEOUT;
+    if (errno == EWOULDBLOCK || errno == EAGAIN) return ESP_ERR_TIMEOUT;
     CloseCtrl();
     return ESP_FAIL;
   }
@@ -455,15 +433,14 @@ esp_err_t TcpServer::SendCtrlLine(const char *line) {
 }
 
 int TcpServer::SendData(const uint8_t *data, size_t len) {
-  if (ctx_.data_fd < 0 || !data || len == 0)
-    return -1;
+  if (ctx_.data_fd < 0 || !data || len == 0) return -1;
 
   // Best-effort non-blocking send
   int r = send(ctx_.data_fd, data, len, 0);
   if (r < 0) {
     if (errno == EWOULDBLOCK || errno == EAGAIN)
-      return 0; // buffer full, drop or retry later (streaming logic: drop used
-                // here)
+      return 0;  // buffer full, drop or retry later (streaming logic: drop used
+                 // here)
     // CloseData(); // Optional: close on error? For now, just report error.
     return -1;
   }
@@ -471,8 +448,7 @@ int TcpServer::SendData(const uint8_t *data, size_t len) {
 }
 
 static inline const char *SkipSpace(const char *p) {
-  while (*p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n'))
-    ++p;
+  while (*p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) ++p;
   return p;
 }
 
@@ -481,8 +457,7 @@ static inline const char *SkipSpace(const char *p) {
 void TcpServer::ResetLinebuf() { ctx_.line_len = 0; }
 
 bool TcpServer::LinebufAdd(char b) {
-  if (b == '\r')
-    return false;
+  if (b == '\r') return false;
 
   if (b == '\n') {
     return ctx_.line_len > 0;
@@ -508,8 +483,7 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
 
   while (*p) {
     p = SkipSpace(p);
-    if (!*p)
-      break;
+    if (!*p) break;
 
     // find key at token start
     if (std::strncmp(p, key, len) == 0 && p[len] == '=') {
@@ -535,26 +509,22 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
         else
           break;
 
-        if (d >= (unsigned)base)
-          break;
+        if (d >= (unsigned)base) break;
 
         any = true;
         v = v * (uint64_t)base + (uint64_t)d;
-        if (v > 0xFFFFFFFFull)
-          return false;
+        if (v > 0xFFFFFFFFull) return false;
         ++p;
       }
 
-      if (!any)
-        return false;
+      if (!any) return false;
 
       out = (uint32_t)v;
       return true;
     }
 
     // skip token
-    while (*p && *p != ' ' && *p != '\t')
-      ++p;
+    while (*p && *p != ' ' && *p != '\t') ++p;
   }
 
   return false;
@@ -562,15 +532,13 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
 
 static bool FindStrKV(const char *p, const char *key, char *out_buf,
                       size_t max_len) {
-  if (!p || !key || !out_buf || max_len == 0)
-    return false;
+  if (!p || !key || !out_buf || max_len == 0) return false;
 
   const size_t len = std::strlen(key);
 
   while (*p) {
     p = SkipSpace(p);
-    if (!*p)
-      break;
+    if (!*p) break;
 
     // find key at token start
     if (std::strncmp(p, key, len) == 0 && p[len] == '=') {
@@ -608,12 +576,10 @@ static bool StartsWithCI(const char *s, const char *prefix) {
 // ---------------- Command handling ----------------
 
 void TcpServer::HandleLine(const char *line) {
-  if (!line)
-    return;
+  if (!line) return;
 
   const char *p = SkipSpace(line);
-  if (!*p)
-    return;
+  if (!*p) return;
 
   if (StartsWithCI(p, "BEGIN")) {
     uint32_t size = 0;
@@ -688,34 +654,30 @@ void TcpServer::HandleLine(const char *line) {
 // ---------------- Internal SM states ----------------
 
 class TcpServer::StStopped : public IState<Ctx> {
-public:
+ public:
   const char *Name() const override { return "Stopped"; }
   void SetListen(IState<Ctx> *s) { listen_ = s; }
   IState<Ctx> *GetListen() const { return listen_; }
 
-  void OnEnter(Ctx &ctx, SmTick) override {
-    if (!ctx.self || !ctx.sm)
-      return;
+  void OnEnter(Ctx &ctx) override {
+    if (!ctx.self || !ctx.sm) return;
     ctx.self->CloseAll();
     ctx.line_len = 0;
     // stay here until Start() moves us; Start() will Start() from Listening.
   }
-
   void OnStep(Ctx &, SmTick) override {}
-  void OnExit(Ctx &, SmTick) override {}
 
-private:
+ private:
   IState<Ctx> *listen_ = nullptr;
 };
 
 class TcpServer::StListening : public IState<Ctx> {
-public:
+ public:
   const char *Name() const override { return "Listening"; }
   void SetCtrl(IState<Ctx> *s) { ctrl_ = s; }
 
-  void OnEnter(Ctx &ctx, SmTick) override {
-    if (!ctx.self || !ctx.sm)
-      return;
+  void OnEnter(Ctx &ctx) override {
+    if (!ctx.self || !ctx.sm) return;
 
     // Ensure listen sockets exist
     if (ctx.ctrl_listen_fd < 0) {
@@ -737,8 +699,7 @@ public:
   }
 
   void OnStep(Ctx &ctx, SmTick) override {
-    if (!ctx.self || !ctx.sm)
-      return;
+    if (!ctx.self || !ctx.sm) return;
 
     // Accept control first (session anchor)
     ctx.self->AcceptCtrl();
@@ -750,27 +711,23 @@ public:
     }
   }
 
-  void OnExit(Ctx &, SmTick) override {}
-
-private:
+ private:
   IState<Ctx> *ctrl_ = nullptr;
 };
 
 class TcpServer::StCtrl : public IState<Ctx> {
-public:
+ public:
   const char *Name() const override { return "Ctrl"; }
   void SetListen(IState<Ctx> *s) { listen_ = s; }
   void SetCtrlData(IState<Ctx> *s) { ctrldata_ = s; }
 
-  void OnEnter(Ctx &ctx, SmTick) override {
-    if (!ctx.self)
-      return;
+  void OnEnter(Ctx &ctx) override {
+    if (!ctx.self) return;
     ctx.self->ResetLinebuf();
   }
 
   void OnStep(Ctx &ctx, SmTick) override {
-    if (!ctx.self || !ctx.sm)
-      return;
+    if (!ctx.self || !ctx.sm) return;
 
     // keep accepting data while control is up
     ctx.self->AcceptData();
@@ -780,8 +737,7 @@ public:
 
     // ctrl might have dropped during pump
     if (ctx.ctrl_fd < 0) {
-      if (listen_)
-        ctx.sm->ReqTransition(*listen_);
+      if (listen_) ctx.sm->ReqTransition(*listen_);
       return;
     }
 
@@ -790,47 +746,38 @@ public:
     }
   }
 
-  void OnExit(Ctx &, SmTick) override {}
-
-private:
+ private:
   IState<Ctx> *listen_ = nullptr;
   IState<Ctx> *ctrldata_ = nullptr;
 };
 
 class TcpServer::StCtrlData : public IState<Ctx> {
-public:
+ public:
   const char *Name() const override { return "CtrlData"; }
   void SetListen(IState<Ctx> *s) { listen_ = s; }
   void SetCtrl(IState<Ctx> *s) { ctrl_ = s; }
 
-  void OnEnter(Ctx &, SmTick) override {}
-
   void OnStep(Ctx &ctx, SmTick) override {
-    if (!ctx.self || !ctx.sm)
-      return;
+    if (!ctx.self || !ctx.sm) return;
 
     // pump both channels
     ctx.self->PumpCtrlRx();
 
     // ctrl might have dropped; CloseCtrl_ also closes data
     if (ctx.ctrl_fd < 0) {
-      if (listen_)
-        ctx.sm->ReqTransition(*listen_);
+      if (listen_) ctx.sm->ReqTransition(*listen_);
       return;
     }
 
     ctx.self->PumpDataRx();
 
     if (ctx.data_fd < 0) {
-      if (ctrl_)
-        ctx.sm->ReqTransition(*ctrl_);
+      if (ctrl_) ctx.sm->ReqTransition(*ctrl_);
       return;
     }
   }
 
-  void OnExit(Ctx &, SmTick) override {}
-
-private:
+ private:
   IState<Ctx> *listen_ = nullptr;
   IState<Ctx> *ctrl_ = nullptr;
 };
@@ -838,8 +785,7 @@ private:
 // ---------------- Finish Start(): wire states + start SM ----------------
 
 esp_err_t TcpServer::Start() {
-  if (running_)
-    return ESP_OK;
+  if (running_) return ESP_OK;
 
   // reset internal state (same as PART 1)
   evt_head_ = evt_tail_ = 0;
@@ -879,7 +825,7 @@ esp_err_t TcpServer::Start() {
   running_ = true;
 
   // Start SM from Listening; Listening::OnEnter will open listen sockets.
-  sm_.Start(*s_listen_, 0);
+  sm_.Start(*s_listen_);
 
   // Give it one immediate step so sockets are created right away
   sm_.Step(0);

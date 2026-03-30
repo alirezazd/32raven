@@ -1,11 +1,12 @@
 #pragma once
-#include "panic.hpp"
-#include "stm32f4xx_hal.h"
 #include <array>
 #include <cstddef>
 
+#include "panic.hpp"
+#include "stm32f4xx_hal.h"
+
 class GPIO {
-public:
+ public:
   struct PinConfig {
     GPIO_TypeDef *port;
     GPIO_InitTypeDef init;
@@ -15,9 +16,10 @@ public:
   void WritePin(GPIO_TypeDef *port, uint16_t pin, bool state);
   bool ReadPin(GPIO_TypeDef *port, uint16_t pin);
 
-private:
+ private:
   friend class System;
-  template <size_t N> void Init(const std::array<PinConfig, N> &pins) {
+  template <size_t N>
+  void Init(const std::array<PinConfig, N> &pins) {
     Init(pins.data(), N);
   }
 

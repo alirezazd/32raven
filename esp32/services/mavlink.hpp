@@ -1,28 +1,20 @@
 #pragma once
 
-#include "../drivers/uart.hpp"
-#include "message.hpp" // for message::GpsData
-#include <array>
-#include <cstdint>
 #include <mavlink.h>
 
-struct RcData {
-  uint16_t channels[16]{};
-  uint32_t last_update = 0;
-};
+#include <array>
+#include <cstdint>
 
-struct RadioStatusData {
-  uint32_t last_update = 0;
+#include "../drivers/uart.hpp"
+#include "message.hpp"  // for message::GpsData
+
+struct RcState {
+  uint16_t channels[16]{};
   uint8_t rssi = 0;
 };
 
-struct RcState {
-  RcData rc{};
-  RadioStatusData radio_status{};
-};
-
 class Mavlink {
-public:
+ public:
   struct Config {
     struct Identity {
       uint8_t sysid = 0;
@@ -57,7 +49,7 @@ public:
   void Init(const Config &cfg, UartRcRx *uart);
 
   // RX: reads UART and parses inbound MAVLink (RC override only, for now)
-  void Poll(uint32_t now_ms);
+  void Poll();
 
   // TX: called from a dedicated RTOS task at a steady tick (e.g. 10ms)
   void TxTick(uint32_t now_ms);
@@ -67,7 +59,7 @@ public:
 
   const RcState &GetRcState() const { return rc_state_; }
 
-private:
+ private:
   Mavlink();
   ~Mavlink();
   Mavlink(const Mavlink &) = delete;
@@ -85,15 +77,15 @@ private:
   static constexpr size_t kMaxRxReadChunkSize = 256;
   std::array<uint8_t, kMaxRxReadChunkSize> rx_buf_{};
 
-  void HandleRxByte(uint8_t b, uint32_t now_ms);
-  void HandleMessage(const mavlink_message_t &msg, uint32_t now_ms);
+  void HandleRxByte(uint8_t b);
+  void HandleMessage(const mavlink_message_t &msg);
 
   // ---------- TX: atomic frame writes ----------
   uint8_t tx_buf_[MAVLINK_MAX_PACKET_LEN]{};
   uint16_t tx_len_ = 0;
   uint16_t tx_sent_ = 0;
 
-  bool tx_is_hb_ = false; // only to stamp hb timing
+  bool tx_is_hb_ = false;  // only to stamp hb timing
   void ServiceInFlightTx();
 
   // ---------- TX: Heartbeat timing ----------

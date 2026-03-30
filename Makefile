@@ -22,7 +22,7 @@ CLEAN_FILES := \
 	stm32/Drivers/USER/inc/stm32_limits.hpp \
 	stm32/Drivers/USER/inc/ee_schema.hpp
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp
 
 help:
 	@echo "Targets:"
@@ -31,6 +31,7 @@ help:
 	@echo "  32raven-menuconfig  - Run 32Raven menuconfig (ESP32 + STM32)"
 	@echo "  esp32               - Build ESP32 firmware"
 	@echo "  stm32               - Build STM32 firmware"
+	@echo "  format-cpp          - Run clang-format on STM32/ESP32 C++ source headers"
 	@echo "  clean               - Clean build directory"
 	@echo "  esp32-menuconfig    - Run ESP-IDF menuconfig"
 	@echo "  flash-esp32         - Flash ESP32 via serial"
@@ -50,9 +51,23 @@ all: configure
 
 esp32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target esp32
+	@printf "\n"
+	python3 tools/esp32_size_metrics.py --build-dir "$(BUILD_DIR)/esp32"
 
 stm32: configure
 	"$(CMAKE)" --build "$(BUILD_DIR)" --target stm32
+
+format-cpp:
+	@bash -lc 'set -euo pipefail; \
+		command -v clang-format >/dev/null; \
+		rg --files esp32 stm32 -g "*.cpp" -g "*.hpp" \
+		  | grep -vxF "esp32/main/esp32_config.hpp" \
+		  | grep -vxF "stm32/Drivers/USER/inc/stm32_config.hpp" \
+		  | grep -vxF "stm32/Drivers/USER/inc/stm32_limits.hpp" \
+		  | grep -vxF "stm32/Drivers/USER/inc/ee_schema.hpp" \
+		  | while IFS= read -r file; do \
+		      clang-format -i "$$file"; \
+		    done'
 
 32raven-menuconfig:
 	python3 scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config

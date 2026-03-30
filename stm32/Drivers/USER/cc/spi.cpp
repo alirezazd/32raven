@@ -1,7 +1,9 @@
 #include "spi.hpp"
+
 #include "system.hpp"
 
-template <SpiInstance Inst> void Spi<Inst>::Init(const SpiConfig &config) {
+template <SpiInstance Inst>
+void Spi<Inst>::Init(const SpiConfig &config) {
   /* DMA controller clock enable */
   //__HAL_RCC_DMA2_CLK_ENABLE();
   EnableDmaClk();
@@ -57,25 +59,28 @@ template <SpiInstance Inst> void Spi<Inst>::Init(const SpiConfig &config) {
   initialized_ = true;
 }
 
-template <SpiInstance Inst> void Spi<Inst>::EnableDmaClk() {
+template <SpiInstance Inst>
+void Spi<Inst>::EnableDmaClk() {
   if constexpr (Inst == SpiInstance::kSpi1) {
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
-    (void)RCC->AHB1ENR; // readback delay
+    (void)RCC->AHB1ENR;  // readback delay
   } else {
     static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 }
 
-template <SpiInstance Inst> void Spi<Inst>::EnableSpiClk() {
+template <SpiInstance Inst>
+void Spi<Inst>::EnableSpiClk() {
   if constexpr (Inst == SpiInstance::kSpi1) {
     RCC->APB2ENR |= RCC_APB2ENR_SPI1EN;
-    (void)RCC->APB2ENR; // readback delay
+    (void)RCC->APB2ENR;  // readback delay
   } else {
     static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 }
 
-template <SpiInstance Inst> void Spi<Inst>::EnableIrqs(uint32_t priority) {
+template <SpiInstance Inst>
+void Spi<Inst>::EnableIrqs(uint32_t priority) {
   if constexpr (Inst == SpiInstance::kSpi1) {
     /* DMA2_Stream0_IRQn interrupt configuration */
     NVIC_SetPriority(DMA2_Stream0_IRQn, priority);
@@ -90,8 +95,7 @@ template <SpiInstance Inst> void Spi<Inst>::EnableIrqs(uint32_t priority) {
 
 template <SpiInstance Inst>
 void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
-  if (len == 0)
-    return;
+  if (len == 0) return;
 
   SPI_TypeDef *spi = Hw();
   const uint8_t *tx_ptr = tx;
@@ -119,7 +123,7 @@ void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
 
     // Read Data
     uint8_t d =
-        *reinterpret_cast<volatile uint8_t *>(&spi->DR); // Read clears RXNE
+        *reinterpret_cast<volatile uint8_t *>(&spi->DR);  // Read clears RXNE
     if (rx_ptr) {
       *rx_ptr++ = d;
     }
@@ -138,7 +142,8 @@ void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
   }
 }
 
-template <SpiInstance Inst> uint8_t Spi<Inst>::TxRxByte(uint8_t tx) {
+template <SpiInstance Inst>
+uint8_t Spi<Inst>::TxRxByte(uint8_t tx) {
   uint8_t rx = 0;
   TxRx(&tx, &rx, 1);
   return rx;
@@ -149,11 +154,13 @@ void Spi<Inst>::Write(const uint8_t *tx, size_t len) {
   TxRx(tx, nullptr, len);
 }
 
-template <SpiInstance Inst> void Spi<Inst>::Read(uint8_t *rx, size_t len) {
+template <SpiInstance Inst>
+void Spi<Inst>::Read(uint8_t *rx, size_t len) {
   TxRx(nullptr, rx, len);
 }
 
-template <SpiInstance Inst> void Spi<Inst>::SetPrescaler(SpiPrescaler rate) {
+template <SpiInstance Inst>
+void Spi<Inst>::SetPrescaler(SpiPrescaler rate) {
   if (busy_) {
     ErrorHandler();
     return;
@@ -162,18 +169,20 @@ template <SpiInstance Inst> void Spi<Inst>::SetPrescaler(SpiPrescaler rate) {
   Disable();
 
   uint32_t cr1 = spi->CR1;
-  cr1 &= ~SPI_CR1_BR; // Clear old BR
+  cr1 &= ~SPI_CR1_BR;  // Clear old BR
   cr1 |= (static_cast<uint32_t>(rate) << SPI_CR1_BR_Pos);
   spi->CR1 = cr1;
 
   Enable();
 }
 
-template <SpiInstance Inst> void Spi<Inst>::Enable() {
+template <SpiInstance Inst>
+void Spi<Inst>::Enable() {
   Hw()->CR1 |= SPI_CR1_SPE;
 }
 
-template <SpiInstance Inst> void Spi<Inst>::Disable() {
+template <SpiInstance Inst>
+void Spi<Inst>::Disable() {
   SPI_TypeDef *spi = Hw();
   // 1. Wait for BSY to clear
   while (spi->SR & SPI_SR_BSY) {
@@ -193,7 +202,10 @@ static inline void DmaDisableAndWait(DMA_Stream_TypeDef *s) {
   }
 }
 
-template <SpiInstance Inst> bool Spi<Inst>::Busy() const { return busy_; }
+template <SpiInstance Inst>
+bool Spi<Inst>::Busy() const {
+  return busy_;
+}
 
 template <SpiInstance Inst>
 bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
@@ -320,7 +332,8 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
   return true;
 }
 
-template <SpiInstance Inst> void Spi<Inst>::OnRxDmaTcIrq() {
+template <SpiInstance Inst>
+void Spi<Inst>::OnRxDmaTcIrq() {
   SPI_TypeDef *spi = Hw();
   DMA_Stream_TypeDef *rx_stream = nullptr;
   DMA_Stream_TypeDef *tx_stream = nullptr;
@@ -371,15 +384,16 @@ template <SpiInstance Inst> void Spi<Inst>::OnRxDmaTcIrq() {
   user = user_;
 
   if (cb) {
-    cb(user, true); // ok=true
+    cb(user, true);  // ok=true
   }
 }
 
-template <SpiInstance Inst> void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
+template <SpiInstance Inst>
+void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
   // Just clear flags and maybe fail the callback?
   // Implementation similar to OnRxDmaTcIrq but with ok=false
   SPI_TypeDef *spi = Hw();
-  DMA_Stream_TypeDef *rx_stream = DMA2_Stream0; // Hardcoded for SPI1
+  DMA_Stream_TypeDef *rx_stream = DMA2_Stream0;  // Hardcoded for SPI1
   DMA_Stream_TypeDef *tx_stream = DMA2_Stream3;
 
   System::GetInstance().Led().Set(true);
@@ -415,17 +429,13 @@ template <SpiInstance Inst> void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
   user = user_;
 
   if (cb) {
-    cb(user, false); // ok=false
+    cb(user, false);  // ok=false
   }
 }
 
 template class Spi<SpiInstance::kSpi1>;
 
 extern "C" {
-void Spi1RxDmaComplete() {
-  Spi1::GetInstance().OnRxDmaTcIrq();
-}
-void Spi1DmaError(uint32_t isr) {
-  Spi1::GetInstance().HandleDmaError(isr);
-}
+void Spi1RxDmaComplete() { Spi1::GetInstance().OnRxDmaTcIrq(); }
+void Spi1DmaError(uint32_t isr) { Spi1::GetInstance().HandleDmaError(isr); }
 }

@@ -4,7 +4,7 @@
 #include "esp_wifi_types.h"
 
 class WifiController {
-public:
+ public:
   static WifiController &GetInstance() {
     static WifiController instance;
     return instance;
@@ -33,7 +33,7 @@ public:
   bool IsOn() const { return wifi_on_; }
   bool IsInitialized() const { return initialized_; }
 
-private:
+ private:
   friend class System;
   void Init(const Config &cfg);
   Config cfg_{};

@@ -67,7 +67,7 @@ enum class BANK_0 : uint8_t {
 
   INT_PIN_CFG = 0x0F,
   INT_ENABLE_1 = 0x11,
-  INT_STATUS = 0x19, // Restored for interrupt clearing
+  INT_STATUS = 0x19,  // Restored for interrupt clearing
 
   I2C_MST_STATUS = 0x17,
 
@@ -100,17 +100,17 @@ enum class BANK_2 : uint8_t {
   REG_BANK_SEL = 0x7F,
 };
 
-}; // namespace Register
+};  // namespace Register
 
 //---------------- BANK0 Register bits
 // USER_CTRL
 enum USER_CTRL_BIT : uint8_t {
   DMP_EN = Bit7,
   FIFO_EN = Bit6,
-  I2C_IF_DIS = Bit4, // Reset I2C Slave module and put the serial interface in
-                     // SPI mode only
-  DMP_RST = Bit3,    // Reset DMP module.
-  SRAM_RST = Bit2,   // Reset SRAM module.
+  I2C_IF_DIS = Bit4,  // Reset I2C Slave module and put the serial interface in
+                      // SPI mode only
+  DMP_RST = Bit3,     // Reset DMP module.
+  SRAM_RST = Bit2,    // Reset SRAM module.
   // I2C_MST_RST removed
 };
 
@@ -162,39 +162,39 @@ enum FIFO_CFG_BIT : uint8_t {
 
 // REG_BANK_SEL
 enum REG_BANK_SEL_BIT : uint8_t {
-  USER_BANK_0 = 0,           // 0: Select USER BANK 0.
-  USER_BANK_1 = Bit4,        // 1: Select USER BANK 1.
-  USER_BANK_2 = Bit5,        // 2: Select USER BANK 2.
-  USER_BANK_3 = Bit5 | Bit4, // 3: Select USER BANK 3.
+  USER_BANK_0 = 0,            // 0: Select USER BANK 0.
+  USER_BANK_1 = Bit4,         // 1: Select USER BANK 1.
+  USER_BANK_2 = Bit5,         // 2: Select USER BANK 2.
+  USER_BANK_3 = Bit5 | Bit4,  // 3: Select USER BANK 3.
 };
 
 //---------------- BANK2 Register bits
 // GYRO_CONFIG_1
 enum GYRO_CONFIG_1_BIT : uint8_t {
   // 5:3 GYRO_DLPFCFG[2:0]
-  GYRO_DLPFCFG = Bit5 | Bit4 | Bit3, // 7 -
+  GYRO_DLPFCFG = Bit5 | Bit4 | Bit3,  // 7 -
 
   // 2:1 GYRO_FS_SEL[1:0]
-  GYRO_FS_SEL_250_DPS = 0,            // 0b00 = ±250 dps
-  GYRO_FS_SEL_500_DPS = Bit1,         // 0b01 = ±500 dps
-  GYRO_FS_SEL_1000_DPS = Bit2,        // 0b10 = ±1000 dps
-  GYRO_FS_SEL_2000_DPS = Bit2 | Bit1, // 0b11 = ±2000 dps
+  GYRO_FS_SEL_250_DPS = 0,             // 0b00 = ±250 dps
+  GYRO_FS_SEL_500_DPS = Bit1,          // 0b01 = ±500 dps
+  GYRO_FS_SEL_1000_DPS = Bit2,         // 0b10 = ±1000 dps
+  GYRO_FS_SEL_2000_DPS = Bit2 | Bit1,  // 0b11 = ±2000 dps
 
-  GYRO_FCHOICE = Bit0, // 0 – Bypass gyro DLPF
+  GYRO_FCHOICE = Bit0,  // 0 – Bypass gyro DLPF
 };
 
 // ACCEL_CONFIG
 enum ACCEL_CONFIG_BIT : uint8_t {
   // 5:3 ACCEL_DLPFCFG[2:0]
-  ACCEL_DLPFCFG = Bit5 | Bit4 | Bit3, // 7 -
+  ACCEL_DLPFCFG = Bit5 | Bit4 | Bit3,  // 7 -
 
   // 2:1 ACCEL_FS_SEL[1:0]
-  ACCEL_FS_SEL_2G = 0,            // 0b00: ±2g
-  ACCEL_FS_SEL_4G = Bit1,         // 0b01: ±4g
-  ACCEL_FS_SEL_8G = Bit2,         // 0b10: ±8g
-  ACCEL_FS_SEL_16G = Bit2 | Bit1, // 0b11: ±16g
+  ACCEL_FS_SEL_2G = 0,             // 0b00: ±2g
+  ACCEL_FS_SEL_4G = Bit1,          // 0b01: ±4g
+  ACCEL_FS_SEL_8G = Bit2,          // 0b10: ±8g
+  ACCEL_FS_SEL_16G = Bit2 | Bit1,  // 0b11: ±16g
 
-  ACCEL_FCHOICE = Bit0, // 0: Bypass accel DLPF
+  ACCEL_FCHOICE = Bit0,  // 0: Bypass accel DLPF
 };
 
 namespace FIFO {
@@ -216,7 +216,7 @@ struct DATA {
   uint8_t GYRO_ZOUT_H;
   uint8_t GYRO_ZOUT_L;
 };
-} // namespace FIFO
-} // namespace InvenSense_ICM20948
+}  // namespace FIFO
+}  // namespace InvenSense_ICM20948
 
 // NOLINTEND(readability-identifier-naming)

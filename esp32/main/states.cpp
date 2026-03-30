@@ -1,43 +1,45 @@
 #include "states.hpp"
+
+#include <cstdio>
+
 #include "ctx.hpp"
 #include "message.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
-#include <cstdio>
+#include "timebase.hpp"
 
 extern "C" {
 #include "esp_log.h"
-#include "esp_system.h"        // for esp_restart
-#include "freertos/FreeRTOS.h" // IWYU pragma: keep
+#include "esp_system.h"         // for esp_restart
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
 static constexpr const char *kTag = "states";
 
 // Serving State
-void ServingState::OnEnter(AppContext &ctx, SmTick now) {
-  (void)now;
+void ServingState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
   ctx.sys->StopNetwork();
   in_flight_ = false;
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
-
   if (!ctx.sys->FcLink().PerformHandshake()) {
+    ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
+  ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
 }
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
-  ctx.sys->Mavlink().Poll(now);
-  ctx.sys->FcLink().SendRcState(ctx.sys->Mavlink().GetRcState());
-  ctx.sys->FcLink().Poll(now);
-
-  message::Packet pkt;
-  while (ctx.sys->FcLink().GetPacket(pkt)) {
-    ctx.sys->CommandHandler().Dispatch(ctx, pkt);
+  ctx.sys->Mavlink().Poll();
+  ctx.sys->FcLink().ForwardRcState(
+      ctx.sys->Mavlink()
+          .GetRcState());  // FcLink will regulate forwarding rate internally
+  ctx.sys->FcLink().Poll();
+  while (auto packet = ctx.sys->FcLink().PopPacket()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
-
   if (!in_flight_) {
     ctx.sys->Button().Poll(now);
     if (ctx.sys->Button().ConsumeLongPress()) {
@@ -48,12 +50,8 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   }
 }
 
-void ServingState::OnExit(AppContext &, SmTick) {
-  ESP_LOGI(kTag, "exiting Serving");
-}
-
 // Dfu State
-void DfuState::OnEnter(AppContext &ctx, SmTick now) {
+void DfuState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Dfu");
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
   ctx.sys->StartNetwork();
@@ -70,12 +68,10 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   // Poll MAVLink and FcLink for Monitoring
-  ctx.sys->Mavlink().Poll(now);
-  ctx.sys->FcLink().Poll(now);
-
-  message::Packet pkt;
-  while (ctx.sys->FcLink().GetPacket(pkt)) {
-    ctx.sys->CommandHandler().Dispatch(ctx, pkt);
+  ctx.sys->Mavlink().Poll();
+  ctx.sys->FcLink().Poll();
+  while (auto packet = ctx.sys->FcLink().PopPacket()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
 
   ctx.sys->Tcp().Poll(now);
@@ -85,31 +81,29 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
     CommandHandler::TransitionResult res =
         ctx.sys->CommandHandler().Dispatch(ctx, ev);
     switch (res) {
-    case CommandHandler::TransitionResult::kTransitionToProgram:
-      ctx.sm->ReqTransition(*ctx.program_state);
-      return;
-    case CommandHandler::TransitionResult::kTransitionToServing:
-      ctx.sm->ReqTransition(*ctx.serving_state);
-      return;
-    case CommandHandler::TransitionResult::kNone:
-      break;
-    case CommandHandler::TransitionResult::kUnknown:
-    default:
-      ESP_LOGE(kTag, "Unknown TCP Result: %d -> HardError", (int)res);
-      ctx.sm->ReqTransition(*ctx.hard_error_state);
-      break;
+      case CommandHandler::TransitionResult::kTransitionToProgram:
+        ctx.sm->ReqTransition(*ctx.program_state);
+        return;
+      case CommandHandler::TransitionResult::kTransitionToServing:
+        ctx.sm->ReqTransition(*ctx.serving_state);
+        return;
+      case CommandHandler::TransitionResult::kNone:
+        break;
+      case CommandHandler::TransitionResult::kUnknown:
+      default:
+        ESP_LOGE(kTag, "Unknown TCP Result: %d -> HardError", (int)res);
+        ctx.sm->ReqTransition(*ctx.hard_error_state);
+        break;
     }
   }
 }
 
-void DfuState::OnExit(AppContext &ctx, SmTick) { ESP_LOGI(kTag, "exit Dfu"); }
-
 // Program State
-void ProgramState::OnEnter(AppContext &ctx, SmTick now) {
+void ProgramState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Program mode");
-  ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total, now);
+  ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
-  last_activity_ = now;
+  last_activity_ = NowMs();
   last_written_ = ctx.sys->Programmer().Written();
 }
 
@@ -130,7 +124,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     ESP_LOGI(kTag, "Prog Done -> Transitioning to Dfu");
     // Report success status before correct transition
     TcpServer::Status st = tcp.GetStatus();
-    st.state = 1; // Done
+    st.state = 1;  // Done
     tcp.SetStatus(st);
 
     ctx.sm->ReqTransition(*ctx.dfu_state);
@@ -189,14 +183,13 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   }
 }
 
-void ProgramState::OnExit(AppContext &ctx, SmTick) {
+void ProgramState::OnExit(AppContext &ctx) {
   ESP_LOGI(kTag, "exit Program");
   ctx.sys->Programmer().Boot();
 }
 
 // Hard Error State
-void HardErrorState::OnEnter(AppContext &ctx, SmTick now) {
-  (void)now;
+void HardErrorState::OnEnter(AppContext &ctx) {
   ESP_LOGE(kTag, "ENTERING HARD ERROR STATE");
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 100);
   ctx.sys->StartNetwork();
@@ -221,8 +214,4 @@ void HardErrorState::OnStep(AppContext &ctx, SmTick now) {
   while (ctx.sys->Tcp().PopEvent(ev)) {
     __asm__ __volatile__("nop");
   }
-}
-
-void HardErrorState::OnExit(AppContext &ctx, SmTick) {
-  ctx.sm->ReqTransition(*ctx.hard_error_state); // Should never exit
 }
