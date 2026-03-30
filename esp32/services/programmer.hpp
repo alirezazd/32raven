@@ -1,11 +1,11 @@
 #pragma once
-#include "mbedtls/sha256.h" // IWYU pragma: keep
+#include "mbedtls/sha256.h"  // IWYU pragma: keep
 #include "uart.hpp"
 
 extern "C" {
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
-#include "esp_system.h" // IWYU pragma: keep
+#include "esp_system.h"  // IWYU pragma: keep
 }
 
 #include <cstddef>
@@ -16,7 +16,7 @@ extern "C" {
 #include "state_machine.hpp"
 
 class Programmer {
-public:
+ public:
   static Programmer &GetInstance() {
     static Programmer instance;
     return instance;
@@ -25,7 +25,7 @@ public:
   struct Config {
     // STM32 boot control pins on the ESP32 side.
     gpio_num_t boot0_pin = GPIO_NUM_NC;
-    gpio_num_t nrst_pin = GPIO_NUM_NC; // active low reset
+    gpio_num_t nrst_pin = GPIO_NUM_NC;  // active low reset
 
     uint32_t reset_pulse_ms = 50;
     uint32_t boot_settle_ms = 50;
@@ -38,16 +38,15 @@ public:
 
   void SetTarget(Target t) { ctx_.target = t; }
 
-  void Start(uint32_t total_size, SmTick now);
+  void Start(uint32_t total_size);
   void Poll(SmTick now);
-
   void Abort(SmTick now);
 
   // Feed bytes and internally advance writing SM.
   // Returns bytes accepted (may be < n for backpressure).
   size_t PushBytes(const uint8_t *data, size_t n, SmTick now);
 
-  bool Ready() const; // handshake done, ready to accept bytes
+  bool Ready() const;  // handshake done, ready to accept bytes
   bool Done() const;
   bool Error() const;
   bool IsVerifying() const;
@@ -61,7 +60,7 @@ public:
 
   bool Boot();
 
-private:
+ private:
   friend class System;
   void Init(const Config &cfg, UartFcLink *uart);
   // ---- Internal context used by StateMachine<Ctx> ----
@@ -90,7 +89,7 @@ private:
     // transitions
     IState<Ctx> *st_idle = nullptr;
     IState<Ctx> *st_writing = nullptr;
-    IState<Ctx> *st_verifying = nullptr; // New State
+    IState<Ctx> *st_verifying = nullptr;  // New State
     IState<Ctx> *st_done = nullptr;
     IState<Ctx> *st_error = nullptr;
 
@@ -112,56 +111,47 @@ private:
   }
 
   class IdleState : public IState<Ctx> {
-  public:
+   public:
     const char *Name() const override { return "P.Idle"; }
-    void OnEnter(Ctx &, SmTick) override {}
     void OnStep(Ctx &, SmTick) override {}
-    void OnExit(Ctx &, SmTick) override {}
   };
 
   class WritingState : public IState<Ctx> {
-  public:
+   public:
     const char *Name() const override { return "P.Writing"; }
-    void OnEnter(Ctx &c, SmTick now) override;
     void OnStep(Ctx &c, SmTick now) override;
-    void OnExit(Ctx &, SmTick) override {}
   };
 
   class VerifyingState : public IState<Ctx> {
-  public:
+   public:
     const char *Name() const override { return "P.Verifying"; }
-    void OnEnter(Ctx &c, SmTick now) override;
+    void OnEnter(Ctx &c) override;
     void OnStep(Ctx &c, SmTick now) override;
-    void OnExit(Ctx &c, SmTick now) override {}
   };
 
   class DoneState : public IState<Ctx> {
-  public:
+   public:
     const char *Name() const override { return "P.Done"; }
-    void OnEnter(Ctx &, SmTick) override {}
     void OnStep(Ctx &, SmTick) override {}
-    void OnExit(Ctx &, SmTick) override {}
   };
 
   class ErrorState : public IState<Ctx> {
-  public:
+   public:
     const char *Name() const override { return "P.Error"; }
-    void OnEnter(Ctx &, SmTick) override;
     void OnStep(Ctx &, SmTick) override {}
-    void OnExit(Ctx &, SmTick) override {}
   };
 
   void GpioInit();
   void Boot0Set(bool on);
   void NrstPulse(uint32_t pulse_ms);
-  bool EnterBootloader();   // BOOT0/reset/0x7F/ACK (bounded retries)
-  bool GetBootloaderInfo(); // CMD_GET (0x00)
-  bool EraseSectors();      // STM32 targeted EXT_ERASE preserving EEPROM
-  bool MassErase();         // Mass erase (STM32 only, no EEPROM preservation)
+  bool EnterBootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
+  bool GetBootloaderInfo();  // CMD_GET (0x00)
+  bool EraseSectors();       // STM32 targeted EXT_ERASE preserving EEPROM
+  bool MassErase();          // Mass erase (STM32 only, no EEPROM preservation)
   bool WriteBlock(uint32_t addr, const uint8_t *data,
-                  size_t len); // CMD_WRITE_MEMORY (0x31)
+                  size_t len);  // CMD_WRITE_MEMORY (0x31)
   bool ReadBlock(uint32_t addr, uint8_t *data,
-                 size_t len); // CMD_READ_MEMORY (0x11)
+                 size_t len);  // CMD_READ_MEMORY (0x11)
 
   bool initialized_ = false;
 

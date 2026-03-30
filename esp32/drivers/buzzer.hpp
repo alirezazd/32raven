@@ -6,11 +6,11 @@
 
 extern "C" {
 #include "driver/ledc.h"
-#include "hal/gpio_types.h" // IWYU pragma: keep
+#include "hal/gpio_types.h"  // IWYU pragma: keep
 }
 
 class Buzzer {
-public:
+ public:
   static Buzzer &GetInstance() {
     static Buzzer instance;
     return instance;
@@ -38,7 +38,7 @@ public:
   bool IsRunning() const { return running_; }
   uint32_t GetFrequencyHz() const { return freq_hz_; }
 
-private:
+ private:
   friend class System;
 
   void Init(const Config &cfg);

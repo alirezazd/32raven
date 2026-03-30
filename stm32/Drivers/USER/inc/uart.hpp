@@ -1,9 +1,10 @@
 #pragma once
 
-#include "board.h"
-#include "ring_buffer.hpp"
 #include <cstddef>
 #include <cstdint>
+
+#include "board.h"
+#include "ring_buffer.hpp"
 
 enum class UartInstance { kUart1, kUart2 };
 
@@ -59,7 +60,7 @@ template <UartInstance Inst, size_t TxBufferSize = kUartTxBufSize,
           size_t RxDmaSize = kUartRxDmaSize,
           size_t RxRingSize = kUartRxRingSize>
 class Uart {
-public:
+ public:
   static Uart &GetInstance() {
     static Uart instance;
     return instance;
@@ -85,10 +86,10 @@ public:
   void OnRxHalfCplt();
   void OnRxCplt();
 
-private:
+ private:
   friend class System;
-  friend class M9N; // Allow M9N::ConfigureOnce to reinit UART at different baud
-                    // rates
+  friend class M9N;  // Allow M9N::ConfigureOnce to reinit UART at different
+                     // baud rates
   void Init(const UartConfig &config);
 
   Uart() = default;
@@ -113,7 +114,7 @@ private:
   // Error Counters
   volatile uint32_t tx_drop_bytes_ = 0;
   volatile uint32_t tx_dma_err_ = 0;
-  uint8_t tx_retry_count_ = 0; // For TX DMA retries
+  uint8_t tx_retry_count_ = 0;  // For TX DMA retries
   volatile uint32_t rx_drop_bytes_ = 0;
   volatile uint32_t rx_dma_err_ = 0;
   volatile uint32_t uart_ore_err_ = 0;

@@ -27,7 +27,6 @@ enum class MsgId : uint8_t {
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kImuData = 0x11,
-  kConfig = 0x13,
   kPanic = 0x14,
 
   // System
@@ -43,10 +42,6 @@ struct Header {
   uint8_t id;       // MsgId
   uint8_t len;      // Payload Length
 };
-
-struct ConfigMsg {
-  uint8_t telemetry_rate_hz;
-} __attribute__((packed));
 
 struct RcChannelsMsg {
   uint16_t channels[16];

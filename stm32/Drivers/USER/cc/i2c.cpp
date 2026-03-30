@@ -1,4 +1,5 @@
 #include "I2C.hpp"
+
 #include "i2c.hpp"
 #include "system.hpp"
 
@@ -7,18 +8,21 @@ extern "C" {
 I2C_HandleTypeDef hi2c1;
 }
 
-template <I2CInstance Inst> I2C<Inst>::I2C() {}
+template <I2CInstance Inst>
+I2C<Inst>::I2C() {}
 
-template <I2CInstance Inst> I2C<Inst>::~I2C() {}
+template <I2CInstance Inst>
+I2C<Inst>::~I2C() {}
 
-template <I2CInstance Inst> I2C_HandleTypeDef *I2C<Inst>::GetHandle() {
-  if (Inst == I2CInstance::kI2C1)
-    return &hi2c1;
+template <I2CInstance Inst>
+I2C_HandleTypeDef *I2C<Inst>::GetHandle() {
+  if (Inst == I2CInstance::kI2C1) return &hi2c1;
   ErrorHandler();
   return nullptr;
 }
 
-template <I2CInstance Inst> void I2C<Inst>::Init(const Config &config) {
+template <I2CInstance Inst>
+void I2C<Inst>::Init(const Config &config) {
   if (initialized_) {
     ErrorHandler();
   }

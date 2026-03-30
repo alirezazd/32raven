@@ -1,13 +1,14 @@
 #pragma once
 
+#include <cstdint>
+
 #include "board.h"
 #include "icm20948_reg.hpp"
-#include <cstdint>
 
 class GPIO;
 
 class Icm20948 {
-public:
+ public:
   struct Config {
     size_t dma_buf_size;
     size_t fifo_size;
@@ -25,7 +26,7 @@ public:
     } gyro;
 
     uint8_t mag_rate;
-    uint8_t spi_prescaler; // Cast from SpiPrescaler
+    uint8_t spi_prescaler;  // Cast from SpiPrescaler
 
     static constexpr float kAccelScale = 9.80665f / 2048.0f;
     static constexpr float kGyroScale = 0.01745329f / 16.4f;
@@ -41,7 +42,7 @@ public:
 
   uint32_t GetLastDrdyTime() const { return last_drdy_time_; }
 
-private:
+ private:
   friend class System;
   Icm20948() = default;
   ~Icm20948() = default;

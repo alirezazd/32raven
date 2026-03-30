@@ -1,13 +1,13 @@
 #include "m9n.hpp"
-#include "m9n_reg.hpp"
 
+#include <cstring>
+#include <type_traits>
+
+#include "m9n_reg.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-
-#include <cstring>
-#include <type_traits>
 
 inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
                         uint8_t &ck_b) {
@@ -107,8 +107,8 @@ void M9N::ApplyConfig(uint8_t layer) {
   // - TP1_SYNC_GNSS (U1)
   // - TP1_ALIGN_TO_TOW (U1)
   // - TP1_POL (U1)
-  constexpr uint16_t payload_len = (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) +
-                                   (4 + 1) + (4 + 1) + (4 + 1);
+  constexpr uint16_t payload_len =
+      (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1);
   constexpr size_t packet_len = 6 + payload_len + 2;
   uint8_t buf[packet_len];
 
@@ -185,11 +185,10 @@ void M9N::FlashConfig(BaudRate current_baud) {
   ApplyConfig(kValsetLayerAll);
 
   // Baud change last, no ACK wait
-  SendCfgValSetRaw<uint32_t>(kKeyUart1Baudrate,
-                             ToBaudRateValue(config_.baud_rate),
-                             kValsetLayerAll);
+  SendCfgValSetRaw<uint32_t>(
+      kKeyUart1Baudrate, ToBaudRateValue(config_.baud_rate), kValsetLayerAll);
 
-  time.DelayMicros(MILLIS_TO_MICROS(200)); // settle time
+  time.DelayMicros(MILLIS_TO_MICROS(200));  // settle time
   uart.SetBaudRate(ToBaudRateValue(config_.baud_rate));
   uart.FlushRx();
 }
@@ -200,8 +199,7 @@ void M9N::Init(const Config &config) {
   // Wait up to 1s for GPS to boot and respond
   WaitForReady();
 
-  if (config_.flash_config)
-    FlashConfig(BaudRate::k38400);
+  if (config_.flash_config) FlashConfig(BaudRate::k38400);
 
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   uart.FlushRx();
@@ -223,12 +221,10 @@ bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 
   while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
     uint8_t b;
-    if (!uart.Read(b))
-      continue;
+    if (!uart.Read(b)) continue;
 
     if (idx == 0) {
-      if (b != UBX::kSync1)
-        continue;
+      if (b != UBX::kSync1) continue;
       frame[idx++] = b;
       continue;
     }
@@ -242,26 +238,21 @@ bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
     }
 
     frame[idx++] = b;
-    if (idx < sizeof(frame))
-      continue;
+    if (idx < sizeof(frame)) continue;
     idx = 0;
 
-    if (frame[2] != UBX::kClsAck)
-      continue;
+    if (frame[2] != UBX::kClsAck) continue;
 
     const uint8_t id = frame[3];
-    if (id != UBX::kIdAckAck && id != UBX::kIdAckNak)
-      continue;
+    if (id != UBX::kIdAckAck && id != UBX::kIdAckNak) continue;
 
-    if (frame[4] != 0x02 || frame[5] != 0x00)
-      continue;
+    if (frame[4] != 0x02 || frame[5] != 0x00) continue;
 
     uint8_t ck_a = 0, ck_b = 0;
     uint8_t chk_buf[6] = {frame[2], frame[3], frame[4],
                           frame[5], frame[6], frame[7]};
     UbxChecksum(chk_buf, sizeof(chk_buf), ck_a, ck_b);
-    if (ck_a != frame[8] || ck_b != frame[9])
-      continue;
+    if (ck_a != frame[8] || ck_b != frame[9]) continue;
 
     if (frame[6] == want_cls && frame[7] == want_id) {
       return id == UBX::kIdAckAck;
@@ -311,7 +302,7 @@ void M9N::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
 void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
   constexpr uint8_t version = 0x00;
   constexpr uint16_t position = 0;
-  constexpr uint16_t payload_len = 4 + 4; // version/layer/position + 1 key
+  constexpr uint16_t payload_len = 4 + 4;  // version/layer/position + 1 key
   constexpr size_t packet_len = 6 + payload_len + 2;
 
   uint8_t buf[packet_len];
@@ -341,7 +332,8 @@ void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
   Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
 }
 
-template <typename T> bool M9N::WaitForValget(uint32_t key, T expected_value) {
+template <typename T>
+bool M9N::WaitForValget(uint32_t key, T expected_value) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
@@ -356,18 +348,15 @@ template <typename T> bool M9N::WaitForValget(uint32_t key, T expected_value) {
 
   while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
     uint8_t b;
-    if (!uart.Read(b))
-      continue;
+    if (!uart.Read(b)) continue;
 
-    if (idx == 0 && b != UBX::kSync1)
-      continue;
+    if (idx == 0 && b != UBX::kSync1) continue;
     if (idx == 1 && b != UBX::kSync2) {
       idx = 0;
       continue;
     }
 
-    if (idx < sizeof(frame))
-      frame[idx] = b;
+    if (idx < sizeof(frame)) frame[idx] = b;
     idx++;
 
     if (idx == 6) {
@@ -380,30 +369,25 @@ template <typename T> bool M9N::WaitForValget(uint32_t key, T expected_value) {
       }
     }
 
-    if (frame_len == 0 || idx < frame_len)
-      continue;
+    if (frame_len == 0 || idx < frame_len) continue;
 
     idx = 0;
     frame_len = 0;
 
-    if (frame[2] != UBX::kClsCfg || frame[3] != UBX::kIdCfgValget)
-      continue;
+    if (frame[2] != UBX::kClsCfg || frame[3] != UBX::kIdCfgValget) continue;
 
     // expect: version+layer+position (4) + key (4) + value
-    if (payload_len != 4 + 4 + sizeof(T))
-      continue;
+    if (payload_len != 4 + 4 + sizeof(T)) continue;
 
     uint8_t ck_a = 0, ck_b = 0;
     UbxChecksum(&frame[2], 4 + payload_len, ck_a, ck_b);
     if (ck_a != frame[6 + payload_len] || ck_b != frame[6 + payload_len + 1])
       continue;
 
-    const uint32_t resp_key = (uint32_t)frame[10] |
-                              ((uint32_t)frame[11] << 8) |
+    const uint32_t resp_key = (uint32_t)frame[10] | ((uint32_t)frame[11] << 8) |
                               ((uint32_t)frame[12] << 16) |
                               ((uint32_t)frame[13] << 24);
-    if (resp_key != key)
-      continue;
+    if (resp_key != key) continue;
 
     T resp_value{};
     std::memcpy(&resp_value, &frame[14], sizeof(T));
@@ -418,8 +402,7 @@ bool M9N::SendCfgValSet(uint32_t key, T value, uint8_t layer) {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
 
   SendCfgValSetRaw(key, value, layer);
-  if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset))
-    return false;
+  if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) return false;
 
   // Verify against active config (RAM) to keep it deterministic.
   uart.FlushRx();

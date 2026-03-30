@@ -75,7 +75,7 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart) {
   StartMavlinkTxTask();
 }
 
-void Mavlink::Poll(uint32_t now_ms) {
+void Mavlink::Poll() {
   if (!initialized_ || !uart_) {
     return;
   }
@@ -88,53 +88,50 @@ void Mavlink::Poll(uint32_t now_ms) {
   int n = uart_->Read(rx_buf_.data(), read_chunk_size, 0);
   if (n > 0) {
     for (int i = 0; i < n; i++) {
-      HandleRxByte(rx_buf_[i], now_ms);
+      HandleRxByte(rx_buf_[i]);
     }
   }
 }
 
-void Mavlink::HandleRxByte(uint8_t b, uint32_t now_ms) {
+void Mavlink::HandleRxByte(uint8_t b) {
   if (mavlink_parse_char(MAVLINK_COMM_1, b, &rx_msg_, &rx_status_)) {
-    HandleMessage(rx_msg_, now_ms);
+    HandleMessage(rx_msg_);
   }
 }
 
-void Mavlink::HandleMessage(const mavlink_message_t &msg, uint32_t now_ms) {
+void Mavlink::HandleMessage(const mavlink_message_t &msg) {
   switch (msg.msgid) {
-  case MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE: {
-    mavlink_rc_channels_override_t rc{};
-    mavlink_msg_rc_channels_override_decode(&msg, &rc);
+    case MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE: {
+      mavlink_rc_channels_override_t rc{};
+      mavlink_msg_rc_channels_override_decode(&msg, &rc);
 
-    rc_state_.rc.channels[0] = rc.chan1_raw;
-    rc_state_.rc.channels[1] = rc.chan2_raw;
-    rc_state_.rc.channels[2] = rc.chan3_raw;
-    rc_state_.rc.channels[3] = rc.chan4_raw;
-    rc_state_.rc.channels[4] = rc.chan5_raw;
-    rc_state_.rc.channels[5] = rc.chan6_raw;
-    rc_state_.rc.channels[6] = rc.chan7_raw;
-    rc_state_.rc.channels[7] = rc.chan8_raw;
-    rc_state_.rc.channels[8] = rc.chan9_raw;
-    rc_state_.rc.channels[9] = rc.chan10_raw;
-    rc_state_.rc.channels[10] = rc.chan11_raw;
-    rc_state_.rc.channels[11] = rc.chan12_raw;
-    rc_state_.rc.channels[12] = rc.chan13_raw;
-    rc_state_.rc.channels[13] = rc.chan14_raw;
-    rc_state_.rc.channels[14] = rc.chan15_raw;
-    rc_state_.rc.channels[15] = rc.chan16_raw;
+      rc_state_.channels[0] = rc.chan1_raw;
+      rc_state_.channels[1] = rc.chan2_raw;
+      rc_state_.channels[2] = rc.chan3_raw;
+      rc_state_.channels[3] = rc.chan4_raw;
+      rc_state_.channels[4] = rc.chan5_raw;
+      rc_state_.channels[5] = rc.chan6_raw;
+      rc_state_.channels[6] = rc.chan7_raw;
+      rc_state_.channels[7] = rc.chan8_raw;
+      rc_state_.channels[8] = rc.chan9_raw;
+      rc_state_.channels[9] = rc.chan10_raw;
+      rc_state_.channels[10] = rc.chan11_raw;
+      rc_state_.channels[11] = rc.chan12_raw;
+      rc_state_.channels[12] = rc.chan13_raw;
+      rc_state_.channels[13] = rc.chan14_raw;
+      rc_state_.channels[14] = rc.chan15_raw;
+      rc_state_.channels[15] = rc.chan16_raw;
+      break;
+    }
+    case MAVLINK_MSG_ID_RADIO_STATUS: {
+      mavlink_radio_status_t radio{};
+      mavlink_msg_radio_status_decode(&msg, &radio);
+      rc_state_.rssi = radio.rssi;
+      break;
+    }
 
-    rc_state_.rc.last_update = now_ms;
-    break;
-  }
-  case MAVLINK_MSG_ID_RADIO_STATUS: {
-    mavlink_radio_status_t radio{};
-    mavlink_msg_radio_status_decode(&msg, &radio);
-    rc_state_.radio_status.last_update = now_ms;
-    rc_state_.radio_status.rssi = radio.rssi;
-    break;
-  }
-
-  default:
-    break;
+    default:
+      break;
   }
 }
 
@@ -191,22 +188,22 @@ void Mavlink::StartGpsRawIntFrame() {
   // MAVLink expects: lat/lon 1e7 deg, alt mm, vel cm/s, cog cdeg
   // fixType maps well to MAVLink fix_type.
 
-  mavlink_msg_gps_raw_int_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                               0, // time_usec (unknown here)
-                               (uint8_t)latest_.fixType, latest_.lat,
-                               latest_.lon,
-                               (int32_t)latest_.hMSL,          // alt (mm)
-                               (uint16_t)(latest_.hAcc / 10u), // eph (cm) rough
-                               (uint16_t)(latest_.vAcc / 10u), // epv (cm) rough
-                               (uint16_t)latest_.vel,          // vel (cm/s)
-                               (uint16_t)latest_.hdg,          // cog (cdeg)
-                               (uint8_t)latest_.numSV,
-                               0, // alt_ellipsoid
-                               0, // h_acc
-                               0, // v_acc
-                               0, // vel_acc
-                               0, // hdg_acc
-                               0  // yaw
+  mavlink_msg_gps_raw_int_pack(
+      cfg_.identity.sysid, cfg_.identity.compid, &m,
+      0,  // time_usec (unknown here)
+      (uint8_t)latest_.fixType, latest_.lat, latest_.lon,
+      (int32_t)latest_.hMSL,           // alt (mm)
+      (uint16_t)(latest_.hAcc / 10u),  // eph (cm) rough
+      (uint16_t)(latest_.vAcc / 10u),  // epv (cm) rough
+      (uint16_t)latest_.vel,           // vel (cm/s)
+      (uint16_t)latest_.hdg,           // cog (cdeg)
+      (uint8_t)latest_.numSV,
+      0,  // alt_ellipsoid
+      0,  // h_acc
+      0,  // v_acc
+      0,  // vel_acc
+      0,  // hdg_acc
+      0   // yaw
   );
 
   tx_len_ = (uint16_t)mavlink_msg_to_send_buffer(tx_buf_, &m);
@@ -230,7 +227,7 @@ void Mavlink::StartAttitudeFrame() {
   float yaw = ((float)latest_.yaw * 0.01f) * 0.017453292519943295f;
 
   mavlink_msg_attitude_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                            0, // time_boot_ms unknown here
+                            0,  // time_boot_ms unknown here
                             roll, pitch, yaw, 0.0f, 0.0f, 0.0f);
 
   tx_len_ = (uint16_t)mavlink_msg_to_send_buffer(tx_buf_, &m);
@@ -252,16 +249,16 @@ void Mavlink::StartGlobalPositionIntFrame() {
   // add vertical speed in your STM32 packet.
   int32_t lat = latest_.lat;
   int32_t lon = latest_.lon;
-  int32_t alt = latest_.hMSL;     // mm
-  int32_t rel_alt = latest_.hMSL; // mm (placeholder for relative)
-  int16_t vx = 0;                 // cm/s
-  int16_t vy = 0;                 // cm/s
-  int16_t vz = 0;                 // cm/s
-  uint16_t hdg = latest_.hdg;     // cdeg
+  int32_t alt = latest_.hMSL;      // mm
+  int32_t rel_alt = latest_.hMSL;  // mm (placeholder for relative)
+  int16_t vx = 0;                  // cm/s
+  int16_t vy = 0;                  // cm/s
+  int16_t vz = 0;                  // cm/s
+  uint16_t hdg = latest_.hdg;      // cdeg
 
   mavlink_msg_global_position_int_pack(cfg_.identity.sysid,
                                        cfg_.identity.compid, &m,
-                                       0, // time_boot_ms unknown
+                                       0,  // time_boot_ms unknown
                                        lat, lon, alt, rel_alt, vx, vy, vz, hdg);
 
   tx_len_ = (uint16_t)mavlink_msg_to_send_buffer(tx_buf_, &m);
@@ -290,21 +287,21 @@ void Mavlink::StartBatteryStatusFrame() {
 
   mavlink_msg_battery_status_pack(
       cfg_.identity.sysid, cfg_.identity.compid, &m,
-      0, // id
+      0,  // id
       MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
-      0, // temperature unknown
+      0,  // temperature unknown
       voltages,
-      (int16_t)latest_.batt_current, // cA in your struct; MAVLink expects cA
+      (int16_t)latest_.batt_current,  // cA in your struct; MAVLink expects cA
       (int32_t)latest_
-          .batt_current, // current_consumed: you have cA, not mAh.
-                         // You should replace this once STM32 provides mAh.
-      0,                 // energy_consumed unknown
+          .batt_current,  // current_consumed: you have cA, not mAh.
+                          // You should replace this once STM32 provides mAh.
+      0,                  // energy_consumed unknown
       (int8_t)latest_.batt_remaining,
-      0,        // time_remaining
-      0,        // charge_state
-      voltages, // voltages_ext (safe re-use, ignores extra)
-      0,        // mode
-      0         // fault_bitmask
+      0,         // time_remaining
+      0,         // charge_state
+      voltages,  // voltages_ext (safe re-use, ignores extra)
+      0,         // mode
+      0          // fault_bitmask
   );
 
   tx_len_ = (uint16_t)mavlink_msg_to_send_buffer(tx_buf_, &m);
@@ -358,21 +355,21 @@ void Mavlink::StartNextScheduledFrame(uint32_t now_ms) {
   }
 
   switch (pick) {
-  case Pick::kGps:
-    StartGpsRawIntFrame();
-    break;
-  case Pick::kAtt:
-    StartAttitudeFrame();
-    break;
-  case Pick::kGpos:
-    StartGlobalPositionIntFrame();
-    break;
-  case Pick::kBatt:
-    StartBatteryStatusFrame();
-    break;
-  case Pick::kNone:
-  default:
-    break;
+    case Pick::kGps:
+      StartGpsRawIntFrame();
+      break;
+    case Pick::kAtt:
+      StartAttitudeFrame();
+      break;
+    case Pick::kGpos:
+      StartGlobalPositionIntFrame();
+      break;
+    case Pick::kBatt:
+      StartBatteryStatusFrame();
+      break;
+    case Pick::kNone:
+    default:
+      break;
   }
 }
 
@@ -397,14 +394,13 @@ void Mavlink::TxTick(uint32_t now_ms) {
   // 2) If we finished pushing bytes to driver, wait for TX done then clear
   // state
   if (tx_len_ > 0 && tx_sent_ >= tx_len_) {
-    if (uart_->DrainTx(0)) {
-      if (tx_is_hb_) {
-        last_hb_done_ms_ = now_ms;
-        tx_is_hb_ = false;
-      }
-      tx_len_ = 0;
-      tx_sent_ = 0;
+    uart_->DrainTx(0);
+    if (tx_is_hb_) {
+      last_hb_done_ms_ = now_ms;
+      tx_is_hb_ = false;
     }
+    tx_len_ = 0;
+    tx_sent_ = 0;
     return;
   }
 

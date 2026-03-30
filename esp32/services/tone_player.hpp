@@ -6,7 +6,7 @@
 #include "timebase.hpp"
 
 class TonePlayer {
-public:
+ public:
   static constexpr uint8_t kMaxVolume = 10;
   static constexpr uint8_t kPendingRequestQueueDepth = 5;
 
@@ -18,7 +18,7 @@ public:
   };
 
   struct Config {
-    uint8_t volume = 3; // 0..10
+    uint8_t volume = 3;  // 0..10
   };
 
   static TonePlayer &GetInstance() {
@@ -29,13 +29,13 @@ public:
   void Init(const Config &cfg, Buzzer *buzzer);
 
   bool PlayRtttl(const char *rtttl, int volume = -1);
-  bool PlayBuiltin(BuiltinTone tone, int volume = -1);
+  void PlayBuiltin(BuiltinTone tone, int volume = -1);
   void Stop();
 
   bool IsInitialized() const { return initialized_; }
   bool IsPlaying() const { return playing_; }
 
-private:
+ private:
   struct NoteEvent {
     uint32_t freq_hz = 0;
     TimeMs duration_ms = 0;
@@ -78,6 +78,6 @@ private:
   TimeMs whole_note_ms_ = 0;
   TimeMs next_change_ms_ = 0;
   uint8_t playback_volume_ = kMaxVolume;
-  void *task_handle_ = nullptr; // TaskHandle_t
-  void *request_queue_ = nullptr; // QueueHandle_t
+  void *task_handle_ = nullptr;    // TaskHandle_t
+  void *request_queue_ = nullptr;  // QueueHandle_t
 };

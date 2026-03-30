@@ -13,7 +13,7 @@
 #include "wifi.hpp"
 
 class System {
-public:
+ public:
   static System &GetInstance() {
     static System instance;
     return instance;
@@ -53,7 +53,7 @@ public:
   void StopNetwork();
   void StartNetwork();
 
-private:
+ private:
   void InitComponent(Component c);
 
   bool initialized_ = false;

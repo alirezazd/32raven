@@ -1,8 +1,9 @@
 #include "icm20948.hpp"
-#include "gpio.hpp"
 
+#include <cstring>  // for memcpy
+
+#include "gpio.hpp"
 #include "system.hpp"
-#include <cstring> // for memcpy
 
 using namespace InvenSense_ICM20948;
 
@@ -14,8 +15,7 @@ void Icm20948::SelectRegisterBank(uint8_t bank) {
 }
 
 void Icm20948::Init(GPIO &gpio, const Config &config) {
-  if (initialized_)
-    return;
+  if (initialized_) return;
 
   gpio_ = &gpio;
   config_ = config;
@@ -27,7 +27,7 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
   last_bank_ = 0xFF;
 
   // Force Bank 0
-  SelectRegisterBank(0); // Uses WriteRegRaw
+  SelectRegisterBank(0);  // Uses WriteRegRaw
 
   // Device reset
   WriteReg(0, static_cast<uint8_t>(Register::BANK_0::PWR_MGMT_1),
@@ -39,8 +39,7 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
     while (true) {
       uint8_t pwr =
           ReadReg(0, static_cast<uint8_t>(Register::BANK_0::PWR_MGMT_1));
-      if ((pwr & PWR_MGMT_1_BIT::DEVICE_RESET) == 0)
-        break;
+      if ((pwr & PWR_MGMT_1_BIT::DEVICE_RESET) == 0) break;
       if (System::GetInstance().Time().Micros() - start > 100000) {
         ErrorHandler();
         return;
@@ -164,7 +163,7 @@ void Icm20948::OnDrdyIrq(uint32_t timestamp) {
   // Fill rest with 0? Spi driver handles it?
   // Existing code: `dma_tx_buf_[0] = ...;` then StartTxRxDma.
   // We need to set DMA buffer size correctly.
-  static constexpr size_t kBurstSize = 22 + 1; // 1 byte cmd + 22 bytes data
+  static constexpr size_t kBurstSize = 22 + 1;  // 1 byte cmd + 22 bytes data
 
   // Ensure kDmaBufSize is large enough (header says 32, so 23 is fine).
 
@@ -225,15 +224,14 @@ void Icm20948::WriteReg(uint8_t bank, uint8_t reg, uint8_t val, bool verify,
     SelectRegisterBank(bank);
     WriteRegRaw(reg, val);
 
-    if (!verify)
-      return;
+    if (!verify) return;
 
     // Digest time
     System::GetInstance().Time().DelayMicros(10);
 
     // Verify
     SelectRegisterBank(
-        bank); // Ensuring bank wasn't switched by interrupt or other context
+        bank);  // Ensuring bank wasn't switched by interrupt or other context
     uint8_t got = ReadRegRaw(reg);
     if ((got & verify_mask) == (val & verify_mask)) {
       break;

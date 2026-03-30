@@ -13,7 +13,7 @@ namespace {
 constexpr float kMinDuty = 0.0f;
 constexpr float kMaxDuty = 1.0f;
 constexpr const char *kTag = "buzzer";
-} // namespace
+}  // namespace
 
 uint32_t Buzzer::ComputeDutyTicks(ledc_timer_bit_t resolution,
                                   float duty_cycle) {
@@ -68,12 +68,13 @@ void Buzzer::Init(const Config &cfg) {
   initialized_ = true;
   running_ = false;
 
-  ESP_LOGI(kTag,
-           "init pin=%d active_low=%d timer=%d channel=%d freq=%lu duty_ticks=%lu",
-           static_cast<int>(cfg.pin), static_cast<int>(cfg.active_low),
-           static_cast<int>(cfg.timer_num), static_cast<int>(cfg.channel),
-           static_cast<unsigned long>(freq_hz_),
-           static_cast<unsigned long>(duty_ticks_));
+  ESP_LOGI(
+      kTag,
+      "init pin=%d active_low=%d timer=%d channel=%d freq=%lu duty_ticks=%lu",
+      static_cast<int>(cfg.pin), static_cast<int>(cfg.active_low),
+      static_cast<int>(cfg.timer_num), static_cast<int>(cfg.channel),
+      static_cast<unsigned long>(freq_hz_),
+      static_cast<unsigned long>(duty_ticks_));
 }
 
 ErrorCode Buzzer::Start(uint32_t freq_hz) {
@@ -139,8 +140,7 @@ ErrorCode Buzzer::Stop() {
     return ErrorCode::kBuzzerNotInitialized;
   }
 
-  if (ledc_set_duty_and_update(cfg_.speed_mode, cfg_.channel, 0, 0) !=
-      ESP_OK) {
+  if (ledc_set_duty_and_update(cfg_.speed_mode, cfg_.channel, 0, 0) != ESP_OK) {
     return ErrorCode::kBuzzerSetDutyFailed;
   }
 

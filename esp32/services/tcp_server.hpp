@@ -11,7 +11,7 @@ extern "C" {
 #include "state_machine.hpp"
 
 class TcpServer {
-public:
+ public:
   static TcpServer &GetInstance() {
     static TcpServer inst;
     return inst;
@@ -46,7 +46,7 @@ public:
     kBegin,
     kAbort,
     kReset,
-    kBridge, // Explicit command to enable transparent bridge
+    kBridge,  // Explicit command to enable transparent bridge
     kCtrlUp,
     kCtrlDown,
     kDataUp,
@@ -98,7 +98,7 @@ public:
   // Send raw data to DATA client
   int SendData(const uint8_t *data, size_t len);
 
-private:
+ private:
   friend class System;
   TcpServer() = default;
   ~TcpServer() = default;

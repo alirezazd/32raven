@@ -9,10 +9,11 @@ struct HardErrorState;
 
 class System;
 
-template <typename Context> class StateMachine;
+template <typename Context>
+class StateMachine;
 
 struct AppContext {
-  AppContext(); // Logic moved to cpp
+  AppContext();  // Logic moved to cpp
 
   System *sys = nullptr;
   StateMachine<AppContext> *sm = nullptr;

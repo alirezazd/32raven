@@ -1,4 +1,5 @@
 #include "DShotCodec.hpp"
+
 #include "DShotTim1.hpp"
 #include "system.hpp"
 
@@ -11,7 +12,6 @@ void DShotCodec::InitImpl(const Config &cfg) {
 }
 
 void DShotCodec::WriteImpl(const uint16_t motor[4], bool telemetry) {
-
   // If hardware is busy, just skip.
   // This is mathematically safe at sane rates above DShot150
   if (DShotTim1::isBusy()) {

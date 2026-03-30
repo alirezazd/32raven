@@ -345,40 +345,39 @@ config ESP32_FCLINK_UART_TX_BUFFER_SIZE
 
 endmenu
 
-config ESP32_FCLINK_TELEMETRY_RATE_HZ
-    int "Telemetry rate (Hz)"
+config ESP32_FCLINK_RC_FORWARD_RATE_HZ
+    int "RC forward rate (Hz)"
     range 1 255
-    default 25
+    default 50
     help
-      Telemetry rate advertised to STM32 during FcLink configuration.
+      Maximum rate used to forward RC state from the ESP32 MAVLink receiver
+      to STM32 over FcLink while in Serving mode.
 
-config ESP32_FCLINK_HANDSHAKE_TIMEOUT_MS
-    int "Handshake timeout (ms)"
-    range 1 10000
-    default 2000
+config ESP32_FCLINK_HANDSHAKE_ATTEMPTS
+    int "Handshake attempts"
+    range 1 1000
+    default 100
     help
-      Total time budget for the ESP32 FcLink startup handshake.
+      Number of ping attempts made during the ESP32 FcLink startup handshake
+      before the link is considered unavailable.
 
 config ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS
     int "Handshake retry period (ms)"
     range 1 1000
     default 20
     help
-      Delay between repeated FcLink handshake attempts.
-
-config ESP32_FCLINK_RX_READ_CHUNK_SIZE
-    int "RX read chunk size (bytes)"
-    range 1 256
-    default 128
-    help
-      Maximum number of bytes pulled from the UART in one FcLink receive pass.
+      Delay between consecutive FcLink handshake attempts.
 
 config ESP32_FCLINK_RX_QUEUE_DEPTH
     int "RX packet queue depth"
     range 1 32
     default 10
     help
-      Number of parsed incoming FcLink packets buffered for later processing.
+      Compile-time number of parsed incoming FcLink packets buffered for later
+      processing after UART parsing.
+
+      FcLink uses the project ring buffer here rather than a FreeRTOS queue.
+      Larger values absorb bigger bursts but increase static memory use.
 
 endmenu
 
@@ -577,6 +576,18 @@ endmenu
 menu "STM32"
 
 menu "FcLink"
+
+config STM32_FCLINK_TELEMETRY_RATE_HZ
+    int "Telemetry rate (Hz)"
+    range 1 255
+    default 25
+    help
+      Requested STM32 telemetry publication rate for the FcLink protocol.
+
+      ESP32 advertises this value back to STM32 during the FcLink handshake so
+      both ends use the same telemetry-rate setting, but the user-facing
+      ownership lives under the STM32 FcLink menu because it describes STM32
+      telemetry behavior.
 
 menu "UART"
 

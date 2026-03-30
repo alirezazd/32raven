@@ -61,8 +61,12 @@ const char *GetMessage(ErrorCode code) {
     return "UART Driver Install Failed";
   case ErrorCode::kUartInvalidNumber:
     return "UART Invalid Number";
-  case ErrorCode::kUartReinit:
-    return "UART Driver Re-init";
+  case ErrorCode::kUartNotInitialized:
+    return "UART Not Initialized";
+  case ErrorCode::kUartInvalidArg:
+    return "UART Invalid Argument";
+  case ErrorCode::kUartOperationFailed:
+    return "UART Operation Failed";
   case ErrorCode::kProgrammerUartNull:
     return "Programmer UART Null";
   case ErrorCode::kProgrammerReinit:

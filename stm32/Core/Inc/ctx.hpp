@@ -5,7 +5,8 @@ struct IdleState;
 
 class System;
 
-template <typename Context> class StateMachine;
+template <typename Context>
+class StateMachine;
 struct IFastTickState;
 
 struct AppContext {

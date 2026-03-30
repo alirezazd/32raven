@@ -1,4 +1,5 @@
 #include "button.hpp"
+
 #include "gpio.hpp"
 
 void Button::Init(GPIO &gpio, const Config &cfg) {
@@ -34,8 +35,7 @@ bool Button::ReadRawPressed() const {
 }
 
 void Button::Poll(uint32_t now_ms) {
-  if (!initialized_)
-    Panic(ErrorCode::kButtonReinit);
+  if (!initialized_) Panic(ErrorCode::kButtonReinit);
 
   const bool raw = ReadRawPressed();
 

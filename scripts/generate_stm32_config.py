@@ -15,6 +15,8 @@ AUTOGEN_WARNING = (
 
 ICM42688P_FIFO_BYTES = 2048
 ICM42688P_PACKET3_BYTES = 16
+FCLINK_TELEMETRY_RATE_MIN = 1
+FCLINK_TELEMETRY_RATE_MAX = 255
 
 SPI_PRESCALER_CHOICES = {
     "STM32_IMU_SPI_PRESCALER_DIV2": "SpiPrescaler::kDiv2",
@@ -228,6 +230,13 @@ def _imu_fifo_capacity_records() -> int:
 
 
 def _validate(kconf: kconfiglib.Kconfig) -> None:
+    telemetry_rate_hz = _sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ")
+    if not FCLINK_TELEMETRY_RATE_MIN <= telemetry_rate_hz <= FCLINK_TELEMETRY_RATE_MAX:
+        raise ValueError(
+            "CONFIG_STM32_FCLINK_TELEMETRY_RATE_HZ must be in the range "
+            f"{FCLINK_TELEMETRY_RATE_MIN}..{FCLINK_TELEMETRY_RATE_MAX}"
+        )
+
     watermark_records = _sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS")
     hardware_max_records = _imu_fifo_capacity_records()
     if watermark_records <= 0:
@@ -316,6 +325,11 @@ def _emit_runtime_header(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> str
             #include "spi.hpp"
             #include "stm32_limits.hpp"
             #include "uart.hpp"
+
+            inline constexpr auto kFcLinkTelemetryRateHz =
+                {_sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ")}u;
+            inline constexpr auto kFcLinkTelemetryIntervalMs =
+                1000u / kFcLinkTelemetryRateHz;
 
             inline constexpr UartConfig kUart1Config = {{
                 .baud_rate = {fclink_uart_baud_rate},
