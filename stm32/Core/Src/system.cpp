@@ -32,10 +32,18 @@ void System::Init(const SystemConfig &config) {
   // work.
   NVIC_SetPriority(PendSV_IRQn, 4);
 
-  // Initialize components in enum order (defined in system.hpp)
-  for (int i = 0; i < static_cast<int>(Component::kCount); ++i) {
-    InitComponent(static_cast<Component>(i));
-  }
+  InitComponent(Component::kTimeBase);
+  InitComponent(Component::kGpio);
+  InitComponent(Component::kEe);
+  InitComponent(Component::kRcReceiver);
+  InitComponent(Component::kLed);
+  InitComponent(Component::kUart1);
+  InitComponent(Component::kSpi1);
+  InitComponent(Component::kDshot);
+  InitComponent(Component::kButton);
+  InitComponent(Component::kUart2);
+  InitComponent(Component::kM9n);
+  InitComponent(Component::kIcm42688p);
 
   // Init Complete: LEAVE LED ON for Debugging
   // LED::GetInstance().Set(false);
@@ -83,8 +91,6 @@ void System::InitComponent(Component c) {
     case Component::kIcm42688p:
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance(),
                                     EE::GetInstance(), kIcm42688pConfig);
-      break;
-    case Component::kCount:
       break;
   }
 }

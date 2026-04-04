@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 
+#include "esp32_limits.hpp"
 #include "../drivers/uart.hpp"
 #include "message.hpp"  // for message::GpsData
 
@@ -67,14 +68,14 @@ class Mavlink {
 
   // ---------- Common ----------
   UartRcRx *uart_ = nullptr;
-  bool initialized_ = false;
   Config cfg_{};
 
   // ---------- RX (RC only) ----------
   RcState rc_state_{};
   mavlink_message_t rx_msg_{};
   mavlink_status_t rx_status_{};
-  static constexpr size_t kMaxRxReadChunkSize = 256;
+  static constexpr size_t kMaxRxReadChunkSize =
+      esp32_limits::kMavlinkMaxRxReadChunkSize;
   std::array<uint8_t, kMaxRxReadChunkSize> rx_buf_{};
 
   void HandleRxByte(uint8_t b);

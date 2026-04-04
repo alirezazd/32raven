@@ -65,6 +65,4 @@ class Button {
   bool ev_press_ = false;
   bool ev_release_ = false;
   bool ev_long_ = false;
-
-  bool initialized_ = false;
 };

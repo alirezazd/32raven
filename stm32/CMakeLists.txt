@@ -40,9 +40,17 @@ set(STM32_KCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/Kconfig")
 set(STM32_MASTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/32raven.config")
 set(STM32_CONFIG_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_stm32_config.py")
+set(STM32_CONFIG_TEMPLATE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/templates")
+set(STM32_RUNTIME_CONFIG_TEMPLATE
+    "${STM32_CONFIG_TEMPLATE_DIR}/stm32_config.hpp.j2")
+set(STM32_LIMITS_TEMPLATE
+    "${STM32_CONFIG_TEMPLATE_DIR}/stm32_limits.hpp.j2")
 set(STM32_EE_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../config/ee.toml")
 set(STM32_EE_SCHEMA_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/generate_ee_schema.py")
+set(STM32_EE_SCHEMA_TEMPLATE
+    "${STM32_CONFIG_TEMPLATE_DIR}/ee_schema.hpp.j2")
 set(STM32_RUNTIME_CONFIG_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_config.hpp")
 set(STM32_LIMITS_HPP
@@ -61,7 +69,10 @@ if(CLANG_FORMAT_EXECUTABLE)
         COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
                 ${STM32_RUNTIME_CONFIG_HPP}
                 ${STM32_LIMITS_HPP}
-        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG} ${STM32_CONFIG_GENERATOR}
+        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
+                ${STM32_CONFIG_GENERATOR}
+                ${STM32_RUNTIME_CONFIG_TEMPLATE}
+                ${STM32_LIMITS_TEMPLATE}
         COMMENT "Generating STM32 configuration headers"
         VERBATIM)
 else()
@@ -72,7 +83,10 @@ else()
                 --config ${STM32_MASTER_CONFIG}
                 --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
                 --limits-out ${STM32_LIMITS_HPP}
-        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG} ${STM32_CONFIG_GENERATOR}
+        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
+                ${STM32_CONFIG_GENERATOR}
+                ${STM32_RUNTIME_CONFIG_TEMPLATE}
+                ${STM32_LIMITS_TEMPLATE}
         COMMENT "Generating STM32 configuration headers"
         VERBATIM)
 endif()
@@ -90,6 +104,7 @@ if(CLANG_FORMAT_EXECUTABLE)
                 --out ${STM32_EE_SCHEMA_HPP}
         COMMAND ${CLANG_FORMAT_EXECUTABLE} -i ${STM32_EE_SCHEMA_HPP}
         DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
+                ${STM32_EE_SCHEMA_TEMPLATE}
         COMMENT "Generating EEPROM schema header"
         VERBATIM)
 else()
@@ -99,6 +114,7 @@ else()
                 --config ${STM32_EE_CONFIG}
                 --out ${STM32_EE_SCHEMA_HPP}
         DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
+                ${STM32_EE_SCHEMA_TEMPLATE}
         COMMENT "Generating EEPROM schema header"
         VERBATIM)
 endif()

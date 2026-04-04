@@ -2,12 +2,16 @@
 #include "button.hpp"
 #include "buzzer.hpp"
 #include "command_handler.hpp"
+#include "display_manager.hpp"
 #include "fc_link.hpp"
+#include "i2c.hpp"
 #include "led.hpp"
 #include "mavlink.hpp"
 #include "panic.hpp"
 #include "programmer.hpp"
+#include "ssd1306_panel.hpp"
 #include "tcp_server.hpp"
+#include "timebase.hpp"
 #include "tone_player.hpp"
 #include "uart.hpp"
 #include "wifi.hpp"
@@ -19,12 +23,15 @@ class System {
     return instance;
   }
 
-  // INITIALIZATION ORDER: reorder these enum values to change init sequence.
+  // Component identifiers used by InitComponent().
   enum class Component {
-    kLed = 0,
+    kLed,
     kBuzzer,
     kTonePlayer,
     kButton,
+    kDisplayI2c,
+    kDisplayPanel,
+    kDisplayManager,
     kWifi,
     kTcpServer,
     kFcLinkUart,
@@ -32,14 +39,17 @@ class System {
     kProgrammer,
     kMavlink,
     kFcLink,
-    kCommandHandler,
-    kCount
+    kCommandHandler
   };
 
   ::LED &Led() { return ::LED::GetInstance(); }
   ::TonePlayer &TonePlayer() { return ::TonePlayer::GetInstance(); }
   ::Buzzer &Buzzer() { return ::Buzzer::GetInstance(); }
   ::Button &Button() { return ::Button::GetInstance(); }
+  ::Timebase &Timebase() { return ::Timebase::GetInstance(); }
+  ::I2cDisplay &DisplayI2c() { return ::I2cDisplay::GetInstance(); }
+  ::Ssd1306Panel &DisplayPanel() { return ::Ssd1306Panel::GetInstance(); }
+  ::DisplayManager &Display() { return ::DisplayManager::GetInstance(); }
 
   ::WifiController &Wifi() { return ::WifiController::GetInstance(); }
   ::TcpServer &Tcp() { return ::TcpServer::GetInstance(); }
@@ -55,11 +65,10 @@ class System {
 
  private:
   void InitComponent(Component c);
-
-  bool initialized_ = false;
-
   System() = default;
   ~System() = default;
   System(const System &) = delete;
   System &operator=(const System &) = delete;
 };
+
+inline System &Sys() { return System::GetInstance(); }

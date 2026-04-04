@@ -24,9 +24,6 @@ static inline void LogErr(const char *what, esp_err_t e) {
 }
 
 void WifiController::Init(const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kWifiReinit);
-  }
   const char *ssid = cfg.ap.ssid != nullptr ? cfg.ap.ssid : "";
   const char *password = cfg.ap.password != nullptr ? cfg.ap.password : "";
   size_t ssid_len = strlen(ssid);
@@ -85,16 +82,10 @@ void WifiController::Init(const Config &cfg) {
   if (e != ESP_OK) {
     Panic(ErrorCode::kWifiSetStorageFailed);
   }
-
-  initialized_ = true;
   ESP_LOGI(kTag, "initialized");
 }
 
 bool WifiController::StartAp() {
-  if (!initialized_) {
-    ESP_LOGE(kTag, "StartAp called before init");
-    return false;
-  }
   if (wifi_on_) return true;
 
   // 1. Create AP Netif if needed

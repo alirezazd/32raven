@@ -1,0 +1,225 @@
+{{ autogen_warning }}#pragma once
+
+#include <cstddef>
+
+#include "button.hpp"
+#include "buzzer.hpp"
+#include "display_manager.hpp"
+#include "esp32_limits.hpp"
+#include "fc_link.hpp"
+#include "hal/gpio_types.h"
+#include "i2c.hpp"
+#include "led.hpp"
+#include "mavlink.hpp"
+#include "programmer.hpp"
+#include "ssd1306_panel.hpp"
+#include "tcp_server.hpp"
+#include "tone_player.hpp"
+#include "uart.hpp"
+#include "wifi.hpp"
+
+struct PinMap {
+  gpio_num_t led;
+  gpio_num_t button;
+  gpio_num_t buzzer;
+  gpio_num_t ssd1306_panel_i2c_sda;
+  gpio_num_t ssd1306_panel_i2c_scl;
+  gpio_num_t fclink_uart_tx;
+  gpio_num_t fclink_uart_rx;
+  gpio_num_t rcrx_uart_tx;
+  gpio_num_t rcrx_uart_rx;
+  gpio_num_t programmer_boot0;
+  gpio_num_t programmer_nrst;
+};
+
+inline constexpr PinMap kPinMap = {
+    .led = static_cast<gpio_num_t>({{ pin_map.led }}),
+    .button = static_cast<gpio_num_t>({{ pin_map.button }}),
+    .buzzer = static_cast<gpio_num_t>({{ pin_map.buzzer }}),
+    .ssd1306_panel_i2c_sda = static_cast<gpio_num_t>({{ pin_map.ssd1306_panel_i2c_sda }}),
+    .ssd1306_panel_i2c_scl = static_cast<gpio_num_t>({{ pin_map.ssd1306_panel_i2c_scl }}),
+    .fclink_uart_tx = static_cast<gpio_num_t>({{ pin_map.fclink_uart_tx }}),
+    .fclink_uart_rx = static_cast<gpio_num_t>({{ pin_map.fclink_uart_rx }}),
+    .rcrx_uart_tx = static_cast<gpio_num_t>({{ pin_map.rcrx_uart_tx }}),
+    .rcrx_uart_rx = static_cast<gpio_num_t>({{ pin_map.rcrx_uart_rx }}),
+    .programmer_boot0 = static_cast<gpio_num_t>({{ pin_map.programmer_boot0 }}),
+    .programmer_nrst = static_cast<gpio_num_t>({{ pin_map.programmer_nrst }}),
+};
+
+inline constexpr Button::Config kButtonConfig = {
+    .input =
+        {
+            .pin = kPinMap.button,
+            .active_low = {{ button.active_low | cpp_bool }},
+            .pullup = {{ button.pullup | cpp_bool }},
+            .pulldown = {{ button.pulldown | cpp_bool }},
+        },
+    .timing =
+        {
+            .debounce_ms = {{ button.debounce_ms }},
+            .long_press_ms = {{ button.long_press_ms }},
+        },
+};
+
+inline constexpr LED::Config kLedConfig = {
+    .pin = kPinMap.led,
+    .active_low = {{ led.active_low | cpp_bool }},
+};
+
+inline constexpr Buzzer::Config kBuzzerConfig = {
+    .output =
+        {
+            .pin = kPinMap.buzzer,
+            .active_low = {{ buzzer.active_low | cpp_bool }},
+        },
+};
+
+inline constexpr I2cConfig kDisplayI2cConfig = {
+    .pins =
+        {
+            .sda_gpio = kPinMap.ssd1306_panel_i2c_sda,
+            .scl_gpio = kPinMap.ssd1306_panel_i2c_scl,
+        },
+    .bus =
+        {
+            .glitch_ignore_cnt = {{ display_i2c.glitch_ignore_cnt }},
+            .transfer_timeout_ms = {{ display_i2c.xfer_timeout_ms }},
+            .enable_internal_pullup = {{ display_i2c.enable_internal_pullup | cpp_bool }},
+        },
+};
+
+inline constexpr Ssd1306Panel::Config kSsd1306PanelConfig = {
+    .enabled = {{ display_panel.enabled | cpp_bool }},
+    .settle_time_ms = {{ display_panel.settle_time_ms }},
+    .i2c =
+        {
+            .address = {{ display_panel.i2c_address }},
+            .scl_speed_hz = {{ display_panel.i2c_scl_speed_hz }},
+            .scl_wait_us = {{ display_panel.i2c_scl_wait_us }},
+        },
+    .output =
+        {
+            .invert = {{ display_panel.invert | cpp_bool }},
+            .rotate_180 = {{ display_panel.rotate_180 | cpp_bool }},
+        },
+};
+
+inline constexpr DisplayManager::Config kDisplayManagerConfig = {
+    .fps_cap = {{ display_manager.fps_cap }},
+    .boot_logo_timeout_s = {{ display_manager.boot_logo_timeout_s }},
+    .ui_timeout_s = {{ display_manager.ui_timeout_s }},
+};
+
+inline constexpr TonePlayer::Config kTonePlayerConfig = {
+    .volume = {{ tone_player.volume }},
+};
+
+inline constexpr TcpServer::Config kTcpServerConfig = {
+    .ctrl_port = {{ tcp_server.ctrl_port }},
+    .data_port = {{ tcp_server.data_port }},
+    .backlog = {{ tcp_server.backlog }},
+    .nonblocking = {{ tcp_server.nonblocking | cpp_bool }},
+    .keepalive_idle_s = {{ tcp_server.keepalive_idle_s }},
+    .keepalive_intvl_s = {{ tcp_server.keepalive_intvl_s }},
+    .keepalive_cnt = {{ tcp_server.keepalive_cnt }},
+};
+
+inline constexpr UartConfig kFcLinkUartConfig = {
+    .pins =
+        {
+            .tx_gpio = kPinMap.fclink_uart_tx,
+            .rx_gpio = kPinMap.fclink_uart_rx,
+        },
+    .line =
+        {
+            .baud_rate = {{ fclink_uart.baud_rate }},
+            .parity = {{ fclink_uart.parity }},
+        },
+    .buffers =
+        {
+            .rx_bytes = {{ fclink_uart.rx_buf }},
+            .tx_bytes = {{ fclink_uart.tx_buf }},
+        },
+};
+
+inline constexpr UartConfig kRcRxUartConfig = {
+    .pins =
+        {
+            .tx_gpio = kPinMap.rcrx_uart_tx,
+            .rx_gpio = kPinMap.rcrx_uart_rx,
+        },
+    .line =
+        {
+            .baud_rate = {{ rcrx_uart.baud_rate }},
+            .parity = {{ rcrx_uart.parity }},
+        },
+    .buffers =
+        {
+            .rx_bytes = {{ rcrx_uart.rx_buf }},
+            .tx_bytes = {{ rcrx_uart.tx_buf }},
+        },
+};
+
+inline constexpr FcLink::Config kFcLinkConfig = {
+    .rc_forward_rate_hz = {{ fclink.rc_forward_rate_hz }},
+    .handshake_attempts = {{ fclink.handshake_attempts }},
+    .handshake_retry_period_ms = {{ fclink.handshake_retry_period_ms }},
+};
+
+inline constexpr Programmer::Config kProgrammerConfig = {
+    .boot0_pin = kPinMap.programmer_boot0,
+    .nrst_pin = kPinMap.programmer_nrst,
+    .reset_pulse_ms = {{ programmer.reset_pulse_ms }},
+    .boot_settle_ms = {{ programmer.boot_settle_ms }},
+    .sync_timeout_ms = {{ programmer.sync_timeout_ms }},
+    .sync_retries = {{ programmer.sync_retries }},
+};
+
+inline constexpr WifiController::Config kWifiConfig = {
+    .ap =
+        {
+            .ssid = {{ wifi.ap.ssid }},
+            .password = {{ wifi.ap.password }},
+            .channel = {{ wifi.ap.channel }},
+            .max_connections = {{ wifi.ap.max_connections }},
+            .beacon_interval_tu = {{ wifi.ap.beacon_interval_tu }},
+            .hidden = {{ wifi.ap.hidden | cpp_bool }},
+        },
+    .pmf =
+        {
+            .capable = {{ wifi.pmf.capable | cpp_bool }},
+            .required = {{ wifi.pmf.required | cpp_bool }},
+        },
+    .power_save = {{ wifi.power_save }},
+};
+
+inline constexpr Mavlink::Config kMavlinkConfig = {
+    .identity =
+        {
+            .sysid = {{ mavlink.identity.sysid }},
+            .compid = {{ mavlink.identity.compid }},
+        },
+    .rx =
+        {
+            .read_chunk_size = {{ mavlink.rx.read_chunk_size }},
+        },
+    .tx =
+        {
+            .periods =
+                {
+                    .hb_ms = {{ mavlink.tx.periods.hb_ms }},
+                    .gps_ms = {{ mavlink.tx.periods.gps_ms }},
+                    .att_ms = {{ mavlink.tx.periods.att_ms }},
+                    .gpos_ms = {{ mavlink.tx.periods.gpos_ms }},
+                    .batt_ms = {{ mavlink.tx.periods.batt_ms }},
+                },
+            .schedule =
+                {
+                    .hb_deadline_ms = {{ mavlink.tx.schedule.hb_deadline_ms }},
+                    .gps_start_delay_ms = {{ mavlink.tx.schedule.gps_start_delay_ms }},
+                    .att_start_delay_ms = {{ mavlink.tx.schedule.att_start_delay_ms }},
+                    .gpos_start_delay_ms = {{ mavlink.tx.schedule.gpos_start_delay_ms }},
+                    .batt_start_delay_ms = {{ mavlink.tx.schedule.batt_start_delay_ms }},
+                },
+        },
+};

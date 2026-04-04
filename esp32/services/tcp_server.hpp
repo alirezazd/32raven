@@ -2,11 +2,13 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 extern "C" {
 #include "esp_err.h"
 }
 
+#include "esp32_limits.hpp"
 #include "programmer.hpp"
 #include "state_machine.hpp"
 
@@ -28,9 +30,6 @@ class TcpServer {
     int keepalive_idle_s = 10;
     int keepalive_intvl_s = 5;
     int keepalive_cnt = 3;
-
-    // Parser limits
-    size_t max_line = 160;
   };
 
   esp_err_t Start();
@@ -66,7 +65,7 @@ class TcpServer {
     BeginArgs begin{};
   };
 
-  bool PopEvent(Event &out);
+  std::optional<Event> PopEvent();
 
   // Helpers to manage download session
   void EnableBridge();
@@ -120,7 +119,7 @@ class TcpServer {
     uint32_t ctrl_peer_ipv4 = 0;
 
     // parser
-    char line_buf[192]{};
+    char line_buf[esp32_limits::kTcpServerLineBufferBytes]{};
     size_t line_len = 0;
 
     // timing (if you want accept throttling etc.)
@@ -162,7 +161,6 @@ class TcpServer {
                                bool nonblocking);
 
   Config cfg_{};
-  bool initialized_ = false;
   bool running_ = false;
 
   // Internal SM instance + states (no heap)
@@ -175,13 +173,13 @@ class TcpServer {
   StCtrlData *s_ctrldata_ = nullptr;
 
   // ---- event queue (tiny, bounded) ----
-  static constexpr size_t kEvtCap = 8;
+  static constexpr size_t kEvtCap = esp32_limits::kTcpServerEventQueueDepth;
   Event evt_q_[kEvtCap]{};
   size_t evt_head_ = 0;
   size_t evt_tail_ = 0;
 
   // ---- download ring buffer ----
-  static constexpr size_t kDownCap = 4096;
+  static constexpr size_t kDownCap = esp32_limits::kTcpServerDownloadBufferBytes;
   uint8_t down_[kDownCap]{};
   size_t down_head_ = 0;
   size_t down_tail_ = 0;

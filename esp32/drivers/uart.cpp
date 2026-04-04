@@ -36,9 +36,10 @@ uart_parity_t ToParity(UartParity parity) {
 
 template <UartInstance Inst>
 void Uart<Inst>::Init(const UartConfig &cfg) {
-  if (cfg.tx_gpio == GPIO_NUM_NC || cfg.rx_gpio == GPIO_NUM_NC ||
-      cfg.baud_rate == 0 || cfg.rx_buf < UartConfig::kMinBufferSize ||
-      cfg.tx_buf < UartConfig::kMinBufferSize) {
+  if (cfg.pins.tx_gpio == GPIO_NUM_NC || cfg.pins.rx_gpio == GPIO_NUM_NC ||
+      cfg.line.baud_rate == 0 ||
+      cfg.buffers.rx_bytes < UartConfig::kMinBufferSize ||
+      cfg.buffers.tx_bytes < UartConfig::kMinBufferSize) {
     Panic(ErrorCode::kUartParamConfigFailed);
   }
 
@@ -46,9 +47,9 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
   constexpr uart_port_t port = ToPort<Inst>();
 
   uart_config_t ucfg{};
-  ucfg.baud_rate = static_cast<int>(cfg_.baud_rate);
+  ucfg.baud_rate = static_cast<int>(cfg_.line.baud_rate);
   ucfg.data_bits = UART_DATA_8_BITS;
-  ucfg.parity = ToParity(cfg_.parity);
+  ucfg.parity = ToParity(cfg_.line.parity);
   ucfg.stop_bits = UART_STOP_BITS_1;
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
@@ -56,11 +57,12 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
   if (uart_param_config(port, &ucfg) != ESP_OK) {
     Panic(ErrorCode::kUartParamConfigFailed);
   }
-  if (uart_set_pin(port, cfg_.tx_gpio, cfg_.rx_gpio, UART_PIN_NO_CHANGE,
+  if (uart_set_pin(port, cfg_.pins.tx_gpio, cfg_.pins.rx_gpio, UART_PIN_NO_CHANGE,
                    UART_PIN_NO_CHANGE) != ESP_OK) {
     Panic(ErrorCode::kUartSetPinFailed);
   }
-  if (uart_driver_install(port, cfg_.rx_buf, cfg_.tx_buf, 0, nullptr, 0) !=
+  if (uart_driver_install(port, cfg_.buffers.rx_bytes, cfg_.buffers.tx_bytes,
+                          0, nullptr, 0) !=
       ESP_OK) {
     Panic(ErrorCode::kUartDriverInstallFailed);
   }
@@ -132,20 +134,20 @@ void Uart<Inst>::DrainTx(uint32_t timeout_ms) {
 
 template <UartInstance Inst>
 void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
-  if (cfg_.baud_rate == 0) {
+  if (cfg_.line.baud_rate == 0) {
     Panic(ErrorCode::kUartNotInitialized);
   }
   if (baud_rate == 0) {
     Panic(ErrorCode::kUartInvalidArg);
   }
 
-  cfg_.baud_rate = baud_rate;
+  cfg_.line.baud_rate = baud_rate;
   constexpr uart_port_t port = ToPort<Inst>();
 
   uart_config_t ucfg{};
-  ucfg.baud_rate = static_cast<int>(cfg_.baud_rate);
+  ucfg.baud_rate = static_cast<int>(cfg_.line.baud_rate);
   ucfg.data_bits = UART_DATA_8_BITS;
-  ucfg.parity = ToParity(cfg_.parity);
+  ucfg.parity = ToParity(cfg_.line.parity);
   ucfg.stop_bits = UART_STOP_BITS_1;
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
