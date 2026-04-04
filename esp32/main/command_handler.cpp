@@ -22,21 +22,25 @@ static constexpr const char *kTag = "cmd";
 
 static void OnLog(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
-  if (pkt.header.len == 0) return;
+  if (!message::IsPayloadValid(message::MsgId::kLog, pkt.payload,
+                               pkt.header.len) ||
+      pkt.header.len == 0) {
+    return;
+  }
 
   // Check if binary format (starts with fmt_id byte < 32)
-  if (pkt.payload[0] < 32 && pkt.header.len >= 2) {
+  if (pkt.payload[0] < message::kLogBinaryFmtIdThreshold &&
+      pkt.header.len >= 2) {
     const auto *log = (const message::LogBinary *)pkt.payload;
 
     // Format string table
-    static const char *fmt_table[] =
-        {
-            nullptr,  // ID 0 unused
-            "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu "
-            "Send=%lu",  // ID 1
-            "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu "
-            "Loss=%lu",  // ID 2
-        };
+    static const char *fmt_table[] = {
+        nullptr,  // ID 0 unused
+        "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu "
+        "Send=%lu",  // ID 1
+        "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu "
+        "Loss=%lu",  // ID 2
+    };
 
     if (log->fmt_id > 0 &&
         log->fmt_id < sizeof(fmt_table) / sizeof(fmt_table[0])) {
@@ -64,14 +68,16 @@ static void OnLog(AppContext &ctx, const message::Packet &pkt) {
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
-  if (pkt.header.len < 2 + 18 * 2) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kRcChannels,
+                                     pkt.header.len)) {
     ESP_LOGW(kTag, "Invalid RC Channels Length");
     return;
   }
 }
 
 static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
-  if (pkt.header.len != sizeof(message::GpsData)) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kGpsData,
+                                     pkt.header.len)) {
     ESP_LOGW(kTag, "Invalid GPS Data Length");
     return;
   }
@@ -110,7 +116,8 @@ static void OnPong(AppContext &ctx, const message::Packet &pkt) {
 }
 
 static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
-  if (pkt.header.len != sizeof(message::ImuData)) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kImuData,
+                                     pkt.header.len)) {
     ESP_LOGW(kTag, "Invalid IMU Data Length");
     return;
   }
@@ -129,7 +136,8 @@ static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
 }
 
 static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
-  if (pkt.header.len != sizeof(message::PanicMsg)) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kPanic,
+                                     pkt.header.len)) {
     ESP_LOGW(kTag, "Invalid Panic Message Length");
     return;
   }
@@ -154,9 +162,6 @@ static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
 }
 
 void CommandHandler::Init(const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kCommandInitFailed);
-  }
   cfg_ = cfg;
 
   // Initialize table
@@ -170,13 +175,15 @@ void CommandHandler::Init(const Config &cfg) {
   handlers_[(uint8_t)message::MsgId::kPong] = OnPong;
   handlers_[(uint8_t)message::MsgId::kImuData] = OnImuData;
   handlers_[(uint8_t)message::MsgId::kPanic] = OnPanic;
-
-  initialized_ = true;
   ESP_LOGI(kTag, "Initialized");
 }
 
 void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
-  if (!initialized_) return;
+  if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
+    ESP_LOGW(kTag, "Rejected invalid packet id=0x%02X len=%u",
+             (unsigned)pkt.header.id, (unsigned)pkt.header.len);
+    return;
+  }
 
   HandlerFunc handler = handlers_[pkt.header.id];
   if (handler) {
@@ -188,8 +195,6 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
 
 CommandHandler::TransitionResult CommandHandler::Dispatch(
     AppContext &ctx, const TcpServer::Event &ev) {
-  if (!initialized_) return TransitionResult::kNone;
-
   switch (ev.id) {
     case TcpServer::EventId::kBegin: {
       ctx.sys->Tcp().StartDownload(ev.begin.size);
