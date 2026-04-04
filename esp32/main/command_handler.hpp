@@ -41,10 +41,7 @@ class CommandHandler {
   ~CommandHandler() = default;
   CommandHandler(const CommandHandler &) = delete;
   CommandHandler &operator=(const CommandHandler &) = delete;
-
-  bool initialized_ = false;
   Config cfg_;
-
   using HandlerFunc = void (*)(AppContext &ctx, const message::Packet &pkt);
   HandlerFunc handlers_[256];
 };

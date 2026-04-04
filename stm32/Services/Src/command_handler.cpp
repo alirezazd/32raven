@@ -15,7 +15,8 @@ static void OnPing(AppContext &ctx, const message::Packet &pkt) {
 }
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
-  if (pkt.header.len != sizeof(message::RcChannelsMsg)) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kRcChannels,
+                                     pkt.header.len)) {
     return;
   }
 
@@ -34,5 +35,9 @@ static const Epistole::Dispatcher<AppContext> kDispatcher(
 void CommandHandler::Init() {}
 
 bool CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
+    return false;
+  }
+
   return kDispatcher.Dispatch(ctx, pkt);
 }
