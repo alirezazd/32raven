@@ -9,15 +9,21 @@ extern "C" {
 static constexpr const char *kTag = "system";
 
 void System::Init() {
-  if (initialized_) {
-    Panic(ErrorCode::kSystemReinit);
-  }
-
-  initialized_ = true;
-
-  for (int i = 0; i < static_cast<int>(Component::kCount); ++i) {
-    InitComponent(static_cast<Component>(i));
-  }
+  InitComponent(Component::kLed);
+  InitComponent(Component::kBuzzer);
+  InitComponent(Component::kTonePlayer);
+  InitComponent(Component::kButton);
+  InitComponent(Component::kDisplayI2c);
+  InitComponent(Component::kDisplayPanel);
+  InitComponent(Component::kDisplayManager);
+  InitComponent(Component::kWifi);
+  InitComponent(Component::kTcpServer);
+  InitComponent(Component::kFcLinkUart);
+  InitComponent(Component::kRcRxUart);
+  InitComponent(Component::kProgrammer);
+  InitComponent(Component::kMavlink);
+  InitComponent(Component::kFcLink);
+  InitComponent(Component::kCommandHandler);
 }
 
 void System::InitComponent(Component c) {
@@ -31,19 +37,37 @@ void System::InitComponent(Component c) {
       ESP_LOGI(kTag, "Buzzer driver initialized");
       break;
     case Component::kTonePlayer:
-      TonePlayer().Init(::TonePlayer::Config{}, &Buzzer());
+      TonePlayer().Init(kTonePlayerConfig, &Buzzer());
       ESP_LOGI(kTag, "TonePlayer service initialized");
       break;
     case Component::kButton:
       Button().Init(kButtonConfig);
       ESP_LOGI(kTag, "Button driver initialized");
       break;
+    case Component::kDisplayI2c:
+      if (kSsd1306PanelConfig.enabled) {
+        DisplayI2c().Init(kDisplayI2cConfig);
+        ESP_LOGI(kTag, "Display I2C initialized");
+      }
+      break;
+    case Component::kDisplayPanel:
+      DisplayPanel().Init(kSsd1306PanelConfig, &DisplayI2c());
+      if (kSsd1306PanelConfig.enabled) {
+        ESP_LOGI(kTag, "SSD1306 panel initialized");
+      }
+      break;
+    case Component::kDisplayManager:
+      if (kSsd1306PanelConfig.enabled) {
+        Display().Init(kDisplayManagerConfig, &DisplayPanel());
+        ESP_LOGI(kTag, "Display manager initialized");
+      }
+      break;
     case Component::kWifi:
       Wifi().Init(kWifiConfig);
       ESP_LOGI(kTag, "Wifi driver initialized");
       break;
     case Component::kTcpServer:
-      Tcp().Init(::TcpServer::Config{});
+      Tcp().Init(kTcpServerConfig);
       ESP_LOGI(kTag, "TCP Server initialized");
       break;
     case Component::kFcLinkUart:
@@ -69,8 +93,6 @@ void System::InitComponent(Component c) {
     case Component::kCommandHandler:
       CommandHandler().Init(::CommandHandler::Config{});
       ESP_LOGI(kTag, "CommandHandler service initialized");
-      break;
-    case Component::kCount:
       break;
   }
 }

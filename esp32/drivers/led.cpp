@@ -24,11 +24,6 @@ void LED::Init(const Config &cfg) {
   static constexpr uint32_t kTaskStackBytes = 2048;
   static StaticTask_t task_buffer;
   static StackType_t task_stack[kTaskStackBytes];
-
-  if (initialized_) {
-    Panic(ErrorCode::kLedReinit);
-  }
-
   pin_ = cfg.pin;
   active_low_ = cfg.active_low;
 
@@ -68,8 +63,6 @@ void LED::Init(const Config &cfg) {
   if (task_handle_ == nullptr) {
     Panic(ErrorCode::kLedTaskCreateFailed);
   }
-
-  initialized_ = true;
 }
 
 void LED::SetPattern(const Step *steps, size_t count) {
@@ -106,14 +99,12 @@ void LED::SetPattern(Pattern p, uint32_t period_ms) {
 }
 
 void LED::On() {
-  if (!initialized_) return;
   static const Step kOnStep = {100, 0, 1000};
   is_on_ = true;
   SetPattern(&kOnStep, 1);
 }
 
 void LED::Off() {
-  if (!initialized_) return;
   static const Step kOffStep = {0, 0, 1000};
   is_on_ = false;
   SetPattern(&kOffStep, 1);

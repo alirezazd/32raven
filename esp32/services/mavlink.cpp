@@ -37,9 +37,6 @@ bool Mavlink::ShouldSendHbNow(uint32_t now_ms) const {
 }
 
 void Mavlink::Init(const Config &cfg, UartRcRx *uart) {
-  if (initialized_) {
-    Panic(ErrorCode::kMavlinkInitFailed);
-  }
   if (uart == nullptr) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
@@ -51,7 +48,6 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart) {
 
   cfg_ = cfg;
   uart_ = uart;
-  initialized_ = true;
   rc_state_ = RcState{};
   rx_msg_ = mavlink_message_t{};
   rx_status_ = mavlink_status_t{};
@@ -76,10 +72,6 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart) {
 }
 
 void Mavlink::Poll() {
-  if (!initialized_ || !uart_) {
-    return;
-  }
-
   size_t read_chunk_size = cfg_.rx.read_chunk_size;
   if (read_chunk_size > rx_buf_.size()) {
     read_chunk_size = rx_buf_.size();
@@ -374,10 +366,6 @@ void Mavlink::StartNextScheduledFrame(uint32_t now_ms) {
 }
 
 void Mavlink::TxTick(uint32_t now_ms) {
-  if (!initialized_ || !uart_) {
-    return;
-  }
-
   // Arm schedule on first real tick
   if (!schedule_armed_) {
     ArmFirstSchedule(now_ms);

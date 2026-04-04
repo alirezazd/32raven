@@ -24,9 +24,9 @@ class System {
     return instance;
   }
 
-  // INITIALIZATION ORDER: Reorder these enum values to change init sequence
+  // Component identifiers used by InitComponent().
   enum class Component {
-    kTimeBase = 0,
+    kTimeBase,
     kGpio,
     kEe,
     kRcReceiver,
@@ -39,8 +39,7 @@ class System {
     kButton,
     kUart2,
     kM9n,
-    kIcm42688p,
-    kCount  // Must be last
+    kIcm42688p
   };
 
   void Init(const SystemConfig &config);

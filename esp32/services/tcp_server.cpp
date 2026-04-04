@@ -31,17 +31,10 @@ static inline size_t RbFree(size_t head, size_t tail, size_t cap) {
 // ---------------- TcpServer core ----------------
 
 void TcpServer::Init(const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kTcpServerError);
-  }
-
   cfg_ = cfg;
-
   // wire internal SM context
   ctx_.self = this;
   ctx_.sm = &sm_;
-  initialized_ = true;
-
   ESP_LOGI(kTag, "initialized on port %d", cfg.ctrl_port);
 }
 
@@ -69,13 +62,13 @@ void TcpServer::Poll(SmTick now) {
 
 // ---------------- SM-facing API (queue/buffer/status) ----------------
 
-bool TcpServer::PopEvent(Event &out) {
+std::optional<TcpServer::Event> TcpServer::PopEvent() {
   if (evt_head_ == evt_tail_) {
-    return false;
+    return std::nullopt;
   }
-  out = evt_q_[evt_head_];
+  Event out = evt_q_[evt_head_];
   evt_head_ = (evt_head_ + 1) % kEvtCap;
-  return true;
+  return out;
 }
 
 bool TcpServer::PushEvent(const Event &e) {
@@ -463,10 +456,7 @@ bool TcpServer::LinebufAdd(char b) {
     return ctx_.line_len > 0;
   }
 
-  const size_t cap = sizeof(ctx_.line_buf);
-  const size_t max = (cfg_.max_line < (cap - 1)) ? cfg_.max_line : (cap - 1);
-
-  if (ctx_.line_len >= max) {
+  if (ctx_.line_len >= esp32_limits::kTcpServerMaxLineBytes) {
     // line too long -> saturate (truncate), drop extra chars
     return false;
   }

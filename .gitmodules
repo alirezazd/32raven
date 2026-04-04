@@ -5,3 +5,6 @@
 	path = third_party/esp-idf
 	url = https://github.com/espressif/esp-idf.git
 	branch = v5.5.3
+[submodule "third_party/Adafruit-GFX-Library"]
+	path = third_party/Adafruit-GFX-Library
+	url = https://github.com/adafruit/Adafruit-GFX-Library

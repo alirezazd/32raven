@@ -3,23 +3,23 @@
 #include <cstdio>
 
 #include "ctx.hpp"
-#include "message.hpp"
+#include "main_ui_widget.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
 #include "timebase.hpp"
 
 extern "C" {
 #include "esp_log.h"
-#include "esp_system.h"         // for esp_restart
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
-static constexpr const char *kTag = "states";
+static constexpr const char *kTag = "ESP32-SM";
 
 // Serving State
 void ServingState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
+  MainUiWidget::GetInstance().SetStatus("Serving");
   ctx.sys->StopNetwork();
   in_flight_ = false;
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
@@ -32,6 +32,12 @@ void ServingState::OnEnter(AppContext &ctx) {
 }
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
+  auto &button = ctx.sys->Button();
+  button.Poll();
+  if (button.IsPressed()) {
+    ctx.sys->Display().NotifyUserActivity();
+  }
+
   ctx.sys->Mavlink().Poll();
   ctx.sys->FcLink().ForwardRcState(
       ctx.sys->Mavlink()
@@ -41,27 +47,33 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
   if (!in_flight_) {
-    ctx.sys->Button().Poll(now);
-    if (ctx.sys->Button().ConsumeLongPress()) {
+    if (button.ConsumeLongPress()) {
       ESP_LOGI(kTag, "Serving -> DFU (long press)");
       ctx.sm->ReqTransition(*ctx.dfu_state);
       return;
     }
   }
+  (void)button.ConsumePress();
+  (void)button.ConsumeRelease();
 }
 
 // Dfu State
 void DfuState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Dfu");
+  MainUiWidget::GetInstance().SetStatus("DFU");
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().DisableBridge();
 }
 
 void DfuState::OnStep(AppContext &ctx, SmTick now) {
-  ctx.sys->Button().Poll(now);
+  auto &button = ctx.sys->Button();
+  button.Poll();
+  if (button.IsPressed()) {
+    ctx.sys->Display().NotifyUserActivity();
+  }
 
-  if (ctx.sys->Button().ConsumeLongPress()) {
+  if (button.ConsumeLongPress()) {
     ESP_LOGI(kTag, "DFU -> Serving (long press)");
     ctx.sm->ReqTransition(*ctx.serving_state);
     return;
@@ -76,10 +88,9 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
 
   ctx.sys->Tcp().Poll(now);
 
-  TcpServer::Event ev;
-  while (ctx.sys->Tcp().PopEvent(ev)) {
+  while (auto ev = ctx.sys->Tcp().PopEvent()) {
     CommandHandler::TransitionResult res =
-        ctx.sys->CommandHandler().Dispatch(ctx, ev);
+        ctx.sys->CommandHandler().Dispatch(ctx, *ev);
     switch (res) {
       case CommandHandler::TransitionResult::kTransitionToProgram:
         ctx.sm->ReqTransition(*ctx.program_state);
@@ -96,18 +107,30 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
         break;
     }
   }
+  (void)button.ConsumePress();
+  (void)button.ConsumeRelease();
 }
 
 // Program State
 void ProgramState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Program mode");
+  MainUiWidget::GetInstance().SetStatus("Programming");
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
-  last_activity_ = NowMs();
+  last_activity_ = ctx.sys->Timebase().NowMs();
   last_written_ = ctx.sys->Programmer().Written();
 }
 
 void ProgramState::OnStep(AppContext &ctx, SmTick now) {
+  auto &button = ctx.sys->Button();
+  button.Poll();
+  if (button.IsPressed()) {
+    ctx.sys->Display().NotifyUserActivity();
+  }
+  (void)button.ConsumePress();
+  (void)button.ConsumeRelease();
+  (void)button.ConsumeLongPress();
+
   ctx.sys->Tcp().Poll(now);
   ctx.sys->Programmer().Poll(now);
 
@@ -131,14 +154,13 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
-  TcpServer::Event ev;
-  while (tcp.PopEvent(ev)) {
-    if (ev.id == TcpServer::EventId::kAbort ||
-        ev.id == TcpServer::EventId::kCtrlDown ||
-        ev.id == TcpServer::EventId::kDataDown) {
-      ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev.id);
+  while (auto ev = tcp.PopEvent()) {
+    if (ev->id == TcpServer::EventId::kAbort ||
+        ev->id == TcpServer::EventId::kCtrlDown ||
+        ev->id == TcpServer::EventId::kDataDown) {
+      ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev->id);
       prog.Abort(now);
-      if (ev.id == TcpServer::EventId::kAbort) {
+      if (ev->id == TcpServer::EventId::kAbort) {
         ctx.sm->ReqTransition(*ctx.serving_state);
       } else {
         ctx.sm->ReqTransition(*ctx.hard_error_state);
@@ -191,12 +213,22 @@ void ProgramState::OnExit(AppContext &ctx) {
 // Hard Error State
 void HardErrorState::OnEnter(AppContext &ctx) {
   ESP_LOGE(kTag, "ENTERING HARD ERROR STATE");
+  MainUiWidget::GetInstance().SetStatus("Hard error");
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 100);
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().Start();
 }
 
 void HardErrorState::OnStep(AppContext &ctx, SmTick now) {
+  auto &button = ctx.sys->Button();
+  button.Poll();
+  if (button.IsPressed()) {
+    ctx.sys->Display().NotifyUserActivity();
+  }
+  (void)button.ConsumePress();
+  (void)button.ConsumeRelease();
+  (void)button.ConsumeLongPress();
+
   // Poll system services to keep them alive (e.g. flushing TCP buffers)
   ctx.sys->Tcp().Poll(now);
 
@@ -210,8 +242,7 @@ void HardErrorState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   // Consume and ignore all TCP events to prevent state transitions
-  TcpServer::Event ev;
-  while (ctx.sys->Tcp().PopEvent(ev)) {
+  while (ctx.sys->Tcp().PopEvent()) {
     __asm__ __volatile__("nop");
   }
 }

@@ -1,0 +1,17 @@
+{{ autogen_warning }}#pragma once
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+
+namespace stm32_limits {
+
+inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
+inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};
+inline constexpr std::array<uint8_t, kRcEnabledChannelCount> kRcEnabledChannelIndices = {
+{% for channel_index in rc_enabled_indices %}
+    {{ channel_index }}{{ "," if not loop.last }}
+{% endfor %}
+};
+
+}  // namespace stm32_limits

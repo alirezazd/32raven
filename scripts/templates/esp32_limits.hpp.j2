@@ -1,0 +1,27 @@
+{{ autogen_warning }}#pragma once
+
+#include <cstddef>
+
+namespace esp32_limits {
+
+inline constexpr std::size_t kDisplayPanelWidth = {{ display_panel.width }};
+inline constexpr std::size_t kDisplayPanelHeight = {{ display_panel.height }};
+inline constexpr std::size_t kDisplayPanelControllerWidth = {{ display_panel.controller_width }};
+inline constexpr std::size_t kDisplayPanelColumnOffset = {{ display_panel.column_offset }};
+
+inline constexpr std::size_t kFcLinkRxPacketQueueDepth = {{ fclink.rx_queue_depth }};
+
+inline constexpr std::size_t kMavlinkMaxRxReadChunkSize = {{ mavlink.max_rx_read_chunk_size }};
+
+inline constexpr std::size_t kProgrammerStagingBufferBytes = {{ programmer.staging_buffer_bytes }};
+
+inline constexpr std::size_t kTcpServerEventQueueDepth = {{ tcp_server.event_queue_depth }};
+inline constexpr std::size_t kTcpServerDownloadBufferBytes = {{ tcp_server.download_buffer_bytes }};
+inline constexpr std::size_t kTcpServerMaxLineBytes = {{ tcp_server.max_line_bytes }};
+inline constexpr std::size_t kTcpServerLineBufferBytes =
+    kTcpServerMaxLineBytes + 1;
+
+inline constexpr std::size_t kTonePlayerPendingRequestQueueDepth =
+    {{ tone_player.pending_request_queue_depth }};
+
+}  // namespace esp32_limits

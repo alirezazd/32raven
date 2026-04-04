@@ -43,6 +43,8 @@ Use this file for repository-wide guidance. More specific `AGENTS.md` files in s
 
 - Put user-facing configuration in `config/Kconfig` and the related source config files under `config/`.
 - If a change depends on generated config headers or schema, update the generator script instead of patching generated output.
+- Keep configuration changes synchronized end-to-end: `config/Kconfig`, checked-in config files under `config/`, generator scripts in `scripts/`, and any generated-header templates they feed.
+- Every user-facing `config` entry added or renamed in `config/Kconfig` must include accurate `help` text that explains the setting in terms of product behavior, not just the implementation detail.
 - Treat `libs/inc/message.hpp` as the shared protocol contract. Changes there affect both ESP32 and STM32 and should be validated on both sides.
 
 ## Done Means

@@ -58,6 +58,28 @@ config ESP32_BUZZER_ACTIVE_LOW
 
 endmenu
 
+menu "I2C"
+
+menu "SSD1306 Panel"
+
+config ESP32_PINMAP_SSD1306_PANEL_I2C_SDA_GPIO_NUM
+    int "SDA GPIO number"
+    range 0 21
+    default 5
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+config ESP32_PINMAP_SSD1306_PANEL_I2C_SCL_GPIO_NUM
+    int "SCL GPIO number"
+    range 0 21
+    default 6
+    help
+      ESP32-C3 valid GPIOs are 0 through 21.
+
+endmenu
+
+endmenu
+
 menu "UART"
 
 menu "FcLink"
@@ -118,6 +140,136 @@ endmenu
 
 endmenu
 
+menu "SSD1306 Panel"
+
+config ESP32_DISPLAY_PANEL_ENABLE
+    bool "Enable SSD1306 panel"
+    default n
+    help
+      Enable the built-in 0.42-inch 72x40 monochrome SSD1306/SSD1315-style
+      I2C panel driver.
+
+config ESP32_DISPLAY_PANEL_SETTLE_TIME_MS
+    int "Settle time (ms)"
+    range 0 1000
+    default 50
+    help
+      Delay after boot before probing and initializing the panel. Increase this
+      only if the OLED power-up is slow on your hardware.
+
+config ESP32_DISPLAY_PANEL_INVERT
+    bool "Invert pixels"
+    default n
+    help
+      Invert display pixels at the controller level.
+
+config ESP32_DISPLAY_PANEL_ROTATE_180
+    bool "Rotate 180 degrees"
+    default n
+    help
+      Use the panel controller remap settings to rotate the display 180
+      degrees.
+
+menu "I2C"
+
+config ESP32_DISPLAY_PANEL_I2C_ADDRESS
+    hex "I2C address"
+    range 0x0 0x7F
+    default 0x3C
+    help
+      7-bit I2C address of the monochrome display controller.
+
+config ESP32_DISPLAY_PANEL_I2C_CLOCK_HZ
+    int "Bus clock (Hz)"
+    range 10000 1000000
+    default 400000
+    help
+      I2C bus speed used for panel transactions.
+
+config ESP32_DISPLAY_PANEL_I2C_TIMEOUT_MS
+    int "Transfer timeout (ms)"
+    range 1 1000
+    default 100
+    help
+      Maximum time to wait for a panel I2C transaction.
+
+config ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US
+    int "SCL wait (us)"
+    range 0 200000
+    default 20000
+    help
+      Clock stretch timeout applied to the panel device.
+
+config ESP32_DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT
+    int "Glitch ignore count"
+    range 0 15
+    default 7
+    help
+      Hardware glitch filter threshold in I2C module clock cycles.
+
+config ESP32_DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP
+    bool "Enable internal pull-up"
+    default y
+    help
+      Enable the ESP32 internal pull-ups on the panel I2C pins.
+
+endmenu
+
+endmenu
+
+menu "Display Manager"
+
+config ESP32_DISPLAY_MANAGER_FPS_CAP
+    int "FPS cap"
+    range 1 60
+    default 30
+    depends on ESP32_DISPLAY_PANEL_ENABLE
+    help
+      Maximum update and flush rate for the display manager loop.
+
+endmenu
+
+menu "Tone Player"
+
+config ESP32_TONE_PLAYER_VOLUME
+    int "Default volume"
+    range 0 10
+    default 3
+    help
+      Default startup volume used for built-in tones and RTTTL playback.
+
+endmenu
+
+menu "Widgets"
+
+menu "Boot"
+
+config ESP32_WIDGET_BOOT_TIMEOUT_S
+    int "Timeout (seconds)"
+    range 0 15
+    default 3
+    depends on ESP32_DISPLAY_PANEL_ENABLE
+    help
+      Show the boot widget for the selected number of seconds after display
+      initialization. Set to 0 to disable it.
+
+endmenu
+
+menu "UI"
+
+config ESP32_WIDGET_UI_TIMEOUT_S
+    int "Timeout (seconds)"
+    range 0 255
+    default 30
+    depends on ESP32_DISPLAY_PANEL_ENABLE
+    help
+      Turn the display off after the selected number of seconds without UI
+      activity. Set to 0 to disable the timeout.
+
+endmenu
+
+endmenu
+
 menu "Button"
 
 config ESP32_BUTTON_PULLUP
@@ -145,6 +297,65 @@ config ESP32_BUTTON_LONG_PRESS_MS
     default 500
     help
       Hold time required before the button reports a long-press event.
+
+endmenu
+
+menu "TCP Server"
+
+config ESP32_TCP_SERVER_CTRL_PORT
+    int "Control port"
+    range 1 65535
+    default 9000
+    help
+      TCP port used for the ASCII control channel.
+
+config ESP32_TCP_SERVER_DATA_PORT
+    int "Data port"
+    range 1 65535
+    default 9001
+    help
+      TCP port used for binary data streaming and programming payloads.
+
+config ESP32_TCP_SERVER_BACKLOG
+    int "Listen backlog"
+    range 1 8
+    default 1
+    help
+      Maximum number of pending connection requests queued per listening
+      socket.
+
+config ESP32_TCP_SERVER_NONBLOCKING
+    bool "Non-blocking sockets"
+    default y
+    help
+      Use non-blocking listening and client sockets.
+
+menu "Keepalive"
+
+config ESP32_TCP_SERVER_KEEPALIVE_IDLE_S
+    int "Idle time (s)"
+    range 0 3600
+    default 10
+    help
+      Idle time before TCP keepalive starts probing. Set to 0 to disable
+      keepalive.
+
+config ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S
+    int "Probe interval (s)"
+    range 1 3600
+    default 5
+    help
+      Delay between TCP keepalive probes while a connection is idle.
+
+config ESP32_TCP_SERVER_KEEPALIVE_COUNT
+    int "Probe count"
+    range 1 20
+    default 3
+    help
+      Number of failed keepalive probes before the stack considers the peer
+      dead.
+
+endmenu
 
 endmenu
 
@@ -478,7 +689,9 @@ config ESP32_MAVLINK_COMPID
 
 endmenu
 
-menu "Telemetry"
+menu "Transmit"
+
+menu "Periods"
 
 config ESP32_MAVLINK_HEARTBEAT_PERIOD_MS
     int "Heartbeat period (ms)"
@@ -517,19 +730,7 @@ config ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS
 
 endmenu
 
-menu "Receive"
-
-config ESP32_MAVLINK_RX_READ_CHUNK_SIZE
-    int "UART read chunk size (bytes)"
-    range 1 256
-    default 256
-    help
-      Maximum number of bytes read from the RC receiver UART in one MAVLink receive
-      pass.
-
-endmenu
-
-menu "Scheduling"
+menu "Timing"
 
 config ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS
     int "Heartbeat deadline (ms)"
@@ -540,21 +741,21 @@ config ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS
       than the heartbeat period, the deadline wins.
 
 config ESP32_MAVLINK_GPS_START_DELAY_MS
-    int "GPS start delay (ms)"
+    int "GPS initial delay (ms)"
     range 0 10000
     default 200
     help
       Initial GPS_RAW_INT delay used to stagger the first telemetry burst.
 
 config ESP32_MAVLINK_ATTITUDE_START_DELAY_MS
-    int "Attitude start delay (ms)"
+    int "Attitude initial delay (ms)"
     range 0 10000
     default 400
     help
       Initial ATTITUDE delay used to stagger the first telemetry burst.
 
 config ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS
-    int "Global position start delay (ms)"
+    int "Global position initial delay (ms)"
     range 0 10000
     default 600
     help
@@ -562,11 +763,25 @@ config ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS
       burst.
 
 config ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS
-    int "Battery status start delay (ms)"
+    int "Battery status initial delay (ms)"
     range 0 10000
     default 800
     help
       Initial BATTERY_STATUS delay used to stagger the first telemetry burst.
+
+endmenu
+
+endmenu
+
+menu "Receive"
+
+config ESP32_MAVLINK_RX_READ_CHUNK_SIZE
+    int "UART read chunk size (bytes)"
+    range 1 256
+    default 256
+    help
+      Maximum number of bytes read from the RC receiver UART in one MAVLink receive
+      pass.
 
 endmenu
 

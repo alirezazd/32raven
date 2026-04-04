@@ -3,10 +3,6 @@
 #include "gpio.hpp"
 
 void Button::Init(GPIO &gpio, const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kButtonReinit);
-  }
-  initialized_ = true;
   gpio_ = &gpio;
 
   port_ = cfg.pin.port;
@@ -35,8 +31,6 @@ bool Button::ReadRawPressed() const {
 }
 
 void Button::Poll(uint32_t now_ms) {
-  if (!initialized_) Panic(ErrorCode::kButtonReinit);
-
   const bool raw = ReadRawPressed();
 
   if (raw != raw_last_) {

@@ -1,7 +1,6 @@
 // mavlink_tx_task.cpp
 #include "panic.hpp"
 #include "system.hpp"
-#include "timebase.hpp"
 
 extern "C" {
 #include "freertos/FreeRTOS.h"
@@ -19,7 +18,7 @@ static void MavlinkTxTask(void *) {
   TickType_t last_wake = xTaskGetTickCount();
 
   while (true) {
-    System::GetInstance().Mavlink().TxTick(NowMs());
+    Sys().Mavlink().TxTick(Sys().Timebase().NowMs());
     vTaskDelayUntil(&last_wake, kTxPeriodTicks);
   }
 }

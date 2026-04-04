@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "panic.hpp"
+#include "system.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -45,11 +46,6 @@ void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
       request_queue_storage[kPendingRequestQueueDepth * sizeof(PendingRequest)];
   static StaticTask_t task_buffer;
   static StackType_t task_stack[kTaskStackBytes];
-
-  if (initialized_) {
-    Panic(ErrorCode::kTonePlayerInitFailed);
-  }
-
   cfg_ = cfg;
   buzzer_ = buzzer;
   if (buzzer_ == nullptr) {
@@ -70,12 +66,11 @@ void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
   if (task_handle_ == nullptr) {
     Panic(ErrorCode::kTonePlayerInitFailed);
   }
-  initialized_ = true;
   ESP_LOGI(kTag, "initialized");
 }
 
 bool TonePlayer::PlayRtttl(const char *rtttl, int volume) {
-  if (!initialized_ || rtttl == nullptr || *rtttl == '\0') {
+  if (rtttl == nullptr || *rtttl == '\0') {
     return false;
   }
 
@@ -92,10 +87,6 @@ void TonePlayer::PlayBuiltin(BuiltinTone tone, int volume) {
 }
 
 void TonePlayer::Stop() {
-  if (!initialized_) {
-    return;
-  }
-
   xQueueReset((QueueHandle_t)request_queue_);
   if (task_handle_ != nullptr) {
     xTaskNotifyGive((TaskHandle_t)task_handle_);
@@ -118,7 +109,7 @@ void TonePlayer::Task() {
         continue;
       }
 
-      const TimeMs now = NowMs();
+      const TimeMs now = Sys().Timebase().NowMs();
       if (TimeReached(now, next_change_ms_)) {
         const NoteEvent event = ParseNextNote();
         if (!event.valid) {
@@ -180,7 +171,7 @@ void TonePlayer::Task() {
       continue;
     }
 
-    StartEvent(event, NowMs());
+    StartEvent(event, Sys().Timebase().NowMs());
   }
 }
 
