@@ -12,6 +12,7 @@ extern "C" {
 #include <cstdint>
 #include <cstring>
 
+#include "esp32_limits.hpp"
 #include "hal/gpio_types.h"
 #include "state_machine.hpp"
 
@@ -50,14 +51,9 @@ class Programmer {
   bool Done() const;
   bool Error() const;
   bool IsVerifying() const;
-
   uint32_t Total() const;
   uint32_t Written() const;
-
   size_t Free() const;
-
-  bool IsInitialized() const { return initialized_; }
-
   bool Boot();
 
  private:
@@ -78,7 +74,7 @@ class Programmer {
     uint32_t restore_baud_rate = 115200;
 
     // staging buffer for bytes coming from HTTP (backpressure lives here)
-    static constexpr size_t kBufCap = 8192;
+    static constexpr size_t kBufCap = esp32_limits::kProgrammerStagingBufferBytes;
     uint8_t buf[kBufCap]{};
     size_t head = 0;
     size_t tail = 0;
@@ -152,9 +148,6 @@ class Programmer {
                   size_t len);  // CMD_WRITE_MEMORY (0x31)
   bool ReadBlock(uint32_t addr, uint8_t *data,
                  size_t len);  // CMD_READ_MEMORY (0x11)
-
-  bool initialized_ = false;
-
   Ctx ctx_{};
   StateMachine<Ctx> sm_{ctx_};
 

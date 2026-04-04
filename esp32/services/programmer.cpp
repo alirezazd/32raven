@@ -4,7 +4,6 @@
 
 #include "panic.hpp"
 #include "system.hpp"
-#include "timebase.hpp"
 
 extern "C" {
 #include "driver/gpio.h"
@@ -66,9 +65,6 @@ struct Stm32FlashLayout {
 }  // namespace
 
 void Programmer::Init(const Config &cfg, UartFcLink *uart) {
-  if (initialized_) {
-    Panic(ErrorCode::kProgrammerReinit);
-  }
   ctx_.cfg = cfg;
   ctx_.uart = uart;
   ctx_.sm = &sm_;
@@ -76,7 +72,7 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
   if (!ctx_.uart) {
     Panic(ErrorCode::kProgrammerUartNull);
   }
-  ctx_.restore_baud_rate = ctx_.uart->GetConfig().baud_rate;
+  ctx_.restore_baud_rate = ctx_.uart->GetConfig().line.baud_rate;
 
   // Init pins
   // Bind state pointers
@@ -100,13 +96,10 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
   NrstPulse(ctx_.cfg.reset_pulse_ms);
 
   sm_.Start(StIdle_);
-  initialized_ = true;
 }
-
-void Programmer::GpioInit() {  // TODO: Add a GPIO driver owner and assign pins
+void Programmer::GpioInit() {
   const gpio_num_t boot0 = ctx_.cfg.boot0_pin;
   const gpio_num_t nrst = ctx_.cfg.nrst_pin;
-
   if (boot0 != GPIO_NUM_NC) {
     gpio_config_t io{};
     io.pin_bit_mask = (1ULL << static_cast<unsigned>(boot0));
@@ -152,7 +145,7 @@ void Programmer::NrstPulse(uint32_t pulse_ms) {
   const int deassert_level = 1;
 
   gpio_set_level(pin, assert_level);
-  SleepMs(pulse_ms);
+  Sys().Timebase().SleepMs(pulse_ms);
   gpio_set_level(pin, deassert_level);
 }
 
@@ -162,14 +155,14 @@ bool Programmer::EnterBootloader() {
   // Put STM32 into ROM bootloader: BOOT0=1, reset pulse, settle
   Boot0Set(true);
   NrstPulse(ctx_.cfg.reset_pulse_ms);
-  SleepMs(ctx_.cfg.boot_settle_ms);
+  Sys().Timebase().SleepMs(ctx_.cfg.boot_settle_ms);
 
   // Flush any junk
   ctx_.uart->Flush();
 
   // Switch to standard baud rate for ROM bootloader
   ctx_.uart->SetBaudRate(115200);
-  SleepMs(10);
+  Sys().Timebase().SleepMs(10);
 
   // STM32 ROM bootloader sync:
   // Host sends 0x7F, device replies 0x79 (ACK) or 0x1F (NACK)
@@ -202,7 +195,7 @@ bool Programmer::EnterBootloader() {
     }
 
     // small delay between retries
-    SleepMs(10);
+    Sys().Timebase().SleepMs(10);
     ctx_.uart->Flush();
   }
 
@@ -540,8 +533,6 @@ bool Programmer::ReadBlock(uint32_t addr, uint8_t *data, size_t len) {
 }
 
 void Programmer::Start(uint32_t total_size) {
-  if (!initialized_) return;
-
   // Reset session
   ctx_.total_size = total_size;
   ctx_.written = 0;
@@ -617,15 +608,10 @@ void Programmer::Start(uint32_t total_size) {
   sm_.Start(StWriting_);
 }
 
-void Programmer::Poll(SmTick now) {
-  if (!initialized_) return;
-  sm_.Step(now);
-}
+void Programmer::Poll(SmTick now) { sm_.Step(now); }
 
 void Programmer::Abort(SmTick now) {
   (void)now;
-  if (!initialized_) return;
-
   // Disable bootloader entry and clear buffers
   Boot0Set(false);
 
@@ -645,7 +631,6 @@ void Programmer::Abort(SmTick now) {
 }
 
 size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
-  if (!initialized_) return 0;
   if (!ctx_.ready) return 0;  // not ready to accept bytes
   if (Error() || Done()) return 0;
 
@@ -668,23 +653,19 @@ size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
   return n ? (n <= RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap) ? n : 0) : 0;
 }
 
-bool Programmer::Ready() const {
-  return initialized_ && ctx_.ready && !Error();
-}
+bool Programmer::Ready() const { return ctx_.ready && !Error(); }
 
 bool Programmer::Done() const {
-  return initialized_ &&
-         (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Done") == 0);
+  return (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Done") == 0);
 }
 
 bool Programmer::Error() const {
-  return initialized_ &&
-         (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Error") == 0);
+  return (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Error") == 0);
 }
 
 bool Programmer::IsVerifying() const {
-  return initialized_ && (sm_.CurrentName() &&
-                          std::strcmp(sm_.CurrentName(), "P.Verifying") == 0);
+  return (sm_.CurrentName() &&
+          std::strcmp(sm_.CurrentName(), "P.Verifying") == 0);
 }
 
 uint32_t Programmer::Total() const { return ctx_.total_size; }

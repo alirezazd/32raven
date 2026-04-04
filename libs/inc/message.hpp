@@ -17,7 +17,10 @@ static constexpr uint8_t kMagic1 = 0xAA;
 static constexpr uint8_t kMagic2 = 0x55;
 
 // Maximum payload size
-static constexpr size_t kMaxPayload = 256;
+static constexpr size_t kMaxPayload = 0xFFu;
+static constexpr uint8_t kMaxLogTextPayload = 200u;
+static constexpr uint8_t kMaxLogBinaryArgs = 16u;
+static constexpr uint8_t kLogBinaryFmtIdThreshold = 32u;
 
 // Message Identifiers
 enum class MsgId : uint8_t {
@@ -126,6 +129,84 @@ struct Packet {
 // Overhead: Header(4) + CRC(2)
 static constexpr size_t kPacketOverhead = sizeof(Header) + 2;
 
+template <typename T> static constexpr uint8_t PayloadLength() {
+  static_assert(sizeof(T) <= kMaxPayload, "Payload exceeds wire payload limit");
+  return static_cast<uint8_t>(sizeof(T));
+}
+
+static constexpr bool IsKnownMsgId(MsgId id) {
+  switch (id) {
+  case MsgId::kPing:
+  case MsgId::kLog:
+  case MsgId::kPong:
+  case MsgId::kRcChannels:
+  case MsgId::kGpsData:
+  case MsgId::kImuData:
+  case MsgId::kPanic:
+  case MsgId::kReboot:
+  case MsgId::kBootload:
+  case MsgId::kError:
+    return true;
+  default:
+    return false;
+  }
+}
+
+static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
+  switch (id) {
+  case MsgId::kPing:
+  case MsgId::kPong:
+  case MsgId::kReboot:
+  case MsgId::kBootload:
+  case MsgId::kError:
+    return len == 0;
+  case MsgId::kRcChannels:
+    return len == PayloadLength<RcChannelsMsg>();
+  case MsgId::kGpsData:
+    return len == PayloadLength<GpsData>();
+  case MsgId::kImuData:
+    return len == PayloadLength<ImuData>();
+  case MsgId::kPanic:
+    return len == PayloadLength<PanicMsg>();
+  case MsgId::kLog:
+    return len <= kMaxLogTextPayload;
+  default:
+    return false;
+  }
+}
+
+static inline bool IsPayloadValid(MsgId id, const uint8_t *payload,
+                                  uint8_t len) {
+  if (!IsPayloadLengthValid(id, len)) {
+    return false;
+  }
+
+  if (len > 0 && payload == nullptr) {
+    return false;
+  }
+
+  if (id != MsgId::kLog || len == 0) {
+    return true;
+  }
+
+  if (payload[0] >= kLogBinaryFmtIdThreshold) {
+    return true;
+  }
+
+  if (len < 2u) {
+    return false;
+  }
+
+  const uint8_t argc = payload[1];
+  return argc <= kMaxLogBinaryArgs &&
+         len == static_cast<uint8_t>(2u + (argc * sizeof(uint32_t)));
+}
+
+static inline bool IsPacketValid(uint8_t raw_id, const uint8_t *payload,
+                                 uint8_t len) {
+  return IsPayloadValid(static_cast<MsgId>(raw_id), payload, len);
+}
+
 // ---------------------------------------------------------
 // Helper: Simple CRC16-CCITT (XMODEM)
 // Poly: 0x1021
@@ -158,9 +239,13 @@ MakePacketBuffer(const T &) {
 // Helper: Serialize
 // ---------------------------------------------------------
 // Fills the buffer 'out' with the formatted packet.
-// 'out' must be at least 'len' + 5 bytes (Header + CRC).
+// 'out' must be at least 'len' + kPacketOverhead bytes (Header + CRC).
 static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
                                uint8_t *out) {
+  if (out == nullptr || !IsPayloadValid(id, payload, len)) {
+    return 0;
+  }
+
   Header *h = (Header *)out;
   h->magic[0] = kMagic1;
   h->magic[1] = kMagic2;

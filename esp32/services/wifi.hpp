@@ -31,7 +31,6 @@ class WifiController {
   void Stop();
 
   bool IsOn() const { return wifi_on_; }
-  bool IsInitialized() const { return initialized_; }
 
  private:
   friend class System;
@@ -39,8 +38,6 @@ class WifiController {
   Config cfg_{};
   bool wifi_on_ = false;
   esp_netif_t *ap_netif_ = nullptr;
-  bool initialized_ = false;
-
   WifiController() = default;
   ~WifiController() = default;
   WifiController(const WifiController &) = delete;

@@ -6,9 +6,8 @@ extern "C" {
 #include "freertos/task.h"
 }
 
-TimeMs NowMs() { return (TimeMs)(esp_timer_get_time() / 1000); }
+TimeMs Timebase::NowMs() const { return (TimeMs)(esp_timer_get_time() / 1000); }
 
-void SleepMs(TimeMs ms) {
-  if (ms == 0) return;
-  vTaskDelay(pdMS_TO_TICKS(ms));
-}
+TimeUs Timebase::NowUs() const { return (TimeUs)esp_timer_get_time(); }
+
+void Timebase::SleepMs(TimeMs ms) const { vTaskDelay(pdMS_TO_TICKS(ms)); }

@@ -34,12 +34,9 @@ class LED {
 
   // Set a custom sequence of steps
   void SetPattern(const Step *steps, size_t count);
-
   void On();
   void Off();
   void Toggle();
-
-  bool IsInitialized() const { return initialized_; }
 
  private:
   friend class System;
@@ -57,7 +54,6 @@ class LED {
   gpio_num_t pin_ = GPIO_NUM_NC;
   bool active_low_ = false;
   bool is_on_ = false;
-  bool initialized_ = false;
 
   void *task_handle_ = nullptr;  // TaskHandle_t
 

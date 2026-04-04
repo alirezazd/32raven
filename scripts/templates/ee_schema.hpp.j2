@@ -1,0 +1,49 @@
+{{ autogen_warning }}#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+namespace ee_schema {
+
+{% for blob in blobs %}
+struct {{ blob.type_name }} {
+  static constexpr uint32_t kMagic = {{ blob.magic_hex }};
+  static constexpr uint32_t kSchemaHash = {{ blob.schema_hash_hex }};
+
+  uint32_t magic;
+  uint32_t schema_hash;
+  uint32_t size;
+{% for field in blob.fields %}
+{% if field.count == 1 %}
+  {{ field.cpp_type }} {{ field.name }};
+{% else %}
+  {{ field.cpp_type }} {{ field.name }}[{{ field.count }}];
+{% endif %}
+{% endfor %}
+
+  static constexpr bool IsExactSchema(const {{ blob.type_name }} &value) {
+    return value.magic == kMagic && value.schema_hash == kSchemaHash &&
+           value.size == sizeof({{ blob.type_name }});
+  }
+
+  static constexpr void PopulateHeader({{ blob.type_name }} &value) {
+    value.magic = kMagic;
+    value.schema_hash = kSchemaHash;
+    value.size = sizeof({{ blob.type_name }});
+  }
+};
+
+static_assert(sizeof({{ blob.type_name }}) == {{ blob.expected_size }});
+
+{% endfor %}
+namespace layout {
+
+{% for entry in layout.entries %}
+inline constexpr size_t k{{ entry.type_name }}Offset = {{ entry.offset }}u;
+{% endfor %}
+
+inline constexpr size_t kTotalSize = {{ layout.total_size }}u;
+
+} // namespace layout
+
+} // namespace ee_schema

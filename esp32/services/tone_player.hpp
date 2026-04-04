@@ -1,14 +1,17 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "buzzer.hpp"
+#include "esp32_limits.hpp"
 #include "timebase.hpp"
 
 class TonePlayer {
  public:
   static constexpr uint8_t kMaxVolume = 10;
-  static constexpr uint8_t kPendingRequestQueueDepth = 5;
+  static constexpr std::size_t kPendingRequestQueueDepth =
+      esp32_limits::kTonePlayerPendingRequestQueueDepth;
 
   enum class BuiltinTone {
     kBeep,
@@ -31,8 +34,6 @@ class TonePlayer {
   bool PlayRtttl(const char *rtttl, int volume = -1);
   void PlayBuiltin(BuiltinTone tone, int volume = -1);
   void Stop();
-
-  bool IsInitialized() const { return initialized_; }
   bool IsPlaying() const { return playing_; }
 
  private:
@@ -66,9 +67,7 @@ class TonePlayer {
 
   Buzzer *buzzer_ = nullptr;
   Config cfg_{};
-  bool initialized_ = false;
   bool playing_ = false;
-
   const char *score_ = nullptr;
   const char *cursor_ = nullptr;
 

@@ -10,22 +10,19 @@ extern "C" {
 static constexpr const char *kTag = "button";
 
 void Button::Init(const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kButtonReinit);
-  }
-
-  pin_ = cfg.pin;
-  active_low_ = cfg.active_low;
-  debounce_ms_ = cfg.debounce_ms;
-  long_press_ms_ = cfg.long_press_ms;
+  pin_ = cfg.input.pin;
+  active_low_ = cfg.input.active_low;
+  debounce_ms_ = cfg.timing.debounce_ms;
+  long_press_ms_ = cfg.timing.long_press_ms;
 
   gpio_config_t io_conf = {};
   io_conf.intr_type = GPIO_INTR_DISABLE;
   io_conf.mode = GPIO_MODE_INPUT;
   io_conf.pin_bit_mask = (1ULL << pin_);
   io_conf.pull_down_en =
-      cfg.pulldown ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE;
-  io_conf.pull_up_en = cfg.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
+      cfg.input.pulldown ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE;
+  io_conf.pull_up_en =
+      cfg.input.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 
   if (gpio_config(&io_conf) != ESP_OK) {
     Panic(ErrorCode::kButtonGpioConfigFailed);
@@ -46,10 +43,10 @@ void Button::Init(const Config &cfg) {
   ESP_LOGI(
       kTag,
       "init pin=%d active_low=%d pullup=%d pulldown=%d debounce=%u long=%u",
-      (int)cfg.pin, (int)cfg.active_low, (int)cfg.pullup, (int)cfg.pulldown,
-      (unsigned)cfg.debounce_ms, (unsigned)cfg.long_press_ms);
-
-  initialized_ = true;
+      static_cast<int>(cfg.input.pin), static_cast<int>(cfg.input.active_low),
+      static_cast<int>(cfg.input.pullup), static_cast<int>(cfg.input.pulldown),
+      static_cast<unsigned>(cfg.timing.debounce_ms),
+      static_cast<unsigned>(cfg.timing.long_press_ms));
 }
 
 bool Button::ReadRawPressed() const {
@@ -58,25 +55,22 @@ bool Button::ReadRawPressed() const {
   return active_low_ ? !raw_pressed : raw_pressed;
 }
 
-void Button::Poll(TimeMs now_ms) {
-  if (!initialized_) return;
-
+void Button::Poll() {
+  const TimeMs now_ms = Timebase::GetInstance().NowMs();
   const bool raw = ReadRawPressed();
 
   if (raw != raw_last_) {
-    ESP_LOGD(kTag, "raw change -> %d at %u ms", (int)raw, (unsigned)now_ms);
     raw_last_ = raw;
     raw_last_change_ms_ = now_ms;
+    ESP_LOGD(kTag, "raw change -> %d at %u ms", (int)raw, (unsigned)now_ms);
   }
 
-  // if raw has been stable long enough, accept it
   if (raw != stable_) {
     if ((TimeMs)(now_ms - raw_last_change_ms_) >= debounce_ms_) {
       stable_ = raw;
       ESP_LOGI(kTag, "debounced -> %d at %u ms", (int)stable_,
                (unsigned)now_ms);
 
-      // stable edge
       if (stable_) {
         pressed_ = true;
         press_start_ms_ = now_ms;
@@ -91,7 +85,6 @@ void Button::Poll(TimeMs now_ms) {
     }
   }
 
-  // long press detection: fire once per hold
   if (pressed_ && !long_fired_) {
     if ((TimeMs)(now_ms - press_start_ms_) >= long_press_ms_) {
       long_fired_ = true;

@@ -25,23 +25,19 @@ uint32_t Buzzer::ComputeDutyTicks(ledc_timer_bit_t resolution,
 }
 
 void Buzzer::Init(const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kBuzzerReinit);
-  }
-
-  if (cfg.pin == GPIO_NUM_NC || cfg.init_freq_hz == 0) {
+  if (cfg.output.pin == GPIO_NUM_NC || cfg.startup.freq_hz == 0) {
     Panic(ErrorCode::kBuzzerInvalidConfig);
   }
 
   cfg_ = cfg;
-  freq_hz_ = cfg.init_freq_hz;
-  duty_ticks_ = ComputeDutyTicks(cfg.duty_resolution, cfg.duty_cycle);
+  freq_hz_ = cfg.startup.freq_hz;
+  duty_ticks_ = ComputeDutyTicks(cfg.pwm.duty_resolution, cfg.startup.duty_cycle);
 
   ledc_timer_config_t timer_cfg = {};
-  timer_cfg.speed_mode = cfg.speed_mode;
-  timer_cfg.duty_resolution = cfg.duty_resolution;
-  timer_cfg.timer_num = cfg.timer_num;
-  timer_cfg.freq_hz = cfg.init_freq_hz;
+  timer_cfg.speed_mode = cfg.pwm.speed_mode;
+  timer_cfg.duty_resolution = cfg.pwm.duty_resolution;
+  timer_cfg.timer_num = cfg.pwm.timer_num;
+  timer_cfg.freq_hz = cfg.startup.freq_hz;
   timer_cfg.clk_cfg = LEDC_AUTO_CLK;
   timer_cfg.deconfigure = false;
 
@@ -50,49 +46,45 @@ void Buzzer::Init(const Config &cfg) {
   }
 
   ledc_channel_config_t channel_cfg = {};
-  channel_cfg.gpio_num = cfg.pin;
-  channel_cfg.speed_mode = cfg.speed_mode;
-  channel_cfg.channel = cfg.channel;
+  channel_cfg.gpio_num = cfg.output.pin;
+  channel_cfg.speed_mode = cfg.pwm.speed_mode;
+  channel_cfg.channel = cfg.pwm.channel;
   channel_cfg.intr_type = LEDC_INTR_DISABLE;
-  channel_cfg.timer_sel = cfg.timer_num;
+  channel_cfg.timer_sel = cfg.pwm.timer_num;
   channel_cfg.duty = 0;
   channel_cfg.hpoint = 0;
   channel_cfg.sleep_mode = LEDC_SLEEP_MODE_NO_ALIVE_NO_PD;
   channel_cfg.flags.output_invert =
-      static_cast<unsigned int>(cfg.active_low ? 1U : 0U);
+      static_cast<unsigned int>(cfg.output.active_low ? 1U : 0U);
 
   if (ledc_channel_config(&channel_cfg) != ESP_OK) {
     Panic(ErrorCode::kBuzzerChannelInitFailed);
   }
-
-  initialized_ = true;
   running_ = false;
 
   ESP_LOGI(
       kTag,
       "init pin=%d active_low=%d timer=%d channel=%d freq=%lu duty_ticks=%lu",
-      static_cast<int>(cfg.pin), static_cast<int>(cfg.active_low),
-      static_cast<int>(cfg.timer_num), static_cast<int>(cfg.channel),
+      static_cast<int>(cfg.output.pin), static_cast<int>(cfg.output.active_low),
+      static_cast<int>(cfg.pwm.timer_num), static_cast<int>(cfg.pwm.channel),
       static_cast<unsigned long>(freq_hz_),
       static_cast<unsigned long>(duty_ticks_));
 }
 
 ErrorCode Buzzer::Start(uint32_t freq_hz) {
-  if (!initialized_) {
-    return ErrorCode::kBuzzerNotInitialized;
-  }
   if (freq_hz == 0) {
     return ErrorCode::kBuzzerInvalidArg;
   }
 
-  if (ledc_set_freq(cfg_.speed_mode, cfg_.timer_num, freq_hz) == ESP_OK) {
+  if (ledc_set_freq(cfg_.pwm.speed_mode, cfg_.pwm.timer_num, freq_hz) ==
+      ESP_OK) {
     freq_hz_ = freq_hz;
   } else {
     return ErrorCode::kBuzzerSetFreqFailed;
   }
 
-  if (ledc_set_duty_and_update(cfg_.speed_mode, cfg_.channel, duty_ticks_, 0) !=
-      ESP_OK) {
+  if (ledc_set_duty_and_update(cfg_.pwm.speed_mode, cfg_.pwm.channel,
+                               duty_ticks_, 0) != ESP_OK) {
     return ErrorCode::kBuzzerSetDutyFailed;
   }
 
@@ -101,14 +93,12 @@ ErrorCode Buzzer::Start(uint32_t freq_hz) {
 }
 
 ErrorCode Buzzer::SetFrequency(uint32_t freq_hz) {
-  if (!initialized_) {
-    return ErrorCode::kBuzzerNotInitialized;
-  }
   if (freq_hz == 0) {
     return ErrorCode::kBuzzerInvalidArg;
   }
 
-  if (ledc_set_freq(cfg_.speed_mode, cfg_.timer_num, freq_hz) != ESP_OK) {
+  if (ledc_set_freq(cfg_.pwm.speed_mode, cfg_.pwm.timer_num, freq_hz) !=
+      ESP_OK) {
     return ErrorCode::kBuzzerSetFreqFailed;
   }
 
@@ -117,18 +107,14 @@ ErrorCode Buzzer::SetFrequency(uint32_t freq_hz) {
 }
 
 ErrorCode Buzzer::SetDutyCycle(float duty_cycle) {
-  if (!initialized_) {
-    return ErrorCode::kBuzzerNotInitialized;
-  }
-
-  duty_ticks_ = ComputeDutyTicks(cfg_.duty_resolution, duty_cycle);
+  duty_ticks_ = ComputeDutyTicks(cfg_.pwm.duty_resolution, duty_cycle);
 
   if (!running_) {
     return ErrorCode::kOk;
   }
 
-  if (ledc_set_duty_and_update(cfg_.speed_mode, cfg_.channel, duty_ticks_, 0) !=
-      ESP_OK) {
+  if (ledc_set_duty_and_update(cfg_.pwm.speed_mode, cfg_.pwm.channel,
+                               duty_ticks_, 0) != ESP_OK) {
     return ErrorCode::kBuzzerSetDutyFailed;
   }
 
@@ -136,11 +122,8 @@ ErrorCode Buzzer::SetDutyCycle(float duty_cycle) {
 }
 
 ErrorCode Buzzer::Stop() {
-  if (!initialized_) {
-    return ErrorCode::kBuzzerNotInitialized;
-  }
-
-  if (ledc_set_duty_and_update(cfg_.speed_mode, cfg_.channel, 0, 0) != ESP_OK) {
+  if (ledc_set_duty_and_update(cfg_.pwm.speed_mode, cfg_.pwm.channel, 0, 0) !=
+      ESP_OK) {
     return ErrorCode::kBuzzerSetDutyFailed;
   }
 

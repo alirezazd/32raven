@@ -4,10 +4,6 @@
 #include "panic.hpp"
 
 void LED::Init(GPIO &gpio, const Config &cfg) {
-  if (initialized_) {
-    Panic(ErrorCode::kLedReinit);
-  }
-  initialized_ = true;
   gpio_ = &gpio;
   port_ = cfg.pin.port;
   pin_ = cfg.pin.number;

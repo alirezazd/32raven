@@ -38,7 +38,6 @@ class FcLink {
 
   UartFcLink *uart_ = nullptr;
   Config cfg_;
-  bool initialized_ = false;
   static constexpr size_t kMaxRxReadBufferSize =
       message::kMaxPayload + message::kPacketOverhead;
   TimeMs next_rc_forward_ms_ = 0;
@@ -51,7 +50,7 @@ class FcLink {
   struct {
     uint8_t id;
     uint8_t len;
-    uint8_t payload[255];
+    uint8_t payload[message::kMaxPayload];
     uint16_t crc;
   } rx_pkt_internal_;
   bool SendPacket(const message::Packet &pkt);

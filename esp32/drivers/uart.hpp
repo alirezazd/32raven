@@ -16,14 +16,24 @@ enum class UartParity : uint8_t {
 struct UartConfig {
   static constexpr int kMinBufferSize = 256;
 
-  gpio_num_t tx_gpio = GPIO_NUM_NC;
-  gpio_num_t rx_gpio = GPIO_NUM_NC;
+  struct Pins {
+    gpio_num_t tx_gpio = GPIO_NUM_NC;
+    gpio_num_t rx_gpio = GPIO_NUM_NC;
+  };
 
-  uint32_t baud_rate = 0;
-  UartParity parity = UartParity::kNone;
+  struct Line {
+    uint32_t baud_rate = 0;
+    UartParity parity = UartParity::kNone;
+  };
 
-  int rx_buf = 0;
-  int tx_buf = 0;
+  struct Buffers {
+    int rx_bytes = 0;
+    int tx_bytes = 0;
+  };
+
+  Pins pins{};
+  Line line{};
+  Buffers buffers{};
 };
 
 template <UartInstance Inst>
