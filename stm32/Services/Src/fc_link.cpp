@@ -37,6 +37,11 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
       case RxState::kLen:
         rx_len_ = c;
         rx_idx_ = 0;
+        if (!message::IsPayloadLengthValid(
+                static_cast<message::MsgId>(rx_pkt_internal_.id), rx_len_)) {
+          rx_state_ = RxState::kMagic1;
+          break;
+        }
         rx_state_ = (rx_len_ > 0) ? RxState::kPayload : RxState::kCrc1;
         break;
       case RxState::kPayload:
@@ -50,9 +55,10 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
       case RxState::kCrc2:
         rx_pkt_internal_.crc |= ((uint16_t)c << 8);
 
-        // Verify CRC
-        {
-          uint8_t check_buf[sizeof(message::Header) + 256];
+        if (message::IsPacketValid(rx_pkt_internal_.id, rx_pkt_internal_.payload,
+                                   rx_len_)) {
+          // Verify CRC
+          uint8_t check_buf[sizeof(message::Header) + message::kMaxPayload];
           message::Header *h = (message::Header *)check_buf;
           h->magic[0] = message::kMagic1;
           h->magic[1] = message::kMagic2;
@@ -99,6 +105,9 @@ bool FcLink::Send(const message::Packet &pkt) {
   size_t len = message::Serialize((message::MsgId)pkt.header.id,
                                   (pkt.header.len > 0) ? pkt.payload : nullptr,
                                   pkt.header.len, buf);
+  if (len == 0) {
+    return false;
+  }
 
   // Push to RingBuffer
   for (size_t i = 0; i < len; ++i) {
@@ -148,7 +157,7 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
 
   message::Packet pkt;
   pkt.header.id = (uint8_t)message::MsgId::kGpsData;
-  pkt.header.len = sizeof(t);
+  pkt.header.len = message::PayloadLength<message::GpsData>();
   memcpy(pkt.payload, &t, sizeof(t));
 
   Send(pkt);
@@ -167,7 +176,7 @@ void FcLink::SendImu(uint64_t timestamp_us, const float accel[3],
 
   message::Packet pkt;
   pkt.header.id = (uint8_t)message::MsgId::kImuData;
-  pkt.header.len = sizeof(m);
+  pkt.header.len = message::PayloadLength<message::ImuData>();
   memcpy(pkt.payload, &m, sizeof(m));
   Send(pkt);
 }
@@ -180,7 +189,9 @@ void FcLink::SendLog(const char *format, ...) {
   va_end(args);
 
   if (len > 0) {
-    if (len > 200) len = 200;  // Cap to slightly less than max payload
+    if (len > message::kMaxLogTextPayload) {
+      len = message::kMaxLogTextPayload;
+    }
     message::Packet pkt;
     pkt.header.id = (uint8_t)message::MsgId::kLog;
     pkt.header.len = (uint8_t)len;
@@ -193,14 +204,16 @@ void FcLink::SendLogBinary(uint8_t fmt_id, uint8_t argc, const uint32_t *args) {
   // TODO: Support floats and negatives
   message::LogBinary log;
   log.fmt_id = fmt_id;
-  log.argc = argc;
-  for (uint8_t i = 0; i < argc && i < 16; i++) {
+  log.argc = (argc <= message::kMaxLogBinaryArgs) ? argc
+                                                  : message::kMaxLogBinaryArgs;
+  for (uint8_t i = 0; i < log.argc; i++) {
     log.args[i] = args[i];
   }
 
   message::Packet pkt;
   pkt.header.id = (uint8_t)message::MsgId::kLog;
-  pkt.header.len = 2 + (argc * 4);  // fmt_id + argc + (argc * sizeof(uint32_t))
+  pkt.header.len =
+      static_cast<uint8_t>(2u + (log.argc * sizeof(uint32_t)));
   memcpy(pkt.payload, &log, pkt.header.len);
   Send(pkt);
 }

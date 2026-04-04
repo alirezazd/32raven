@@ -104,7 +104,8 @@ static void SendPanicMessage(ErrorCode error_code) {
   auto pkt_buf = message::MakePacketBuffer(panic_msg);
   size_t pkt_len =
       message::Serialize(message::MsgId::kPanic, (const uint8_t *)&panic_msg,
-                         sizeof(message::PanicMsg), pkt_buf.data());
+                         message::PayloadLength<message::PanicMsg>(),
+                         pkt_buf.data());
 
   // Guard: if Serialize returns something bogus, do not overrun UART loop
   if (pkt_len == 0 || pkt_len > pkt_buf.size()) {
