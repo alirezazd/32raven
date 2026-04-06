@@ -27,8 +27,7 @@ DEFAULT_OFFSET_Y = 24
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Convert a PNG into a tiny OLED asset set: visible monochrome image, "
-            "preview image, full controller canvas image, and optional C++ header."
+            "Convert a PNG into requested OLED assets and/or a C++ header."
         )
     )
     parser.add_argument("input", type=pathlib.Path, help="Input PNG path")
@@ -322,12 +321,6 @@ inline constexpr std::array<std::uint8_t, {len(page_data)}> kBitmapData = {{
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(header)
 
-
-def default_path(input_path: pathlib.Path, suffix: str,
-                 extension: str) -> pathlib.Path:
-    return input_path.with_name(f"{input_path.stem}{suffix}{extension}")
-
-
 def main() -> int:
     args = parse_args()
     if not args.input.is_file():
@@ -338,10 +331,16 @@ def main() -> int:
         raise ValueError("visible width and height must be positive")
     if args.canvas_width <= 0 or args.canvas_height <= 0:
         raise ValueError("canvas width and height must be positive")
+    if (args.mono_out is None and args.preview_out is None and
+            args.frame_out is None and args.header_out is None):
+        raise ValueError(
+            "no outputs requested; pass --header-out and/or an explicit "
+            "output path"
+        )
 
-    mono_out = args.mono_out or default_path(args.input, "_mono", ".png")
-    preview_out = args.preview_out or default_path(args.input, "_preview", ".png")
-    frame_out = args.frame_out or default_path(args.input, "_frame", ".png")
+    mono_out = args.mono_out
+    preview_out = args.preview_out
+    frame_out = args.frame_out
 
     gray = flatten_to_grayscale(args.input, args.alpha_bg, args.trim_alpha)
     visible_gray = resize_visible(
@@ -350,24 +349,29 @@ def main() -> int:
     visible_mono = to_mono(
         visible_gray, args.threshold, args.invert, args.dither
     )
-    canvas_mono = build_canvas(
-        visible_mono,
-        args.canvas_width,
-        args.canvas_height,
-        args.offset_x,
-        args.offset_y,
-    )
-    preview = render_oled_preview(
-        visible_mono, args.pixel_size, args.pixel_gap
-    )
     visible_page_data = pack_pages(visible_mono)
 
-    mono_out.parent.mkdir(parents=True, exist_ok=True)
-    preview_out.parent.mkdir(parents=True, exist_ok=True)
-    frame_out.parent.mkdir(parents=True, exist_ok=True)
-    visible_mono.convert("L").save(mono_out)
-    preview.save(preview_out)
-    canvas_mono.convert("L").save(frame_out)
+    if mono_out is not None:
+        mono_out.parent.mkdir(parents=True, exist_ok=True)
+        visible_mono.convert("L").save(mono_out)
+
+    if preview_out is not None:
+        preview = render_oled_preview(
+            visible_mono, args.pixel_size, args.pixel_gap
+        )
+        preview_out.parent.mkdir(parents=True, exist_ok=True)
+        preview.save(preview_out)
+
+    if frame_out is not None:
+        canvas_mono = build_canvas(
+            visible_mono,
+            args.canvas_width,
+            args.canvas_height,
+            args.offset_x,
+            args.offset_y,
+        )
+        frame_out.parent.mkdir(parents=True, exist_ok=True)
+        canvas_mono.convert("L").save(frame_out)
 
     if args.header_out is not None:
         emit_header(
@@ -384,9 +388,12 @@ def main() -> int:
         )
         print(f"saved header: {args.header_out}")
 
-    print(f"saved mono: {mono_out}")
-    print(f"saved preview: {preview_out}")
-    print(f"saved frame: {frame_out}")
+    if mono_out is not None:
+        print(f"saved mono: {mono_out}")
+    if preview_out is not None:
+        print(f"saved preview: {preview_out}")
+    if frame_out is not None:
+        print(f"saved frame: {frame_out}")
     return 0
 
 

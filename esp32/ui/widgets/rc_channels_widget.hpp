@@ -1,6 +1,6 @@
 #pragma once
 
-#include "display_manager.hpp"
+#include "ui.hpp"
 
 class RcChannelsWidget : public IWidget {
  public:

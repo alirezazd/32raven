@@ -29,12 +29,12 @@ void DrawCenteredBitmap(WidgetContext &ctx, const uint8_t *bitmap_data) {
 }
 
 void ClearAfterFadeOut(WidgetContext &ctx) {
-  if (ctx.renderer == nullptr || ctx.display == nullptr) {
+  if (ctx.renderer == nullptr || ctx.ui == nullptr) {
     return;
   }
 
   ctx.renderer->Clear();
-  ctx.display->DisableFadeOut();
+  ctx.ui->DisableFadeOut();
 }
 
 }  // namespace
@@ -58,8 +58,8 @@ void BootWidget::ShowingState::OnStep(WidgetContext &ctx, SmTick now) {
 
 void BootWidget::FadingState::OnEnter(WidgetContext &ctx) {
   widget_.fade_start_ms_ = Sys().Timebase().NowMs();
-  if (ctx.display != nullptr) {
-    ctx.display->SetFadeOut(kFadeOutInterval);
+  if (ctx.ui != nullptr) {
+    ctx.ui->SetFadeOut(kFadeOutInterval);
   }
 }
 

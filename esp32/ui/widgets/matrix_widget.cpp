@@ -42,7 +42,7 @@ void MatrixWidget::OnEnter(WidgetContext &ctx) {
 }
 
 void MatrixWidget::OnStep(WidgetContext &ctx, TimeMs now) {
-  if (ctx.display == nullptr || column_count_ == 0 || glyph_count_ == 0) {
+  if (ctx.ui == nullptr || column_count_ == 0 || glyph_count_ == 0) {
     return;
   }
 

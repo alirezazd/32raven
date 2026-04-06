@@ -244,6 +244,61 @@ bool DisplayRenderer::DrawText(const char *text, int16_t x, int16_t y,
   return renderer.print(text) != 0;
 }
 
+int16_t DisplayRenderer::ScrollOffsetPx(int16_t content_width_px,
+                                        int16_t available_width_px, TimeMs now,
+                                        uint16_t pixels_per_second,
+                                        TimeMs pause_ms) const {
+  if (available_width_px <= 0 || pixels_per_second == 0) {
+    return 0;
+  }
+
+  const int16_t overflow_px = content_width_px - available_width_px;
+  if (overflow_px <= 0) {
+    return 0;
+  }
+
+  const TimeMs scroll_duration_ms = std::max<TimeMs>(
+      1, (static_cast<TimeMs>(overflow_px) * 1000u +
+          (pixels_per_second - 1u)) /
+             pixels_per_second);
+  const TimeMs cycle_duration_ms = pause_ms + scroll_duration_ms + pause_ms;
+  const TimeMs phase_ms = now % cycle_duration_ms;
+  if (phase_ms < pause_ms) {
+    return 0;
+  }
+  if (phase_ms >= (pause_ms + scroll_duration_ms)) {
+    return overflow_px;
+  }
+
+  return static_cast<int16_t>(
+      ((static_cast<uint32_t>(phase_ms - pause_ms) * pixels_per_second) /
+       1000u));
+}
+
+bool DisplayRenderer::DrawScrollingText(const char *text, int16_t left_px,
+                                        int16_t top_px,
+                                        int16_t available_width_px, TimeMs now,
+                                        const DisplayTextStyle &style,
+                                        uint16_t pixels_per_second,
+                                        TimeMs pause_ms) {
+  if (canvas_ == nullptr || text == nullptr || available_width_px <= 0) {
+    return false;
+  }
+
+  const DisplayTextBounds bounds = MeasureText(text, style);
+  if (bounds.width == 0 || bounds.height == 0) {
+    return false;
+  }
+
+  const int16_t scroll_offset_px =
+      ScrollOffsetPx(static_cast<int16_t>(bounds.width), available_width_px,
+                     now, pixels_per_second, pause_ms);
+  const int16_t cursor_x =
+      static_cast<int16_t>(left_px - bounds.x - scroll_offset_px);
+  const int16_t cursor_y = static_cast<int16_t>(top_px - bounds.y);
+  return DrawText(text, cursor_x, cursor_y, style);
+}
+
 DisplayTextBounds DisplayRenderer::MeasureText(const char *text,
                                                const DisplayTextStyle &style)
     const {
