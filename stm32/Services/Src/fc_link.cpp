@@ -203,21 +203,3 @@ void FcLink::SendLog(const char *format, ...) {
     Send(pkt);
   }
 }
-
-void FcLink::SendLogBinary(uint8_t fmt_id, uint8_t argc, const uint32_t *args) {
-  // TODO: Support floats and negatives
-  message::LogBinary log;
-  log.fmt_id = fmt_id;
-  log.argc = (argc <= message::kMaxLogBinaryArgs) ? argc
-                                                  : message::kMaxLogBinaryArgs;
-  for (uint8_t i = 0; i < log.argc; i++) {
-    log.args[i] = args[i];
-  }
-
-  message::Packet pkt;
-  pkt.header.id = (uint8_t)message::MsgId::kLog;
-  pkt.header.len =
-      static_cast<uint8_t>(2u + (log.argc * sizeof(uint32_t)));
-  memcpy(pkt.payload, &log, pkt.header.len);
-  Send(pkt);
-}

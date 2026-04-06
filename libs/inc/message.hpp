@@ -19,8 +19,6 @@ static constexpr uint8_t kMagic2 = 0x55;
 // Maximum payload size
 static constexpr size_t kMaxPayload = 0xFFu;
 static constexpr uint8_t kMaxLogTextPayload = 200u;
-static constexpr uint8_t kMaxLogBinaryArgs = 16u;
-static constexpr uint8_t kLogBinaryFmtIdThreshold = 32u;
 
 // Message Identifiers
 enum class MsgId : uint8_t {
@@ -107,13 +105,6 @@ struct ImuData {
   float gyro[3];         // rad/s (X, Y, Z)
 } __attribute__((packed));
 
-// Binary log: format string + raw args (ESP32 does vsnprintf)
-struct LogBinary {
-  uint8_t fmt_id;       // Format string ID
-  uint8_t argc;         // Number of uint32_t arguments
-  uint32_t args[16];    // Raw argument values
-} __attribute__((packed));
-
 struct PanicMsg {
   ErrorCode error_code; // Error code
 } __attribute__((packed));
@@ -184,22 +175,7 @@ static inline bool IsPayloadValid(MsgId id, const uint8_t *payload,
   if (len > 0 && payload == nullptr) {
     return false;
   }
-
-  if (id != MsgId::kLog || len == 0) {
-    return true;
-  }
-
-  if (payload[0] >= kLogBinaryFmtIdThreshold) {
-    return true;
-  }
-
-  if (len < 2u) {
-    return false;
-  }
-
-  const uint8_t argc = payload[1];
-  return argc <= kMaxLogBinaryArgs &&
-         len == static_cast<uint8_t>(2u + (argc * sizeof(uint32_t)));
+  return true;
 }
 
 static inline bool IsPacketValid(uint8_t raw_id, const uint8_t *payload,
