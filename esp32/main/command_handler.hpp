@@ -1,8 +1,7 @@
 #pragma once
 
-#include <mavlink.h>
-
 #include "ctx.hpp"
+#include "mavlink.hpp"
 #include "message.hpp"
 #include "tcp_server.hpp"
 
@@ -33,8 +32,8 @@ class CommandHandler {
   // Dispatch TCP events
   TransitionResult Dispatch(AppContext &ctx, const TcpServer::Event &ev);
 
-  // Dispatch MAVLink messages (Monitoring & Translation)
-  void Dispatch(AppContext &ctx, const mavlink_message_t &msg);
+  // Dispatch MAVLink command events
+  void Dispatch(AppContext &ctx, const Mavlink::CommandLongEvent &ev);
 
  private:
   CommandHandler() = default;

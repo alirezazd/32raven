@@ -14,6 +14,8 @@ static constexpr char kTag[] = "programmer";
 
 namespace {
 
+constexpr size_t kEsp32OtaWriteChunkBytes = 4096;
+
 struct FlashSector {
   uint16_t number;
   uint32_t address;
@@ -86,7 +88,7 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
 
   // Start in idle
   ctx_.ready = false;
-  ctx_.err = 0;
+  ctx_.err = ErrorCode::kOk;
   ctx_.total_size = 0;
   ctx_.written = 0;
   ctx_.head = ctx_.tail = 0;
@@ -149,7 +151,7 @@ void Programmer::NrstPulse(uint32_t pulse_ms) {
   gpio_set_level(pin, deassert_level);
 }
 
-bool Programmer::EnterBootloader() {
+bool Programmer::EnterStm32Bootloader() {
   if (!ctx_.uart) return false;
 
   // Put STM32 into ROM bootloader: BOOT0=1, reset pulse, settle
@@ -202,7 +204,7 @@ bool Programmer::EnterBootloader() {
   return false;
 }
 
-bool Programmer::GetBootloaderInfo() {
+bool Programmer::GetStm32BootloaderInfo() {
   if (!ctx_.uart) return false;
 
   // CMD_GET: 0x00 0xFF
@@ -295,7 +297,7 @@ bool Programmer::GetBootloaderInfo() {
   return true;
 }
 
-bool Programmer::EraseSectors() {
+bool Programmer::EraseStm32Sectors() {
   if (!ctx_.uart) return false;
 
   uint16_t sectors[10];
@@ -365,7 +367,7 @@ bool Programmer::EraseSectors() {
   return true;
 }
 
-bool Programmer::MassErase() {
+bool Programmer::MassEraseStm32() {
   if (!ctx_.uart) return false;
 
   ESP_LOGI(kTag, "Sending EXT_ERASE (0x44)...");
@@ -425,8 +427,12 @@ bool Programmer::Boot() {
   return true;
 }
 
-bool Programmer::WriteBlock(uint32_t addr, const uint8_t *data, size_t len) {
-  if (!ctx_.uart || !data || len == 0 || len > 256) return false;
+bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
+                                 size_t len) {
+  if (!ctx_.uart || !data || len == 0 ||
+      len > esp32_limits::kProgrammerStm32BlockBytes) {
+    return false;
+  }
 
   // CMD_WRITE_MEMORY: 0x31 0xCE
   uint8_t cmd[] = {0x31, 0xCE};
@@ -476,8 +482,11 @@ bool Programmer::WriteBlock(uint32_t addr, const uint8_t *data, size_t len) {
   return true;
 }
 
-bool Programmer::ReadBlock(uint32_t addr, uint8_t *data, size_t len) {
-  if (!ctx_.uart || !data || len == 0 || len > 256) return false;
+bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *data, size_t len) {
+  if (!ctx_.uart || !data || len == 0 ||
+      len > esp32_limits::kProgrammerStm32BlockBytes) {
+    return false;
+  }
 
   // CMD_READ_MEMORY: 0x11 0xEE
   uint8_t cmd[] = {0x11, 0xEE};
@@ -536,75 +545,22 @@ void Programmer::Start(uint32_t total_size) {
   // Reset session
   ctx_.total_size = total_size;
   ctx_.written = 0;
+  ctx_.verify_offset = 0;
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
-  ctx_.err = 0;
+  ctx_.err = ErrorCode::kOk;
   ctx_.ready = false;
+  ctx_.ota_handle = 0;
+  ctx_.ota_part = nullptr;
 
   ESP_LOGI(kTag, "Start target=%s size=%u",
            (ctx_.target == Target::kEsp32) ? "esp32" : "stm32",
            (unsigned)total_size);
 
-  if (ctx_.target == Target::kEsp32) {
-    ESP_LOGI(kTag, "Starting ESP32 OTA...");
-    ctx_.ota_part = esp_ota_get_next_update_partition(NULL);
-    if (!ctx_.ota_part) {
-      ESP_LOGE(kTag, "OTA partition not found!");
-      ctx_.err = 7;  // ota_part_not_found
-      sm_.Start(StError_);
-      return;
-    }
-
-    esp_err_t err = esp_ota_begin(ctx_.ota_part, total_size, &ctx_.ota_handle);
-    if (err != ESP_OK) {
-      ESP_LOGE(kTag, "esp_ota_begin failed: %s", esp_err_to_name(err));
-      ctx_.err = 8;  // ota_begin_failed
-      sm_.Start(StError_);
-      return;
-    }
-
-    ESP_LOGI(kTag, "ESP32 OTA Initialized. Writing to partition subtype %d...",
-             ctx_.ota_part->subtype);
-    ctx_.ready = true;
-    // Skip SHA256 init for now, esp_ota verifies image checksum itself?
-    // We can still do it for our own sanity/progress matching.
-    mbedtls_sha256_init(&ctx_.sha_ctx);
-    mbedtls_sha256_starts(&ctx_.sha_ctx, 0);
-
-    sm_.Start(StWriting_);
+  if (!BeginTargetSession(ctx_)) {
     return;
   }
 
-  // --- STM32 Logic ---
-  // Run blocking handshake now (OK at this stage since upload is disabled)
-  if (!EnterBootloader()) {
-    ctx_.err = 1;  // handshake_failed
-    ctx_.ready = false;
-    sm_.Start(StError_);
-    return;
-  }
-
-  // Handshake OK
-  ctx_.ready = true;
-
-  // Init SHA256 for write calculation
-  mbedtls_sha256_init(&ctx_.sha_ctx);
-  mbedtls_sha256_starts(&ctx_.sha_ctx, 0);  // 0 = SHA256
-
-  if (!GetBootloaderInfo()) {
-    ESP_LOGW(kTag, "Failed to get bootloader info, proceeding anyway...");
-  }
-
-  if (!EraseSectors()) {
-    ESP_LOGE(kTag, "Failed to mass erase!");
-    ctx_.err = 3;  // erase_failed
-    ctx_.ready = false;
-    sm_.Start(StError_);
-    return;
-  }
-
-  // Start internal writing SM (placeholder until you implement AN3155 write
-  // blocks)
   sm_.Start(StWriting_);
 }
 
@@ -617,7 +573,7 @@ void Programmer::Abort(SmTick now) {
 
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
-  ctx_.err = 0;
+  ctx_.err = ErrorCode::kOk;
   ctx_.ready = false;
   ctx_.total_size = 0;
   ctx_.written = 0;
@@ -663,6 +619,10 @@ bool Programmer::Error() const {
   return (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Error") == 0);
 }
 
+ErrorCode Programmer::LastErrorCode() const {
+  return (ctx_.err == ErrorCode::kOk) ? ErrorCode::kUnknown : ctx_.err;
+}
+
 bool Programmer::IsVerifying() const {
   return (sm_.CurrentName() &&
           std::strcmp(sm_.CurrentName(), "P.Verifying") == 0);
@@ -675,6 +635,198 @@ size_t Programmer::Free() const {
   return RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
 }
 
+bool Programmer::BeginTargetSession(Ctx &c) {
+  return (c.target == Target::kEsp32) ? BeginEsp32Ota(c) : BeginStm32Session(c);
+}
+
+size_t Programmer::TargetWriteChunkLimit(const Ctx &c) const {
+  return (c.target == Target::kEsp32) ? kEsp32OtaWriteChunkBytes
+                                      : esp32_limits::kProgrammerStm32BlockBytes;
+}
+
+bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len) {
+  if (c.target == Target::kEsp32) {
+    return WriteEsp32Chunk(c, data, len);
+  }
+
+  uint32_t flash_addr = 0;
+  size_t max_chunk = 0;
+  if (!Stm32FlashLayout::ResolveOffset(c.written, c.total_size, &flash_addr,
+                                       &max_chunk)) {
+    return true;
+  }
+
+  if (len > max_chunk) {
+    ESP_LOGE(kTag, "Write chunk crossed STM32 image region boundary");
+    return false;
+  }
+
+  if (!WriteStm32Block(flash_addr, data, len)) {
+    ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)flash_addr);
+    return false;
+  }
+
+  return true;
+}
+
+bool Programmer::FinalizeTargetWrite(Ctx &c) {
+  return (c.target == Target::kEsp32) ? FinalizeEsp32Ota(c) : true;
+}
+
+size_t Programmer::TargetVerifyChunkSize(const Ctx &c) const {
+  return (c.target == Target::kEsp32) ? c.cfg.verify.esp32_chunk_bytes
+                                      : esp32_limits::kProgrammerStm32BlockBytes;
+}
+
+bool Programmer::ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len) {
+  if (data == nullptr || len == nullptr || *len == 0) {
+    return false;
+  }
+
+  if (c.target == Target::kEsp32) {
+    return ReadEsp32PartitionBlock(c, c.verify_offset, data, *len);
+  }
+
+  uint32_t flash_addr = 0;
+  size_t max_chunk = 0;
+  if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size, &flash_addr,
+                                       &max_chunk)) {
+    c.verify_offset = Stm32FlashLayout::kAppOffset;
+    *len = 0;
+    return true;
+  }
+
+  if (*len > max_chunk) {
+    *len = max_chunk;
+  }
+
+  return ReadStm32Block(flash_addr, data, *len);
+}
+
+bool Programmer::CompleteSuccessfulProgram(Ctx &c) {
+  if (c.target == Target::kEsp32) {
+    if (!ActivateEsp32Ota(c)) {
+      return false;
+    }
+
+    ESP_LOGI(kTag, "ESP32 OTA Successful. Rebooting...");
+    Boot();
+    esp_restart();
+    return true;
+  }
+
+  if (c.sm && c.st_done) {
+    c.sm->ReqTransition(*c.st_done);
+  }
+  return true;
+}
+
+bool Programmer::BeginEsp32Ota(Ctx &c) {
+  ESP_LOGI(kTag, "Starting ESP32 OTA...");
+  c.ota_part = esp_ota_get_next_update_partition(NULL);
+  if (!c.ota_part) {
+    ESP_LOGE(kTag, "OTA partition not found!");
+    c.err = ErrorCode::kProgrammerOtaPartitionNotFound;
+    sm_.Start(StError_);
+    return false;
+  }
+
+  const esp_err_t err = esp_ota_begin(c.ota_part, c.total_size, &c.ota_handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "esp_ota_begin failed: %s", esp_err_to_name(err));
+    c.err = ErrorCode::kProgrammerOtaBeginFailed;
+    sm_.Start(StError_);
+    return false;
+  }
+
+  ESP_LOGI(kTag, "ESP32 OTA Initialized. Writing to partition subtype %d...",
+           c.ota_part->subtype);
+  c.ready = true;
+  mbedtls_sha256_init(&c.sha_ctx);
+  mbedtls_sha256_starts(&c.sha_ctx, 0);
+  return true;
+}
+
+bool Programmer::WriteEsp32Chunk(Ctx &c, const uint8_t *data, size_t len) {
+  const esp_err_t err = esp_ota_write(c.ota_handle, data, len);
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "esp_ota_write failed: %s", esp_err_to_name(err));
+    c.err = ErrorCode::kProgrammerOtaWriteFailed;
+    return false;
+  }
+  return true;
+}
+
+bool Programmer::BeginStm32Session(Ctx &c) {
+  if (!EnterStm32Bootloader()) {
+    c.err = ErrorCode::kProgrammerHandshakeFailed;
+    c.ready = false;
+    sm_.Start(StError_);
+    return false;
+  }
+
+  c.ready = true;
+  mbedtls_sha256_init(&c.sha_ctx);
+  mbedtls_sha256_starts(&c.sha_ctx, 0);
+
+  if (!GetStm32BootloaderInfo()) {
+    ESP_LOGW(kTag, "Failed to get bootloader info, proceeding anyway...");
+  }
+
+  if (!EraseStm32Sectors()) {
+    ESP_LOGE(kTag, "Failed to erase STM32 sectors!");
+    c.err = ErrorCode::kProgrammerEraseFailed;
+    c.ready = false;
+    sm_.Start(StError_);
+    return false;
+  }
+
+  return true;
+}
+
+bool Programmer::FinalizeEsp32Ota(Ctx &c) {
+  esp_err_t err = esp_ota_end(c.ota_handle);
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "esp_ota_end failed: %s", esp_err_to_name(err));
+    c.err = ErrorCode::kProgrammerOtaEndFailed;
+    if (c.sm && c.st_error) {
+      c.sm->ReqTransition(*c.st_error);
+    }
+    return false;
+  }
+  c.ota_handle = 0;
+  return true;
+}
+
+bool Programmer::ActivateEsp32Ota(Ctx &c) {
+  esp_err_t err = esp_ota_set_boot_partition(c.ota_part);
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "esp_ota_set_boot_partition failed: %s",
+             esp_err_to_name(err));
+    c.err = ErrorCode::kProgrammerOtaSetBootFailed;
+    if (c.sm && c.st_error) {
+      c.sm->ReqTransition(*c.st_error);
+    }
+    return false;
+  }
+  return true;
+}
+
+bool Programmer::ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset,
+                                         uint8_t *data, size_t len) const {
+  if (c.ota_part == nullptr || data == nullptr || len == 0) {
+    return false;
+  }
+
+  esp_err_t err = esp_partition_read(c.ota_part, offset, data, len);
+  if (err != ESP_OK) {
+    ESP_LOGE(kTag, "esp_partition_read failed at offset 0x%08X: %s",
+             (unsigned)offset, esp_err_to_name(err));
+    return false;
+  }
+  return true;
+}
+
 // ---- State implementations ----
 
 void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
@@ -682,7 +834,7 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
 
   // If buffer overflow happened, error out
   if (c.overflow) {
-    c.err = 2;  // buffer_overflow
+    c.err = ErrorCode::kProgrammerBufferOverflow;
     // Transition to error is handled by the SM check?
     // Actually, we need to request it. Since we can't easily request from here
     // without the parent SM pointer passed down or stored in Ctx differently
@@ -696,10 +848,7 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
   while (c.written < c.total_size) {
     size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
 
-    // Determine optimal chunk size based on target capabilities
-    // ESP32: Flash sector size (4KB) for efficiency
-    // STM32: UART Bootloader protocol limit (256 bytes)
-    const size_t protocol_limit = (c.target == Target::kEsp32) ? 4096 : 256;
+    const size_t protocol_limit = Programmer::GetInstance().TargetWriteChunkLimit(c);
 
     size_t needed = protocol_limit;
     size_t remaining_file = c.total_size - c.written;
@@ -710,46 +859,18 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
       return;
     }
 
-    // Allocate for the largest possible chunk
-    static uint8_t block[4096];
+    static uint8_t block[kEsp32OtaWriteChunkBytes];
     for (size_t i = 0; i < needed; ++i) {
       block[i] = c.buf[c.head];
       c.head = (c.head + 1) % Ctx::kBufCap;
     }
 
-    if (c.target == Target::kEsp32) {
-      // --- ESP32 OTA Write ---
-      esp_err_t err = esp_ota_write(c.ota_handle, block, needed);
-      if (err != ESP_OK) {
-        c.err = 9;  // ota_write_failed
-        ESP_LOGE(kTag, "esp_ota_write failed: %s", esp_err_to_name(err));
-        if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
-        return;
-      }
-      // Continue to checksum update below
-    } else {
-      // --- STM32 UART Write ---
-      // Write block
-      // Note: This blocks the main loop, but each block is fast (~25ms @
-      // 115200)
-      uint32_t flash_addr = 0;
-      size_t max_chunk = 0;
-      if (Stm32FlashLayout::ResolveOffset(c.written, c.total_size, &flash_addr,
-                                          &max_chunk)) {
-        if (needed > max_chunk) {
-          c.err = 4;
-          ESP_LOGE(kTag, "Write chunk crossed STM32 image region boundary");
-          if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
-          return;
-        }
-
-        if (!Programmer::GetInstance().WriteBlock(flash_addr, block, needed)) {
-          c.err = 4;  // write_failed
-          ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)flash_addr);
-          if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
-          return;
-        }
-      }
+    if (!Programmer::GetInstance().WriteTargetChunk(c, block, needed)) {
+      c.err = (c.target == Target::kEsp32)
+                  ? ErrorCode::kProgrammerOtaWriteFailed
+                  : ErrorCode::kProgrammerWriteFailed;
+      if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
+      return;
     }
 
     // Update ongoing SHA256
@@ -767,37 +888,20 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
 
     ESP_LOGI(kTag, "Write complete.");
 
-    if (c.target == Target::kEsp32) {
-      // Finalize ESP32 OTA
-      esp_err_t err = esp_ota_end(c.ota_handle);
-      if (err != ESP_OK) {
-        ESP_LOGE(kTag, "esp_ota_end failed: %s", esp_err_to_name(err));
-        c.err = 10;  // ota_end_failed
-        if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
-        return;
-      }
-
-      err = esp_ota_set_boot_partition(c.ota_part);
-      if (err != ESP_OK) {
-        ESP_LOGE(kTag, "esp_ota_set_boot_partition failed: %s",
-                 esp_err_to_name(err));
-        c.err = 11;
-        if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
-        return;
-      }
-
-      ESP_LOGI(kTag, "ESP32 OTA Successful. Rebooting...");
-      // Reboot STM32 first
-      Programmer::GetInstance().Boot();
-      // Delay slightly to ensure log is flushed?
-      esp_restart();
+    if (!Programmer::GetInstance().FinalizeTargetWrite(c)) {
       return;
     }
 
-    // Connect to Verification for STM32
-    ESP_LOGI(kTag, "Verifying...");
-    if (c.sm && c.st_verifying) {
-      c.sm->ReqTransition(*c.st_verifying);
+    if (c.cfg.verify.EnabledFor(c.target)) {
+      ESP_LOGI(kTag, "Verifying...");
+      if (c.sm && c.st_verifying) {
+        c.sm->ReqTransition(*c.st_verifying);
+      }
+      return;
+    }
+
+    if (!Programmer::GetInstance().CompleteSuccessfulProgram(c)) {
+      return;
     }
   }
 }
@@ -811,30 +915,28 @@ void Programmer::VerifyingState::OnEnter(Ctx &c) {
 
 void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
   while (c.verify_offset < c.total_size) {
-    uint32_t flash_addr = 0;
-    size_t max_chunk = 0;
-    if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size,
-                                         &flash_addr, &max_chunk)) {
-      c.verify_offset = Stm32FlashLayout::kAppOffset;
-      continue;
+    // Reuse the upload staging buffer as verify scratch after writing completes.
+    size_t chunk = Programmer::GetInstance().TargetVerifyChunkSize(c);
+    if (chunk > Ctx::kBufCap) {
+      chunk = Ctx::kBufCap;
     }
-
-    size_t chunk = 256;
     if (chunk > (c.total_size - c.verify_offset)) {
       chunk = c.total_size - c.verify_offset;
     }
-    if (chunk > max_chunk) {
-      chunk = max_chunk;
-    }
 
-    uint8_t buf[256];
-    if (!Programmer::GetInstance().ReadBlock(flash_addr, buf, chunk)) {
-      c.err = 5;  // verify_read_failed
-      if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
+    if (!Programmer::GetInstance().ReadTargetVerifyChunk(c, c.buf, &chunk)) {
+      c.err = ErrorCode::kProgrammerReadFailed;
+      if (c.sm && c.st_error) {
+        c.sm->ReqTransition(*c.st_error);
+      }
       return;
     }
 
-    mbedtls_sha256_update(&c.sha_ctx, buf, chunk);
+    if (chunk == 0) {
+      continue;
+    }
+
+    mbedtls_sha256_update(&c.sha_ctx, c.buf, chunk);
     c.verify_offset += chunk;
 
     return;
@@ -848,10 +950,12 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
   // Compare
   if (std::memcmp(c.computed_hash, read_hash, 32) != 0) {
     ESP_LOGE(kTag, "Verification Failed! CRCs do not match.");
-    c.err = 6;  // verify_checksum_mismatch
+    c.err = ErrorCode::kProgrammerVerifyFailed;
     if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
   } else {
     ESP_LOGI(kTag, "Verification Successful. Hash matches.");
-    if (c.sm && c.st_done) c.sm->ReqTransition(*c.st_done);
+    if (!Programmer::GetInstance().CompleteSuccessfulProgram(c)) {
+      return;
+    }
   }
 }

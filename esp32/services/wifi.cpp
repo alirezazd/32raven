@@ -23,6 +23,21 @@ static inline void LogErr(const char *what, esp_err_t e) {
   if (e != ESP_OK) ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
 }
 
+void WifiController::HandleWifiEvent(void *arg, esp_event_base_t event_base,
+                                     int32_t event_id, void *event_data) {
+  (void)event_data;
+  if (event_base != WIFI_EVENT || arg == nullptr) {
+    return;
+  }
+
+  auto *self = static_cast<WifiController *>(arg);
+  if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+    self->HandleApStaConnected();
+  } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+    self->HandleApStaDisconnected();
+  }
+}
+
 void WifiController::Init(const Config &cfg) {
   const char *ssid = cfg.ap.ssid != nullptr ? cfg.ap.ssid : "";
   const char *password = cfg.ap.password != nullptr ? cfg.ap.password : "";
@@ -82,11 +97,30 @@ void WifiController::Init(const Config &cfg) {
   if (e != ESP_OK) {
     Panic(ErrorCode::kWifiSetStorageFailed);
   }
+  if (!event_handler_registered_) {
+    e = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED,
+                                   &WifiController::HandleWifiEvent, this);
+    LogErr("esp_event_handler_register(STACONNECTED)", e);
+    if (e != ESP_OK) {
+      Panic(ErrorCode::kWifiEventLoopFailed);
+    }
+
+    e = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STADISCONNECTED,
+                                   &WifiController::HandleWifiEvent, this);
+    LogErr("esp_event_handler_register(STADISCONNECTED)", e);
+    if (e != ESP_OK) {
+      Panic(ErrorCode::kWifiEventLoopFailed);
+    }
+
+    event_handler_registered_ = true;
+  }
+  associated_station_count_ = 0;
   ESP_LOGI(kTag, "initialized");
 }
 
 bool WifiController::StartAp() {
   if (wifi_on_) return true;
+  associated_station_count_ = 0;
 
   // 1. Create AP Netif if needed
   if (!ap_netif_) {
@@ -161,5 +195,20 @@ void WifiController::Stop() {
 
   // No need to deinit, we usually keep driver alive
   wifi_on_ = false;
+  associated_station_count_ = 0;
   ESP_LOGI(kTag, "stopped");
+}
+
+void WifiController::HandleApStaConnected() {
+  const uint8_t previous_count = associated_station_count_.load();
+  if (previous_count < 255) {
+    associated_station_count_ = static_cast<uint8_t>(previous_count + 1u);
+  }
+}
+
+void WifiController::HandleApStaDisconnected() {
+  const uint8_t previous_count = associated_station_count_.load();
+  if (previous_count > 0) {
+    associated_station_count_ = static_cast<uint8_t>(previous_count - 1u);
+  }
 }

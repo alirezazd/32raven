@@ -99,7 +99,7 @@ static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
     ctx.sys->Tcp().SendData((uint8_t *)buf, (size_t)len);
   }
 
-  // Update Cache (Scheduling handled by Mavlink::Poll RMS)
+  // Update cache for the MAVLink scheduler.
   ctx.sys->Mavlink().OfferTelemetry(*t,
                                     (uint32_t)(esp_timer_get_time() / 1000));
 }
@@ -226,4 +226,36 @@ CommandHandler::TransitionResult CommandHandler::Dispatch(
       break;
   }
   return TransitionResult::kNone;
+}
+
+void CommandHandler::Dispatch(AppContext &ctx,
+                              const Mavlink::CommandLongEvent &ev) {
+  const mavlink_message_t &msg = ev.msg;
+  if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) {
+    return;
+  }
+
+  mavlink_command_long_t cmd{};
+  mavlink_msg_command_long_decode(&msg, &cmd);
+
+  switch (cmd.command) {
+    case MAV_CMD_REQUEST_MESSAGE:
+      if ((uint32_t)cmd.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
+        ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
+                                           MAV_RESULT_ACCEPTED, msg.sysid,
+                                           msg.compid);
+        ctx.sys->Mavlink().QueueAutopilotVersion(ev.link);
+      } else {
+        ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
+                                           MAV_RESULT_UNSUPPORTED, msg.sysid,
+                                           msg.compid);
+      }
+      break;
+
+    default:
+      ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
+                                         MAV_RESULT_UNSUPPORTED, msg.sysid,
+                                         msg.compid);
+      break;
+  }
 }

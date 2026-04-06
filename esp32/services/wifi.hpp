@@ -1,5 +1,8 @@
 #pragma once
 
+#include <atomic>
+
+#include "esp_event_base.h"
 #include "esp_netif_types.h"
 #include "esp_wifi_types.h"
 
@@ -31,13 +34,28 @@ class WifiController {
   void Stop();
 
   bool IsOn() const { return wifi_on_; }
+  bool HasAssociatedStations() const {
+    return associated_station_count_.load() > 0;
+  }
+  const char *ApSsid() const {
+    return cfg_.ap.ssid != nullptr ? cfg_.ap.ssid : "";
+  }
+  const char *ApPassword() const {
+    return cfg_.ap.password != nullptr ? cfg_.ap.password : "";
+  }
 
  private:
   friend class System;
+  static void HandleWifiEvent(void *arg, esp_event_base_t event_base,
+                              int32_t event_id, void *event_data);
   void Init(const Config &cfg);
+  void HandleApStaConnected();
+  void HandleApStaDisconnected();
   Config cfg_{};
   bool wifi_on_ = false;
+  bool event_handler_registered_ = false;
   esp_netif_t *ap_netif_ = nullptr;
+  std::atomic<uint8_t> associated_station_count_{0};
   WifiController() = default;
   ~WifiController() = default;
   WifiController(const WifiController &) = delete;
