@@ -2,9 +2,9 @@
 
 // Forward declarations
 struct ServingState;
+struct MavlinkWifiState;
 struct DfuState;
 struct ProgramState;
-struct HardErrorState;
 
 class System;
 
@@ -15,7 +15,7 @@ struct AppContext {
   System *sys = nullptr;
   StateMachine<AppContext> *sm = nullptr;
   ServingState *serving_state = nullptr;
+  MavlinkWifiState *mavlink_wifi_state = nullptr;
   DfuState *dfu_state = nullptr;
   ProgramState *program_state = nullptr;
-  HardErrorState *hard_error_state = nullptr;
 };

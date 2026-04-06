@@ -15,9 +15,10 @@ void System::Init() {
   InitComponent(Component::kButton);
   InitComponent(Component::kDisplayI2c);
   InitComponent(Component::kDisplayPanel);
-  InitComponent(Component::kDisplayManager);
+  InitComponent(Component::kUi);
   InitComponent(Component::kWifi);
   InitComponent(Component::kTcpServer);
+  InitComponent(Component::kUdpServer);
   InitComponent(Component::kFcLinkUart);
   InitComponent(Component::kRcRxUart);
   InitComponent(Component::kProgrammer);
@@ -56,10 +57,10 @@ void System::InitComponent(Component c) {
         ESP_LOGI(kTag, "SSD1306 panel initialized");
       }
       break;
-    case Component::kDisplayManager:
+    case Component::kUi:
       if (kSsd1306PanelConfig.enabled) {
-        Display().Init(kDisplayManagerConfig, &DisplayPanel());
-        ESP_LOGI(kTag, "Display manager initialized");
+        Ui().Init(kUiConfig, &DisplayPanel());
+        ESP_LOGI(kTag, "UI initialized");
       }
       break;
     case Component::kWifi:
@@ -69,6 +70,10 @@ void System::InitComponent(Component c) {
     case Component::kTcpServer:
       Tcp().Init(kTcpServerConfig);
       ESP_LOGI(kTag, "TCP Server initialized");
+      break;
+    case Component::kUdpServer:
+      Udp().Init(kUdpServerConfig);
+      ESP_LOGI(kTag, "UDP Server initialized");
       break;
     case Component::kFcLinkUart:
       FcLinkUart().Init(kFcLinkUartConfig);
@@ -83,7 +88,7 @@ void System::InitComponent(Component c) {
       ESP_LOGI(kTag, "Programmer initialized");
       break;
     case Component::kMavlink:
-      Mavlink().Init(kMavlinkConfig, &RcRxUart());
+      Mavlink().Init(kMavlinkConfig, &RcRxUart(), &Udp());
       ESP_LOGI(kTag, "Mavlink service initialized");
       break;
     case Component::kFcLink:
@@ -98,11 +103,13 @@ void System::InitComponent(Component c) {
 }
 
 void System::StopNetwork() {
-  Wifi().Stop();
+  Udp().Stop();
   Tcp().Stop();
+  Wifi().Stop();
 }
 
 void System::StartNetwork() {
   Wifi().StartAp();
   Tcp().Start();
+  Udp().Start();
 }
