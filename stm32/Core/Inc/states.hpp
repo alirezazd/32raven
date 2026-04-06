@@ -15,8 +15,6 @@ struct IdleState : public IState<AppContext>, public IFastTickState {
   const char *Name() const override { return "Idle"; }
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
-  void OnExit(AppContext &ctx) override;
-
   void OnFastTick(AppContext &ctx,
                   const Icm42688p::SampleBatch &batch) override;
   void StepSlow(AppContext &ctx, SmTick now);
