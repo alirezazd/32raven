@@ -159,9 +159,11 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
     if (kEnableEspLogs &&
         (current_us - g_fault_log_last_us) >= SECONDS_TO_MICROS(1)) {
-      uint32_t args[4] = {imu.ImuPathOverrun(), imu.DmaStartFailCount(),
-                          imu.ParseFailCount(), imu.LastBadHeader()};
-      ctx.sys->GetFcLink().SendLogBinary(3, 4, args);
+      ctx.sys->GetFcLink().SendLog("IMU_FAULT ovr=%lu dma=%lu prs=%lu hdr=%lu",
+                                   imu.ImuPathOverrun(),
+                                   imu.DmaStartFailCount(),
+                                   imu.ParseFailCount(),
+                                   imu.LastBadHeader());
       g_fault_log_last_us = current_us;
     }
   }
@@ -297,22 +299,19 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
           g_dbg_seq_gap_events, g_dbg_seq_gap_total, max_raw_dt_us_);
     }
 
-    // Send diagnostics as binary (ESP32 does formatting)
-    // Format ID 1: "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu
-    // Slow=%lu Send=%lu"
     if (kEnableEspLogs) {
-      uint32_t args[7] = {g_prof_fast_us,   g_prof_link_us, g_prof_gps_us,
-                          g_prof_gpspub_us, g_prof_step_us, g_dbg_max_slow_us,
-                          max_send_us_};
-      ctx.sys->GetFcLink().SendLogBinary(1, 7, args);
+      ctx.sys->GetFcLink().SendLog(
+          "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu "
+          "Send=%lu",
+          g_prof_fast_us, g_prof_link_us, g_prof_gps_us, g_prof_gpspub_us,
+          g_prof_step_us, g_dbg_max_slow_us, max_send_us_);
     }
 
-    // Format ID 2: "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu
-    // Loss=%lu"
     if (kEnableEspLogs) {
-      uint32_t args[6] = {g_dbg_max_gps_bytes, max_seq_gap_, max_raw_dt_us_,
-                          drop_rate_per_sec,   0u,           high_loss_consec};
-      ctx.sys->GetFcLink().SendLogBinary(2, 6, args);
+      ctx.sys->GetFcLink().SendLog(
+          "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu Loss=%lu",
+          g_dbg_max_gps_bytes, max_seq_gap_, max_raw_dt_us_, drop_rate_per_sec,
+          0u, high_loss_consec);
     }
 
     (void)drop_rate_per_sec;

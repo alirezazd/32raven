@@ -27,39 +27,6 @@ static void OnLog(AppContext &ctx, const message::Packet &pkt) {
       pkt.header.len == 0) {
     return;
   }
-
-  // Check if binary format (starts with fmt_id byte < 32)
-  if (pkt.payload[0] < message::kLogBinaryFmtIdThreshold &&
-      pkt.header.len >= 2) {
-    const auto *log = (const message::LogBinary *)pkt.payload;
-
-    // Format string table
-    static const char *fmt_table[] = {
-        nullptr,  // ID 0 unused
-        "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu Slow=%lu "
-        "Send=%lu",  // ID 1
-        "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu "
-        "Loss=%lu",  // ID 2
-    };
-
-    if (log->fmt_id > 0 &&
-        log->fmt_id < sizeof(fmt_table) / sizeof(fmt_table[0])) {
-      const char *fmt = fmt_table[log->fmt_id];
-      if (fmt && log->argc <= 16) {
-        // Do the formatting on ESP32 (fast CPU)
-        char buf[256];
-        snprintf(buf, sizeof(buf), fmt, log->args[0], log->args[1],
-                 log->args[2], log->args[3], log->args[4], log->args[5],
-                 log->args[6], log->args[7], log->args[8], log->args[9],
-                 log->args[10], log->args[11], log->args[12], log->args[13],
-                 log->args[14], log->args[15]);
-        ESP_LOGI("FC", "%s", buf);
-        return;
-      }
-    }
-  }
-
-  // Fallback: text format
   char buf[257];
   memcpy(buf, pkt.payload, pkt.header.len);
   buf[pkt.header.len] = '\0';
