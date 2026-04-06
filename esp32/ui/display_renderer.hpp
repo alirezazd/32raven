@@ -73,6 +73,14 @@ class DisplayRenderer {
                   size_t offset_x, size_t offset_y);
   bool DrawText(const char *text, int16_t x, int16_t y,
                 const DisplayTextStyle &style = {});
+  int16_t ScrollOffsetPx(int16_t content_width_px, int16_t available_width_px,
+                         TimeMs now, uint16_t pixels_per_second = 24,
+                         TimeMs pause_ms = 1000) const;
+  bool DrawScrollingText(const char *text, int16_t left_px, int16_t top_px,
+                         int16_t available_width_px, TimeMs now,
+                         const DisplayTextStyle &style = {},
+                         uint16_t pixels_per_second = 24,
+                         TimeMs pause_ms = 1000);
   DisplayTextBounds MeasureText(const char *text,
                                 const DisplayTextStyle &style = {}) const;
   size_t AnimatedTextLength(TimeMs start_ms, TimeMs now, TimeMs duration_ms,
