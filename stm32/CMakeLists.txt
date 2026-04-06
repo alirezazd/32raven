@@ -148,12 +148,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/spi.cpp
     Drivers/USER/cc/button.cpp
     Drivers/USER/cc/uart.cpp
-    Drivers/USER/cc/m9n.cpp
+    Drivers/USER/cc/m10.cpp
     Drivers/USER/cc/icm42688p.cpp
     Drivers/USER/cc/rc_receiver.cpp
     Drivers/USER/cc/ee.cpp
     Core/Src/states.cpp
-    Services/Src/m9n_service.cpp
+    Services/Src/m10_service.cpp
     Services/Src/config_storage.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp

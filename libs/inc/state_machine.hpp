@@ -14,9 +14,6 @@ template <typename Context> struct IState {
   virtual const char *Name() const = 0;
   virtual void OnEnter(Context &ctx) { (void)ctx; }
   virtual void OnStep(Context &ctx, SmTick now) = 0;
-  virtual void OnExit(Context &ctx) {
-    (void)ctx;
-  }
 
   virtual void OnEvent(Context &ctx, const SmEvent &ev, SmTick now) {
     (void)ctx;
@@ -71,8 +68,6 @@ private:
   void TransitionTo(IState<Context> &target, SmTick now) {
     if (current_ == &target)
       return; // ignore self transition
-    if (current_)
-      current_->OnExit(ctx_);
     current_ = &target;
     current_->OnEnter(ctx_);
   }
