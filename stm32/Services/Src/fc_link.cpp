@@ -109,13 +109,12 @@ bool FcLink::Send(const message::Packet &pkt) {
     return false;
   }
 
-  // Push to RingBuffer
-  for (size_t i = 0; i < len; ++i) {
-    if (!tx_rb_.Push(buf[i])) {
-      return false;  // Overflow
-    }
+  const size_t free_bytes = tx_rb_.Capacity() - tx_rb_.Available();
+  if (len > free_bytes) {
+    return false;
   }
-  return true;
+
+  return tx_rb_.PushBlock(buf, len) == len;
 }
 
 void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
