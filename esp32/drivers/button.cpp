@@ -29,28 +29,16 @@ void Button::Init(const Config &cfg) {
     Panic(ErrorCode::kButtonGpioConfigFailed);
   }
 
-  // Initialize debouncer from current level
-  raw_last_ = ReadRawPressed();
-  stable_ = raw_last_;
-  pressed_ = stable_;
-  raw_last_change_ms_ = 0;
-  press_start_ms_ = 0;
+  const TimeMs now_ms = Timebase::GetInstance().NowMs();
+  raw_pressed_ = ReadRawPressed();
+  debounce_started_ms_ = now_ms;
+  phase_ = raw_pressed_ ? Phase::kPressed : Phase::kReleased;
+  press_started_ms_ = raw_pressed_ ? now_ms : 0;
   long_fired_ = false;
   long_long_fired_ = false;
-
   ev_press_ = false;
   ev_long_ = false;
   ev_long_long_ = false;
-
-  ESP_LOGI(
-      kTag,
-      "init pin=%d active_low=%d pullup=%d pulldown=%d debounce=%u long=%u "
-      "long_long=%u",
-      static_cast<int>(cfg.input.pin), static_cast<int>(cfg.input.active_low),
-      static_cast<int>(cfg.input.pullup), static_cast<int>(cfg.input.pulldown),
-      static_cast<unsigned>(cfg.timing.debounce_ms),
-      static_cast<unsigned>(cfg.timing.long_press_ms),
-      static_cast<unsigned>(cfg.timing.long_long_press_ms));
 }
 
 bool Button::ReadRawPressed() const {
@@ -59,51 +47,85 @@ bool Button::ReadRawPressed() const {
   return active_low_ ? !raw_pressed : raw_pressed;
 }
 
+void Button::EnterPressed(TimeMs now_ms) {
+  phase_ = Phase::kPressed;
+  press_started_ms_ = now_ms;
+  long_fired_ = false;
+  long_long_fired_ = false;
+  ev_press_ = true;
+  ESP_LOGI(kTag, "debounced -> 1 at %u ms", (unsigned)now_ms);
+}
+
+void Button::EnterReleased(TimeMs now_ms) {
+  phase_ = Phase::kReleased;
+  press_started_ms_ = 0;
+  long_fired_ = false;
+  long_long_fired_ = false;
+  ESP_LOGI(kTag, "debounced -> 0 at %u ms", (unsigned)now_ms);
+}
+
+void Button::UpdateHoldEvents(TimeMs now_ms) {
+  if (press_started_ms_ == 0) {
+    return;
+  }
+
+  const TimeMs held_ms = static_cast<TimeMs>(now_ms - press_started_ms_);
+  if (!long_fired_ && held_ms >= long_press_ms_) {
+    long_fired_ = true;
+    ev_long_ = true;
+    ESP_LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);
+  }
+
+  if (long_fired_ && !long_long_fired_ && held_ms >= long_long_press_ms_) {
+    long_long_fired_ = true;
+    ev_long_long_ = true;
+    ESP_LOGW(kTag, "LONG-LONG press fired at %u ms", (unsigned)now_ms);
+  }
+}
+
 void Button::Poll() {
   const TimeMs now_ms = Timebase::GetInstance().NowMs();
-  const bool raw = ReadRawPressed();
+  const bool raw_pressed = ReadRawPressed();
 
-  if (raw != raw_last_) {
-    raw_last_ = raw;
-    raw_last_change_ms_ = now_ms;
-    ESP_LOGD(kTag, "raw change -> %d at %u ms", (int)raw, (unsigned)now_ms);
+  if (raw_pressed != raw_pressed_) {
+    raw_pressed_ = raw_pressed;
+    debounce_started_ms_ = now_ms;
   }
 
-  if (raw != stable_) {
-    if ((TimeMs)(now_ms - raw_last_change_ms_) >= debounce_ms_) {
-      stable_ = raw;
-      ESP_LOGI(kTag, "debounced -> %d at %u ms", (int)stable_,
-               (unsigned)now_ms);
-
-      if (stable_) {
-        pressed_ = true;
-        press_start_ms_ = now_ms;
-        long_fired_ = false;
-        long_long_fired_ = false;
-        ev_press_ = true;
-      } else {
-        pressed_ = false;
-        press_start_ms_ = 0;
-        long_fired_ = false;
-        long_long_fired_ = false;
+  switch (phase_) {
+    case Phase::kReleased:
+      if (raw_pressed_) {
+        phase_ = Phase::kDebouncingPress;
       }
-    }
+      break;
+
+    case Phase::kDebouncingPress:
+      if (!raw_pressed_) {
+        phase_ = Phase::kReleased;
+      } else if (static_cast<TimeMs>(now_ms - debounce_started_ms_) >=
+                 debounce_ms_) {
+        EnterPressed(now_ms);
+      }
+      break;
+
+    case Phase::kPressed:
+      if (!raw_pressed_) {
+        phase_ = Phase::kDebouncingRelease;
+      }
+      break;
+
+    case Phase::kDebouncingRelease:
+      if (raw_pressed_) {
+        phase_ = Phase::kPressed;
+      } else if (static_cast<TimeMs>(now_ms - debounce_started_ms_) >=
+                 debounce_ms_) {
+        EnterReleased(now_ms);
+      }
+      break;
   }
 
-  if (pressed_ && !long_fired_) {
-    if ((TimeMs)(now_ms - press_start_ms_) >= long_press_ms_) {
-      long_fired_ = true;
-      ev_long_ = true;
-      ESP_LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);
-    }
-  }
-
-  if (pressed_ && long_fired_ && !long_long_fired_) {
-    if ((TimeMs)(now_ms - press_start_ms_) >= long_long_press_ms_) {
-      long_long_fired_ = true;
-      ev_long_long_ = true;
-      ESP_LOGW(kTag, "LONG-LONG press fired at %u ms", (unsigned)now_ms);
-    }
+  if (phase_ == Phase::kPressed) {
+    UpdateHoldEvents(now_ms);
   }
 }
 
