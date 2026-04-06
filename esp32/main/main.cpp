@@ -11,16 +11,16 @@ namespace {
 
 AppContext MakeAppContext() {
   static ServingState serving;
+  static MavlinkWifiState mavlink_wifi;
   static DfuState dfu;
   static ProgramState program;
-  static HardErrorState hard_error;
 
   AppContext ctx{};
   ctx.sys = &Sys();
   ctx.serving_state = &serving;
+  ctx.mavlink_wifi_state = &mavlink_wifi;
   ctx.dfu_state = &dfu;
   ctx.program_state = &program;
-  ctx.hard_error_state = &hard_error;
   return ctx;
 }
 
