@@ -74,6 +74,10 @@ PROGRAMMER_SYNC_TIMEOUT_MIN_MS = 1
 PROGRAMMER_SYNC_TIMEOUT_MAX_MS = 5000
 PROGRAMMER_SYNC_RETRIES_MIN = 1
 PROGRAMMER_SYNC_RETRIES_MAX = 100
+PROGRAMMER_STAGING_BUFFER_BYTES = 8192
+PROGRAMMER_STM32_BLOCK_BYTES = 256
+PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES = 1
+PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES = PROGRAMMER_STAGING_BUFFER_BYTES
 DISPLAY_PANEL_I2C_CLOCK_MIN_HZ = 10000
 DISPLAY_PANEL_I2C_CLOCK_MAX_HZ = 1000000
 DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS = 1
@@ -147,6 +151,12 @@ WIFI_POWER_SAVE_CHOICES = {
     "ESP32_WIFI_POWER_SAVE_NONE": "WIFI_PS_NONE",
     "ESP32_WIFI_POWER_SAVE_MIN_MODEM": "WIFI_PS_MIN_MODEM",
     "ESP32_WIFI_POWER_SAVE_MAX_MODEM": "WIFI_PS_MAX_MODEM",
+}
+
+UI_TRANSITION_SPEED_CHOICES = {
+    "ESP32_WIDGET_UI_TRANSITION_SPEED_1X": "1",
+    "ESP32_WIDGET_UI_TRANSITION_SPEED_2X": "2",
+    "ESP32_WIDGET_UI_TRANSITION_SPEED_3X": "3",
 }
 
 def _sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
@@ -416,6 +426,12 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
     )
     _validate_int_range(
         kconf,
+        "ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES",
+        PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES,
+        PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES,
+    )
+    _validate_int_range(
+        kconf,
         "ESP32_DISPLAY_PANEL_I2C_CLOCK_HZ",
         DISPLAY_PANEL_I2C_CLOCK_MIN_HZ,
         DISPLAY_PANEL_I2C_CLOCK_MAX_HZ,
@@ -500,6 +516,12 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         )
     _validate_int_range(
         kconf,
+        "ESP32_UDP_SERVER_PORT",
+        TCP_SERVER_PORT_MIN,
+        TCP_SERVER_PORT_MAX,
+    )
+    _validate_int_range(
+        kconf,
         "ESP32_WIDGET_BOOT_TIMEOUT_S",
         WIDGET_BOOT_TIMEOUT_MIN_S,
         WIDGET_BOOT_TIMEOUT_MAX_S,
@@ -546,6 +568,9 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
             "pulldown": _sym_bool(kconf, "ESP32_BUTTON_PULLDOWN"),
             "debounce_ms": _sym_int(kconf, "ESP32_BUTTON_DEBOUNCE_MS"),
             "long_press_ms": _sym_int(kconf, "ESP32_BUTTON_LONG_PRESS_MS"),
+            "long_long_press_ms": _sym_int(
+                kconf, "ESP32_BUTTON_LONG_LONG_PRESS_MS"
+            ),
         },
         "led": {
             "active_low": _sym_bool(kconf, "ESP32_LED_ACTIVE_LOW"),
@@ -577,10 +602,13 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
             "invert": _sym_bool(kconf, "ESP32_DISPLAY_PANEL_INVERT"),
             "rotate_180": _sym_bool(kconf, "ESP32_DISPLAY_PANEL_ROTATE_180"),
         },
-        "display_manager": {
+        "ui": {
             "fps_cap": _sym_int(kconf, "ESP32_DISPLAY_MANAGER_FPS_CAP"),
             "boot_logo_timeout_s": _sym_int(kconf, "ESP32_WIDGET_BOOT_TIMEOUT_S"),
             "ui_timeout_s": _sym_int(kconf, "ESP32_WIDGET_UI_TIMEOUT_S"),
+            "transition_speed_x": int(
+                _choice_value(kconf, UI_TRANSITION_SPEED_CHOICES)
+            ),
         },
         "tone_player": {
             "volume": _sym_int(kconf, "ESP32_TONE_PLAYER_VOLUME"),
@@ -599,6 +627,10 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
             "keepalive_cnt": _sym_int(
                 kconf, "ESP32_TCP_SERVER_KEEPALIVE_COUNT"
             ),
+        },
+        "udp_server": {
+            "port": _sym_int(kconf, "ESP32_UDP_SERVER_PORT"),
+            "nonblocking": _sym_bool(kconf, "ESP32_UDP_SERVER_NONBLOCKING"),
         },
         "fclink_uart": {
             "baud_rate": _choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES),
@@ -625,6 +657,13 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
             "boot_settle_ms": _sym_int(kconf, "ESP32_PROGRAMMER_BOOT_SETTLE_MS"),
             "sync_timeout_ms": _sym_int(kconf, "ESP32_PROGRAMMER_SYNC_TIMEOUT_MS"),
             "sync_retries": _sym_int(kconf, "ESP32_PROGRAMMER_SYNC_RETRIES"),
+            "verify": {
+                "esp32": _sym_bool(kconf, "ESP32_PROGRAMMER_VERIFY_ESP32"),
+                "esp32_chunk_bytes": _sym_int(
+                    kconf, "ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES"
+                ),
+                "stm32": _sym_bool(kconf, "ESP32_PROGRAMMER_VERIFY_STM32"),
+            },
         },
         "wifi": {
             "ap": {
@@ -707,7 +746,8 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
             "max_rx_read_chunk_size": MAVLINK_RX_READ_CHUNK_MAX,
         },
         "programmer": {
-            "staging_buffer_bytes": 8192,
+            "staging_buffer_bytes": PROGRAMMER_STAGING_BUFFER_BYTES,
+            "stm32_block_bytes": PROGRAMMER_STM32_BLOCK_BYTES,
         },
         "tcp_server": {
             "event_queue_depth": 8,

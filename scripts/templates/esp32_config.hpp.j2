@@ -4,7 +4,6 @@
 
 #include "button.hpp"
 #include "buzzer.hpp"
-#include "display_manager.hpp"
 #include "esp32_limits.hpp"
 #include "fc_link.hpp"
 #include "hal/gpio_types.h"
@@ -15,6 +14,8 @@
 #include "ssd1306_panel.hpp"
 #include "tcp_server.hpp"
 #include "tone_player.hpp"
+#include "udp_server.hpp"
+#include "ui.hpp"
 #include "uart.hpp"
 #include "wifi.hpp"
 
@@ -58,6 +59,7 @@ inline constexpr Button::Config kButtonConfig = {
         {
             .debounce_ms = {{ button.debounce_ms }},
             .long_press_ms = {{ button.long_press_ms }},
+            .long_long_press_ms = {{ button.long_long_press_ms }},
         },
 };
 
@@ -104,10 +106,11 @@ inline constexpr Ssd1306Panel::Config kSsd1306PanelConfig = {
         },
 };
 
-inline constexpr DisplayManager::Config kDisplayManagerConfig = {
-    .fps_cap = {{ display_manager.fps_cap }},
-    .boot_logo_timeout_s = {{ display_manager.boot_logo_timeout_s }},
-    .ui_timeout_s = {{ display_manager.ui_timeout_s }},
+inline constexpr Ui::Config kUiConfig = {
+    .fps_cap = {{ ui.fps_cap }},
+    .boot_logo_timeout_s = {{ ui.boot_logo_timeout_s }},
+    .ui_timeout_s = {{ ui.ui_timeout_s }},
+    .transition_speed_x = {{ ui.transition_speed_x }},
 };
 
 inline constexpr TonePlayer::Config kTonePlayerConfig = {
@@ -122,6 +125,11 @@ inline constexpr TcpServer::Config kTcpServerConfig = {
     .keepalive_idle_s = {{ tcp_server.keepalive_idle_s }},
     .keepalive_intvl_s = {{ tcp_server.keepalive_intvl_s }},
     .keepalive_cnt = {{ tcp_server.keepalive_cnt }},
+};
+
+inline constexpr UdpServer::Config kUdpServerConfig = {
+    .port = {{ udp_server.port }},
+    .nonblocking = {{ udp_server.nonblocking | cpp_bool }},
 };
 
 inline constexpr UartConfig kFcLinkUartConfig = {
@@ -173,6 +181,12 @@ inline constexpr Programmer::Config kProgrammerConfig = {
     .boot_settle_ms = {{ programmer.boot_settle_ms }},
     .sync_timeout_ms = {{ programmer.sync_timeout_ms }},
     .sync_retries = {{ programmer.sync_retries }},
+    .verify =
+        {
+            .esp32 = {{ programmer.verify.esp32 | cpp_bool }},
+            .esp32_chunk_bytes = {{ programmer.verify.esp32_chunk_bytes }},
+            .stm32 = {{ programmer.verify.stm32 | cpp_bool }},
+        },
 };
 
 inline constexpr WifiController::Config kWifiConfig = {
