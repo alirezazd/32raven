@@ -42,7 +42,6 @@ class FcLink {
       message::kMaxPayload + message::kPacketOverhead;
   TimeMs next_rc_forward_ms_ = 0;
 
-  // Epistole Parser State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };
   RxState rx_state_ = RxState::kMagic1;
   uint8_t rx_idx_ = 0;
