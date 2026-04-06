@@ -70,7 +70,7 @@ void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
 }
 
 bool TonePlayer::PlayRtttl(const char *rtttl, int volume) {
-  if (rtttl == nullptr || *rtttl == '\0') {
+  if (rtttl == nullptr || *rtttl == '\0' || request_queue_ == nullptr) {
     return false;
   }
 
@@ -87,6 +87,9 @@ void TonePlayer::PlayBuiltin(BuiltinTone tone, int volume) {
 }
 
 void TonePlayer::Stop() {
+  if (request_queue_ == nullptr) {
+    return;
+  }
   xQueueReset((QueueHandle_t)request_queue_);
   if (task_handle_ != nullptr) {
     xTaskNotifyGive((TaskHandle_t)task_handle_);
