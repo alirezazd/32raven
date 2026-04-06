@@ -1,9 +1,9 @@
-#include "m9n.hpp"
+#include "m10.hpp"
 
 #include <cstring>
 #include <type_traits>
 
-#include "m9n_reg.hpp"
+#include "m10_reg.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
@@ -19,7 +19,7 @@ inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
   }
 }
 
-void M9N::WaitForReady() {
+void M10::WaitForReady() {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
@@ -27,7 +27,6 @@ void M9N::WaitForReady() {
   while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
     uart.FlushRx();
 
-    // Any cheap VALSET that triggers an ACK is fine as "ready".
     SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, kValsetLayerRam);
     if (WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       return;
@@ -39,20 +38,33 @@ void M9N::WaitForReady() {
   Panic(ErrorCode::kGpsNotResponding);
 }
 
-// Explicit instantiations
-template bool M9N::SendCfgValSet<uint8_t>(uint32_t, uint8_t, uint8_t);
-template bool M9N::SendCfgValSet<uint16_t>(uint32_t, uint16_t, uint8_t);
-template bool M9N::SendCfgValSet<uint32_t>(uint32_t, uint32_t, uint8_t);
+template bool M10::SendCfgValSet<uint8_t>(uint32_t, uint8_t, uint8_t);
+template bool M10::SendCfgValSet<uint16_t>(uint32_t, uint16_t, uint8_t);
+template bool M10::SendCfgValSet<uint32_t>(uint32_t, uint32_t, uint8_t);
 
-template void M9N::SendCfgValSetRaw<uint8_t>(uint32_t, uint8_t, uint8_t);
-template void M9N::SendCfgValSetRaw<uint16_t>(uint32_t, uint16_t, uint8_t);
-template void M9N::SendCfgValSetRaw<uint32_t>(uint32_t, uint32_t, uint8_t);
+template void M10::SendCfgValSetRaw<uint8_t>(uint32_t, uint8_t, uint8_t);
+template void M10::SendCfgValSetRaw<uint16_t>(uint32_t, uint16_t, uint8_t);
+template void M10::SendCfgValSetRaw<uint32_t>(uint32_t, uint32_t, uint8_t);
 
-template bool M9N::WaitForValget<uint8_t>(uint32_t, uint8_t);
-template bool M9N::WaitForValget<uint16_t>(uint32_t, uint16_t);
-template bool M9N::WaitForValget<uint32_t>(uint32_t, uint32_t);
+template bool M10::WaitForValget<uint8_t>(uint32_t, uint8_t);
+template bool M10::WaitForValget<uint16_t>(uint32_t, uint16_t);
+template bool M10::WaitForValget<uint32_t>(uint32_t, uint32_t);
 
-void M9N::ApplyConfig(uint8_t layer) {
+void M10::ApplyConfig(uint8_t layer) {
+  if (!SendCfgValSet(kKeyUart1Baudrate, ToBaudRateValue(config_.baud_rate),
+                     layer))
+    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+  if (!SendCfgValSet(kKeyUart1StopBits,
+                     static_cast<uint8_t>(config_.uart1.stop_bits), layer))
+    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+  if (!SendCfgValSet(kKeyUart1DataBits,
+                     static_cast<uint8_t>(config_.uart1.data_bits), layer))
+    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+  if (!SendCfgValSet(kKeyUart1Parity,
+                     static_cast<uint8_t>(config_.uart1.parity), layer))
+    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+  if (!SendCfgValSet(kKeyUart1InprotUbx, static_cast<uint8_t>(true), layer))
+    Panic(ErrorCode::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1OutprotUbx,
                      static_cast<uint8_t>(config_.protocols.outprot_ubx),
                      layer))
@@ -97,22 +109,11 @@ void M9N::ApplyConfig(uint8_t layer) {
                      static_cast<uint8_t>(config_.gnss.itfm_enable), layer))
     Panic(ErrorCode::kGpsVerifyItfmFailed);
 
-  // Timepulse Config (Atomic - grouped)
-  // Payload: Key(4) + Val(var)
-  // Keys:
-  // - TP1_ENA (U1)
-  // - TP1_PERIOD (U4)
-  // - TP1_LEN (U4)
-  // - TP1_TIMEGRID (U1)
-  // - TP1_SYNC_GNSS (U1)
-  // - TP1_ALIGN_TO_TOW (U1)
-  // - TP1_POL (U1)
   constexpr uint16_t payload_len =
       (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1);
   constexpr size_t packet_len = 6 + payload_len + 2;
   uint8_t buf[packet_len];
 
-  // Header
   buf[0] = UBX::kSync1;
   buf[1] = UBX::kSync2;
   buf[2] = UBX::kClsCfg;
@@ -120,7 +121,6 @@ void M9N::ApplyConfig(uint8_t layer) {
   buf[4] = payload_len & 0xFF;
   buf[5] = (payload_len >> 8) & 0xFF;
 
-  // Header payload: Version, Layer, Reserved
   buf[6] = kValsetVersion;
   buf[7] = layer;
   buf[8] = 0;
@@ -154,64 +154,46 @@ void M9N::ApplyConfig(uint8_t layer) {
                static_cast<uint8_t>(config_.tp1.align_to_tow));
   write_key_u1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
 
-  // Safety check: ensure we filled exactly the expected payload
   if (idx != 10 + payload_len) {
     Panic(ErrorCode::kGpsConfigTimepulseBufferError);
   }
 
-  // Checksum
-  uint8_t ck_a = 0, ck_b = 0;
+  uint8_t ck_a = 0;
+  uint8_t ck_b = 0;
   UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
   buf[packet_len - 2] = ck_a;
   buf[packet_len - 1] = ck_b;
 
-  // Send
   Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
-  // Wait for ACK
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
     Panic(ErrorCode::kGpsConfigTimepulseFailed);
   }
+
+  if (config_.uart1.enabled) {
+    if (!SendCfgValSet(kKeyUart1Enabled, static_cast<uint8_t>(true), layer)) {
+      Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    }
+  } else {
+    SendCfgValSetRaw<uint8_t>(kKeyUart1Enabled, 0, layer);
+    if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
+      Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    }
+  }
 }
 
-void M9N::FlashConfig(BaudRate current_baud) {
-  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
-  auto &time = System::GetInstance().Time();
-
-  uart.SetBaudRate(ToBaudRateValue(current_baud));
-
-  time.DelayMicros(MILLIS_TO_MICROS(100));
-  uart.FlushRx();
-
-  ApplyConfig(kValsetLayerAll);
-
-  // Baud change last, no ACK wait
-  SendCfgValSetRaw<uint32_t>(
-      kKeyUart1Baudrate, ToBaudRateValue(config_.baud_rate), kValsetLayerAll);
-
-  time.DelayMicros(MILLIS_TO_MICROS(200));  // settle time
-  uart.SetBaudRate(ToBaudRateValue(config_.baud_rate));
-  uart.FlushRx();
-}
-
-void M9N::Init(const Config &config) {
+void M10::Init(const Config &config) {
   config_ = config;
 
-  // Wait up to 1s for GPS to boot and respond
   WaitForReady();
-
-  if (config_.flash_config) FlashConfig(BaudRate::k38400);
-
-  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
-  uart.FlushRx();
-
+  Uart<UartInstance::kUart2>::GetInstance().FlushRx();
   ApplyConfig(kValsetLayerRam);
 }
 
-bool M9N::Read(uint8_t &b) {
+bool M10::Read(uint8_t &b) {
   return Uart<UartInstance::kUart2>::GetInstance().Read(b);
 }
 
-bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
+bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
@@ -248,7 +230,8 @@ bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 
     if (frame[4] != 0x02 || frame[5] != 0x00) continue;
 
-    uint8_t ck_a = 0, ck_b = 0;
+    uint8_t ck_a = 0;
+    uint8_t ck_b = 0;
     uint8_t chk_buf[6] = {frame[2], frame[3], frame[4],
                           frame[5], frame[6], frame[7]};
     UbxChecksum(chk_buf, sizeof(chk_buf), ck_a, ck_b);
@@ -263,7 +246,7 @@ bool M9N::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 }
 
 template <typename T>
-void M9N::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
+void M10::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
@@ -291,7 +274,8 @@ void M9N::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
 
   std::memcpy(&buf[14], &value, sizeof(T));
 
-  uint8_t ck_a = 0, ck_b = 0;
+  uint8_t ck_a = 0;
+  uint8_t ck_b = 0;
   UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
   buf[packet_len - 2] = ck_a;
   buf[packet_len - 1] = ck_b;
@@ -299,10 +283,10 @@ void M9N::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
   Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
 }
 
-void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
+void M10::SendCfgValGet(uint32_t key, uint8_t layer) {
   constexpr uint8_t version = 0x00;
   constexpr uint16_t position = 0;
-  constexpr uint16_t payload_len = 4 + 4;  // version/layer/position + 1 key
+  constexpr uint16_t payload_len = 4 + 4;
   constexpr size_t packet_len = 6 + payload_len + 2;
 
   uint8_t buf[packet_len];
@@ -324,7 +308,8 @@ void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
   buf[12] = (key >> 16) & 0xFF;
   buf[13] = (key >> 24) & 0xFF;
 
-  uint8_t ck_a = 0, ck_b = 0;
+  uint8_t ck_a = 0;
+  uint8_t ck_b = 0;
   UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
   buf[packet_len - 2] = ck_a;
   buf[packet_len - 1] = ck_b;
@@ -333,7 +318,7 @@ void M9N::SendCfgValGet(uint32_t key, uint8_t layer) {
 }
 
 template <typename T>
-bool M9N::WaitForValget(uint32_t key, T expected_value) {
+bool M10::WaitForValget(uint32_t key, T expected_value) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
@@ -375,11 +360,10 @@ bool M9N::WaitForValget(uint32_t key, T expected_value) {
     frame_len = 0;
 
     if (frame[2] != UBX::kClsCfg || frame[3] != UBX::kIdCfgValget) continue;
-
-    // expect: version+layer+position (4) + key (4) + value
     if (payload_len != 4 + 4 + sizeof(T)) continue;
 
-    uint8_t ck_a = 0, ck_b = 0;
+    uint8_t ck_a = 0;
+    uint8_t ck_b = 0;
     UbxChecksum(&frame[2], 4 + payload_len, ck_a, ck_b);
     if (ck_a != frame[6 + payload_len] || ck_b != frame[6 + payload_len + 1])
       continue;
@@ -398,13 +382,12 @@ bool M9N::WaitForValget(uint32_t key, T expected_value) {
 }
 
 template <typename T>
-bool M9N::SendCfgValSet(uint32_t key, T value, uint8_t layer) {
+bool M10::SendCfgValSet(uint32_t key, T value, uint8_t layer) {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
 
   SendCfgValSetRaw(key, value, layer);
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) return false;
 
-  // Verify against active config (RAM) to keep it deterministic.
   uart.FlushRx();
   SendCfgValGet(key, kValgetLayerRam);
   return WaitForValget<T>(key, value);

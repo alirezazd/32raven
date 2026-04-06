@@ -144,6 +144,10 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
 
   t.hAcc = data.hAcc;  // mm
   t.vAcc = data.vAcc;  // mm
+  t.gDOP = data.gDOP;
+  t.pDOP = data.pDOP;
+  t.hDOP = data.hDOP;
+  t.vDOP = data.vDOP;
 
   // Populate new fields with dummy/placeholder data for now
   // Real attitude/battery data needs to come from `data` source

@@ -75,11 +75,35 @@ const char *GetMessage(ErrorCode code) {
       return "UART Operation Failed";
     case ErrorCode::kProgrammerUartNull:
       return "Programmer UART Null";
+    case ErrorCode::kProgrammerHandshakeFailed:
+      return "Programmer Handshake Failed";
+    case ErrorCode::kProgrammerBufferOverflow:
+      return "Programmer Buffer Overflow";
+    case ErrorCode::kProgrammerEraseFailed:
+      return "Programmer Erase Failed";
+    case ErrorCode::kProgrammerWriteFailed:
+      return "Programmer Write Failed";
+    case ErrorCode::kProgrammerReadFailed:
+      return "Programmer Read Failed";
+    case ErrorCode::kProgrammerVerifyFailed:
+      return "Programmer Verify Failed";
+    case ErrorCode::kProgrammerOtaPartitionNotFound:
+      return "Programmer OTA Partition Not Found";
+    case ErrorCode::kProgrammerOtaBeginFailed:
+      return "Programmer OTA Begin Failed";
+    case ErrorCode::kProgrammerOtaWriteFailed:
+      return "Programmer OTA Write Failed";
+    case ErrorCode::kProgrammerOtaEndFailed:
+      return "Programmer OTA End Failed";
+    case ErrorCode::kProgrammerOtaSetBootFailed:
+      return "Programmer OTA Set Boot Failed";
+    case ErrorCode::kProgrammerTimedOut:
+      return "Programmer Timed Out";
     case ErrorCode::kStm32GpioInitFailed:
       return "STM32 GPIO Init Failed";
     case ErrorCode::kDisplayPanelInitFailed:
       return "Display Panel Init Failed";
-    case ErrorCode::kDisplayManagerInitFailed:
+    case ErrorCode::kUiInitFailed:
       return "Display Service Init Failed";
     case ErrorCode::kTonePlayerInitFailed:
       return "TonePlayer Init Failed";
@@ -89,52 +113,54 @@ const char *GetMessage(ErrorCode code) {
       return "GPIO Driver Re-init";
     case ErrorCode::kGpioInvalidPort:
       return "GPIO Invalid Port";
+    case ErrorCode::kFcLinkHandshakeFailed:
+      return "FcLink Handshake Failed";
     case ErrorCode::kTcpServerError:
       return "TCP Server Error";
-    case ErrorCode::kM9nNotResponding:
+    case ErrorCode::kGpsNotResponding:
       return "GPS Not Responding";
-    case ErrorCode::kM9nConfigProtocolFailed:
-      return "M9N Proto Config Failed";
-    case ErrorCode::kM9nConfigNavPvtFailed:
-      return "M9N NavPvt Config Failed";
-    case ErrorCode::kM9nConfigNavDopFailed:
-      return "M9N NavDop Config Failed";
-    case ErrorCode::kM9nConfigNavCovFailed:
-      return "M9N NavCov Config Failed";
-    case ErrorCode::kM9nConfigNavEoeFailed:
-      return "M9N NavEoe Config Failed";
-    case ErrorCode::kM9nConfigRateFailed:
-      return "M9N Rate Config Failed";
-    case ErrorCode::kM9nConfigDynModelFailed:
-      return "M9N DynModel Config Failed";
-    case ErrorCode::kM9nConfigConstellationFailed:
-      return "M9N Constellation Config Failed";
-    case ErrorCode::kM9nConfigItfmFailed:
-      return "M9N ITFM Config Failed";
-    case ErrorCode::kM9nConfigTimepulseFailed:
-      return "M9N Timepulse Config Failed";
-    case ErrorCode::kM9nConfigTimepulseBufferError:
-      return "M9N TP1 Buffer Mismatch";
-    case ErrorCode::kM9nVerifyProtocolFailed:
-      return "M9N Verify Proto Failed";
-    case ErrorCode::kM9nVerifyNavPvtFailed:
-      return "M9N Verify NavPvt Failed";
-    case ErrorCode::kM9nVerifyNavDopFailed:
-      return "M9N Verify NavDop Failed";
-    case ErrorCode::kM9nVerifyNavCovFailed:
-      return "M9N Verify NavCov Failed";
-    case ErrorCode::kM9nVerifyNavEoeFailed:
-      return "M9N Verify NavEoe Failed";
-    case ErrorCode::kM9nVerifyRateFailed:
-      return "M9N Verify Rate Failed";
-    case ErrorCode::kM9nVerifyDynModelFailed:
-      return "M9N Verify DynModel Failed";
-    case ErrorCode::kM9nVerifyConstellationFailed:
-      return "M9N Verify Constellation Failed";
-    case ErrorCode::kM9nVerifyItfmFailed:
-      return "M9N Verify ITFM Failed";
-    case ErrorCode::kM9nVerifyTimepulseFailed:
-      return "M9N Verify Timepulse Failed";
+    case ErrorCode::kGpsConfigProtocolFailed:
+      return "GPS Protocol Config Failed";
+    case ErrorCode::kGpsConfigNavPvtFailed:
+      return "GPS NavPvt Config Failed";
+    case ErrorCode::kGpsConfigNavDopFailed:
+      return "GPS NavDop Config Failed";
+    case ErrorCode::kGpsConfigNavCovFailed:
+      return "GPS NavCov Config Failed";
+    case ErrorCode::kGpsConfigNavEoeFailed:
+      return "GPS NavEoe Config Failed";
+    case ErrorCode::kGpsConfigRateFailed:
+      return "GPS Rate Config Failed";
+    case ErrorCode::kGpsConfigDynModelFailed:
+      return "GPS DynModel Config Failed";
+    case ErrorCode::kGpsConfigConstellationFailed:
+      return "GPS Constellation Config Failed";
+    case ErrorCode::kGpsConfigItfmFailed:
+      return "GPS ITFM Config Failed";
+    case ErrorCode::kGpsConfigTimepulseFailed:
+      return "GPS Timepulse Config Failed";
+    case ErrorCode::kGpsConfigTimepulseBufferError:
+      return "GPS TP1 Buffer Mismatch";
+    case ErrorCode::kGpsVerifyProtocolFailed:
+      return "GPS Verify Protocol Failed";
+    case ErrorCode::kGpsVerifyNavPvtFailed:
+      return "GPS Verify NavPvt Failed";
+    case ErrorCode::kGpsVerifyNavDopFailed:
+      return "GPS Verify NavDop Failed";
+    case ErrorCode::kGpsVerifyNavCovFailed:
+      return "GPS Verify NavCov Failed";
+    case ErrorCode::kGpsVerifyNavEoeFailed:
+      return "GPS Verify NavEoe Failed";
+    case ErrorCode::kGpsVerifyRateFailed:
+      return "GPS Verify Rate Failed";
+    case ErrorCode::kGpsVerifyDynModelFailed:
+      return "GPS Verify DynModel Failed";
+    case ErrorCode::kGpsVerifyConstellationFailed:
+      return "GPS Verify Constellation Failed";
+    case ErrorCode::kGpsVerifyItfmFailed:
+      return "GPS Verify ITFM Failed";
+    case ErrorCode::kGpsVerifyTimepulseFailed:
+      return "GPS Verify Timepulse Failed";
     case ErrorCode::kImuWhoAmIFail:
       return "IMU WhoAmI Failed";
     case ErrorCode::kImuFifoUnsupported:

@@ -13,9 +13,6 @@
 #include "uart.hpp"
 #include "user_config.hpp"
 
-// TODO: Use menuconfig to set these values and auto generate the config
-// TODO: Need a way to change some parameters at runtime
-
 System::System() {
   // Constructor does nothing now, explicit init() required.
 }
@@ -42,7 +39,7 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kDshot);
   InitComponent(Component::kButton);
   InitComponent(Component::kUart2);
-  InitComponent(Component::kM9n);
+  InitComponent(Component::kM10);
   InitComponent(Component::kIcm42688p);
 
   // Init Complete: LEAVE LED ON for Debugging
@@ -81,12 +78,10 @@ void System::InitComponent(Component c) {
       Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
       break;
     case Component::kUart2:
-      // GPS/M9N disabled for IMU-only bring-up.
-      // Uart2::GetInstance().Init(kUart2Config);
+      Uart2::GetInstance().Init(kUart2Config);
       break;
-    case Component::kM9n:
-      // GPS/M9N disabled for IMU-only bring-up.
-      // M9N::GetInstance().Init(kM9nConfig);
+    case Component::kM10:
+      M10::GetInstance().Init(kM10Config);
       break;
     case Component::kIcm42688p:
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance(),
