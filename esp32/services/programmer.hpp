@@ -13,6 +13,7 @@ extern "C" {
 #include <cstring>
 
 #include "esp32_limits.hpp"
+#include "error_code.hpp"
 #include "hal/gpio_types.h"
 #include "state_machine.hpp"
 
@@ -23,7 +24,19 @@ class Programmer {
     return instance;
   }
 
+  enum class Target { kStm32, kEsp32 };
+
   struct Config {
+    struct VerifyConfig {
+      bool esp32 = true;
+      std::size_t esp32_chunk_bytes = 1024;
+      bool stm32 = true;
+
+      bool EnabledFor(Target target) const {
+        return target == Target::kEsp32 ? esp32 : stm32;
+      }
+    };
+
     // STM32 boot control pins on the ESP32 side.
     gpio_num_t boot0_pin = GPIO_NUM_NC;
     gpio_num_t nrst_pin = GPIO_NUM_NC;  // active low reset
@@ -33,9 +46,8 @@ class Programmer {
 
     uint32_t sync_timeout_ms = 100;
     uint8_t sync_retries = 10;
+    VerifyConfig verify{};
   };
-
-  enum class Target { kStm32, kEsp32 };
 
   void SetTarget(Target t) { ctx_.target = t; }
 
@@ -50,6 +62,7 @@ class Programmer {
   bool Ready() const;  // handshake done, ready to accept bytes
   bool Done() const;
   bool Error() const;
+  ErrorCode LastErrorCode() const;
   bool IsVerifying() const;
   uint32_t Total() const;
   uint32_t Written() const;
@@ -80,7 +93,7 @@ class Programmer {
     size_t tail = 0;
     bool overflow = false;
 
-    uint32_t err = 0;
+    ErrorCode err = ErrorCode::kOk;
 
     // transitions
     IState<Ctx> *st_idle = nullptr;
@@ -140,14 +153,30 @@ class Programmer {
   void GpioInit();
   void Boot0Set(bool on);
   void NrstPulse(uint32_t pulse_ms);
-  bool EnterBootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
-  bool GetBootloaderInfo();  // CMD_GET (0x00)
-  bool EraseSectors();       // STM32 targeted EXT_ERASE preserving EEPROM
-  bool MassErase();          // Mass erase (STM32 only, no EEPROM preservation)
-  bool WriteBlock(uint32_t addr, const uint8_t *data,
-                  size_t len);  // CMD_WRITE_MEMORY (0x31)
-  bool ReadBlock(uint32_t addr, uint8_t *data,
-                 size_t len);  // CMD_READ_MEMORY (0x11)
+  bool BeginTargetSession(Ctx &c);
+  size_t TargetWriteChunkLimit(const Ctx &c) const;
+  bool WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len);
+  bool FinalizeTargetWrite(Ctx &c);
+  size_t TargetVerifyChunkSize(const Ctx &c) const;
+  bool ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len);
+  bool CompleteSuccessfulProgram(Ctx &c);
+
+  bool BeginEsp32Ota(Ctx &c);
+  bool WriteEsp32Chunk(Ctx &c, const uint8_t *data, size_t len);
+  bool FinalizeEsp32Ota(Ctx &c);
+  bool ActivateEsp32Ota(Ctx &c);
+  bool ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset, uint8_t *data,
+                               size_t len) const;
+
+  bool BeginStm32Session(Ctx &c);
+  bool EnterStm32Bootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
+  bool GetStm32BootloaderInfo();  // CMD_GET (0x00)
+  bool EraseStm32Sectors();       // STM32 targeted EXT_ERASE preserving EEPROM
+  bool MassEraseStm32();          // Mass erase (STM32 only, no EEPROM preservation)
+  bool WriteStm32Block(uint32_t addr, const uint8_t *data,
+                       size_t len);  // CMD_WRITE_MEMORY (0x31)
+  bool ReadStm32Block(uint32_t addr, uint8_t *data,
+                      size_t len);  // CMD_READ_MEMORY (0x11)
   Ctx ctx_{};
   StateMachine<Ctx> sm_{ctx_};
 

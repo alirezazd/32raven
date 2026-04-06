@@ -2,4 +2,4 @@
 
 #include "error_code.hpp"
 
-void Panic(ErrorCode code);
+[[noreturn]] void Panic(ErrorCode code);
