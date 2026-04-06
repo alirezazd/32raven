@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "display_manager.hpp"
+#include "ui.hpp"
 
 class ResourceUtilizationWidget : public IWidget {
  public:

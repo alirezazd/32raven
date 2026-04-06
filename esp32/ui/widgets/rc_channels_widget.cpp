@@ -27,11 +27,11 @@ void RcChannelsWidget::OnStep(WidgetContext &ctx, TimeMs now) {
 }
 
 void RcChannelsWidget::Render(WidgetContext &ctx) const {
-  if (ctx.display == nullptr || ctx.renderer == nullptr) {
+  if (ctx.ui == nullptr || ctx.renderer == nullptr) {
     return;
   }
 
-  DisplayManager &display = *ctx.display;
+  Ui &ui = *ctx.ui;
   DisplayRenderer &renderer = *ctx.renderer;
   const DisplayTextBounds sample_bounds =
       renderer.MeasureText(kSampleLine, kTextStyle);
@@ -45,7 +45,7 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
   const int16_t total_height = static_cast<int16_t>(
       (kChannelCount * line_height) + ((kChannelCount - 1) * kLineSpacing));
   int16_t line_top = std::max<int16_t>(
-      0, static_cast<int16_t>(display.Height() - total_height) / 2);
+      0, static_cast<int16_t>(ui.Height() - total_height) / 2);
 
   const RcState &rc_state = Sys().Mavlink().GetRcState();
   std::array<uint16_t, kChannelCount> values{};

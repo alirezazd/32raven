@@ -90,11 +90,11 @@ void ResourceUtilizationWidget::SampleMetrics() {
 }
 
 void ResourceUtilizationWidget::Render(WidgetContext &ctx) const {
-  if (ctx.display == nullptr || ctx.renderer == nullptr) {
+  if (ctx.ui == nullptr || ctx.renderer == nullptr) {
     return;
   }
 
-  DisplayManager &display = *ctx.display;
+  Ui &ui = *ctx.ui;
   DisplayRenderer &renderer = *ctx.renderer;
   const DisplayTextBounds sample_bounds =
       renderer.MeasureText(kSampleLine, kTextStyle);
@@ -108,7 +108,7 @@ void ResourceUtilizationWidget::Render(WidgetContext &ctx) const {
   const int16_t total_height =
       static_cast<int16_t>((4 * line_height) + (3 * kLineSpacing));
   int16_t line_top = std::max<int16_t>(
-      0, static_cast<int16_t>(display.Height() - total_height) / 2);
+      0, static_cast<int16_t>(ui.Height() - total_height) / 2);
 
   char lines[4][16];
   std::snprintf(lines[0], sizeof(lines[0]), "CPU:%3u%%",
