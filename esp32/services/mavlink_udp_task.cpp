@@ -1,4 +1,4 @@
-// mavlink_tx_task.cpp
+// mavlink_udp_task.cpp
 #include "panic.hpp"
 #include "system.hpp"
 
@@ -9,24 +9,21 @@ extern "C" {
 
 namespace {
 
-// Keep the TX cadence stable and readable.
-// 10ms = 100Hz is a good default for low-latency acks and smooth scheduling.
-static constexpr TickType_t kTxPeriodTicks = pdMS_TO_TICKS(10);
+// Match the RC MAVLink task cadence for now.
+static constexpr TickType_t kUdpPeriodTicks = pdMS_TO_TICKS(10);
 
-static void MavlinkTxTask(void *) {
-  // Align to a periodic schedule to reduce jitter.
+static void MavlinkUdpTask(void *) {
   TickType_t last_wake = xTaskGetTickCount();
 
   while (true) {
-    Sys().Mavlink().TxTick(Sys().Timebase().NowMs());
-    vTaskDelayUntil(&last_wake, kTxPeriodTicks);
+    Sys().Mavlink().UdpTick(Sys().Timebase().NowMs());
+    vTaskDelayUntil(&last_wake, kUdpPeriodTicks);
   }
 }
 
 }  // namespace
 
-void StartMavlinkTxTask() {
-  // One owner for RcRx UART TX.
+void StartMavlinkUdpTask() {
   static constexpr uint32_t kStackBytes = 4096;
   static constexpr UBaseType_t kPrio = 10;
   static StaticTask_t task_buffer;
@@ -34,10 +31,10 @@ void StartMavlinkTxTask() {
   static TaskHandle_t task_handle = nullptr;
 
   if (task_handle != nullptr) {
-    Panic(ErrorCode::kMavlinkInitFailed);
+    return;
   }
 
-  task_handle = xTaskCreateStaticPinnedToCore(MavlinkTxTask, "mav_tx",
+  task_handle = xTaskCreateStaticPinnedToCore(MavlinkUdpTask, "mavudp",
                                               kStackBytes, nullptr, kPrio,
                                               task_stack, &task_buffer, 0);
   if (task_handle == nullptr) {
