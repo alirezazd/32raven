@@ -3,7 +3,7 @@
 #include "button.hpp"
 #include "icm20948.hpp"
 #include "icm42688p.hpp"
-#include "m9n.hpp"
+#include "m10.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "stm32_limits.hpp"
@@ -23,13 +23,13 @@ inline constexpr UartConfig kUart1Config = {
 };
 
 inline constexpr UartConfig kUart2Config = {
-    .baud_rate = {{ m9n.uart.baud_rate }},
-    .word_length = {{ m9n.uart.word_length }},
-    .stop_bits = {{ m9n.uart.stop_bits }},
-    .parity = {{ m9n.uart.parity }},
-    .mode = {{ m9n.uart.mode }},
-    .hw_flow_control = {{ m9n.uart.hw_flow_control }},
-    .over_sampling = {{ m9n.uart.over_sampling }},
+    .baud_rate = {{ m10.uart.baud_rate }},
+    .word_length = {{ m10.uart.word_length }},
+    .stop_bits = {{ m10.uart.stop_bits }},
+    .parity = {{ m10.uart.parity }},
+    .mode = {{ m10.uart.mode }},
+    .hw_flow_control = {{ m10.uart.hw_flow_control }},
+    .over_sampling = {{ m10.uart.over_sampling }},
 };
 
 inline constexpr Icm42688p::Config kIcm42688pConfig = {
@@ -113,39 +113,44 @@ inline constexpr RcReceiver::Config kRcReceiverConfig = {
     },
 };
 
-inline constexpr M9N::Config kM9nConfig = {
-    .flash_config = {{ m9n.config.flash_config | cpp_bool }},
-    .baud_rate = {{ m9n.config.baud_rate }},
+inline constexpr M10::Config kM10Config = {
+    .baud_rate = {{ m10.config.baud_rate }},
+    .uart1 = {
+        .enabled = {{ m10.config.uart1.enabled | cpp_bool }},
+        .stop_bits = {{ m10.config.uart1.stop_bits }},
+        .data_bits = {{ m10.config.uart1.data_bits }},
+        .parity = {{ m10.config.uart1.parity }},
+    },
     .protocols = {
-        .outprot_ubx = {{ m9n.config.protocols.outprot_ubx | cpp_bool }},
-        .outprot_nmea = {{ m9n.config.protocols.outprot_nmea | cpp_bool }},
+        .outprot_ubx = {{ m10.config.protocols.outprot_ubx | cpp_bool }},
+        .outprot_nmea = {{ m10.config.protocols.outprot_nmea | cpp_bool }},
     },
     .messages = {
-        .nav_pvt = {{ m9n.config.messages.nav_pvt | cpp_bool }},
-        .nav_dop = {{ m9n.config.messages.nav_dop | cpp_bool }},
-        .nav_cov = {{ m9n.config.messages.nav_cov | cpp_bool }},
-        .nav_eoe = {{ m9n.config.messages.nav_eoe | cpp_bool }},
+        .nav_pvt = {{ m10.config.messages.nav_pvt | cpp_bool }},
+        .nav_dop = {{ m10.config.messages.nav_dop | cpp_bool }},
+        .nav_cov = {{ m10.config.messages.nav_cov | cpp_bool }},
+        .nav_eoe = {{ m10.config.messages.nav_eoe | cpp_bool }},
     },
     .nav = {
-        .rate_meas_ms = {{ m9n.config.nav.rate_meas_ms }},
-        .dyn_model = {{ m9n.config.nav.dyn_model }},
+        .rate_meas_ms = {{ m10.config.nav.rate_meas_ms }},
+        .dyn_model = {{ m10.config.nav.dyn_model }},
     },
     .gnss = {
-        .gps_enable = {{ m9n.config.gnss.gps_enable | cpp_bool }},
-        .glo_enable = {{ m9n.config.gnss.glo_enable | cpp_bool }},
-        .gal_enable = {{ m9n.config.gnss.gal_enable | cpp_bool }},
-        .bds_enable = {{ m9n.config.gnss.bds_enable | cpp_bool }},
-        .sbas_enable = {{ m9n.config.gnss.sbas_enable | cpp_bool }},
-        .itfm_enable = {{ m9n.config.gnss.itfm_enable | cpp_bool }},
+        .gps_enable = {{ m10.config.gnss.gps_enable | cpp_bool }},
+        .glo_enable = {{ m10.config.gnss.glo_enable | cpp_bool }},
+        .gal_enable = {{ m10.config.gnss.gal_enable | cpp_bool }},
+        .bds_enable = {{ m10.config.gnss.bds_enable | cpp_bool }},
+        .sbas_enable = {{ m10.config.gnss.sbas_enable | cpp_bool }},
+        .itfm_enable = {{ m10.config.gnss.itfm_enable | cpp_bool }},
     },
     .tp1 = {
-        .ena = {{ m9n.config.tp1.ena | cpp_bool }},
-        .period = {{ m9n.config.tp1.period }},
-        .len = {{ m9n.config.tp1.len }},
-        .timegrid = {{ m9n.config.tp1.timegrid }},
-        .sync_gnss = {{ m9n.config.tp1.sync_gnss | cpp_bool }},
-        .align_to_tow = {{ m9n.config.tp1.align_to_tow | cpp_bool }},
-        .pol_rising = {{ m9n.config.tp1.pol_rising | cpp_bool }},
+        .ena = {{ m10.config.tp1.ena | cpp_bool }},
+        .period = {{ m10.config.tp1.period }},
+        .len = {{ m10.config.tp1.len }},
+        .timegrid = {{ m10.config.tp1.timegrid }},
+        .sync_gnss = {{ m10.config.tp1.sync_gnss | cpp_bool }},
+        .align_to_tow = {{ m10.config.tp1.align_to_tow | cpp_bool }},
+        .pol_rising = {{ m10.config.tp1.pol_rising | cpp_bool }},
     },
-    .ack_timeout_us = {{ m9n.config.ack_timeout_us }},
+    .ack_timeout_us = {{ m10.config.ack_timeout_us }},
 };

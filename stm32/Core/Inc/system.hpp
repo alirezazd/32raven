@@ -8,8 +8,8 @@
 #include "fc_link.hpp"
 #include "gpio.hpp"
 #include "led.hpp"
-#include "m9n.hpp"
-#include "m9n_service.hpp"
+#include "m10.hpp"
+#include "m10_service.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "time_base.hpp"
@@ -38,7 +38,7 @@ class System {
     kDshot,
     kButton,
     kUart2,
-    kM9n,
+    kM10,
     kIcm42688p
   };
 
@@ -57,9 +57,9 @@ class System {
   // GPS UART
   Uart2 &GetUart2() { return Uart2::GetInstance(); }
 
-  M9N &GetGps() { return M9N::GetInstance(); }
+  M10 &GetGps() { return M10::GetInstance(); }
   RcReceiver &GetRcReceiver() { return RcReceiver::GetInstance(); }
-  M9NService &ServiceM9N() { return m9n_service_; }
+  M10Service &ServiceGps() { return gps_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
 
   VehicleState &GetVehicleState() { return vehicle_state_; }
@@ -70,7 +70,7 @@ class System {
   void InitComponent(Component c);
 
   bool initialized_ = false;
-  M9NService m9n_service_;
+  M10Service gps_service_;
   VehicleState vehicle_state_;
 
   System();

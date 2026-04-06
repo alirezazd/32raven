@@ -94,29 +94,6 @@ bool RcReceiver::PublishIfChanged(const RcData &previous) {
   return true;
 }
 
-void RcReceiver::LogState(uint32_t now_us) {
-  if (fc_link_ == nullptr ||
-      (uint32_t)(now_us - last_log_us_) < kRcLogPeriodUs) {
-    return;
-  }
-  last_log_us_ = now_us;
-
-  char line[192];
-  int written = std::snprintf(line, sizeof(line), "RC: rssi=%u rx=%u tx=%u",
-                              (unsigned)rssi_, current_.rx_online ? 1u : 0u,
-                              current_.tx_online ? 1u : 0u);
-  const std::size_t log_count =
-      (current_.channels.size() < 8u) ? current_.channels.size() : 8u;
-  for (std::size_t i = 0;
-       i < log_count && written > 0 && written < (int)sizeof(line); ++i) {
-    written += std::snprintf(
-        line + written, sizeof(line) - (std::size_t)written, " ch%u=%u",
-        (unsigned)(stm32_limits::kRcEnabledChannelIndices[i] + 1u),
-        (unsigned)current_.channels[i]);
-  }
-  fc_link_->SendLog("%s", line);
-}
-
 void RcReceiver::ProcessRawState(const message::RcChannelsMsg &msg,
                                  uint32_t now_us) {
   raw_.timestamp_us = now_us;
@@ -142,7 +119,6 @@ void RcReceiver::ProcessRawState(const message::RcChannelsMsg &msg,
 
   RefreshLinkState(now_us);
   (void)PublishIfChanged(previous);
-  LogState(now_us);
 }
 
 void RcReceiver::Poll(uint32_t now_us) {
@@ -153,7 +129,6 @@ void RcReceiver::Poll(uint32_t now_us) {
   const RcData previous = current_;
   RefreshLinkState(now_us);
   (void)PublishIfChanged(previous);
-  LogState(now_us);
 }
 
 bool RcReceiver::SaveCalibration() {

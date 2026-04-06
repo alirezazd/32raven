@@ -54,26 +54,26 @@ ICM20948_SPI_PRESCALER_CHOICES = {
     "STM32_IMU_ICM20948_SPI_PRESCALER_DIV256": "SpiPrescaler::kDiv256",
 }
 
-M9N_BAUD_RATE_CHOICES = {
-    "STM32_GPS_M9N_BAUD_9600": "M9N::BaudRate::k9600",
-    "STM32_GPS_M9N_BAUD_19200": "M9N::BaudRate::k19200",
-    "STM32_GPS_M9N_BAUD_38400": "M9N::BaudRate::k38400",
-    "STM32_GPS_M9N_BAUD_57600": "M9N::BaudRate::k57600",
-    "STM32_GPS_M9N_BAUD_115200": "M9N::BaudRate::k115200",
-    "STM32_GPS_M9N_BAUD_230400": "M9N::BaudRate::k230400",
-    "STM32_GPS_M9N_BAUD_460800": "M9N::BaudRate::k460800",
-    "STM32_GPS_M9N_BAUD_921600": "M9N::BaudRate::k921600",
+M10_BAUD_RATE_CHOICES = {
+    "STM32_GPS_M10_BAUD_9600": "M10::BaudRate::k9600",
+    "STM32_GPS_M10_BAUD_19200": "M10::BaudRate::k19200",
+    "STM32_GPS_M10_BAUD_38400": "M10::BaudRate::k38400",
+    "STM32_GPS_M10_BAUD_57600": "M10::BaudRate::k57600",
+    "STM32_GPS_M10_BAUD_115200": "M10::BaudRate::k115200",
+    "STM32_GPS_M10_BAUD_230400": "M10::BaudRate::k230400",
+    "STM32_GPS_M10_BAUD_460800": "M10::BaudRate::k460800",
+    "STM32_GPS_M10_BAUD_921600": "M10::BaudRate::k921600",
 }
 
-M9N_UART_BAUD_RATE_CHOICES = {
-    "STM32_GPS_M9N_BAUD_9600": "9600",
-    "STM32_GPS_M9N_BAUD_19200": "19200",
-    "STM32_GPS_M9N_BAUD_38400": "38400",
-    "STM32_GPS_M9N_BAUD_57600": "57600",
-    "STM32_GPS_M9N_BAUD_115200": "115200",
-    "STM32_GPS_M9N_BAUD_230400": "230400",
-    "STM32_GPS_M9N_BAUD_460800": "460800",
-    "STM32_GPS_M9N_BAUD_921600": "921600",
+M10_UART_BAUD_RATE_CHOICES = {
+    "STM32_GPS_M10_BAUD_9600": "9600",
+    "STM32_GPS_M10_BAUD_19200": "19200",
+    "STM32_GPS_M10_BAUD_38400": "38400",
+    "STM32_GPS_M10_BAUD_57600": "57600",
+    "STM32_GPS_M10_BAUD_115200": "115200",
+    "STM32_GPS_M10_BAUD_230400": "230400",
+    "STM32_GPS_M10_BAUD_460800": "460800",
+    "STM32_GPS_M10_BAUD_921600": "921600",
 }
 
 FCLINK_UART_BAUD_RATE_CHOICES = {
@@ -124,59 +124,70 @@ FCLINK_UART_OVERSAMPLING_CHOICES = {
     "STM32_FCLINK_UART_OVERSAMPLING_8": "UartOverSampling::k8",
 }
 
-M9N_DYNAMIC_MODEL_CHOICES = {
-    "STM32_GPS_M9N_DYN_MODEL_PORTABLE": "M9N::DynamicModel::kPortable",
-    "STM32_GPS_M9N_DYN_MODEL_STATIONARY": "M9N::DynamicModel::kStationary",
-    "STM32_GPS_M9N_DYN_MODEL_PEDESTRIAN": "M9N::DynamicModel::kPedestrian",
-    "STM32_GPS_M9N_DYN_MODEL_AUTOMOTIVE": "M9N::DynamicModel::kAutomotive",
-    "STM32_GPS_M9N_DYN_MODEL_SEA": "M9N::DynamicModel::kSea",
-    "STM32_GPS_M9N_DYN_MODEL_AIRBORNE_1G": "M9N::DynamicModel::kAirborne1g",
-    "STM32_GPS_M9N_DYN_MODEL_AIRBORNE_2G": "M9N::DynamicModel::kAirborne2g",
-    "STM32_GPS_M9N_DYN_MODEL_AIRBORNE_4G": "M9N::DynamicModel::kAirborne4g",
-    "STM32_GPS_M9N_DYN_MODEL_WRIST": "M9N::DynamicModel::kWrist",
-    "STM32_GPS_M9N_DYN_MODEL_BIKE": "M9N::DynamicModel::kBike",
+M10_DYNAMIC_MODEL_CHOICES = {
+    "STM32_GPS_M10_DYN_MODEL_PORTABLE": "M10::DynamicModel::kPortable",
+    "STM32_GPS_M10_DYN_MODEL_STATIONARY": "M10::DynamicModel::kStationary",
+    "STM32_GPS_M10_DYN_MODEL_PEDESTRIAN": "M10::DynamicModel::kPedestrian",
+    "STM32_GPS_M10_DYN_MODEL_AUTOMOTIVE": "M10::DynamicModel::kAutomotive",
+    "STM32_GPS_M10_DYN_MODEL_SEA": "M10::DynamicModel::kSea",
+    "STM32_GPS_M10_DYN_MODEL_AIRBORNE_1G": "M10::DynamicModel::kAirborne1g",
+    "STM32_GPS_M10_DYN_MODEL_AIRBORNE_2G": "M10::DynamicModel::kAirborne2g",
+    "STM32_GPS_M10_DYN_MODEL_AIRBORNE_4G": "M10::DynamicModel::kAirborne4g",
+    "STM32_GPS_M10_DYN_MODEL_WRIST": "M10::DynamicModel::kWrist",
+    "STM32_GPS_M10_DYN_MODEL_BIKE": "M10::DynamicModel::kBike",
 }
 
-M9N_TIMEGRID_CHOICES = {
-    "STM32_GPS_M9N_TP1_TIMEGRID_UTC": "M9N::TimeGrid::kUtc",
-    "STM32_GPS_M9N_TP1_TIMEGRID_GPS": "M9N::TimeGrid::kGps",
-    "STM32_GPS_M9N_TP1_TIMEGRID_GLONASS": "M9N::TimeGrid::kGlonass",
-    "STM32_GPS_M9N_TP1_TIMEGRID_BEIDOU": "M9N::TimeGrid::kBeiDou",
-    "STM32_GPS_M9N_TP1_TIMEGRID_GALILEO": "M9N::TimeGrid::kGalileo",
+M10_TIMEGRID_CHOICES = {
+    "STM32_GPS_M10_TP1_TIMEGRID_UTC": "M10::TimeGrid::kUtc",
+    "STM32_GPS_M10_TP1_TIMEGRID_GPS": "M10::TimeGrid::kGps",
+    "STM32_GPS_M10_TP1_TIMEGRID_GLONASS": "M10::TimeGrid::kGlonass",
+    "STM32_GPS_M10_TP1_TIMEGRID_BEIDOU": "M10::TimeGrid::kBeiDou",
+    "STM32_GPS_M10_TP1_TIMEGRID_GALILEO": "M10::TimeGrid::kGalileo",
 }
 
-M9N_UART_WORD_LENGTH_CHOICES = {
-    "STM32_GPS_M9N_UART_WORD_LENGTH_8BITS": "UartWordLength::k8Bits",
-    "STM32_GPS_M9N_UART_WORD_LENGTH_9BITS": "UartWordLength::k9Bits",
+M10_UART_WORD_LENGTH_CHOICES = {
+    "STM32_GPS_M10_UART_WORD_LENGTH_8BITS": "UartWordLength::k8Bits",
+    "STM32_GPS_M10_UART_WORD_LENGTH_9BITS": "UartWordLength::k9Bits",
 }
 
-M9N_UART_STOP_BITS_CHOICES = {
-    "STM32_GPS_M9N_UART_STOP_BITS_1": "UartStopBits::k1",
-    "STM32_GPS_M9N_UART_STOP_BITS_2": "UartStopBits::k2",
+M10_UART_STOP_BITS_CHOICES = {
+    "STM32_GPS_M10_UART_STOP_BITS_1": "UartStopBits::k1",
+    "STM32_GPS_M10_UART_STOP_BITS_2": "UartStopBits::k2",
 }
 
-M9N_UART_PARITY_CHOICES = {
-    "STM32_GPS_M9N_UART_PARITY_NONE": "UartParity::kNone",
-    "STM32_GPS_M9N_UART_PARITY_EVEN": "UartParity::kEven",
-    "STM32_GPS_M9N_UART_PARITY_ODD": "UartParity::kOdd",
+M10_UART_PARITY_CHOICES = {
+    "STM32_GPS_M10_UART_PARITY_NONE": "UartParity::kNone",
+    "STM32_GPS_M10_UART_PARITY_EVEN": "UartParity::kEven",
+    "STM32_GPS_M10_UART_PARITY_ODD": "UartParity::kOdd",
 }
 
-M9N_UART_MODE_CHOICES = {
-    "STM32_GPS_M9N_UART_MODE_RX": "UartMode::kRx",
-    "STM32_GPS_M9N_UART_MODE_TX": "UartMode::kTx",
-    "STM32_GPS_M9N_UART_MODE_TX_RX": "UartMode::kTxRx",
+M10_UART_MODE_CHOICES = {
+    "STM32_GPS_M10_UART_MODE_RX": "UartMode::kRx",
+    "STM32_GPS_M10_UART_MODE_TX": "UartMode::kTx",
+    "STM32_GPS_M10_UART_MODE_TX_RX": "UartMode::kTxRx",
 }
 
-M9N_UART_HW_FLOW_CONTROL_CHOICES = {
-    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_NONE": "UartHwFlowControl::kNone",
-    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_RTS": "UartHwFlowControl::kRts",
-    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_CTS": "UartHwFlowControl::kCts",
-    "STM32_GPS_M9N_UART_HW_FLOW_CONTROL_RTS_CTS": "UartHwFlowControl::kRtsCts",
+M10_UART_HW_FLOW_CONTROL_CHOICES = {
+    "STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE": "UartHwFlowControl::kNone",
+    "STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS": "UartHwFlowControl::kRts",
+    "STM32_GPS_M10_UART_HW_FLOW_CONTROL_CTS": "UartHwFlowControl::kCts",
+    "STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS_CTS": "UartHwFlowControl::kRtsCts",
 }
 
-M9N_UART_OVERSAMPLING_CHOICES = {
-    "STM32_GPS_M9N_UART_OVERSAMPLING_16": "UartOverSampling::k16",
-    "STM32_GPS_M9N_UART_OVERSAMPLING_8": "UartOverSampling::k8",
+M10_UART_OVERSAMPLING_CHOICES = {
+    "STM32_GPS_M10_UART_OVERSAMPLING_16": "UartOverSampling::k16",
+    "STM32_GPS_M10_UART_OVERSAMPLING_8": "UartOverSampling::k8",
+}
+
+M10_CFG_UART_STOP_BITS_CHOICES = {
+    "STM32_GPS_M10_UART_STOP_BITS_1": "M10::UartStopBits::k1",
+    "STM32_GPS_M10_UART_STOP_BITS_2": "M10::UartStopBits::k2",
+}
+
+M10_CFG_UART_PARITY_CHOICES = {
+    "STM32_GPS_M10_UART_PARITY_NONE": "M10::UartParity::kNone",
+    "STM32_GPS_M10_UART_PARITY_EVEN": "M10::UartParity::kEven",
+    "STM32_GPS_M10_UART_PARITY_ODD": "M10::UartParity::kOdd",
 }
 
 ODR_CHOICES = {
@@ -237,6 +248,23 @@ def _choice_value(kconf: kconfiglib.Kconfig, mapping: dict[str, str]) -> str:
         if _sym_bool(kconf, symbol_name):
             return value
     raise ValueError(f"no selected symbol in choice {tuple(mapping.keys())}")
+
+
+def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
+    word_length_9 = _sym_bool(kconf, "STM32_GPS_M10_UART_WORD_LENGTH_9BITS")
+    parity_none = _sym_bool(kconf, "STM32_GPS_M10_UART_PARITY_NONE")
+
+    if word_length_9 and parity_none:
+        raise ValueError(
+            "CONFIG_STM32_GPS_M10_UART_WORD_LENGTH_9BITS requires parity on the "
+            "M10 link; choose 8 bits or enable parity"
+        )
+
+    if word_length_9:
+        return "M10::UartDataBits::k8"
+    if parity_none:
+        return "M10::UartDataBits::k8"
+    return "M10::UartDataBits::k7"
 
 
 def _imu_fifo_capacity_records() -> int:
@@ -322,57 +350,62 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
                 ),
             },
         },
-        "m9n": {
+        "m10": {
             "uart": {
-                "baud_rate": _choice_value(kconf, M9N_UART_BAUD_RATE_CHOICES),
-                "word_length": _choice_value(kconf, M9N_UART_WORD_LENGTH_CHOICES),
-                "stop_bits": _choice_value(kconf, M9N_UART_STOP_BITS_CHOICES),
-                "parity": _choice_value(kconf, M9N_UART_PARITY_CHOICES),
-                "mode": _choice_value(kconf, M9N_UART_MODE_CHOICES),
+                "baud_rate": _choice_value(kconf, M10_UART_BAUD_RATE_CHOICES),
+                "word_length": _choice_value(kconf, M10_UART_WORD_LENGTH_CHOICES),
+                "stop_bits": _choice_value(kconf, M10_UART_STOP_BITS_CHOICES),
+                "parity": _choice_value(kconf, M10_UART_PARITY_CHOICES),
+                "mode": _choice_value(kconf, M10_UART_MODE_CHOICES),
                 "hw_flow_control": _choice_value(
-                    kconf, M9N_UART_HW_FLOW_CONTROL_CHOICES
+                    kconf, M10_UART_HW_FLOW_CONTROL_CHOICES
                 ),
                 "over_sampling": _choice_value(
-                    kconf, M9N_UART_OVERSAMPLING_CHOICES
+                    kconf, M10_UART_OVERSAMPLING_CHOICES
                 ),
             },
             "config": {
-                "flash_config": _sym_bool(kconf, "STM32_GPS_M9N_FLASH_CONFIG"),
-                "baud_rate": _choice_value(kconf, M9N_BAUD_RATE_CHOICES),
+                "baud_rate": _choice_value(kconf, M10_BAUD_RATE_CHOICES),
+                "uart1": {
+                    "enabled": _sym_bool(kconf, "STM32_GPS_M10_UART_ENABLED"),
+                    "stop_bits": _choice_value(kconf, M10_CFG_UART_STOP_BITS_CHOICES),
+                    "data_bits": _m10_uart_data_bits_value(kconf),
+                    "parity": _choice_value(kconf, M10_CFG_UART_PARITY_CHOICES),
+                },
                 "protocols": {
-                    "outprot_ubx": _sym_bool(kconf, "STM32_GPS_M9N_PROTOCOL_UBX"),
-                    "outprot_nmea": _sym_bool(kconf, "STM32_GPS_M9N_PROTOCOL_NMEA"),
+                    "outprot_ubx": _sym_bool(kconf, "STM32_GPS_M10_PROTOCOL_UBX"),
+                    "outprot_nmea": _sym_bool(kconf, "STM32_GPS_M10_PROTOCOL_NMEA"),
                 },
                 "messages": {
-                    "nav_pvt": _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_PVT"),
-                    "nav_dop": _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_DOP"),
-                    "nav_cov": _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_COV"),
-                    "nav_eoe": _sym_bool(kconf, "STM32_GPS_M9N_MSG_NAV_EOE"),
+                    "nav_pvt": _sym_bool(kconf, "STM32_GPS_M10_MSG_NAV_PVT"),
+                    "nav_dop": _sym_bool(kconf, "STM32_GPS_M10_MSG_NAV_DOP"),
+                    "nav_cov": _sym_bool(kconf, "STM32_GPS_M10_MSG_NAV_COV"),
+                    "nav_eoe": _sym_bool(kconf, "STM32_GPS_M10_MSG_NAV_EOE"),
                 },
                 "nav": {
-                    "rate_meas_ms": _sym_int(kconf, "STM32_GPS_M9N_RATE_MEAS_MS"),
-                    "dyn_model": _choice_value(kconf, M9N_DYNAMIC_MODEL_CHOICES),
+                    "rate_meas_ms": _sym_int(kconf, "STM32_GPS_M10_RATE_MEAS_MS"),
+                    "dyn_model": _choice_value(kconf, M10_DYNAMIC_MODEL_CHOICES),
                 },
                 "gnss": {
-                    "gps_enable": _sym_bool(kconf, "STM32_GPS_M9N_GNSS_GPS"),
-                    "glo_enable": _sym_bool(kconf, "STM32_GPS_M9N_GNSS_GLO"),
-                    "gal_enable": _sym_bool(kconf, "STM32_GPS_M9N_GNSS_GAL"),
-                    "bds_enable": _sym_bool(kconf, "STM32_GPS_M9N_GNSS_BDS"),
-                    "sbas_enable": _sym_bool(kconf, "STM32_GPS_M9N_GNSS_SBAS"),
-                    "itfm_enable": _sym_bool(kconf, "STM32_GPS_M9N_GNSS_ITFM"),
+                    "gps_enable": _sym_bool(kconf, "STM32_GPS_M10_GNSS_GPS"),
+                    "glo_enable": _sym_bool(kconf, "STM32_GPS_M10_GNSS_GLO"),
+                    "gal_enable": _sym_bool(kconf, "STM32_GPS_M10_GNSS_GAL"),
+                    "bds_enable": _sym_bool(kconf, "STM32_GPS_M10_GNSS_BDS"),
+                    "sbas_enable": _sym_bool(kconf, "STM32_GPS_M10_GNSS_SBAS"),
+                    "itfm_enable": _sym_bool(kconf, "STM32_GPS_M10_GNSS_ITFM"),
                 },
                 "tp1": {
-                    "ena": _sym_bool(kconf, "STM32_GPS_M9N_TP1_ENA"),
-                    "period": _sym_int(kconf, "STM32_GPS_M9N_TP1_PERIOD"),
-                    "len": _sym_int(kconf, "STM32_GPS_M9N_TP1_LEN"),
-                    "timegrid": _choice_value(kconf, M9N_TIMEGRID_CHOICES),
-                    "sync_gnss": _sym_bool(kconf, "STM32_GPS_M9N_TP1_SYNC_GNSS"),
+                    "ena": _sym_bool(kconf, "STM32_GPS_M10_TP1_ENA"),
+                    "period": _sym_int(kconf, "STM32_GPS_M10_TP1_PERIOD"),
+                    "len": _sym_int(kconf, "STM32_GPS_M10_TP1_LEN"),
+                    "timegrid": _choice_value(kconf, M10_TIMEGRID_CHOICES),
+                    "sync_gnss": _sym_bool(kconf, "STM32_GPS_M10_TP1_SYNC_GNSS"),
                     "align_to_tow": _sym_bool(
-                        kconf, "STM32_GPS_M9N_TP1_ALIGN_TO_TOW"
+                        kconf, "STM32_GPS_M10_TP1_ALIGN_TO_TOW"
                     ),
-                    "pol_rising": _sym_bool(kconf, "STM32_GPS_M9N_TP1_POL_RISING"),
+                    "pol_rising": _sym_bool(kconf, "STM32_GPS_M10_TP1_POL_RISING"),
                 },
-                "ack_timeout_us": _sym_int(kconf, "STM32_GPS_M9N_ACK_TIMEOUT_US"),
+                "ack_timeout_us": _sym_int(kconf, "STM32_GPS_M10_ACK_TIMEOUT_US"),
             },
         },
         "icm42688p": {

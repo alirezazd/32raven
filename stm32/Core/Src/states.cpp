@@ -25,6 +25,10 @@ static constexpr uint32_t kLossPanicPerSec =
 static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 static constexpr uint32_t kSlowBudgetFromFastUs = 700;
 static constexpr bool kEnableImuDebugLog = false;
+static constexpr bool kEnableEspLogs = false;
+static constexpr uint8_t kNavPvtValidDateBit = 1u << 0;
+static constexpr uint8_t kNavPvtValidTimeBit = 1u << 1;
+static constexpr uint8_t kNavPvtFullyResolvedBit = 1u << 2;
 
 // Debug counters (diagnostics only)
 static uint32_t g_dbg_max_gps_bytes = 0;
@@ -41,6 +45,12 @@ static uint32_t g_prof_fast_us = 0;    // OnFastTick max
 static uint32_t g_fast_last_us = 0;
 static uint32_t g_fault_led_last_toggle_us = 0;
 static uint32_t g_fault_log_last_us = 0;
+
+static bool HasReliableGpsUtc(const M10PVTData &pvt) {
+  const uint8_t required_bits =
+      kNavPvtValidDateBit | kNavPvtValidTimeBit | kNavPvtFullyResolvedBit;
+  return (pvt.valid & required_bits) == required_bits;
+}
 
 // --- IdleState (Main State) ---
 
@@ -89,7 +99,8 @@ void IdleState::OnFastTick(AppContext &ctx,
       g_dbg_seq_gap_events++;
       g_dbg_seq_gap_total += seq_gap;
       static uint64_t last_seq_gap_log_us = 0;
-      if (first.timestamp_us - last_seq_gap_log_us >= 200000) {
+      if (kEnableEspLogs &&
+          first.timestamp_us - last_seq_gap_log_us >= 200000) {
         ctx.sys->GetFcLink().SendLog(
             "IMU_SEQ_GAP gap=%lu seq=%lu miss=%lu ovr=%lu", seq_gap, first.seq,
             imu.MainMissedTicks(), imu.ImuPathOverrun());
@@ -102,7 +113,7 @@ void IdleState::OnFastTick(AppContext &ctx,
   static uint64_t last_overrun_log_us = 0;
   uint32_t overruns = imu.ImuPathOverrun();
   if (overruns > 0) {
-    if (last.timestamp_us - last_overrun_log_us >= 1000000) {
+    if (kEnableEspLogs && last.timestamp_us - last_overrun_log_us >= 1000000) {
       ctx.sys->GetFcLink().SendLog("IMU_OVERRUN fault=%lu", overruns);
       last_overrun_log_us = last.timestamp_us;
     }
@@ -146,7 +157,8 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
       g_fault_led_last_toggle_us = current_us;
     }
 
-    if ((current_us - g_fault_log_last_us) >= SECONDS_TO_MICROS(1)) {
+    if (kEnableEspLogs &&
+        (current_us - g_fault_log_last_us) >= SECONDS_TO_MICROS(1)) {
       uint32_t args[4] = {imu.ImuPathOverrun(), imu.DmaStartFailCount(),
                           imu.ParseFailCount(), imu.LastBadHeader()};
       ctx.sys->GetFcLink().SendLogBinary(3, 4, args);
@@ -164,24 +176,21 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   ctx.sys->GetRcReceiver().Poll(micros());
   if (budget_exhausted()) return;
 
-  // 2. Poll GPS (UART2 <-> M9N)
-  // GPS/M9N disabled for IMU-only bring-up.
-  // {
-  //   uint32_t t0 = micros();
-  //   auto &gps_uart = ctx.sys->GetUart2();
-  //   auto &gps_svc = ctx.sys->ServiceM9N();
-  //   uint8_t c;
-  //   uint32_t gps_bytes = 0;
-  //   while (gps_bytes < 32 && gps_uart.Read(c)) {
-  //     gps_svc.ProcessByte(c);
-  //     gps_bytes++;
-  //   }
-  //   if (gps_bytes > g_dbg_max_gps_bytes)
-  //     g_dbg_max_gps_bytes = gps_bytes;
-  //   uint32_t dt = micros() - t0;
-  //   if (dt > g_prof_gps_us)
-  //     g_prof_gps_us = dt;
-  // }
+  // 2. Poll GPS (UART2 <-> M10)
+  {
+    uint32_t t0 = micros();
+    auto &gps_uart = ctx.sys->GetUart2();
+    auto &gps_svc = ctx.sys->ServiceGps();
+    uint8_t c;
+    uint32_t gps_bytes = 0;
+    while (gps_bytes < 32 && gps_uart.Read(c)) {
+      gps_svc.ProcessByte(c);
+      gps_bytes++;
+    }
+    if (gps_bytes > g_dbg_max_gps_bytes) g_dbg_max_gps_bytes = gps_bytes;
+    uint32_t dt = micros() - t0;
+    if (dt > g_prof_gps_us) g_prof_gps_us = dt;
+  }
   if (budget_exhausted()) return;
 
   // 3. Best-effort IMU telemetry (50Hz): consumes latest state only.
@@ -207,51 +216,52 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   }
 
   // 4. Process GPS Data (Decoupled)
-  // GPS/M9N disabled for IMU-only bring-up.
-  // auto &gps_svc = ctx.sys->ServiceM9N();
-  // if (gps_svc.NewDataAvailable()) {
-  //   uint32_t t0 = micros();
-  //   const auto &pvt = gps_svc.GetData();
-  //   const auto &cov = gps_svc.GetCOV();
-  //   // Note: DOP message disabled (redundant with COV)
-  //
-  //   GpsData t;
-  //   t.timestamp_us = ctx.sys->Time().Micros();
-  //   t.lat = pvt.lat;
-  //   t.lon = pvt.lon;
-  //   t.alt = pvt.hMSL;
-  //   t.vel = (uint16_t)(pvt.gSpeed / 10);    // mm/s -> cm/s
-  //   t.hdg = (uint16_t)(pvt.headMot / 1000); // 1e-5 deg -> cdeg
-  //   t.num_sats = pvt.numSV;
-  //   t.fix_type = pvt.fixType;
-  //   t.year = pvt.year;
-  //   t.month = pvt.month;
-  //   t.day = pvt.day;
-  //   t.hour = pvt.hour;
-  //   t.min = pvt.min;
-  //   t.sec = pvt.sec;
-  //   t.hAcc = pvt.hAcc;
-  //   t.vAcc = pvt.vAcc;
-  //
-  //   // Covariance matrix (essential for EKF sensor fusion)
-  //   t.posCovValid = cov.posCovValid;
-  //   t.velCovValid = cov.velCovValid;
-  //   t.posCovNN = cov.posCovNN;
-  //   t.posCovEE = cov.posCovEE;
-  //   t.posCovDD = cov.posCovDD;
-  //
-  //   // Update Blackboard
-  //   ctx.sys->GetVehicleState().UpdateGps(t);
-  //
-  //   // Forward to ESP32
-  //   BatteryData bat = {0};
-  //   ctx.sys->GetFcLink().SendGps(t, bat);
-  //
-  //   gps_svc.ClearNewDataFlag();
-  //   uint32_t dt = micros() - t0;
-  //   if (dt > g_prof_gpspub_us)
-  //     g_prof_gpspub_us = dt;
-  // }
+  auto &gps_svc = ctx.sys->ServiceGps();
+  if (gps_svc.NewDataAvailable()) {
+    uint32_t t0 = micros();
+    const auto &pvt = gps_svc.GetData();
+    const auto &dop = gps_svc.GetDOP();
+    const auto &cov = gps_svc.GetCOV();
+
+    GpsData t{};
+    t.timestamp_us = ctx.sys->Time().Micros();
+    t.lat = pvt.lat;
+    t.lon = pvt.lon;
+    t.alt = pvt.hMSL;
+    t.vel = (uint16_t)(pvt.gSpeed / 10);    // mm/s -> cm/s
+    t.hdg = (uint16_t)(pvt.headMot / 1000); // 1e-5 deg -> cdeg
+    t.num_sats = pvt.numSV;
+    t.fix_type = pvt.fixType;
+    if (HasReliableGpsUtc(pvt)) {
+      t.year = pvt.year;
+      t.month = pvt.month;
+      t.day = pvt.day;
+      t.hour = pvt.hour;
+      t.min = pvt.min;
+      t.sec = pvt.sec;
+    }
+    t.hAcc = pvt.hAcc;
+    t.vAcc = pvt.vAcc;
+    t.gDOP = dop.gDOP;
+    t.pDOP = dop.pDOP;
+    t.hDOP = dop.hDOP;
+    t.vDOP = dop.vDOP;
+
+    t.posCovValid = cov.posCovValid;
+    t.velCovValid = cov.velCovValid;
+    t.posCovNN = cov.posCovNN;
+    t.posCovEE = cov.posCovEE;
+    t.posCovDD = cov.posCovDD;
+
+    ctx.sys->GetVehicleState().UpdateGps(t);
+
+    BatteryData bat = {0};
+    ctx.sys->GetFcLink().SendGps(t, bat);
+
+    gps_svc.ClearNewDataFlag();
+    uint32_t dt = micros() - t0;
+    if (dt > g_prof_gpspub_us) g_prof_gpspub_us = dt;
+  }
 
   // 5. Print Diagnostics (1Hz) - moved from OnFastTick to avoid blocking IMU
   static uint32_t last_diag_print = 0;
@@ -278,7 +288,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
       // Panic(ErrorCode::kImuDroppedFrame);
     }
 
-    if (kEnableImuDebugLog) {
+    if (kEnableEspLogs && kEnableImuDebugLog) {
       ctx.sys->GetFcLink().SendLog(
           "IMU_DBG irq=%lu pub=%lu miss=%lu ovr=%lu dma=%lu prs=%lu cnt=%lu "
           "sg=%lu/%lu dt=%lu",
@@ -290,7 +300,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     // Send diagnostics as binary (ESP32 does formatting)
     // Format ID 1: "Prof: Fast=%lu Link=%lu GPS=%lu GpsPub=%lu Step=%lu
     // Slow=%lu Send=%lu"
-    {
+    if (kEnableEspLogs) {
       uint32_t args[7] = {g_prof_fast_us,   g_prof_link_us, g_prof_gps_us,
                           g_prof_gpspub_us, g_prof_step_us, g_dbg_max_slow_us,
                           max_send_us_};
@@ -299,7 +309,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
     // Format ID 2: "Sched: GpsB=%lu SeqGap=%lu DtMax=%lu Drop=%lu/s Phase=%lu
     // Loss=%lu"
-    {
+    if (kEnableEspLogs) {
       uint32_t args[6] = {g_dbg_max_gps_bytes, max_seq_gap_, max_raw_dt_us_,
                           drop_rate_per_sec,   0u,           high_loss_consec};
       ctx.sys->GetFcLink().SendLogBinary(2, 6, args);
@@ -319,11 +329,5 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     g_prof_gpspub_us = 0;
     g_prof_step_us = 0;
     g_prof_fast_us = 0;
-  }
-}
-
-void IdleState::OnExit(AppContext &ctx) {
-  if (ctx.fast_tick_state == this) {
-    ctx.fast_tick_state = nullptr;
   }
 }

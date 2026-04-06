@@ -88,8 +88,6 @@ class Uart {
 
  private:
   friend class System;
-  friend class M9N;  // Allow M9N::ConfigureOnce to reinit UART at different
-                     // baud rates
   void Init(const UartConfig &config);
 
   Uart() = default;
