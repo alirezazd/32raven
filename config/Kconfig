@@ -217,7 +217,7 @@ endmenu
 
 endmenu
 
-menu "Display Manager"
+menu "UI"
 
 config ESP32_DISPLAY_MANAGER_FPS_CAP
     int "FPS cap"
@@ -225,7 +225,42 @@ config ESP32_DISPLAY_MANAGER_FPS_CAP
     default 30
     depends on ESP32_DISPLAY_PANEL_ENABLE
     help
-      Maximum update and flush rate for the display manager loop.
+      Maximum update and flush rate for the UI loop.
+
+config ESP32_WIDGET_UI_TIMEOUT_S
+    int "Screen timeout (seconds)"
+    range 0 255
+    default 30
+    depends on ESP32_DISPLAY_PANEL_ENABLE
+    help
+      Turn the display off after the selected number of seconds without UI
+      activity. Set to 0 to disable the timeout.
+
+choice
+    prompt "Screen transition speed"
+    default ESP32_WIDGET_UI_TRANSITION_SPEED_2X
+    depends on ESP32_DISPLAY_PANEL_ENABLE
+    help
+      Select the swipe speed preset for major UI screen transitions such as
+      switching between Serving, MAVLink WiFi, and DFU screens.
+
+config ESP32_WIDGET_UI_TRANSITION_SPEED_1X
+    bool "1x"
+    help
+      Use the slowest screen swipe preset with the longest motion and settling.
+
+config ESP32_WIDGET_UI_TRANSITION_SPEED_2X
+    bool "2x"
+    help
+      Use the balanced screen swipe preset. This matches the current default
+      transition feel.
+
+config ESP32_WIDGET_UI_TRANSITION_SPEED_3X
+    bool "3x"
+    help
+      Use the fastest screen swipe preset with a shorter, snappier motion.
+
+endchoice
 
 endmenu
 
@@ -252,19 +287,6 @@ config ESP32_WIDGET_BOOT_TIMEOUT_S
     help
       Show the boot widget for the selected number of seconds after display
       initialization. Set to 0 to disable it.
-
-endmenu
-
-menu "UI"
-
-config ESP32_WIDGET_UI_TIMEOUT_S
-    int "Timeout (seconds)"
-    range 0 255
-    default 30
-    depends on ESP32_DISPLAY_PANEL_ENABLE
-    help
-      Turn the display off after the selected number of seconds without UI
-      activity. Set to 0 to disable the timeout.
 
 endmenu
 
@@ -297,6 +319,14 @@ config ESP32_BUTTON_LONG_PRESS_MS
     default 500
     help
       Hold time required before the button reports a long-press event.
+
+config ESP32_BUTTON_LONG_LONG_PRESS_MS
+    int "Long-long press time (ms)"
+    range 1 10000
+    default 1500
+    help
+      Hold time required before the button reports the longer hold event used
+      to enter DFU while a normal long press is reserved for Wi-Fi MAVLink.
 
 endmenu
 
@@ -359,6 +389,25 @@ endmenu
 
 endmenu
 
+menu "UDP Server"
+
+config ESP32_UDP_SERVER_PORT
+    int "Port"
+    range 1 65535
+    default 14550
+    help
+      UDP port bound by the ESP32 MAVLink-over-Wi-Fi transport endpoint.
+
+config ESP32_UDP_SERVER_NONBLOCKING
+    bool "Non-blocking socket"
+    default y
+    help
+      Use a non-blocking UDP socket so future Wi-Fi MAVLink polling can run
+      in the normal cooperative service loop without blocking the app state
+      machine.
+
+endmenu
+
 menu "Programmer"
 
 config ESP32_PROGRAMMER_RESET_PULSE_MS
@@ -389,6 +438,34 @@ config ESP32_PROGRAMMER_SYNC_RETRIES
     help
       Maximum number of STM32 bootloader sync attempts before the programmer
       fails initialization.
+
+menu "Verification"
+
+config ESP32_PROGRAMMER_VERIFY_ESP32
+    bool "Verify ESP32"
+    default y
+    help
+      Read back the written ESP32 OTA partition and compare its hash before
+      marking the new image as bootable.
+
+config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
+    int "ESP32 verify chunk size (bytes)"
+    range 1 8192
+    default 1024
+    depends on ESP32_PROGRAMMER_VERIFY_ESP32
+    help
+      Number of ESP32 OTA partition bytes hashed per verification step.
+      Larger values complete verification faster while using more temporary
+      RAM during the verify stage.
+
+config ESP32_PROGRAMMER_VERIFY_STM32
+    bool "Verify STM32"
+    default y
+    help
+      Read back the programmed STM32 image through the ROM bootloader and
+      compare its hash before reporting success.
+
+endmenu
 
 endmenu
 
@@ -1374,7 +1451,7 @@ endmenu
 endmenu
 
 menu "GPS"
-menu "M9N"
+menu "(Deprecated) M9N"
 
 menu "UART"
 
@@ -1714,6 +1791,355 @@ config STM32_GPS_M9N_TP1_ALIGN_TO_TOW
       Align TP1 edges to GNSS time-of-week boundaries when supported.
 
 config STM32_GPS_M9N_TP1_POL_RISING
+    bool "TP1 rising polarity"
+    default y
+    help
+      Use rising-edge-active polarity for the TP1 pulse.
+
+endmenu
+endmenu
+
+menu "M10"
+
+menu "UART"
+
+config STM32_GPS_M10_UART_ENABLED
+    bool "Enable module UART1"
+    default y
+    help
+      Keep the M10 UART1 interface enabled after configuration. Disable this
+      only if you intentionally want the module to stop speaking over the
+      STM32 link after boot.
+
+choice
+    prompt "UART baud rate"
+    default STM32_GPS_M10_BAUD_115200
+    help
+      UART2 baud rate used for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_BAUD_9600
+    bool "9600"
+
+config STM32_GPS_M10_BAUD_19200
+    bool "19200"
+
+config STM32_GPS_M10_BAUD_38400
+    bool "38400"
+
+config STM32_GPS_M10_BAUD_57600
+    bool "57600"
+
+config STM32_GPS_M10_BAUD_115200
+    bool "115200"
+
+config STM32_GPS_M10_BAUD_230400
+    bool "230400"
+
+config STM32_GPS_M10_BAUD_460800
+    bool "460800"
+
+config STM32_GPS_M10_BAUD_921600
+    bool "921600"
+
+endchoice
+
+choice
+    prompt "Word length"
+    default STM32_GPS_M10_UART_WORD_LENGTH_8BITS
+    help
+      UART2 word length for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_GPS_M10_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_GPS_M10_UART_STOP_BITS_1
+    help
+      UART2 stop-bit configuration for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_GPS_M10_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_GPS_M10_UART_PARITY_NONE
+    help
+      UART2 parity mode for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_PARITY_NONE
+    bool "None"
+
+config STM32_GPS_M10_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_GPS_M10_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_GPS_M10_UART_MODE_TX_RX
+    help
+      UART2 direction mode for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_MODE_RX
+    bool "RX"
+
+config STM32_GPS_M10_UART_MODE_TX
+    bool "TX"
+
+config STM32_GPS_M10_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE
+    help
+      UART2 hardware flow control for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_GPS_M10_UART_OVERSAMPLING_16
+    help
+      UART2 oversampling mode for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_GPS_M10_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+config STM32_GPS_M10_ACK_TIMEOUT_US
+    int "ACK timeout (us)"
+    range 1 10000000
+    default 100000
+    help
+      Timeout used while waiting for UBX ACK responses from the M10 module.
+
+endmenu
+
+menu "Protocols"
+
+config STM32_GPS_M10_PROTOCOL_UBX
+    bool "Enable UBX output"
+    default y
+    help
+      Enable binary UBX protocol output from the M10 on UART2.
+
+config STM32_GPS_M10_PROTOCOL_NMEA
+    bool "Enable NMEA output"
+    default n
+    help
+      Enable ASCII NMEA sentence output from the M10 on UART2.
+
+endmenu
+
+menu "Messages"
+
+config STM32_GPS_M10_MSG_NAV_PVT
+    bool "Enable NAV-PVT"
+    default y
+    help
+      Enable the NAV-PVT message carrying primary position, velocity, and time
+      state.
+
+config STM32_GPS_M10_MSG_NAV_DOP
+    bool "Enable NAV-DOP"
+    default n
+    help
+      Enable the NAV-DOP message carrying dilution-of-precision metrics.
+
+config STM32_GPS_M10_MSG_NAV_COV
+    bool "Enable NAV-COV"
+    default y
+    help
+      Enable the NAV-COV message carrying navigation covariance data.
+
+config STM32_GPS_M10_MSG_NAV_EOE
+    bool "Enable NAV-EOE"
+    default y
+    help
+      Enable the NAV-EOE message marking the end of each navigation epoch.
+
+endmenu
+
+menu "Navigation"
+
+config STM32_GPS_M10_RATE_MEAS_MS
+    int "Measurement rate (ms)"
+    range 25 10000
+    default 100
+    help
+      Navigation measurement interval requested from the M10 module.
+
+choice
+    prompt "Dynamic model"
+    default STM32_GPS_M10_DYN_MODEL_AIRBORNE_2G
+    help
+      Dynamic motion model used by the M10 navigation engine.
+
+config STM32_GPS_M10_DYN_MODEL_PORTABLE
+    bool "Portable"
+
+config STM32_GPS_M10_DYN_MODEL_STATIONARY
+    bool "Stationary"
+
+config STM32_GPS_M10_DYN_MODEL_PEDESTRIAN
+    bool "Pedestrian"
+
+config STM32_GPS_M10_DYN_MODEL_AUTOMOTIVE
+    bool "Automotive"
+
+config STM32_GPS_M10_DYN_MODEL_SEA
+    bool "Sea"
+
+config STM32_GPS_M10_DYN_MODEL_AIRBORNE_1G
+    bool "Airborne <1g"
+
+config STM32_GPS_M10_DYN_MODEL_AIRBORNE_2G
+    bool "Airborne <2g"
+
+config STM32_GPS_M10_DYN_MODEL_AIRBORNE_4G
+    bool "Airborne <4g"
+
+config STM32_GPS_M10_DYN_MODEL_WRIST
+    bool "Wrist"
+
+config STM32_GPS_M10_DYN_MODEL_BIKE
+    bool "Bike / Motorbike"
+
+endchoice
+
+endmenu
+
+menu "Constellations"
+
+config STM32_GPS_M10_GNSS_GPS
+    bool "Enable GPS constellation"
+    default y
+    help
+      Enable reception and tracking of the GPS constellation.
+
+config STM32_GPS_M10_GNSS_GLO
+    bool "Enable GLONASS constellation"
+    default y
+    help
+      Enable reception and tracking of the GLONASS constellation.
+
+config STM32_GPS_M10_GNSS_GAL
+    bool "Enable Galileo constellation"
+    default y
+    help
+      Enable reception and tracking of the Galileo constellation.
+
+config STM32_GPS_M10_GNSS_BDS
+    bool "Enable BeiDou constellation"
+    default y
+    help
+      Enable reception and tracking of the BeiDou constellation.
+
+config STM32_GPS_M10_GNSS_SBAS
+    bool "Enable SBAS"
+    default n
+    help
+      Enable satellite-based augmentation support on the M10.
+
+config STM32_GPS_M10_GNSS_ITFM
+    bool "Enable ITFM"
+    default y
+    help
+      Enable the M10 interference and jamming monitor feature.
+
+endmenu
+
+menu "Timepulse"
+
+config STM32_GPS_M10_TP1_ENA
+    bool "Enable TP1"
+    default y
+    help
+      Enable the TP1 timepulse output on the M10.
+
+config STM32_GPS_M10_TP1_PERIOD
+    int "TP1 period (us)"
+    range 1 1000000000
+    default 1000000
+    help
+      Timepulse period in microseconds for TP1.
+
+config STM32_GPS_M10_TP1_LEN
+    int "TP1 pulse length (us)"
+    range 1 1000000000
+    default 50000
+    help
+      Timepulse active pulse width in microseconds for TP1.
+
+choice
+    prompt "TP1 time grid"
+    default STM32_GPS_M10_TP1_TIMEGRID_GPS
+    help
+      Time reference used for the TP1 output grid.
+
+config STM32_GPS_M10_TP1_TIMEGRID_UTC
+    bool "UTC"
+
+config STM32_GPS_M10_TP1_TIMEGRID_GPS
+    bool "GPS"
+
+config STM32_GPS_M10_TP1_TIMEGRID_GLONASS
+    bool "GLONASS"
+
+config STM32_GPS_M10_TP1_TIMEGRID_BEIDOU
+    bool "BeiDou"
+
+config STM32_GPS_M10_TP1_TIMEGRID_GALILEO
+    bool "Galileo"
+
+endchoice
+
+config STM32_GPS_M10_TP1_SYNC_GNSS
+    bool "TP1 sync GNSS"
+    default y
+    help
+      Synchronize the TP1 output to GNSS time instead of running free.
+
+config STM32_GPS_M10_TP1_ALIGN_TO_TOW
+    bool "TP1 align to TOW"
+    default y
+    help
+      Align TP1 edges to GNSS time-of-week boundaries when supported.
+
+config STM32_GPS_M10_TP1_POL_RISING
     bool "TP1 rising polarity"
     default y
     help
