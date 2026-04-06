@@ -9,9 +9,14 @@ class ServingState : public IState<AppContext> {
 
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
+};
 
- private:
-  bool in_flight_ = false;
+class MavlinkWifiState : public IState<AppContext> {
+ public:
+  const char *Name() const override { return "MavlinkWifi"; }
+
+  void OnEnter(AppContext &ctx) override;
+  void OnStep(AppContext &ctx, SmTick now) override;
 };
 
 class DfuState : public IState<AppContext> {
@@ -28,17 +33,8 @@ class ProgramState : public IState<AppContext> {
 
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
-  void OnExit(AppContext &ctx) override;
 
  private:
   SmTick last_activity_ = 0;
   uint32_t last_written_ = 0;
-};
-
-class HardErrorState : public IState<AppContext> {
- public:
-  const char *Name() const override { return "HardError"; }
-
-  void OnEnter(AppContext &ctx) override;
-  void OnStep(AppContext &ctx, SmTick now) override;
 };

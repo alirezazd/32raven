@@ -25,7 +25,7 @@ class FcLink {
   void Init(const Config &cfg, UartFcLink *uart);
   void Poll();
   void ForwardRcState(const RcState &rc_state);
-  bool PerformHandshake();  // Blocking handshake (Ping/Pong)
+  void PerformHandshake();  // Blocking handshake (Ping/Pong)
 
   std::optional<message::Packet> PopPacket();
 
