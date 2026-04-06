@@ -2,7 +2,6 @@
 #include "button.hpp"
 #include "buzzer.hpp"
 #include "command_handler.hpp"
-#include "display_manager.hpp"
 #include "fc_link.hpp"
 #include "i2c.hpp"
 #include "led.hpp"
@@ -13,6 +12,8 @@
 #include "tcp_server.hpp"
 #include "timebase.hpp"
 #include "tone_player.hpp"
+#include "udp_server.hpp"
+#include "ui.hpp"
 #include "uart.hpp"
 #include "wifi.hpp"
 
@@ -31,9 +32,10 @@ class System {
     kButton,
     kDisplayI2c,
     kDisplayPanel,
-    kDisplayManager,
+    kUi,
     kWifi,
     kTcpServer,
+    kUdpServer,
     kFcLinkUart,
     kRcRxUart,
     kProgrammer,
@@ -49,10 +51,11 @@ class System {
   ::Timebase &Timebase() { return ::Timebase::GetInstance(); }
   ::I2cDisplay &DisplayI2c() { return ::I2cDisplay::GetInstance(); }
   ::Ssd1306Panel &DisplayPanel() { return ::Ssd1306Panel::GetInstance(); }
-  ::DisplayManager &Display() { return ::DisplayManager::GetInstance(); }
+  ::Ui &Ui() { return ::Ui::GetInstance(); }
 
   ::WifiController &Wifi() { return ::WifiController::GetInstance(); }
   ::TcpServer &Tcp() { return ::TcpServer::GetInstance(); }
+  ::UdpServer &Udp() { return ::UdpServer::GetInstance(); }
   ::Mavlink &Mavlink() { return ::Mavlink::GetInstance(); }
   ::FcLink &FcLink() { return ::FcLink::GetInstance(); }
   ::CommandHandler &CommandHandler() { return ::CommandHandler::GetInstance(); }
