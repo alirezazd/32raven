@@ -14,6 +14,7 @@ void Button::Init(const Config &cfg) {
   active_low_ = cfg.input.active_low;
   debounce_ms_ = cfg.timing.debounce_ms;
   long_press_ms_ = cfg.timing.long_press_ms;
+  long_long_press_ms_ = cfg.timing.long_long_press_ms;
 
   gpio_config_t io_conf = {};
   io_conf.intr_type = GPIO_INTR_DISABLE;
@@ -35,18 +36,21 @@ void Button::Init(const Config &cfg) {
   raw_last_change_ms_ = 0;
   press_start_ms_ = 0;
   long_fired_ = false;
+  long_long_fired_ = false;
 
   ev_press_ = false;
-  ev_release_ = false;
   ev_long_ = false;
+  ev_long_long_ = false;
 
   ESP_LOGI(
       kTag,
-      "init pin=%d active_low=%d pullup=%d pulldown=%d debounce=%u long=%u",
+      "init pin=%d active_low=%d pullup=%d pulldown=%d debounce=%u long=%u "
+      "long_long=%u",
       static_cast<int>(cfg.input.pin), static_cast<int>(cfg.input.active_low),
       static_cast<int>(cfg.input.pullup), static_cast<int>(cfg.input.pulldown),
       static_cast<unsigned>(cfg.timing.debounce_ms),
-      static_cast<unsigned>(cfg.timing.long_press_ms));
+      static_cast<unsigned>(cfg.timing.long_press_ms),
+      static_cast<unsigned>(cfg.timing.long_long_press_ms));
 }
 
 bool Button::ReadRawPressed() const {
@@ -75,12 +79,13 @@ void Button::Poll() {
         pressed_ = true;
         press_start_ms_ = now_ms;
         long_fired_ = false;
+        long_long_fired_ = false;
         ev_press_ = true;
       } else {
         pressed_ = false;
         press_start_ms_ = 0;
         long_fired_ = false;
-        ev_release_ = true;
+        long_long_fired_ = false;
       }
     }
   }
@@ -92,22 +97,36 @@ void Button::Poll() {
       ESP_LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);
     }
   }
-}
 
-bool Button::ConsumeLongPress() {
-  const bool v = ev_long_;
-  ev_long_ = false;
-  return v;
+  if (pressed_ && long_fired_ && !long_long_fired_) {
+    if ((TimeMs)(now_ms - press_start_ms_) >= long_long_press_ms_) {
+      long_long_fired_ = true;
+      ev_long_long_ = true;
+      ESP_LOGW(kTag, "LONG-LONG press fired at %u ms", (unsigned)now_ms);
+    }
+  }
 }
 
 bool Button::ConsumePress() {
-  const bool v = ev_press_;
+  const bool fired = ev_press_;
   ev_press_ = false;
-  return v;
+  return fired;
 }
 
-bool Button::ConsumeRelease() {
-  const bool v = ev_release_;
-  ev_release_ = false;
-  return v;
+bool Button::ConsumeLongPress() {
+  const bool fired = ev_long_;
+  ev_long_ = false;
+  return fired;
+}
+
+bool Button::ConsumeLongLongPress() {
+  const bool fired = ev_long_long_;
+  ev_long_long_ = false;
+  return fired;
+}
+
+void Button::FlushEvents() {
+  ev_press_ = false;
+  ev_long_ = false;
+  ev_long_long_ = false;
 }

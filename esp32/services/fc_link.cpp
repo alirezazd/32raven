@@ -33,7 +33,7 @@ void FcLink::Init(const Config &cfg, UartFcLink *uart) {
   ESP_LOGI(kTag, "Initialized");
 }
 
-bool FcLink::PerformHandshake() {
+void FcLink::PerformHandshake() {
   next_rc_forward_ms_ = 0;
   g_packet_queue.Clear();
   ESP_LOGI(kTag, "Handshake Start...");
@@ -50,13 +50,13 @@ bool FcLink::PerformHandshake() {
     if (auto response = PopPacket()) {
       if (response->header.id == (uint8_t)message::MsgId::kPong) {
         ESP_LOGI(kTag, "Handshake Success!");
-        return true;
+        return;
       }
     }
   }
 
   ESP_LOGW(kTag, "Handshake Failed");
-  return false;
+  Panic(ErrorCode::kFcLinkHandshakeFailed);
 }
 
 bool FcLink::SendPacket(const message::Packet &pkt) {

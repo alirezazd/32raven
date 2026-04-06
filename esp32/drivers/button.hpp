@@ -23,6 +23,7 @@ class Button {
     struct Timing {
       TimeMs debounce_ms = 30;
       TimeMs long_press_ms = 500;
+      TimeMs long_long_press_ms = 1500;
     };
 
     Input input{};
@@ -30,11 +31,11 @@ class Button {
   };
   // Polling API
   void Poll();
-  // Edge-like events (latched until consumed)
-  bool ConsumeLongPress();
+  // Semantic events (latched until consumed)
   bool ConsumePress();
-  bool ConsumeRelease();
-  bool IsPressed() const { return pressed_; }
+  bool ConsumeLongPress();
+  bool ConsumeLongLongPress();
+  void FlushEvents();
 
  private:
   friend class System;
@@ -45,6 +46,7 @@ class Button {
   bool active_low_ = true;
   TimeMs debounce_ms_ = 30;
   TimeMs long_press_ms_ = 500;
+  TimeMs long_long_press_ms_ = 1500;
   // debouncer
   bool raw_last_ = false;
   bool stable_ = false;
@@ -53,10 +55,11 @@ class Button {
   bool pressed_ = false;
   TimeMs press_start_ms_ = 0;
   bool long_fired_ = false;
+  bool long_long_fired_ = false;
   // event latches
   bool ev_press_ = false;
-  bool ev_release_ = false;
   bool ev_long_ = false;
+  bool ev_long_long_ = false;
   Button() = default;
   ~Button() = default;
   Button(const Button &) = delete;
