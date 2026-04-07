@@ -195,7 +195,6 @@ void WifiController::StartAp() {
   if (e != ESP_OK) {
     ESP_LOGW(kTag, "esp_wifi_set_ps: %s", esp_err_to_name(e));
   }
-
 }
 
 void WifiController::Stop() {
