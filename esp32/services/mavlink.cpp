@@ -149,13 +149,14 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   // Heartbeat timing: allow immediate first HB
   have_latest_ = false;
   latest_update_ms_ = 0;
+  primary_link_enabled_.store(false, std::memory_order_relaxed);
   ArmFirstSchedule(rc_tx_, cfg_.rc.tx, 0);
   ArmFirstSchedule(udp_tx_, cfg_.tx, 0);
 
   ESP_LOGI(kTag, "Initialized (RC + primary MAVLink links)");
 
-  extern void StartMavlinkRcTask();
-  StartMavlinkRcTask();
+  extern void StartMavlinkTask();
+  StartMavlinkTask();
 }
 
 void Mavlink::Poll() {
@@ -169,6 +170,13 @@ void Mavlink::Poll() {
     for (int i = 0; i < n; i++) {
       HandleRxByte(rx_buf_[i]);
     }
+  }
+}
+
+void Mavlink::SetPrimaryLinkEnabled(bool enabled) {
+  primary_link_enabled_.store(enabled, std::memory_order_relaxed);
+  if (!enabled && udp_ != nullptr) {
+    udp_->ClearPeer();
   }
 }
 
@@ -553,6 +561,51 @@ void Mavlink::ServiceInFlightTx(TxState &tx) {
   }
 }
 
+void Mavlink::EnsureScheduleArmed(TxState &tx, const TxConfig &cfg_tx,
+                                  uint32_t now_ms) {
+  if (tx.schedule_armed) {
+    return;
+  }
+
+  ArmFirstSchedule(tx, cfg_tx, now_ms);
+  tx.last_hb_done_ms = now_ms - cfg_tx.schedule.hb_deadline_ms;
+  tx.schedule_armed = true;
+}
+
+bool Mavlink::StartNextFrameIfIdle(TxState &tx, const TxConfig &cfg_tx,
+                                   uint32_t now_ms) {
+  if (tx.len > 0) {
+    return true;
+  }
+
+  if (ShouldSendHbNow(tx, cfg_tx, now_ms)) {
+    StartHeartbeatFrame(tx, cfg_tx);
+  } else if (tx.pending_command_ack) {
+    StartCommandAckFrame(tx);
+  } else if (tx.pending_autopilot_version) {
+    StartAutopilotVersionFrame(tx);
+  } else if (tx.pending_mission_count) {
+    StartMissionCountFrame(tx);
+  } else if (tx.pending_statustext) {
+    StartStatusTextFrame(tx);
+  } else if (tx.param_stream_active) {
+    StartParamValueFrame(tx);
+  } else {
+    StartNextScheduledFrame(tx, cfg_tx, now_ms);
+  }
+
+  return tx.len > 0;
+}
+
+void Mavlink::CompleteFrame(TxState &tx, uint32_t now_ms) {
+  if (tx.is_hb) {
+    tx.last_hb_done_ms = now_ms;
+  }
+  tx.len = 0;
+  tx.sent = 0;
+  tx.is_hb = false;
+}
+
 void Mavlink::StartHeartbeatFrame(TxState &tx, const TxConfig &cfg_tx) {
   mavlink_message_t m{};
 
@@ -826,66 +879,37 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
   }
 }
 
-void Mavlink::TxTick(uint32_t now_ms) {
+void Mavlink::ServiceRcLink(uint32_t now_ms) {
   TxState &tx = rc_tx_;
   const TxConfig &cfg_tx = cfg_.rc.tx;
-  // Arm schedule on first real tick
-  if (!tx.schedule_armed) {
-    ArmFirstSchedule(tx, cfg_tx, now_ms);
-    // Force immediate heartbeat
-    tx.last_hb_done_ms = now_ms - cfg_tx.schedule.hb_deadline_ms;
-    tx.schedule_armed = true;
-  }
+  EnsureScheduleArmed(tx, cfg_tx, now_ms);
 
-  // 1) Finish writing any in-flight frame (atomic frame output)
   if (tx.len > 0 && tx.sent < tx.len) {
     ServiceInFlightTx(tx);
   }
 
-  // 2) If we finished pushing bytes to driver, wait for TX done then clear
-  // state
   if (tx.len > 0 && tx.sent >= tx.len) {
-    if (tx.is_hb) {
-      tx.last_hb_done_ms = now_ms;
-      tx.is_hb = false;
-    }
-    tx.len = 0;
-    tx.sent = 0;
+    CompleteFrame(tx, now_ms);
     return;
   }
 
-  // 3) Nothing in flight: heartbeat has hard priority
-  if (ShouldSendHbNow(tx, cfg_tx, now_ms)) {
-    StartHeartbeatFrame(tx, cfg_tx);
-    ServiceInFlightTx(tx);
+  if (!StartNextFrameIfIdle(tx, cfg_tx, now_ms)) {
     return;
   }
 
-  // 4) Send one scheduled stream frame if due
-  if (tx.pending_command_ack) {
-    StartCommandAckFrame(tx);
-  } else if (tx.pending_autopilot_version) {
-    StartAutopilotVersionFrame(tx);
-  } else if (tx.pending_mission_count) {
-    StartMissionCountFrame(tx);
-  } else if (tx.pending_statustext) {
-    StartStatusTextFrame(tx);
-  } else if (tx.param_stream_active) {
-    StartParamValueFrame(tx);
-  } else {
-    StartNextScheduledFrame(tx, cfg_tx, now_ms);
-  }
-  if (tx.len > 0) {
-    ServiceInFlightTx(tx);
+  ServiceInFlightTx(tx);
+  if (tx.len > 0 && tx.sent >= tx.len) {
+    CompleteFrame(tx, now_ms);
   }
 }
 
-void Mavlink::UdpTick(uint32_t now_ms) {
+void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
   if (udp_ == nullptr) {
     return;
   }
 
-  if (!Sys().Wifi().HasAssociatedStations()) {
+  if (!primary_link_enabled_.load(std::memory_order_relaxed) ||
+      !Sys().Wifi().HasAssociatedStations()) {
     udp_->ClearPeer();
     return;
   }
@@ -906,31 +930,8 @@ void Mavlink::UdpTick(uint32_t now_ms) {
 
   TxState &tx = udp_tx_;
   const TxConfig &cfg_tx = cfg_.tx;
-  if (!tx.schedule_armed) {
-    ArmFirstSchedule(tx, cfg_tx, now_ms);
-    tx.last_hb_done_ms = now_ms - cfg_tx.schedule.hb_deadline_ms;
-    tx.schedule_armed = true;
-  }
-
-  if (tx.len == 0) {
-    if (ShouldSendHbNow(tx, cfg_tx, now_ms)) {
-      StartHeartbeatFrame(tx, cfg_tx);
-    } else if (tx.pending_command_ack) {
-      StartCommandAckFrame(tx);
-    } else if (tx.pending_autopilot_version) {
-      StartAutopilotVersionFrame(tx);
-    } else if (tx.pending_mission_count) {
-      StartMissionCountFrame(tx);
-    } else if (tx.pending_statustext) {
-      StartStatusTextFrame(tx);
-    } else if (tx.param_stream_active) {
-      StartParamValueFrame(tx);
-    } else {
-      StartNextScheduledFrame(tx, cfg_tx, now_ms);
-    }
-  }
-
-  if (tx.len == 0) {
+  EnsureScheduleArmed(tx, cfg_tx, now_ms);
+  if (!StartNextFrameIfIdle(tx, cfg_tx, now_ms)) {
     return;
   }
 
@@ -939,9 +940,11 @@ void Mavlink::UdpTick(uint32_t now_ms) {
   tx.sent = 0;
   if (sent > 0) {
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
-    if (tx.is_hb) {
-      tx.last_hb_done_ms = now_ms;
-    }
   }
-  tx.is_hb = false;
+  CompleteFrame(tx, now_ms);
+}
+
+void Mavlink::WorkerTick(uint32_t now_ms) {
+  ServiceRcLink(now_ms);
+  ServicePrimaryLink(now_ms);
 }
