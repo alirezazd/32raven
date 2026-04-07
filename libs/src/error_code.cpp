@@ -19,6 +19,18 @@ const char *GetMessage(ErrorCode code) {
       return "Mavlink Init Failed";
     case ErrorCode::kFcLinkInitFailed:
       return "FcLink Init Failed";
+    case ErrorCode::kFcLinkRxQueueFull:
+      return "FcLink RX Queue Full";
+    case ErrorCode::kFcLinkInvalidPacketMagic1:
+      return "FcLink Invalid Packet Magic Byte 1";
+    case ErrorCode::kFcLinkInvalidPacketMagic2:
+      return "FcLink Invalid Packet Magic Byte 2";
+    case ErrorCode::kFcLinkInvalidPacketLength:
+      return "FcLink Invalid Packet Length";
+    case ErrorCode::kFcLinkInvalidPacketCrc:
+      return "FcLink Invalid Packet CRC";
+    case ErrorCode::kFcLinkTxSerializeFailed:
+      return "FcLink TX Serialize Failed";
     case ErrorCode::kCommandInitFailed:
       return "Command Init Failed";
     case ErrorCode::kLedGpioConfigFailed:
