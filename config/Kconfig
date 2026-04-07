@@ -671,6 +671,121 @@ endmenu
 
 menu "Mavlink"
 
+menu "Identity"
+
+config ESP32_MAVLINK_SYSID
+    int "System ID"
+    range 1 255
+    default 1
+    help
+      MAVLink system ID advertised by the primary MAVLink transport endpoint.
+
+config ESP32_MAVLINK_COMPID
+    int "Component ID"
+    range 0 255
+    default 1
+    help
+      MAVLink component ID advertised by the primary MAVLink transport
+      endpoint. The default value 1 matches MAV_COMP_ID_AUTOPILOT1.
+
+endmenu
+
+menu "Transmit"
+
+menu "Periods"
+
+config ESP32_MAVLINK_HEARTBEAT_PERIOD_MS
+    int "Heartbeat period (ms)"
+    range 1 60000
+    default 1000
+    help
+      Nominal HEARTBEAT transmit cadence for the primary MAVLink transport.
+
+config ESP32_MAVLINK_GPS_PERIOD_MS
+    int "GPS RAW INT period (ms)"
+    range 0 60000
+    default 2000
+    help
+      GPS_RAW_INT transmit cadence for the primary MAVLink transport. Set to 0
+      to disable this stream.
+
+config ESP32_MAVLINK_ATTITUDE_PERIOD_MS
+    int "Attitude period (ms)"
+    range 0 60000
+    default 2000
+    help
+      ATTITUDE transmit cadence for the primary MAVLink transport. Set to 0 to
+      disable this stream.
+
+config ESP32_MAVLINK_GLOBAL_POSITION_PERIOD_MS
+    int "Global position period (ms)"
+    range 0 60000
+    default 2000
+    help
+      GLOBAL_POSITION_INT transmit cadence for the primary MAVLink transport.
+      Set to 0 to disable this stream.
+
+config ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS
+    int "Battery status period (ms)"
+    range 0 60000
+    default 2000
+    help
+      BATTERY_STATUS transmit cadence for the primary MAVLink transport. Set
+      to 0 to disable this stream.
+
+endmenu
+
+menu "Timing"
+
+config ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS
+    int "Heartbeat deadline (ms)"
+    range 1 60000
+    default 1500
+    help
+      Maximum allowed gap between completed HEARTBEAT frames on the primary
+      MAVLink transport. If this is lower than the heartbeat period, the
+      deadline wins.
+
+config ESP32_MAVLINK_GPS_START_DELAY_MS
+    int "GPS initial delay (ms)"
+    range 0 10000
+    default 200
+    help
+      Initial GPS_RAW_INT delay used to stagger the first primary MAVLink
+      telemetry burst.
+
+config ESP32_MAVLINK_ATTITUDE_START_DELAY_MS
+    int "Attitude initial delay (ms)"
+    range 0 10000
+    default 400
+    help
+      Initial ATTITUDE delay used to stagger the first primary MAVLink
+      telemetry burst.
+
+config ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS
+    int "Global position initial delay (ms)"
+    range 0 10000
+    default 600
+    help
+      Initial GLOBAL_POSITION_INT delay used to stagger the first primary
+      MAVLink telemetry burst.
+
+config ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS
+    int "Battery status initial delay (ms)"
+    range 0 10000
+    default 800
+    help
+      Initial BATTERY_STATUS delay used to stagger the first primary MAVLink
+      telemetry burst.
+
+endmenu
+
+endmenu
+
+endmenu
+
+menu "Mavlink RC"
+
 menu "Uart"
 
 choice
@@ -747,104 +862,122 @@ config ESP32_RCRX_UART_TX_BUFFER_SIZE
 
 endmenu
 
-menu "Identity"
+menu "Scheduling"
 
-config ESP32_MAVLINK_SYSID
-    int "System ID"
-    range 1 255
-    default 1
+menu "GPS RAW INT"
+
+config ESP32_MAVLINK_RC_GPS_ENABLE
+    bool "Enable"
+    default y
     help
-      MAVLink system ID advertised by the ESP32 endpoint.
+      Enable periodic GPS_RAW_INT transmission on the RC MAVLink transport.
+      Disable this to suppress GPS position telemetry on the RC link.
 
-config ESP32_MAVLINK_COMPID
-    int "Component ID"
-    range 0 255
-    default 1
-    help
-      MAVLink component ID advertised by the ESP32 endpoint. The default value
-      1 matches MAV_COMP_ID_AUTOPILOT1.
-
-endmenu
-
-menu "Transmit"
-
-menu "Periods"
-
-config ESP32_MAVLINK_HEARTBEAT_PERIOD_MS
-    int "Heartbeat period (ms)"
-    range 1 60000
-    default 1000
-    help
-      Nominal HEARTBEAT transmit cadence.
-
-config ESP32_MAVLINK_GPS_PERIOD_MS
-    int "GPS RAW INT period (ms)"
+config ESP32_MAVLINK_RC_GPS_PERIOD_MS
+    int "Period (ms)"
     range 0 60000
     default 2000
+    depends on ESP32_MAVLINK_RC_GPS_ENABLE
     help
-      GPS_RAW_INT transmit cadence. Set to 0 to disable this stream.
+      GPS_RAW_INT transmit cadence for the RC MAVLink transport. Set to 0 to
+      disable this stream.
 
-config ESP32_MAVLINK_ATTITUDE_PERIOD_MS
-    int "Attitude period (ms)"
-    range 0 60000
-    default 2000
-    help
-      ATTITUDE transmit cadence. Set to 0 to disable this stream.
-
-config ESP32_MAVLINK_GLOBAL_POSITION_PERIOD_MS
-    int "Global position period (ms)"
-    range 0 60000
-    default 2000
-    help
-      GLOBAL_POSITION_INT transmit cadence. Set to 0 to disable this stream.
-
-config ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS
-    int "Battery status period (ms)"
-    range 0 60000
-    default 2000
-    help
-      BATTERY_STATUS transmit cadence. Set to 0 to disable this stream.
-
-endmenu
-
-menu "Timing"
-
-config ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS
-    int "Heartbeat deadline (ms)"
-    range 1 60000
-    default 1500
-    help
-      Maximum allowed gap between completed HEARTBEAT frames. If this is lower
-      than the heartbeat period, the deadline wins.
-
-config ESP32_MAVLINK_GPS_START_DELAY_MS
-    int "GPS initial delay (ms)"
+config ESP32_MAVLINK_RC_GPS_START_DELAY_MS
+    int "Initial delay (ms)"
     range 0 10000
     default 200
+    depends on ESP32_MAVLINK_RC_GPS_ENABLE
     help
-      Initial GPS_RAW_INT delay used to stagger the first telemetry burst.
-
-config ESP32_MAVLINK_ATTITUDE_START_DELAY_MS
-    int "Attitude initial delay (ms)"
-    range 0 10000
-    default 400
-    help
-      Initial ATTITUDE delay used to stagger the first telemetry burst.
-
-config ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS
-    int "Global position initial delay (ms)"
-    range 0 10000
-    default 600
-    help
-      Initial GLOBAL_POSITION_INT delay used to stagger the first telemetry
+      Initial GPS_RAW_INT delay used to stagger the first RC MAVLink telemetry
       burst.
 
-config ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS
-    int "Battery status initial delay (ms)"
+endmenu
+
+menu "ATTITUDE"
+
+config ESP32_MAVLINK_RC_ATTITUDE_ENABLE
+    bool "Enable"
+    default y
+    help
+      Enable periodic ATTITUDE transmission on the RC MAVLink transport.
+      Disable this to suppress attitude telemetry on the RC link.
+
+config ESP32_MAVLINK_RC_ATTITUDE_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 2000
+    depends on ESP32_MAVLINK_RC_ATTITUDE_ENABLE
+    help
+      ATTITUDE transmit cadence for the RC MAVLink transport. Set to 0 to
+      disable this stream.
+
+config ESP32_MAVLINK_RC_ATTITUDE_START_DELAY_MS
+    int "Initial delay (ms)"
+    range 0 10000
+    default 400
+    depends on ESP32_MAVLINK_RC_ATTITUDE_ENABLE
+    help
+      Initial ATTITUDE delay used to stagger the first RC MAVLink telemetry
+      burst.
+
+endmenu
+
+menu "GLOBAL_POSITION_INT"
+
+config ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE
+    bool "Enable"
+    default y
+    help
+      Enable periodic GLOBAL_POSITION_INT transmission on the RC MAVLink
+      transport. Disable this to suppress global position telemetry on the RC
+      link.
+
+config ESP32_MAVLINK_RC_GLOBAL_POSITION_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 2000
+    depends on ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE
+    help
+      GLOBAL_POSITION_INT transmit cadence for the RC MAVLink transport. Set to
+      0 to disable this stream.
+
+config ESP32_MAVLINK_RC_GLOBAL_POSITION_START_DELAY_MS
+    int "Initial delay (ms)"
+    range 0 10000
+    default 600
+    depends on ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE
+    help
+      Initial GLOBAL_POSITION_INT delay used to stagger the first RC MAVLink
+      telemetry burst.
+
+endmenu
+
+menu "BATTERY_STATUS"
+
+config ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE
+    bool "Enable"
+    default y
+    help
+      Enable periodic BATTERY_STATUS transmission on the RC MAVLink transport.
+      Disable this to suppress battery telemetry on the RC link.
+
+config ESP32_MAVLINK_RC_BATTERY_STATUS_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 2000
+    depends on ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE
+    help
+      BATTERY_STATUS transmit cadence for the RC MAVLink transport. Set to 0
+      to disable this stream.
+
+config ESP32_MAVLINK_RC_BATTERY_STATUS_START_DELAY_MS
+    int "Initial delay (ms)"
     range 0 10000
     default 800
+    depends on ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE
     help
-      Initial BATTERY_STATUS delay used to stagger the first telemetry burst.
+      Initial BATTERY_STATUS delay used to stagger the first RC MAVLink
+      telemetry burst.
 
 endmenu
 
@@ -852,13 +985,13 @@ endmenu
 
 menu "Receive"
 
-config ESP32_MAVLINK_RX_READ_CHUNK_SIZE
+config ESP32_MAVLINK_RC_RX_READ_CHUNK_SIZE
     int "UART read chunk size (bytes)"
     range 1 256
     default 256
     help
-      Maximum number of bytes read from the RC receiver UART in one MAVLink receive
-      pass.
+      Maximum number of bytes read from the RC receiver UART in one RC MAVLink
+      receive pass.
 
 endmenu
 

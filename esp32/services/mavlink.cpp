@@ -89,24 +89,26 @@ Mavlink &Mavlink::GetInstance() {
   return instance;
 }
 
-void Mavlink::ArmFirstSchedule(TxState &tx, uint32_t now_ms) {
+void Mavlink::ArmFirstSchedule(TxState &tx, const TxConfig &cfg_tx,
+                               uint32_t now_ms) {
   // Stagger streams to avoid bursts on ELRS limited bandwidth
   tx.next_hb_ms = now_ms;
   tx.next_sys_ms = now_ms + kSysStatusStartDelayMs;
-  tx.next_gps_ms = now_ms + cfg_.tx.schedule.gps_start_delay_ms;
-  tx.next_att_ms = now_ms + cfg_.tx.schedule.att_start_delay_ms;
-  tx.next_gpos_ms = now_ms + cfg_.tx.schedule.gpos_start_delay_ms;
-  tx.next_batt_ms = now_ms + cfg_.tx.schedule.batt_start_delay_ms;
+  tx.next_gps_ms = now_ms + cfg_tx.schedule.gps_start_delay_ms;
+  tx.next_att_ms = now_ms + cfg_tx.schedule.att_start_delay_ms;
+  tx.next_gpos_ms = now_ms + cfg_tx.schedule.gpos_start_delay_ms;
+  tx.next_batt_ms = now_ms + cfg_tx.schedule.batt_start_delay_ms;
 }
 
-bool Mavlink::ShouldSendHbNow(const TxState &tx, uint32_t now_ms) const {
+bool Mavlink::ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
+                              uint32_t now_ms) const {
   // Deadline guarantee: never exceed the configured gap between completed HBs.
   // Also honor the nominal cadence using next_hb_ms_.
-  if (cfg_.tx.periods.hb_ms == 0 || cfg_.tx.schedule.hb_deadline_ms == 0) {
+  if (cfg_tx.periods.hb_ms == 0 || cfg_tx.schedule.hb_deadline_ms == 0) {
     return false;
   }
   int32_t since_done = (int32_t)(now_ms - tx.last_hb_done_ms);
-  if (since_done >= (int32_t)cfg_.tx.schedule.hb_deadline_ms) {
+  if (since_done >= (int32_t)cfg_tx.schedule.hb_deadline_ms) {
     return true;
   }
   return (int32_t)(now_ms - tx.next_hb_ms) >= 0;
@@ -119,9 +121,11 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   if (uart == nullptr || udp == nullptr) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
-  if (cfg.identity.sysid == 0 || cfg.rx.read_chunk_size == 0 ||
+  if (cfg.identity.sysid == 0 || cfg.rc.rx.read_chunk_size == 0 ||
       cfg.tx.periods.hb_ms == 0 || cfg.tx.schedule.hb_deadline_ms == 0 ||
-      cfg.rx.read_chunk_size > Mavlink::kMaxRxReadChunkSize) {
+      cfg.rc.tx.periods.hb_ms == 0 ||
+      cfg.rc.tx.schedule.hb_deadline_ms == 0 ||
+      cfg.rc.rx.read_chunk_size > Mavlink::kMaxRxReadChunkSize) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
 
@@ -145,17 +149,17 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   // Heartbeat timing: allow immediate first HB
   have_latest_ = false;
   latest_update_ms_ = 0;
-  ArmFirstSchedule(rc_tx_, 0);
-  ArmFirstSchedule(udp_tx_, 0);
+  ArmFirstSchedule(rc_tx_, cfg_.rc.tx, 0);
+  ArmFirstSchedule(udp_tx_, cfg_.tx, 0);
 
-  ESP_LOGI(kTag, "Initialized (RX RC + TX ELRS set)");
+  ESP_LOGI(kTag, "Initialized (RC + primary MAVLink links)");
 
   extern void StartMavlinkRcTask();
   StartMavlinkRcTask();
 }
 
 void Mavlink::Poll() {
-  size_t read_chunk_size = cfg_.rx.read_chunk_size;
+  size_t read_chunk_size = cfg_.rc.rx.read_chunk_size;
   if (read_chunk_size > rx_buf_.size()) {
     read_chunk_size = rx_buf_.size();
   }
@@ -549,7 +553,7 @@ void Mavlink::ServiceInFlightTx(TxState &tx) {
   }
 }
 
-void Mavlink::StartHeartbeatFrame(TxState &tx) {
+void Mavlink::StartHeartbeatFrame(TxState &tx, const TxConfig &cfg_tx) {
   mavlink_message_t m{};
 
   // TODO: Make vehicle type configurable instead of hardcoding quadrotor.
@@ -561,7 +565,7 @@ void Mavlink::StartHeartbeatFrame(TxState &tx) {
   tx.sent = 0;
   tx.is_hb = true;
 
-  tx.next_hb_ms += cfg_.tx.periods.hb_ms;
+  tx.next_hb_ms += cfg_tx.periods.hb_ms;
 }
 
 void Mavlink::StartSysStatusFrame(TxState &tx) {
@@ -613,8 +617,8 @@ void Mavlink::StartSysStatusFrame(TxState &tx) {
   tx.is_hb = false;
 }
 
-void Mavlink::StartGpsRawIntFrame(TxState &tx) {
-  tx.next_gps_ms += cfg_.tx.periods.gps_ms;
+void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
+  tx.next_gps_ms += cfg_tx.periods.gps_ms;
 
   // Only send if we have telemetry
   if (!have_latest_) {
@@ -651,8 +655,8 @@ void Mavlink::StartGpsRawIntFrame(TxState &tx) {
   tx.is_hb = false;
 }
 
-void Mavlink::StartAttitudeFrame(TxState &tx) {
-  tx.next_att_ms += cfg_.tx.periods.att_ms;
+void Mavlink::StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx) {
+  tx.next_att_ms += cfg_tx.periods.att_ms;
 
   if (!have_latest_) {
     return;
@@ -675,8 +679,9 @@ void Mavlink::StartAttitudeFrame(TxState &tx) {
   tx.is_hb = false;
 }
 
-void Mavlink::StartGlobalPositionIntFrame(TxState &tx) {
-  tx.next_gpos_ms += cfg_.tx.periods.gpos_ms;
+void Mavlink::StartGlobalPositionIntFrame(TxState &tx,
+                                          const TxConfig &cfg_tx) {
+  tx.next_gpos_ms += cfg_tx.periods.gpos_ms;
 
   if (!have_latest_) {
     return;
@@ -706,8 +711,8 @@ void Mavlink::StartGlobalPositionIntFrame(TxState &tx) {
   tx.is_hb = false;
 }
 
-void Mavlink::StartBatteryStatusFrame(TxState &tx) {
-  tx.next_batt_ms += cfg_.tx.periods.batt_ms;
+void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
+  tx.next_batt_ms += cfg_tx.periods.batt_ms;
 
   if (!have_latest_) {
     return;
@@ -749,7 +754,8 @@ void Mavlink::StartBatteryStatusFrame(TxState &tx) {
   tx.is_hb = false;
 }
 
-void Mavlink::StartNextScheduledFrame(TxState &tx, uint32_t now_ms) {
+void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
+                                      uint32_t now_ms) {
   // Heartbeat is handled outside as hard priority.
   // Here we select the next due stream among sys/gps/att/gpos/batt.
   // Keep this simple and deterministic.
@@ -771,26 +777,26 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, uint32_t now_ms) {
     best_due = tx.next_sys_ms;
     pick = Pick::kSys;
   }
-  if (cfg_.tx.periods.gps_ms > 0 && (int32_t)(now_ms - tx.next_gps_ms) >= 0) {
+  if (cfg_tx.periods.gps_ms > 0 && (int32_t)(now_ms - tx.next_gps_ms) >= 0) {
     if (tx.next_gps_ms < best_due) {
       best_due = tx.next_gps_ms;
       pick = Pick::kGps;
     }
   }
-  if (cfg_.tx.periods.att_ms > 0 && (int32_t)(now_ms - tx.next_att_ms) >= 0) {
+  if (cfg_tx.periods.att_ms > 0 && (int32_t)(now_ms - tx.next_att_ms) >= 0) {
     if (tx.next_att_ms < best_due) {
       best_due = tx.next_att_ms;
       pick = Pick::kAtt;
     }
   }
-  if (cfg_.tx.periods.gpos_ms > 0 &&
+  if (cfg_tx.periods.gpos_ms > 0 &&
       (int32_t)(now_ms - tx.next_gpos_ms) >= 0) {
     if (tx.next_gpos_ms < best_due) {
       best_due = tx.next_gpos_ms;
       pick = Pick::kGpos;
     }
   }
-  if (cfg_.tx.periods.batt_ms > 0 &&
+  if (cfg_tx.periods.batt_ms > 0 &&
       (int32_t)(now_ms - tx.next_batt_ms) >= 0) {
     if (tx.next_batt_ms < best_due) {
       best_due = tx.next_batt_ms;
@@ -803,16 +809,16 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, uint32_t now_ms) {
       StartSysStatusFrame(tx);
       break;
     case Pick::kGps:
-      StartGpsRawIntFrame(tx);
+      StartGpsRawIntFrame(tx, cfg_tx);
       break;
     case Pick::kAtt:
-      StartAttitudeFrame(tx);
+      StartAttitudeFrame(tx, cfg_tx);
       break;
     case Pick::kGpos:
-      StartGlobalPositionIntFrame(tx);
+      StartGlobalPositionIntFrame(tx, cfg_tx);
       break;
     case Pick::kBatt:
-      StartBatteryStatusFrame(tx);
+      StartBatteryStatusFrame(tx, cfg_tx);
       break;
     case Pick::kNone:
     default:
@@ -822,11 +828,12 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, uint32_t now_ms) {
 
 void Mavlink::TxTick(uint32_t now_ms) {
   TxState &tx = rc_tx_;
+  const TxConfig &cfg_tx = cfg_.rc.tx;
   // Arm schedule on first real tick
   if (!tx.schedule_armed) {
-    ArmFirstSchedule(tx, now_ms);
+    ArmFirstSchedule(tx, cfg_tx, now_ms);
     // Force immediate heartbeat
-    tx.last_hb_done_ms = now_ms - cfg_.tx.schedule.hb_deadline_ms;
+    tx.last_hb_done_ms = now_ms - cfg_tx.schedule.hb_deadline_ms;
     tx.schedule_armed = true;
   }
 
@@ -848,8 +855,8 @@ void Mavlink::TxTick(uint32_t now_ms) {
   }
 
   // 3) Nothing in flight: heartbeat has hard priority
-  if (ShouldSendHbNow(tx, now_ms)) {
-    StartHeartbeatFrame(tx);
+  if (ShouldSendHbNow(tx, cfg_tx, now_ms)) {
+    StartHeartbeatFrame(tx, cfg_tx);
     ServiceInFlightTx(tx);
     return;
   }
@@ -866,7 +873,7 @@ void Mavlink::TxTick(uint32_t now_ms) {
   } else if (tx.param_stream_active) {
     StartParamValueFrame(tx);
   } else {
-    StartNextScheduledFrame(tx, now_ms);
+    StartNextScheduledFrame(tx, cfg_tx, now_ms);
   }
   if (tx.len > 0) {
     ServiceInFlightTx(tx);
@@ -883,13 +890,9 @@ void Mavlink::UdpTick(uint32_t now_ms) {
     return;
   }
 
-  const bool had_peer = udp_->HasPeer();
   uint8_t rx_buf[512];
   const int received = udp_->Receive(rx_buf, sizeof(rx_buf));
   if (received > 0) {
-    if (!had_peer && udp_->HasPeer()) {
-      QueueStatusText("MAVLink WiFi ready", MAV_SEVERITY_INFO);
-    }
     mavlink_message_t msg{};
     mavlink_status_t status{};
     for (int i = 0; i < received; ++i) {
@@ -902,15 +905,16 @@ void Mavlink::UdpTick(uint32_t now_ms) {
   }
 
   TxState &tx = udp_tx_;
+  const TxConfig &cfg_tx = cfg_.tx;
   if (!tx.schedule_armed) {
-    ArmFirstSchedule(tx, now_ms);
-    tx.last_hb_done_ms = now_ms - cfg_.tx.schedule.hb_deadline_ms;
+    ArmFirstSchedule(tx, cfg_tx, now_ms);
+    tx.last_hb_done_ms = now_ms - cfg_tx.schedule.hb_deadline_ms;
     tx.schedule_armed = true;
   }
 
   if (tx.len == 0) {
-    if (ShouldSendHbNow(tx, now_ms)) {
-      StartHeartbeatFrame(tx);
+    if (ShouldSendHbNow(tx, cfg_tx, now_ms)) {
+      StartHeartbeatFrame(tx, cfg_tx);
     } else if (tx.pending_command_ack) {
       StartCommandAckFrame(tx);
     } else if (tx.pending_autopilot_version) {
@@ -922,7 +926,7 @@ void Mavlink::UdpTick(uint32_t now_ms) {
     } else if (tx.param_stream_active) {
       StartParamValueFrame(tx);
     } else {
-      StartNextScheduledFrame(tx, now_ms);
+      StartNextScheduledFrame(tx, cfg_tx, now_ms);
     }
   }
 

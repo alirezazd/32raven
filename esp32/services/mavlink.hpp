@@ -34,10 +34,6 @@ class Mavlink {
       uint8_t compid = 0;
     } identity;
 
-    struct Rx {
-      uint16_t read_chunk_size = 0;
-    } rx;
-
     struct Tx {
       struct Periods {
         uint16_t hb_ms = 0;
@@ -55,6 +51,14 @@ class Mavlink {
         uint16_t batt_start_delay_ms = 0;
       } schedule;
     } tx;
+
+    struct Rc {
+      struct Rx {
+        uint16_t read_chunk_size = 0;
+      } rx;
+
+      Tx tx;
+    } rc;
   };
 
   static Mavlink &GetInstance();
@@ -83,6 +87,8 @@ class Mavlink {
   const RcState &GetRcState() const { return rc_state_; }
 
  private:
+  using TxConfig = Config::Tx;
+
   enum class RxSource : uint8_t {
     kRc,
     kUdp,
@@ -163,17 +169,19 @@ class Mavlink {
 
   // Helpers
 
-  bool ShouldSendHbNow(const TxState &tx, uint32_t now_ms) const;
-  void ArmFirstSchedule(TxState &tx, uint32_t now_ms);
+  bool ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
+                       uint32_t now_ms) const;
+  void ArmFirstSchedule(TxState &tx, const TxConfig &cfg_tx, uint32_t now_ms);
 
   // Frame builders (only the ELRS-supported set)
-  void StartHeartbeatFrame(TxState &tx);
+  void StartHeartbeatFrame(TxState &tx, const TxConfig &cfg_tx);
   void StartSysStatusFrame(TxState &tx);
-  void StartGpsRawIntFrame(TxState &tx);
-  void StartAttitudeFrame(TxState &tx);
-  void StartGlobalPositionIntFrame(TxState &tx);
-  void StartBatteryStatusFrame(TxState &tx);
+  void StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx);
+  void StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx);
+  void StartGlobalPositionIntFrame(TxState &tx, const TxConfig &cfg_tx);
+  void StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx);
 
   // Pick next stream to send when idle (hb has priority)
-  void StartNextScheduledFrame(TxState &tx, uint32_t now_ms);
+  void StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
+                               uint32_t now_ms);
 };
