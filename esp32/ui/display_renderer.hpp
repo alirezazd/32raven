@@ -71,6 +71,13 @@ class DisplayRenderer {
                      int16_t radius, bool on = true);
   bool DrawBitmap(const uint8_t *bitmap_data, size_t width, size_t height,
                   size_t offset_x, size_t offset_y);
+  bool DrawMosaicBitmap(const uint8_t *bitmap_data, size_t width, size_t height,
+                        size_t offset_x, size_t offset_y,
+                        uint8_t block_size_px);
+  bool DrawMosaicTransition(const uint8_t *from_bitmap_data,
+                            const uint8_t *to_bitmap_data, size_t width,
+                            size_t height, float progress,
+                            uint8_t max_block_size_px);
   bool DrawText(const char *text, int16_t x, int16_t y,
                 const DisplayTextStyle &style = {});
   int16_t ScrollOffsetPx(int16_t content_width_px, int16_t available_width_px,

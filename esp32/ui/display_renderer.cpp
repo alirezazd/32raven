@@ -1,6 +1,7 @@
 #include "display_renderer.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include <Adafruit_GFX.h>
@@ -46,6 +47,17 @@ class GfxRenderer : public Adafruit_GFX {
  private:
   RenderCanvas *canvas_ = nullptr;
 };
+
+bool ReadPackedPixel(const uint8_t *bitmap_data, size_t width, size_t height,
+                     size_t x, size_t y) {
+  if (bitmap_data == nullptr || x >= width || y >= height) {
+    return false;
+  }
+  const size_t page = y / 8;
+  const size_t bit = y % 8;
+  const uint8_t value = bitmap_data[(page * width) + x];
+  return (value & (1u << bit)) != 0;
+}
 
 }  // namespace
 
@@ -230,6 +242,79 @@ bool DisplayRenderer::DrawBitmap(const uint8_t *bitmap_data, size_t width,
   return canvas_ != nullptr &&
          canvas_->DrawPackedBitmap(bitmap_data, width, height, offset_x,
                                    offset_y);
+}
+
+bool DisplayRenderer::DrawMosaicBitmap(const uint8_t *bitmap_data, size_t width,
+                                       size_t height, size_t offset_x,
+                                       size_t offset_y,
+                                       uint8_t block_size_px) {
+  if (canvas_ == nullptr || bitmap_data == nullptr || width == 0 ||
+      height == 0 || block_size_px == 0 || width > Width() ||
+      height > Height() || offset_x + width > Width() ||
+      offset_y + height > Height()) {
+    return false;
+  }
+
+  const size_t block =
+      static_cast<size_t>(std::max<uint8_t>(block_size_px, 1u));
+  for (size_t src_y = 0; src_y < height; src_y += block) {
+    for (size_t src_x = 0; src_x < width; src_x += block) {
+      const size_t sample_x = std::min(src_x + block / 2u, width - 1u);
+      const size_t sample_y = std::min(src_y + block / 2u, height - 1u);
+      if (!ReadPackedPixel(bitmap_data, width, height, sample_x, sample_y)) {
+        continue;
+      }
+
+      const size_t dst_x_begin = offset_x + src_x;
+      const size_t dst_y_begin = offset_y + src_y;
+      const size_t dst_x_end = std::min(dst_x_begin + block, offset_x + width);
+      const size_t dst_y_end =
+          std::min(dst_y_begin + block, offset_y + height);
+
+      for (size_t dst_y = dst_y_begin; dst_y < dst_y_end; ++dst_y) {
+        for (size_t dst_x = dst_x_begin; dst_x < dst_x_end; ++dst_x) {
+          canvas_->SetPixel(dst_x, dst_y, true);
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+bool DisplayRenderer::DrawMosaicTransition(const uint8_t *from_bitmap_data,
+                                           const uint8_t *to_bitmap_data,
+                                           size_t width, size_t height,
+                                           float progress,
+                                           uint8_t max_block_size_px) {
+  if (canvas_ == nullptr || from_bitmap_data == nullptr ||
+      to_bitmap_data == nullptr || width != Width() || height != Height()) {
+    return false;
+  }
+
+  progress = std::clamp(progress, 0.0f, 1.0f);
+  const uint8_t max_block =
+      static_cast<uint8_t>(std::max<uint8_t>(max_block_size_px, 1u));
+
+  const auto interpolated_block_size = [&](float local_progress,
+                                           bool descending) {
+    const float start = descending ? static_cast<float>(max_block) : 1.0f;
+    const float end = descending ? 1.0f : static_cast<float>(max_block);
+    return static_cast<uint8_t>(std::clamp(
+        std::lround(start + (end - start) * std::clamp(local_progress, 0.0f, 1.0f)),
+        1l, static_cast<long>(max_block)));
+  };
+
+  Clear();
+  if (progress < 0.5f) {
+    const float local_progress = progress * 2.0f;
+    return DrawMosaicBitmap(from_bitmap_data, width, height, 0, 0,
+                            interpolated_block_size(local_progress, false));
+  }
+
+  const float local_progress = (progress - 0.5f) * 2.0f;
+  return DrawMosaicBitmap(to_bitmap_data, width, height, 0, 0,
+                          interpolated_block_size(local_progress, true));
 }
 
 bool DisplayRenderer::DrawText(const char *text, int16_t x, int16_t y,

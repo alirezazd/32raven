@@ -28,15 +28,6 @@ void DrawCenteredBitmap(WidgetContext &ctx, const uint8_t *bitmap_data) {
                            boot_logo::kVisibleHeight, offset_x, offset_y);
 }
 
-void ClearAfterFadeOut(WidgetContext &ctx) {
-  if (ctx.renderer == nullptr || ctx.ui == nullptr) {
-    return;
-  }
-
-  ctx.renderer->Clear();
-  ctx.ui->DisableFadeOut();
-}
-
 }  // namespace
 
 void BootWidget::ShowingState::OnEnter(WidgetContext &ctx) {
@@ -53,28 +44,28 @@ void BootWidget::ShowingState::OnStep(WidgetContext &ctx, SmTick now) {
     return;
   }
 
-  ctx.sm->ReqTransition(widget_.fading_state_);
+  ctx.sm->ReqTransition(widget_.transitioning_state_);
 }
 
-void BootWidget::FadingState::OnEnter(WidgetContext &ctx) {
-  widget_.fade_start_ms_ = Sys().Timebase().NowMs();
-  if (ctx.ui != nullptr) {
-    ctx.ui->SetFadeOut(kFadeOutInterval);
-  }
-}
-
-void BootWidget::FadingState::OnStep(WidgetContext &ctx, SmTick now) {
-  if (ctx.sm == nullptr) {
+void BootWidget::TransitioningState::OnEnter(WidgetContext &ctx) {
+  if (ctx.ui == nullptr) {
     return;
   }
 
-  if ((now - widget_.fade_start_ms_) >= kFadeDurationMs) {
+  ctx.ui->StartMosaicTransition(Sys().Timebase().NowMs());
+}
+
+void BootWidget::TransitioningState::OnStep(WidgetContext &ctx, SmTick now) {
+  (void)now;
+  if (ctx.sm == nullptr) {
+    return;
+  }
+  if (ctx.ui == nullptr || !ctx.ui->IsTransitionActive()) {
     ctx.sm->ReqTransition(widget_.done_state_);
   }
 }
 
 void BootWidget::DoneState::OnEnter(WidgetContext &ctx) {
-  ClearAfterFadeOut(ctx);
   ctx.LoadWidget(widget_.next_widget_);
 }
 
