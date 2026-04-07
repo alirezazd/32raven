@@ -68,11 +68,9 @@ class Mavlink {
   // RX: reads UART and parses inbound MAVLink (RC override only, for now)
   void Poll();
 
-  // TX: called from a dedicated RTOS task at a steady tick (e.g. 10ms)
-  void TxTick(uint32_t now_ms);
-
-  // UDP: called from a dedicated RTOS task when MAVLink-over-Wi-Fi is enabled.
-  void UdpTick(uint32_t now_ms);
+  // Worker: called from one dedicated RTOS task at a steady tick (e.g. 10ms).
+  void WorkerTick(uint32_t now_ms);
+  void SetPrimaryLinkEnabled(bool enabled);
 
   // Latest telemetry from STM32 (25Hz input ok; we downsample on TX)
   void OfferTelemetry(const message::GpsData &d, uint32_t now_ms);
@@ -144,6 +142,7 @@ class Mavlink {
   uint8_t udp_logged_msgid_count_ = 0;
   std::atomic<uint32_t> udp_rx_packet_count_{0};
   std::atomic<uint32_t> udp_tx_packet_count_{0};
+  std::atomic<bool> primary_link_enabled_{false};
 
   void HandleRxByte(uint8_t b);
   void HandleMessage(const mavlink_message_t &msg, RxSource source);
@@ -161,6 +160,13 @@ class Mavlink {
   TxState rc_tx_{};
   TxState udp_tx_{};
   void ServiceInFlightTx(TxState &tx);
+  void ServiceRcLink(uint32_t now_ms);
+  void ServicePrimaryLink(uint32_t now_ms);
+  void EnsureScheduleArmed(TxState &tx, const TxConfig &cfg_tx,
+                           uint32_t now_ms);
+  bool StartNextFrameIfIdle(TxState &tx, const TxConfig &cfg_tx,
+                            uint32_t now_ms);
+  void CompleteFrame(TxState &tx, uint32_t now_ms);
 
   // ---------- Latest-only telemetry cache ----------
   message::GpsData latest_{};
