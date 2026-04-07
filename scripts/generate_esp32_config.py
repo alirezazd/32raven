@@ -105,6 +105,14 @@ TCP_SERVER_KEEPALIVE_INTERVAL_MIN_S = 1
 TCP_SERVER_KEEPALIVE_INTERVAL_MAX_S = 3600
 TCP_SERVER_KEEPALIVE_COUNT_MIN = 1
 TCP_SERVER_KEEPALIVE_COUNT_MAX = 20
+UDP_SERVER_UPLOAD_CAP_MIN_KBITS = 0
+UDP_SERVER_UPLOAD_CAP_MAX_KBITS = 100000
+UDP_SERVER_DOWNLOAD_CAP_MIN_KBITS = 0
+UDP_SERVER_DOWNLOAD_CAP_MAX_KBITS = 100000
+UDP_SERVER_OVERFLOW_THRESHOLD_MIN_PACKETS = 1
+UDP_SERVER_OVERFLOW_THRESHOLD_MAX_PACKETS = 1000
+UDP_SERVER_SHAPER_BUFFER_WINDOW_MS = 300
+UDP_SERVER_SHAPER_BUFFER_MAX_BYTES = 32768
 WIDGET_BOOT_TIMEOUT_MIN_S = 0
 WIDGET_BOOT_TIMEOUT_MAX_S = 15
 WIDGET_UI_TIMEOUT_MIN_S = 0
@@ -228,6 +236,14 @@ def _validate_int_range(
     value = _sym_int(kconf, name)
     if not minimum <= value <= maximum:
         raise ValueError(f"{name} must be in the range {minimum}..{maximum}")
+
+
+def _udp_shaper_buffer_bytes(cap_kbits: int) -> int:
+    if cap_kbits <= 0:
+        return 0
+    # window_ms at cap_kbits resolves to (cap_kbits * window_ms) bits.
+    window_bytes = (cap_kbits * UDP_SERVER_SHAPER_BUFFER_WINDOW_MS + 7) // 8
+    return min(max(window_bytes, 1), UDP_SERVER_SHAPER_BUFFER_MAX_BYTES)
 
 
 def _validate_unique_gpio_assignments(
@@ -579,6 +595,24 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
     )
     _validate_int_range(
         kconf,
+        "ESP32_UDP_SERVER_UPLOAD_CAP_KBITS",
+        UDP_SERVER_UPLOAD_CAP_MIN_KBITS,
+        UDP_SERVER_UPLOAD_CAP_MAX_KBITS,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_UDP_SERVER_OVERFLOW_THRESHOLD",
+        UDP_SERVER_OVERFLOW_THRESHOLD_MIN_PACKETS,
+        UDP_SERVER_OVERFLOW_THRESHOLD_MAX_PACKETS,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS",
+        UDP_SERVER_DOWNLOAD_CAP_MIN_KBITS,
+        UDP_SERVER_DOWNLOAD_CAP_MAX_KBITS,
+    )
+    _validate_int_range(
+        kconf,
         "ESP32_WIDGET_BOOT_TIMEOUT_S",
         WIDGET_BOOT_TIMEOUT_MIN_S,
         WIDGET_BOOT_TIMEOUT_MAX_S,
@@ -676,6 +710,13 @@ def _runtime_context(
         "udp_server": {
             "port": _sym_int(kconf, "ESP32_UDP_SERVER_PORT"),
             "nonblocking": _sym_bool(kconf, "ESP32_UDP_SERVER_NONBLOCKING"),
+            "upload_cap_kbits": _sym_int(kconf, "ESP32_UDP_SERVER_UPLOAD_CAP_KBITS"),
+            "download_cap_kbits": _sym_int(
+                kconf, "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS"
+            ),
+            "overflow_threshold": _sym_int(
+                kconf, "ESP32_UDP_SERVER_OVERFLOW_THRESHOLD"
+            ),
         },
         "fclink_uart": {
             "baud_rate": _choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES),
@@ -855,6 +896,14 @@ def _limits_context(
             "event_queue_depth": 8,
             "download_buffer_bytes": 4096,
             "max_line_bytes": 160,
+        },
+        "udp_server": {
+            "upload_buffer_bytes": _udp_shaper_buffer_bytes(
+                _sym_int(kconf, "ESP32_UDP_SERVER_UPLOAD_CAP_KBITS")
+            ),
+            "download_buffer_bytes": _udp_shaper_buffer_bytes(
+                _sym_int(kconf, "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS")
+            ),
         },
         "tone_player": {
             "pending_request_queue_depth": 5,
