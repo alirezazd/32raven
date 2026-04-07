@@ -86,6 +86,11 @@ class StateMachineWidget : public IWidget {
 
 class Ui {
  public:
+  enum class TransitionEffect : uint8_t {
+    kSlide,
+    kMosaic,
+  };
+
   enum class SlideDirection : uint8_t {
     kLeft,
     kRight,
@@ -120,6 +125,8 @@ class Ui {
 
   static constexpr size_t kWidth = DisplayCanvas::kWidth;
   static constexpr size_t kHeight = DisplayCanvas::kHeight;
+  static constexpr TimeMs kDefaultMosaicTransitionDurationMs = 900;
+  static constexpr uint8_t kDefaultMosaicBlockSizePx = 8;
   static Ui &GetInstance() {
     static Ui instance;
     return instance;
@@ -141,6 +148,10 @@ class Ui {
   void DisplayOn();
   void DisplayOff();
   bool IsScreenOn() const;
+  bool IsTransitionActive() const;
+  void StartMosaicTransition(
+      TimeMs now, TimeMs duration_ms = kDefaultMosaicTransitionDurationMs,
+      uint8_t max_block_size = kDefaultMosaicBlockSizePx);
 
   TimeMs GetFrameIntervalMs() const;
   size_t Width() const { return kWidth; }
@@ -161,6 +172,9 @@ class Ui {
   void SyncPresentation();
   void RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
                                 DisplayCanvas &dst);
+  void StartMosaicTransitionToScreen(MainScreen next_screen, TimeMs now,
+                                     TimeMs duration_ms,
+                                     uint8_t max_block_size);
   void StartMainScreenTransition(MainScreen next_screen, TimeMs now,
                                  SlideDirection direction, TimeMs duration_ms,
                                  float accel_ratio, float decel_ratio);
@@ -188,12 +202,14 @@ class Ui {
   MainScreen main_screen_ = MainScreen::kBooting;
   struct TransitionState {
     bool active = false;
+    TransitionEffect effect = TransitionEffect::kSlide;
     MainScreen target_screen = MainScreen::kBooting;
     SlideDirection direction = SlideDirection::kLeft;
     TimeMs start_ms = 0;
     TimeMs duration_ms = 180;
     float accel_ratio = 0.18f;
     float decel_ratio = 0.22f;
+    uint8_t mosaic_block_size = 2;
   } transition_{};
   DisplayCanvas transition_from_canvas_{};
   DisplayCanvas transition_to_canvas_{};
