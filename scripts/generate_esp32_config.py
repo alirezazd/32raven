@@ -330,12 +330,53 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         _validate_int_range(
             kconf, symbol, MAVLINK_TELEMETRY_PERIOD_MIN_MS, MAVLINK_TELEMETRY_PERIOD_MAX_MS
         )
+    for enable_symbol, value_symbol in (
+        ("ESP32_MAVLINK_RC_GPS_ENABLE", "ESP32_MAVLINK_RC_GPS_PERIOD_MS"),
+        ("ESP32_MAVLINK_RC_ATTITUDE_ENABLE", "ESP32_MAVLINK_RC_ATTITUDE_PERIOD_MS"),
+        (
+            "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE",
+            "ESP32_MAVLINK_RC_GLOBAL_POSITION_PERIOD_MS",
+        ),
+        (
+            "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE",
+            "ESP32_MAVLINK_RC_BATTERY_STATUS_PERIOD_MS",
+        ),
+    ):
+        if _sym_bool(kconf, enable_symbol):
+            _validate_int_range(
+                kconf,
+                value_symbol,
+                MAVLINK_TELEMETRY_PERIOD_MIN_MS,
+                MAVLINK_TELEMETRY_PERIOD_MAX_MS,
+            )
     _validate_int_range(
         kconf,
-        "ESP32_MAVLINK_RX_READ_CHUNK_SIZE",
+        "ESP32_MAVLINK_RC_RX_READ_CHUNK_SIZE",
         MAVLINK_RX_READ_CHUNK_MIN,
         MAVLINK_RX_READ_CHUNK_MAX,
     )
+    for enable_symbol, value_symbol in (
+        ("ESP32_MAVLINK_RC_GPS_ENABLE", "ESP32_MAVLINK_RC_GPS_START_DELAY_MS"),
+        (
+            "ESP32_MAVLINK_RC_ATTITUDE_ENABLE",
+            "ESP32_MAVLINK_RC_ATTITUDE_START_DELAY_MS",
+        ),
+        (
+            "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE",
+            "ESP32_MAVLINK_RC_GLOBAL_POSITION_START_DELAY_MS",
+        ),
+        (
+            "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE",
+            "ESP32_MAVLINK_RC_BATTERY_STATUS_START_DELAY_MS",
+        ),
+    ):
+        if _sym_bool(kconf, enable_symbol):
+            _validate_int_range(
+                kconf,
+                value_symbol,
+                MAVLINK_START_DELAY_MIN_MS,
+                MAVLINK_START_DELAY_MAX_MS,
+            )
     _validate_int_range(
         kconf,
         "ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS",
@@ -691,11 +732,6 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
                 "sysid": _sym_int(kconf, "ESP32_MAVLINK_SYSID"),
                 "compid": _sym_int(kconf, "ESP32_MAVLINK_COMPID"),
             },
-            "rx": {
-                "read_chunk_size": _sym_int(
-                    kconf, "ESP32_MAVLINK_RX_READ_CHUNK_SIZE"
-                ),
-            },
             "tx": {
                 "periods": {
                     "hb_ms": _sym_int(kconf, "ESP32_MAVLINK_HEARTBEAT_PERIOD_MS"),
@@ -723,6 +759,79 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
                     ),
                     "batt_start_delay_ms": _sym_int(
                         kconf, "ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS"
+                    ),
+                },
+            },
+        },
+        "mavlink_rc": {
+            "rx": {
+                "read_chunk_size": _sym_int(
+                    kconf, "ESP32_MAVLINK_RC_RX_READ_CHUNK_SIZE"
+                ),
+            },
+            "tx": {
+                "periods": {
+                    "hb_ms": 1000,
+                    "gps_ms": (
+                        _sym_int(kconf, "ESP32_MAVLINK_RC_GPS_PERIOD_MS")
+                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_GPS_ENABLE")
+                        else 0
+                    ),
+                    "att_ms": (
+                        _sym_int(kconf, "ESP32_MAVLINK_RC_ATTITUDE_PERIOD_MS")
+                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_ATTITUDE_ENABLE")
+                        else 0
+                    ),
+                    "gpos_ms": (
+                        _sym_int(
+                            kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_PERIOD_MS"
+                        )
+                        if _sym_bool(
+                            kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE"
+                        )
+                        else 0
+                    ),
+                    "batt_ms": (
+                        _sym_int(
+                            kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_PERIOD_MS"
+                        )
+                        if _sym_bool(
+                            kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE"
+                        )
+                        else 0
+                    ),
+                },
+                "schedule": {
+                    "hb_deadline_ms": 1500,
+                    "gps_start_delay_ms": (
+                        _sym_int(kconf, "ESP32_MAVLINK_RC_GPS_START_DELAY_MS")
+                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_GPS_ENABLE")
+                        else 0
+                    ),
+                    "att_start_delay_ms": (
+                        _sym_int(
+                            kconf, "ESP32_MAVLINK_RC_ATTITUDE_START_DELAY_MS"
+                        )
+                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_ATTITUDE_ENABLE")
+                        else 0
+                    ),
+                    "gpos_start_delay_ms": (
+                        _sym_int(
+                            kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_START_DELAY_MS"
+                        )
+                        if _sym_bool(
+                            kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE"
+                        )
+                        else 0
+                    ),
+                    "batt_start_delay_ms": (
+                        _sym_int(
+                            kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_START_DELAY_MS"
+                        )
+                        if _sym_bool(
+                            kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE"
+                        )
+                        else 0
                     ),
                 },
             },
