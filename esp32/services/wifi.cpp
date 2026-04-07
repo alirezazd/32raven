@@ -1,7 +1,6 @@
 #include "wifi.hpp"
 
 #include "panic.hpp"
-#include "system.hpp"
 
 extern "C" {
 #include "driver/gpio.h"  // IWYU pragma: keep
@@ -26,15 +25,22 @@ static inline void LogErr(const char *what, esp_err_t e) {
 void WifiController::HandleWifiEvent(void *arg, esp_event_base_t event_base,
                                      int32_t event_id, void *event_data) {
   (void)event_data;
-  if (event_base != WIFI_EVENT || arg == nullptr) {
-    return;
+  (void)event_base;
+  if (arg == nullptr) {
+    LogErr("WifiController::HandleWifiEvent", ESP_ERR_INVALID_ARG);
+    Panic(ErrorCode::kWifiEventLoopFailed);
   }
 
   auto *self = static_cast<WifiController *>(arg);
-  if (event_id == WIFI_EVENT_AP_STACONNECTED) {
-    self->HandleApStaConnected();
-  } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-    self->HandleApStaDisconnected();
+  switch (event_id) {
+    case WIFI_EVENT_AP_STACONNECTED:
+      self->HandleApStaConnected();
+      break;
+    case WIFI_EVENT_AP_STADISCONNECTED:
+      self->HandleApStaDisconnected();
+      break;
+    default:
+      break;
   }
 }
 
@@ -92,8 +98,6 @@ void WifiController::Init(const Config &cfg) {
   // 5. Storage RAM
   e = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   LogErr("esp_wifi_set_storage", e);
-  // Storage failure might be non-critical, but let's be safe?
-  // User asked for error handling. Let's assume critical.
   if (e != ESP_OK) {
     Panic(ErrorCode::kWifiSetStorageFailed);
   }
@@ -118,8 +122,8 @@ void WifiController::Init(const Config &cfg) {
   ESP_LOGI(kTag, "initialized");
 }
 
-bool WifiController::StartAp() {
-  if (wifi_on_) return true;
+void WifiController::StartAp() {
+  if (wifi_on_) return;
   associated_station_count_ = 0;
 
   // 1. Create AP Netif if needed
@@ -130,26 +134,30 @@ bool WifiController::StartAp() {
     ap_netif_ = esp_netif_new(&ncfg);
     if (!ap_netif_) {
       ESP_LOGE(kTag, "esp_netif_new(AP) failed");
-      return false;
+      Panic(ErrorCode::kWifiNetifInitFailed);
     }
 
     // Attach AP netif to Wi-Fi
     esp_err_t e = esp_netif_attach_wifi_ap(ap_netif_);
     LogErr("esp_netif_attach_wifi_ap", e);
-    if (e != ESP_OK) return false;
+    if (e != ESP_OK) {
+      Panic(ErrorCode::kWifiNetifInitFailed);
+    }
 
     // Register default handlers
     e = esp_wifi_set_default_wifi_ap_handlers();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
       LogErr("esp_wifi_set_default_wifi_ap_handlers", e);
-      return false;
+      Panic(ErrorCode::kWifiEventLoopFailed);
     }
   }
 
   // 2. Set Mode
   esp_err_t e = esp_wifi_set_mode(WIFI_MODE_AP);
   LogErr("esp_wifi_set_mode", e);
-  if (e != ESP_OK) return false;
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
 
   // 3. Config
   wifi_config_t ap{};
@@ -168,12 +176,16 @@ bool WifiController::StartAp() {
 
   e = esp_wifi_set_config(WIFI_IF_AP, &ap);
   LogErr("esp_wifi_set_config", e);
-  if (e != ESP_OK) return false;
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
 
   // 4. Start
   e = esp_wifi_start();
   LogErr("esp_wifi_start", e);
-  if (e != ESP_OK) return false;
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
 
   wifi_on_ = true;
   ESP_LOGI(kTag, "AP started SSID=%s", ssid);
@@ -184,7 +196,6 @@ bool WifiController::StartAp() {
     ESP_LOGW(kTag, "esp_wifi_set_ps: %s", esp_err_to_name(e));
   }
 
-  return true;
 }
 
 void WifiController::Stop() {
