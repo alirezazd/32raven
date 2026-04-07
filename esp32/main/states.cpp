@@ -17,7 +17,6 @@ extern "C" {
 }
 
 static constexpr const char *kTag = "ESP32-SM";
-extern void StartMavlinkUdpTask();
 
 namespace {
 
@@ -54,6 +53,7 @@ void DrainMavlinkCommandEvents(AppContext &ctx) {
 void ServingState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
   ctx.sys->Ui().SetAppState(Ui::AppState::kServing);
+  ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
   ctx.sys->StopNetwork();
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
   ctx.sys->FcLink().PerformHandshake();
@@ -93,11 +93,11 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
 void MavlinkWifiState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering MavlinkWifi");
   ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkWifi);
+  ctx.sys->Mavlink().SetPrimaryLinkEnabled(true);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().StartAp();
   ctx.sys->Udp().Start();
-  StartMavlinkUdpTask();
 }
 
 void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
@@ -131,6 +131,7 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
 void DfuState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Dfu");
   ctx.sys->Ui().SetAppState(Ui::AppState::kDfu);
+  ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().DisableBridge();
@@ -182,6 +183,7 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
 void ProgramState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Program mode");
   ctx.sys->Ui().SetAppState(Ui::AppState::kProgram);
+  ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
   last_activity_ = ctx.sys->Timebase().NowMs();
