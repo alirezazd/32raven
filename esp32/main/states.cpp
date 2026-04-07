@@ -119,10 +119,12 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
+  DrainMavlinkCommandEvents(ctx);
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
+  DrainMavlinkCommandEvents(ctx);
 }
 
 // Dfu State

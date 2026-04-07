@@ -213,10 +213,6 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
             .sysid = {{ mavlink.identity.sysid }},
             .compid = {{ mavlink.identity.compid }},
         },
-    .rx =
-        {
-            .read_chunk_size = {{ mavlink.rx.read_chunk_size }},
-        },
     .tx =
         {
             .periods =
@@ -234,6 +230,32 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                     .att_start_delay_ms = {{ mavlink.tx.schedule.att_start_delay_ms }},
                     .gpos_start_delay_ms = {{ mavlink.tx.schedule.gpos_start_delay_ms }},
                     .batt_start_delay_ms = {{ mavlink.tx.schedule.batt_start_delay_ms }},
+                },
+        },
+    .rc =
+        {
+            .rx =
+                {
+                    .read_chunk_size = {{ mavlink_rc.rx.read_chunk_size }},
+                },
+            .tx =
+                {
+                    .periods =
+                        {
+                            .hb_ms = {{ mavlink_rc.tx.periods.hb_ms }},
+                            .gps_ms = {{ mavlink_rc.tx.periods.gps_ms }},
+                            .att_ms = {{ mavlink_rc.tx.periods.att_ms }},
+                            .gpos_ms = {{ mavlink_rc.tx.periods.gpos_ms }},
+                            .batt_ms = {{ mavlink_rc.tx.periods.batt_ms }},
+                        },
+                    .schedule =
+                        {
+                            .hb_deadline_ms = {{ mavlink_rc.tx.schedule.hb_deadline_ms }},
+                            .gps_start_delay_ms = {{ mavlink_rc.tx.schedule.gps_start_delay_ms }},
+                            .att_start_delay_ms = {{ mavlink_rc.tx.schedule.att_start_delay_ms }},
+                            .gpos_start_delay_ms = {{ mavlink_rc.tx.schedule.gpos_start_delay_ms }},
+                            .batt_start_delay_ms = {{ mavlink_rc.tx.schedule.batt_start_delay_ms }},
+                        },
                 },
         },
 };

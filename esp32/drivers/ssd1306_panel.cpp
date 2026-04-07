@@ -86,6 +86,8 @@ void Ssd1306Panel::Init(const Config &cfg, I2cDisplay *i2c) {
       0xDB,
       0x20,
       display_mode,
+      0x23,
+      0x00,
       0xA4,
       0xAF,
   };
