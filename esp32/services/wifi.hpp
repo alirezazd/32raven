@@ -4,7 +4,7 @@
 
 #include "esp_event_base.h"
 #include "esp_netif_types.h"
-#include "esp_wifi_types.h"
+#include "esp_wifi_types.h"  // IWYU pragma: keep
 
 class WifiController {
  public:
@@ -30,7 +30,7 @@ class WifiController {
     wifi_ps_type_t power_save = WIFI_PS_NONE;
   };
 
-  bool StartAp();
+  void StartAp();
   void Stop();
 
   bool IsOn() const { return wifi_on_; }
