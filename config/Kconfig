@@ -641,6 +641,15 @@ config ESP32_FCLINK_RC_FORWARD_RATE_HZ
       Maximum rate used to forward RC state from the ESP32 MAVLink receiver
       to STM32 over FcLink while in Serving mode.
 
+config ESP32_FCLINK_INVALID_PACKET_THRESHOLD
+    int "Invalid packet threshold"
+    range 1 255
+    default 10
+    help
+      Number of consecutive invalid packets received on FcLink before the link
+      is considered unavailable. Invalid packets are those that fail basic
+      parsing checks such as header magic bytes and length limits.
+
 config ESP32_FCLINK_HANDSHAKE_ATTEMPTS
     int "Handshake attempts"
     range 1 1000

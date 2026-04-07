@@ -49,7 +49,7 @@ constexpr size_t kDfuWifiTopY = 0;
 constexpr int16_t kDfuWifiWarningGapPx = 1;
 constexpr int16_t kDfuLinkGlyphGapPx = 1;
 constexpr int16_t kDfuCredentialLineGapPx = 2;
-constexpr TimeMs kMavlinkIconFramePeriodMs = 500;
+constexpr TimeMs kMavlinkIconFramePeriodMs = 250;
 constexpr char kProgrammingViewportSample[] = "1234567";
 constexpr TimeMs kDefaultDfuLinkStepPeriodMs = 16;
 constexpr uint16_t kDfuLinkSubpixelScale = 256;
@@ -71,12 +71,10 @@ constexpr DisplayTextStyle kDfuSleepStyle{
 portMUX_TYPE g_main_ui_widget_lock = portMUX_INITIALIZER_UNLOCKED;
 
 constexpr std::array<uint8_t, kVerifyDigitGlyphHeightPx> kVerifyDigitZero = {
-    0b01110, 0b10001, 0b10001, 0b10001,
-    0b10001, 0b10001, 0b01110,
+    0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
 };
 constexpr std::array<uint8_t, kVerifyDigitGlyphHeightPx> kVerifyDigitOne = {
-    0b00100, 0b01100, 0b00100, 0b00100,
-    0b00100, 0b00100, 0b01110,
+    0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
 };
 
 uint8_t DotCount(TimeMs now) {
@@ -207,8 +205,7 @@ void DrawMaskedVerifyDigits(DisplayRenderer &renderer, int16_t center_x,
     for (int16_t row = 0; row < glyph_height; ++row) {
       for (int16_t col = 0; col < glyph_width; ++col) {
         const uint8_t row_mask = pattern[row];
-        const uint8_t bit = static_cast<uint8_t>(
-            1u << (glyph_width - 1 - col));
+        const uint8_t bit = static_cast<uint8_t>(1u << (glyph_width - 1 - col));
         if ((row_mask & bit) == 0u) {
           continue;
         }
@@ -302,9 +299,8 @@ int16_t VerifyMagnifierTravelPx() {
   const int16_t left_overlap_px = VerifyMagnifierLeftOverlapPx();
   const int16_t right_limit_px = VerifyMagnifierRightLimitPx();
   return std::max<int16_t>(
-      0,
-      static_cast<int16_t>(magnifying_glass_bitmap::kVisibleWidth) +
-          right_limit_px - left_overlap_px);
+      0, static_cast<int16_t>(magnifying_glass_bitmap::kVisibleWidth) +
+             right_limit_px - left_overlap_px);
 }
 
 }  // namespace
@@ -360,25 +356,22 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
       (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
           ? ctx.ui->GetFrameIntervalMs()
           : kDefaultDfuLinkStepPeriodMs;
-  const bool verify_magnifier_changed =
-      AdvanceVerifyMagnifierAnimation(now, mode == Mode::kVerifying,
-                                      dfu_link_step_period_ms);
-  const bool mavlink_packet_changed =
-      AdvanceMavlinkPacketAnimation(*ctx.renderer, now, IsMavlinkMode(mode),
-                                    dfu_link_step_period_ms);
+  const bool verify_magnifier_changed = AdvanceVerifyMagnifierAnimation(
+      now, mode == Mode::kVerifying, dfu_link_step_period_ms);
+  const bool mavlink_packet_changed = AdvanceMavlinkPacketAnimation(
+      *ctx.renderer, now, IsMavlinkMode(mode), dfu_link_step_period_ms);
   const bool mavlink_packet_active =
       mavlink_tx_lane_.active_count > 0 || mavlink_rx_lane_.active_count > 0;
   const bool mode_changed = mode != last_mode_;
-  const bool dfu_link_changed =
-      AdvanceDfuLinkAnimation(*ctx.renderer, now, dfu_binary_link_active,
-                              dfu_link_step_period_ms);
+  const bool dfu_link_changed = AdvanceDfuLinkAnimation(
+      *ctx.renderer, now, dfu_binary_link_active, dfu_link_step_period_ms);
 
   if (mode_changed) {
     if (IsMavlinkMode(mode) != IsMavlinkMode(last_mode_)) {
       ResetMavlinkPacketAnimation();
     }
-    const bool status_changed =
-        std::strcmp(StatusTextForMode(last_mode_), StatusTextForMode(mode)) != 0;
+    const bool status_changed = std::strcmp(StatusTextForMode(last_mode_),
+                                            StatusTextForMode(mode)) != 0;
     last_mode_ = mode;
     if (status_changed) {
       BeginTextPhase(ctx, now, mode);
@@ -392,8 +385,8 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   if (!has_rendered_ || text_animation_active_ ||
       last_dot_count_ != DotCount(now) || serving_animation_active ||
       dfu_link_changed || verify_magnifier_changed || mavlink_packet_changed ||
-      mavlink_packet_active ||
-      dfu_credentials_animation_active || progress_status_scroll_active) {
+      mavlink_packet_active || dfu_credentials_animation_active ||
+      progress_status_scroll_active) {
     RenderMode(ctx, now, mode);
   }
 }
@@ -448,8 +441,8 @@ void MainUiWidget::InitializeDfuLinkAnimation(DisplayRenderer &renderer,
       static_cast<size_t>(std::max<int16_t>(1, gap_width) /
                           std::max<int16_t>(1, dfu_link_glyph_pitch_px_)) +
       3u;
-  dfu_link_glyph_count_ =
-      std::clamp(required_glyphs, static_cast<size_t>(4u), kDfuLinkGlyphCapacity);
+  dfu_link_glyph_count_ = std::clamp(required_glyphs, static_cast<size_t>(4u),
+                                     kDfuLinkGlyphCapacity);
   for (size_t index = 0; index < dfu_link_glyph_count_; ++index) {
     dfu_link_glyphs_[index] = RandomBinaryGlyph();
   }
@@ -459,8 +452,8 @@ void MainUiWidget::InitializeDfuLinkAnimation(DisplayRenderer &renderer,
   dfu_link_initialized_ = true;
 }
 
-bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer, TimeMs now,
-                                           bool active,
+bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
+                                           TimeMs now, bool active,
                                            TimeMs step_period_ms) {
   if (!active) {
     return false;
@@ -484,13 +477,13 @@ bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer, TimeMs now
       (static_cast<uint32_t>(step_ms) * kDfuLinkPixelsPerSecond *
        kDfuLinkSubpixelScale) /
       1000u;
-  dfu_link_subpixel_offset_ = static_cast<uint16_t>(
-      dfu_link_subpixel_offset_ + advanced_subpixels);
+  dfu_link_subpixel_offset_ =
+      static_cast<uint16_t>(dfu_link_subpixel_offset_ + advanced_subpixels);
 
-  uint8_t pixel_steps = static_cast<uint8_t>(
-      dfu_link_subpixel_offset_ / kDfuLinkSubpixelScale);
-  dfu_link_subpixel_offset_ = static_cast<uint16_t>(
-      dfu_link_subpixel_offset_ % kDfuLinkSubpixelScale);
+  uint8_t pixel_steps =
+      static_cast<uint8_t>(dfu_link_subpixel_offset_ / kDfuLinkSubpixelScale);
+  dfu_link_subpixel_offset_ =
+      static_cast<uint16_t>(dfu_link_subpixel_offset_ % kDfuLinkSubpixelScale);
   if (pixel_steps == 0) {
     return false;
   }
@@ -526,9 +519,9 @@ bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
 
   EnsureLinkGlyphMetrics(renderer);
 
-  const int16_t gap_width = static_cast<int16_t>(
-      renderer.Width() - chip_bitmap::kVisibleWidth -
-      mavlink0_bitmap::kVisibleWidth);
+  const int16_t gap_width =
+      static_cast<int16_t>(renderer.Width() - chip_bitmap::kVisibleWidth -
+                           mavlink0_bitmap::kVisibleWidth);
   const int16_t travel_px =
       std::max<int16_t>(0, gap_width - dfu_link_glyph_width_px_);
   if (travel_px <= 0) {
@@ -577,7 +570,8 @@ bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
   if (advanced_subpixels > 0) {
     advance_lane(mavlink_tx_lane_);
     advance_lane(mavlink_rx_lane_);
-    if (mavlink_tx_lane_.active_count > 0 || mavlink_rx_lane_.active_count > 0) {
+    if (mavlink_tx_lane_.active_count > 0 ||
+        mavlink_rx_lane_.active_count > 0) {
       changed = true;
     }
   }
@@ -755,7 +749,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
 
   renderer.Clear();
   if (IsScrollableProgressMode(mode)) {
-    const DisplayTextBounds prefix_bounds = renderer.MeasureText(">", kStatusStyle);
+    const DisplayTextBounds prefix_bounds =
+        renderer.MeasureText(">", kStatusStyle);
     const DisplayTextBounds body_bounds =
         renderer.MeasureText(animated_status, kStatusStyle);
     const DisplayTextBounds dot_slot_bounds =
@@ -767,12 +762,11 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         static_cast<int16_t>(kTextInsetX - prefix_bounds.x);
     const int16_t viewport_left = static_cast<int16_t>(
         kTextInsetX + static_cast<int16_t>(prefix_bounds.width));
-    const int16_t viewport_width =
-        static_cast<int16_t>(viewport_bounds.width);
+    const int16_t viewport_width = static_cast<int16_t>(viewport_bounds.width);
     const int16_t viewport_right =
         static_cast<int16_t>(viewport_left + viewport_width);
-    const int16_t content_width = static_cast<int16_t>(
-        body_bounds.width + dot_slot_bounds.width);
+    const int16_t content_width =
+        static_cast<int16_t>(body_bounds.width + dot_slot_bounds.width);
     const int16_t body_cursor_x = static_cast<int16_t>(
         viewport_left - body_bounds.x -
         renderer.ScrollOffsetPx(content_width, viewport_width, now));
@@ -786,10 +780,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     if (dot_text[0] != '\0') {
       const DisplayTextBounds active_dot_bounds =
           renderer.MeasureText(dot_text, kStatusStyle);
-      const int16_t dot_cursor_x =
-          static_cast<int16_t>(body_cursor_x + body_bounds.x +
-                               static_cast<int16_t>(body_bounds.width) -
-                               active_dot_bounds.x);
+      const int16_t dot_cursor_x = static_cast<int16_t>(
+          body_cursor_x + body_bounds.x +
+          static_cast<int16_t>(body_bounds.width) - active_dot_bounds.x);
       renderer.DrawText(dot_text, dot_cursor_x, status_y, kStatusStyle);
     }
 
@@ -812,12 +805,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         (static_cast<size_t>(right_gear_x) + gear1_bitmap::kVisibleWidth) <=
             renderer.Width() &&
         (right_gear_y + gear1_bitmap::kVisibleHeight) <= renderer.Height()) {
-      DrawRotatingBitmap(
-          renderer, gear1_bitmap::kBitmapData.data(),
-          gear1_bitmap::kVisibleWidth, gear1_bitmap::kVisibleHeight,
-          gear_animation_ms_,
-          static_cast<size_t>(right_gear_x),
-          right_gear_y, true);
+      DrawRotatingBitmap(renderer, gear1_bitmap::kBitmapData.data(),
+                         gear1_bitmap::kVisibleWidth,
+                         gear1_bitmap::kVisibleHeight, gear_animation_ms_,
+                         static_cast<size_t>(right_gear_x), right_gear_y, true);
     }
 
     const int16_t left_gear_x =
@@ -843,11 +834,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       const int16_t dfu_wifi_icon_x = static_cast<int16_t>(
           renderer.Width() - wifi_bitmap::kVisibleWidth - kDfuWifiRightInsetX);
       const int16_t dfu_wifi_icon_y = static_cast<int16_t>(kDfuWifiTopY);
-      renderer.DrawBitmap(wifi_bitmap::kBitmapData.data(),
-                          wifi_bitmap::kVisibleWidth,
-                          wifi_bitmap::kVisibleHeight,
-                          static_cast<size_t>(dfu_wifi_icon_x),
-                          static_cast<size_t>(dfu_wifi_icon_y));
+      renderer.DrawBitmap(
+          wifi_bitmap::kBitmapData.data(), wifi_bitmap::kVisibleWidth,
+          wifi_bitmap::kVisibleHeight, static_cast<size_t>(dfu_wifi_icon_x),
+          static_cast<size_t>(dfu_wifi_icon_y));
 
       if (IsWifiCredentialsMode(mode)) {
         const DisplayTextBounds exclamation_bounds =
@@ -888,15 +878,13 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
             static_cast<int16_t>((2 * line_height) + kDfuCredentialLineGapPx);
         const int16_t credentials_top = static_cast<int16_t>(
             status_bounds.height +
-            std::max<int16_t>(
-                0, (static_cast<int16_t>(renderer.Height()) -
-                    static_cast<int16_t>(status_bounds.height) -
-                    lines_total_height) /
-                       2));
+            std::max<int16_t>(0, (static_cast<int16_t>(renderer.Height()) -
+                                  static_cast<int16_t>(status_bounds.height) -
+                                  lines_total_height) /
+                                     2));
         const int16_t line1_top = credentials_top;
-        const int16_t line2_top =
-            static_cast<int16_t>(line1_top + line_height +
-                                 kDfuCredentialLineGapPx);
+        const int16_t line2_top = static_cast<int16_t>(line1_top + line_height +
+                                                       kDfuCredentialLineGapPx);
         const int16_t line_left = kTextInsetX;
         const int16_t line_width = static_cast<int16_t>(
             renderer.Width() - static_cast<size_t>(kTextInsetX));
@@ -913,8 +901,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         chip_verify_bitmap::kVisibleWidth <= renderer.Width() &&
         chip_verify_bitmap::kVisibleHeight <= renderer.Height()) {
       const int16_t body_top = static_cast<int16_t>(status_bounds.height);
-      const int16_t body_height =
-          std::max<int16_t>(0, static_cast<int16_t>(renderer.Height()) - body_top);
+      const int16_t body_height = std::max<int16_t>(
+          0, static_cast<int16_t>(renderer.Height()) - body_top);
       const int16_t verify_icon_x = std::max<int16_t>(
           0, (static_cast<int16_t>(renderer.Width()) -
               static_cast<int16_t>(chip_verify_bitmap::kVisibleWidth)) /
@@ -925,12 +913,11 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               0, (body_height -
                   static_cast<int16_t>(chip_verify_bitmap::kVisibleHeight)) /
                      2));
-      renderer.DrawBitmap(
-          chip_verify_bitmap::kBitmapData.data(),
-          chip_verify_bitmap::kVisibleWidth,
-          chip_verify_bitmap::kVisibleHeight,
-          static_cast<size_t>(verify_icon_x),
-          static_cast<size_t>(verify_icon_y));
+      renderer.DrawBitmap(chip_verify_bitmap::kBitmapData.data(),
+                          chip_verify_bitmap::kVisibleWidth,
+                          chip_verify_bitmap::kVisibleHeight,
+                          static_cast<size_t>(verify_icon_x),
+                          static_cast<size_t>(verify_icon_y));
 
       const int16_t verify_focus_center_x = static_cast<int16_t>(
           verify_icon_x +
@@ -938,40 +925,38 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       const int16_t verify_focus_center_y = static_cast<int16_t>(
           verify_icon_y +
           static_cast<int16_t>(chip_verify_bitmap::kVisibleHeight / 2));
-      const int16_t magnifier_left_overlap_px =
-          VerifyMagnifierLeftOverlapPx();
+      const int16_t magnifier_left_overlap_px = VerifyMagnifierLeftOverlapPx();
       const int16_t magnifier_min_x = static_cast<int16_t>(
           verify_icon_x + magnifier_left_overlap_px -
           static_cast<int16_t>(magnifying_glass_bitmap::kVisibleWidth));
-      const int16_t magnifier_x = static_cast<int16_t>(
-          magnifier_min_x + verify_magnifier_offset_px_);
+      const int16_t magnifier_x =
+          static_cast<int16_t>(magnifier_min_x + verify_magnifier_offset_px_);
       const int16_t magnifier_y = static_cast<int16_t>(
           verify_focus_center_y - kVerifyMagnifierLensCenterY - 1);
-      const int16_t lens_center_x = static_cast<int16_t>(
-          magnifier_x + kVerifyMagnifierLensCenterX);
-      const int16_t lens_center_y = static_cast<int16_t>(
-          magnifier_y + kVerifyMagnifierLensCenterY);
+      const int16_t lens_center_x =
+          static_cast<int16_t>(magnifier_x + kVerifyMagnifierLensCenterX);
+      const int16_t lens_center_y =
+          static_cast<int16_t>(magnifier_y + kVerifyMagnifierLensCenterY);
 
       DrawMaskedVerifyDigits(renderer, verify_focus_center_x,
                              verify_focus_center_y, verify_digits_,
                              lens_center_x, lens_center_y, true,
                              kVerifyDigitGlyphWidthPx,
-                             kVerifyDigitGlyphHeightPx,
-                             kVerifyDigitGlyphGapPx, kVerifyDigitZero.data(),
-                             kVerifyDigitOne.data());
+                             kVerifyDigitGlyphHeightPx, kVerifyDigitGlyphGapPx,
+                             kVerifyDigitZero.data(), kVerifyDigitOne.data());
 
       if (magnifier_x >= 0 && magnifier_y >= 0 &&
-          (magnifier_x + static_cast<int16_t>(magnifying_glass_bitmap::kVisibleWidth)) <=
+          (magnifier_x +
+           static_cast<int16_t>(magnifying_glass_bitmap::kVisibleWidth)) <=
               static_cast<int16_t>(renderer.Width()) &&
           (magnifier_y +
            static_cast<int16_t>(magnifying_glass_bitmap::kVisibleHeight)) <=
               static_cast<int16_t>(renderer.Height())) {
-        renderer.DrawBitmap(
-            magnifying_glass_bitmap::kBitmapData.data(),
-            magnifying_glass_bitmap::kVisibleWidth,
-            magnifying_glass_bitmap::kVisibleHeight,
-            static_cast<size_t>(magnifier_x),
-            static_cast<size_t>(magnifier_y));
+        renderer.DrawBitmap(magnifying_glass_bitmap::kBitmapData.data(),
+                            magnifying_glass_bitmap::kVisibleWidth,
+                            magnifying_glass_bitmap::kVisibleHeight,
+                            static_cast<size_t>(magnifier_x),
+                            static_cast<size_t>(magnifier_y));
       }
       finish_render();
       return;
@@ -1015,31 +1000,30 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               gap_left - dfu_link_glyph_pitch_px_ +
               (static_cast<int16_t>(index) * dfu_link_glyph_pitch_px_) +
               dfu_link_offset_px_);
-          const int16_t glyph_right = static_cast<int16_t>(
-              glyph_left + dfu_link_glyph_width_px_);
+          const int16_t glyph_right =
+              static_cast<int16_t>(glyph_left + dfu_link_glyph_width_px_);
           if (glyph_right <= gap_left || glyph_left >= gap_right) {
             continue;
           }
 
           const char glyph[2] = {dfu_link_glyphs_[index], '\0'};
           renderer.DrawText(
-              glyph,
-              static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
+              glyph, static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
               link_cursor_y, kDfuSleepStyle);
         }
       } else if (IsMavlinkMode(mode) && gap_left < gap_right) {
         EnsureLinkGlyphMetrics(renderer);
-        const int16_t travel_px =
-            std::max<int16_t>(0, gap_right - gap_left - dfu_link_glyph_width_px_);
+        const int16_t travel_px = std::max<int16_t>(
+            0, gap_right - gap_left - dfu_link_glyph_width_px_);
         if (travel_px > 0) {
-          const int16_t lane_top_y = std::max<int16_t>(
-              0, std::min<int16_t>(left_icon_y, chip_icon_y));
+          const int16_t lane_top_y =
+              std::max<int16_t>(0, std::min<int16_t>(left_icon_y, chip_icon_y));
           const int16_t lane_bottom_y = std::max<int16_t>(
-              0,
-              std::max<int16_t>(
-                  left_icon_y + static_cast<int16_t>(left_icon.height),
-                  chip_icon_y + static_cast<int16_t>(chip_bitmap::kVisibleHeight)) -
-                  dfu_link_glyph_height_px_);
+              0, std::max<int16_t>(
+                     left_icon_y + static_cast<int16_t>(left_icon.height),
+                     chip_icon_y +
+                         static_cast<int16_t>(chip_bitmap::kVisibleHeight)) -
+                     dfu_link_glyph_height_px_);
           const auto draw_lane = [&](const MavlinkPacketLane &lane,
                                      int16_t start_x, int16_t direction_sign,
                                      int16_t lane_y) {
@@ -1053,8 +1037,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                   start_x + (direction_sign * progress_px));
               const char text[2] = {glyph.glyph, '\0'};
               renderer.DrawText(
-                  text,
-                  static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
+                  text, static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
                   cursor_y, kDfuSleepStyle);
             }
           };
@@ -1068,10 +1051,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
 
       renderer.DrawBitmap(left_icon.data, left_icon.width, left_icon.height,
                           kDfuIconLeftX, static_cast<size_t>(left_icon_y));
-      renderer.DrawBitmap(
-          chip_bitmap::kBitmapData.data(), chip_bitmap::kVisibleWidth,
-          chip_bitmap::kVisibleHeight, right_icon_x,
-          static_cast<size_t>(chip_icon_y));
+      renderer.DrawBitmap(chip_bitmap::kBitmapData.data(),
+                          chip_bitmap::kVisibleWidth,
+                          chip_bitmap::kVisibleHeight, right_icon_x,
+                          static_cast<size_t>(chip_icon_y));
 
       if (mode == Mode::kDfuIdleConnected && dot_count > 0 &&
           (kDfuIconLeftX + left_icon.width) <= right_icon_x) {
@@ -1096,7 +1079,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               icon_region_y +
               std::max<int16_t>(0, (icon_region_height -
                                     static_cast<int16_t>(z_bounds.height)) /
-                                           2));
+                                       2));
           const int16_t sleep_y = static_cast<int16_t>(sleep_top - z_bounds.y);
 
           const int16_t z_positions[] = {

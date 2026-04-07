@@ -2,7 +2,8 @@
 
 #include <cstring>
 
-#include "esp32_config.hpp"
+#include "error_code.hpp"
+#include "esp32_limits.hpp"
 #include "mavlink.hpp"
 #include "panic.hpp"
 #include "ring_buffer.hpp"
@@ -24,7 +25,8 @@ void FcLink::Init(const Config &cfg, UartFcLink *uart) {
   }
   cfg_ = cfg;
   if (cfg_.rc_forward_rate_hz == 0 || cfg_.handshake_attempts == 0 ||
-      cfg_.handshake_retry_period_ms == 0) {
+      cfg_.handshake_retry_period_ms == 0 ||
+      cfg_.invalid_packet_threshold == 0) {
     Panic(ErrorCode::kFcLinkInitFailed);
   }
   uart_ = uart;
@@ -59,16 +61,18 @@ void FcLink::PerformHandshake() {
   Panic(ErrorCode::kFcLinkHandshakeFailed);
 }
 
-bool FcLink::SendPacket(const message::Packet &pkt) {
+void FcLink::SendPacket(const message::Packet &pkt) {
   uint8_t tx[message::kMaxPayload +
              message::kPacketOverhead];  // Max payload + header + crc
   size_t len = message::Serialize((message::MsgId)pkt.header.id, pkt.payload,
                                   pkt.header.len, tx);
-  if (len == 0) {
-    return false;
+  if (!len) {
+    ESP_LOGE(kTag, "Failed to serialize packet id=0x%02X len=%u",
+             (unsigned)pkt.header.id, (unsigned)pkt.header.len);
+    Panic(ErrorCode::kFcLinkTxSerializeFailed);
+    return;
   }
   uart_->Write(tx, len);
-  return true;
 }
 
 void FcLink::ForwardRcState(const RcState &rc_state) {
@@ -77,19 +81,17 @@ void FcLink::ForwardRcState(const RcState &rc_state) {
     return;
   }
 
-  message::RcChannelsMsg msg{};
-  std::memcpy(msg.channels, rc_state.channels, sizeof(msg.channels));
-  msg.rssi = rc_state.rssi;
-
   message::Packet pkt{};
   pkt.header.id = (uint8_t)message::MsgId::kRcChannels;
   pkt.header.len = message::PayloadLength<message::RcChannelsMsg>();
-  std::memcpy(pkt.payload, &msg, sizeof(msg));
-
-  if (!SendPacket(pkt)) {
-    return;
+  for (size_t i = 0; i < std::size(rc_state.channels); ++i) {
+    const uint16_t channel = rc_state.channels[i];
+    const size_t offset = i * sizeof(uint16_t);
+    pkt.payload[offset] = (uint8_t)(channel & 0xFFu);
+    pkt.payload[offset + 1] = (uint8_t)(channel >> 8);
   }
-
+  pkt.payload[sizeof(rc_state.channels)] = rc_state.rssi;
+  SendPacket(pkt);
   next_rc_forward_ms_ =
       TimeAfter(now, static_cast<TimeMs>((1000u + cfg_.rc_forward_rate_hz - 1) /
                                          cfg_.rc_forward_rate_hz));
@@ -103,26 +105,53 @@ std::optional<message::Packet> FcLink::PopPacket() {
   return packet;
 }
 
-bool FcLink::FinishRxPacket() {
+// Returns true if packet is valid and successfully pushed to queue. Caller
+// should alert on false return.
+void FcLink::FinishRxPacket() {
+  const auto should_alert_invalid = [this](ErrorCode code) {
+    ++invalid_packet_count_;
+    if (cfg_.invalid_packet_threshold > 0 &&
+        invalid_packet_count_ >= cfg_.invalid_packet_threshold) {
+      Panic(code);
+    }
+    return true;
+  };
+
   if (!message::IsPacketValid(rx_pkt_internal_.id, rx_pkt_internal_.payload,
                               rx_len_)) {
-    return false;
+    if (should_alert_invalid(ErrorCode::kFcLinkInvalidPacketLength)) {
+      ESP_LOGW(kTag, "Invalid payload for packet id=0x%02X len=%u",
+               (unsigned)rx_pkt_internal_.id, (unsigned)rx_len_);
+      Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+    }
+    return;
   }
 
-  uint8_t check_buf[sizeof(message::Header) + message::kMaxPayload];
-  message::Header *header = (message::Header *)check_buf;
-  header->magic[0] = message::kMagic1;
-  header->magic[1] = message::kMagic2;
-  header->id = rx_pkt_internal_.id;
-  header->len = rx_len_;
-  if (rx_len_ > 0) {
-    memcpy(check_buf + sizeof(message::Header), rx_pkt_internal_.payload,
-           rx_len_);
+  const auto crc16_update = [](uint16_t crc, uint8_t byte) {
+    crc ^= (uint16_t)byte << 8;
+    for (int j = 0; j < 8; ++j) {
+      crc = (crc & 0x8000u) ? (uint16_t)((crc << 1) ^ 0x1021u)
+                            : (uint16_t)(crc << 1);
+    }
+    return crc;
+  };
+
+  uint16_t crc = 0;
+  crc = crc16_update(crc, message::kMagic1);
+  crc = crc16_update(crc, message::kMagic2);
+  crc = crc16_update(crc, rx_pkt_internal_.id);
+  crc = crc16_update(crc, rx_len_);
+  for (uint8_t i = 0; i < rx_len_; ++i) {
+    crc = crc16_update(crc, rx_pkt_internal_.payload[i]);
   }
 
-  if (message::Crc16(check_buf, sizeof(message::Header) + rx_len_) !=
-      rx_pkt_internal_.crc) {
-    return false;
+  if (crc != rx_pkt_internal_.crc) {
+    if (should_alert_invalid(ErrorCode::kFcLinkInvalidPacketCrc)) {
+      ESP_LOGW(kTag, "Invalid CRC: calculated=0x%04X received=0x%04X", crc,
+               rx_pkt_internal_.crc);
+      Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+    }
+    return;
   }
 
   message::Packet packet{};
@@ -132,11 +161,10 @@ bool FcLink::FinishRxPacket() {
     memcpy(packet.payload, rx_pkt_internal_.payload, rx_len_);
   }
   packet.crc = rx_pkt_internal_.crc;
-
-  // TODO: Handle RX queue overflow explicitly instead of silently dropping
-  // parsed FcLink packets here.
-  (void)g_packet_queue.Push(packet);
-  return true;
+  if (!g_packet_queue.Push(packet)) {
+    Panic(ErrorCode::kFcLinkRxQueueFull);
+  }
+  invalid_packet_count_ = 0;
 }
 
 void FcLink::Poll() {
@@ -150,17 +178,38 @@ void FcLink::Poll() {
       (pending_bytes < sizeof(buf)) ? pending_bytes : sizeof(buf);
   int n = uart_->Read(buf, read_size);
 
+  const auto should_alert_invalid = [this](ErrorCode code) {
+    ++invalid_packet_count_;
+    if (cfg_.invalid_packet_threshold > 0 &&
+        invalid_packet_count_ >= cfg_.invalid_packet_threshold) {
+      Panic(code);
+    }
+    return true;
+  };
+
   for (int i = 0; i < n; ++i) {
     uint8_t b = buf[i];
     switch (rx_state_) {
       case RxState::kMagic1:
-        if (b == message::kMagic1) rx_state_ = RxState::kMagic2;
+        if (b == message::kMagic1) {
+          rx_state_ = RxState::kMagic2;
+        } else {
+          if (should_alert_invalid(ErrorCode::kFcLinkInvalidPacketMagic1)) {
+            ESP_LOGW(kTag, "Invalid magic byte[1]: 0x%02X", (unsigned)b);
+            Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+          }
+        }
         break;
       case RxState::kMagic2:
-        if (b == message::kMagic2)
+        if (b == message::kMagic2) {
           rx_state_ = RxState::kId;
-        else
+        } else {
+          if (should_alert_invalid(ErrorCode::kFcLinkInvalidPacketMagic2)) {
+            ESP_LOGW(kTag, "Invalid magic byte[2]: 0x%02X", (unsigned)b);
+            Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+          }
           rx_state_ = RxState::kMagic1;
+        }
         break;
       case RxState::kId:
         rx_pkt_internal_.id = b;
@@ -171,6 +220,11 @@ void FcLink::Poll() {
         rx_idx_ = 0;
         if (!message::IsPayloadLengthValid(
                 static_cast<message::MsgId>(rx_pkt_internal_.id), rx_len_)) {
+          if (should_alert_invalid(ErrorCode::kFcLinkInvalidPacketLength)) {
+            ESP_LOGW(kTag, "Invalid payload length: %u for msg id=0x%02X",
+                     (unsigned)rx_len_, (unsigned)rx_pkt_internal_.id);
+            Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+          }
           rx_state_ = RxState::kMagic1;
           break;
         }
@@ -186,11 +240,7 @@ void FcLink::Poll() {
         break;
       case RxState::kCrc2:
         rx_pkt_internal_.crc |= ((uint16_t)b << 8);
-        if (!FinishRxPacket()) {
-          Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
-          ESP_LOGE(kTag, "Invalid FC packet id=0x%02X len=%u",
-                   (unsigned)rx_pkt_internal_.id, (unsigned)rx_len_);
-        }
+        FinishRxPacket();
         rx_state_ = RxState::kMagic1;
         break;
     }
