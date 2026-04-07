@@ -172,6 +172,7 @@ inline constexpr FcLink::Config kFcLinkConfig = {
     .rc_forward_rate_hz = {{ fclink.rc_forward_rate_hz }},
     .handshake_attempts = {{ fclink.handshake_attempts }},
     .handshake_retry_period_ms = {{ fclink.handshake_retry_period_ms }},
+    .invalid_packet_threshold = {{ fclink.invalid_packet_threshold }},
 };
 
 inline constexpr Programmer::Config kProgrammerConfig = {

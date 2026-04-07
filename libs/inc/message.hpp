@@ -1,10 +1,11 @@
 #pragma once
 
-#include "error_code.hpp"
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+
+#include "error_code.hpp"
 
 namespace message {
 
@@ -31,17 +32,17 @@ enum class MsgId : uint8_t {
   kPanic = 0x14,
 
   // System
-  kReboot = 0xC0,   // 192
-  kBootload = 0xC1, // 193
-  kError = 0xEE     // 238
+  kReboot = 0xC0,    // 192
+  kBootload = 0xC1,  // 193
+  kError = 0xEE      // 238
 };
 
 #pragma pack(push, 1)
 
 struct Header {
-  uint8_t magic[2]; // {0xAA, 0x55}
-  uint8_t id;       // MsgId
-  uint8_t len;      // Payload Length
+  uint8_t magic[2];  // {0xAA, 0x55}
+  uint8_t id;        // MsgId
+  uint8_t len;       // Payload Length
 };
 
 struct RcChannelsMsg {
@@ -63,56 +64,56 @@ struct GpsData {
   uint8_t numSV;
 
   // Position
-  int32_t lon;  // deg*1e7
-  int32_t lat;  // deg*1e7
-  int32_t hMSL; // mm
+  int32_t lon;   // deg*1e7
+  int32_t lat;   // deg*1e7
+  int32_t hMSL;  // mm
 
   // Motion
-  uint16_t vel; // cm/s
-  uint16_t hdg; // cdeg
+  uint16_t vel;  // cm/s
+  uint16_t hdg;  // cdeg
 
   // Accuracy
-  uint32_t hAcc; // mm
-  uint32_t vAcc; // mm
+  uint32_t hAcc;  // mm
+  uint32_t vAcc;  // mm
 
   // Quality Metrics (DOP)
-  uint16_t gDOP; // Geometric DOP [0.01]
-  uint16_t pDOP; // Position DOP [0.01]
-  uint16_t hDOP; // Horizontal DOP [0.01] //TO DO: Use for arming safety
-  uint16_t vDOP; // Vertical DOP [0.01]
+  uint16_t gDOP;  // Geometric DOP [0.01]
+  uint16_t pDOP;  // Position DOP [0.01]
+  uint16_t hDOP;  // Horizontal DOP [0.01] //TO DO: Use for arming safety
+  uint16_t vDOP;  // Vertical DOP [0.01]
 
   // Covariance (for Kalman filtering) - simplified
-  uint8_t posCovValid; // Position covariance valid flag
-  uint8_t velCovValid; // Velocity covariance valid flag
-  float posCovNN;      // Position covariance North-North [m²]
-  float posCovEE;      // Position covariance East-East [m²]
-  float posCovDD;      // Position covariance Down-Down [m²]
+  uint8_t posCovValid;  // Position covariance valid flag
+  uint8_t velCovValid;  // Velocity covariance valid flag
+  float posCovNN;       // Position covariance North-North [m²]
+  float posCovEE;       // Position covariance East-East [m²]
+  float posCovDD;       // Position covariance Down-Down [m²]
 
   // Attitude (New)
-  int16_t roll;  // cdeg
-  int16_t pitch; // cdeg
-  int16_t yaw;   // cdeg
+  int16_t roll;   // cdeg
+  int16_t pitch;  // cdeg
+  int16_t yaw;    // cdeg
 
   // Battery (New)
-  uint16_t batt_voltage; // mV
-  int16_t batt_current;  // cA
-  int8_t batt_remaining; // %
+  uint16_t batt_voltage;  // mV
+  int16_t batt_current;   // cA
+  int8_t batt_remaining;  // %
 } __attribute__((packed));
 
 struct ImuData {
-  uint64_t timestamp_us; // Local monotonic microseconds
-  float accel[3];        // m/s²  (X, Y, Z)
-  float gyro[3];         // rad/s (X, Y, Z)
+  uint64_t timestamp_us;  // Local monotonic microseconds
+  float accel[3];         // m/s²  (X, Y, Z)
+  float gyro[3];          // rad/s (X, Y, Z)
 } __attribute__((packed));
 
 struct PanicMsg {
-  ErrorCode error_code; // Error code
+  ErrorCode error_code;  // Error code
 } __attribute__((packed));
 
 struct Packet {
   Header header;
   uint8_t payload[kMaxPayload];
-  uint16_t crc; // CRC16-CCITT (XMODEM)
+  uint16_t crc;  // CRC16-CCITT (XMODEM)
 };
 
 #pragma pack(pop)
@@ -120,49 +121,50 @@ struct Packet {
 // Overhead: Header(4) + CRC(2)
 static constexpr size_t kPacketOverhead = sizeof(Header) + 2;
 
-template <typename T> static constexpr uint8_t PayloadLength() {
+template <typename T>
+static constexpr uint8_t PayloadLength() {
   static_assert(sizeof(T) <= kMaxPayload, "Payload exceeds wire payload limit");
   return static_cast<uint8_t>(sizeof(T));
 }
 
 static constexpr bool IsKnownMsgId(MsgId id) {
   switch (id) {
-  case MsgId::kPing:
-  case MsgId::kLog:
-  case MsgId::kPong:
-  case MsgId::kRcChannels:
-  case MsgId::kGpsData:
-  case MsgId::kImuData:
-  case MsgId::kPanic:
-  case MsgId::kReboot:
-  case MsgId::kBootload:
-  case MsgId::kError:
-    return true;
-  default:
-    return false;
+    case MsgId::kPing:
+    case MsgId::kLog:
+    case MsgId::kPong:
+    case MsgId::kRcChannels:
+    case MsgId::kGpsData:
+    case MsgId::kImuData:
+    case MsgId::kPanic:
+    case MsgId::kReboot:
+    case MsgId::kBootload:
+    case MsgId::kError:
+      return true;
+    default:
+      return false;
   }
 }
 
 static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
   switch (id) {
-  case MsgId::kPing:
-  case MsgId::kPong:
-  case MsgId::kReboot:
-  case MsgId::kBootload:
-  case MsgId::kError:
-    return len == 0;
-  case MsgId::kRcChannels:
-    return len == PayloadLength<RcChannelsMsg>();
-  case MsgId::kGpsData:
-    return len == PayloadLength<GpsData>();
-  case MsgId::kImuData:
-    return len == PayloadLength<ImuData>();
-  case MsgId::kPanic:
-    return len == PayloadLength<PanicMsg>();
-  case MsgId::kLog:
-    return len <= kMaxLogTextPayload;
-  default:
-    return false;
+    case MsgId::kPing:
+    case MsgId::kPong:
+    case MsgId::kReboot:
+    case MsgId::kBootload:
+    case MsgId::kError:
+      return len == 0;
+    case MsgId::kRcChannels:
+      return len == PayloadLength<RcChannelsMsg>();
+    case MsgId::kGpsData:
+      return len == PayloadLength<GpsData>();
+    case MsgId::kImuData:
+      return len == PayloadLength<ImuData>();
+    case MsgId::kPanic:
+      return len == PayloadLength<PanicMsg>();
+    case MsgId::kLog:
+      return len <= kMaxLogTextPayload;
+    default:
+      return false;
   }
 }
 
@@ -241,4 +243,4 @@ static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
   return sizeof(Header) + len + 2;
 }
 
-} // namespace message
+}  // namespace message

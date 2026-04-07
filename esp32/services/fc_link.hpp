@@ -15,14 +15,13 @@ class FcLink {
     uint8_t rc_forward_rate_hz = 0;
     uint16_t handshake_attempts = 0;
     uint16_t handshake_retry_period_ms = 0;
+    uint8_t invalid_packet_threshold = 0;
   };
 
   static FcLink &GetInstance() {
     static FcLink instance;
     return instance;
   }
-
-  void Init(const Config &cfg, UartFcLink *uart);
   void Poll();
   void ForwardRcState(const RcState &rc_state);
   void PerformHandshake();  // Blocking handshake (Ping/Pong)
@@ -30,7 +29,9 @@ class FcLink {
   std::optional<message::Packet> PopPacket();
 
  private:
-  bool FinishRxPacket();
+  friend class System;
+  void Init(const Config &cfg, UartFcLink *uart);
+  void FinishRxPacket();
   FcLink() = default;
   ~FcLink() = default;
   FcLink(const FcLink &) = delete;
@@ -46,11 +47,12 @@ class FcLink {
   RxState rx_state_ = RxState::kMagic1;
   uint8_t rx_idx_ = 0;
   uint8_t rx_len_ = 0;
+  uint8_t invalid_packet_count_ = 0;
   struct {
     uint8_t id;
     uint8_t len;
     uint8_t payload[message::kMaxPayload];
     uint16_t crc;
   } rx_pkt_internal_;
-  bool SendPacket(const message::Packet &pkt);
+  void SendPacket(const message::Packet &pkt);
 };
