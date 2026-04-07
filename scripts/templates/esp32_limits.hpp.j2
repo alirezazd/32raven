@@ -22,6 +22,9 @@ inline constexpr std::size_t kTcpServerMaxLineBytes = {{ tcp_server.max_line_byt
 inline constexpr std::size_t kTcpServerLineBufferBytes =
     kTcpServerMaxLineBytes + 1;
 
+inline constexpr std::size_t kUdpServerUploadBufferBytes = {{ udp_server.upload_buffer_bytes }};
+inline constexpr std::size_t kUdpServerDownloadBufferBytes = {{ udp_server.download_buffer_bytes }};
+
 inline constexpr std::size_t kTonePlayerPendingRequestQueueDepth =
     {{ tone_player.pending_request_queue_depth }};
 

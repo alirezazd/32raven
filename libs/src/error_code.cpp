@@ -173,6 +173,12 @@ const char *GetMessage(ErrorCode code) {
       return "GPS Verify ITFM Failed";
     case ErrorCode::kGpsVerifyTimepulseFailed:
       return "GPS Verify Timepulse Failed";
+    case ErrorCode::kUdpServerInvalidOverflowThreshold:
+      return "UDP Server Invalid Overflow Threshold";
+    case ErrorCode::kUdpServerUploadOverflow:
+      return "UDP Server Upload Overflow";
+    case ErrorCode::kUdpServerDownloadOverflow:
+      return "UDP Server Download Overflow";
     case ErrorCode::kImuWhoAmIFail:
       return "IMU WhoAmI Failed";
     case ErrorCode::kImuFifoUnsupported:

@@ -330,6 +330,69 @@ config ESP32_BUTTON_LONG_LONG_PRESS_MS
 
 endmenu
 
+menu "Programmer"
+
+config ESP32_PROGRAMMER_RESET_PULSE_MS
+        int "Reset pulse (ms)"
+        range 1 1000
+        default 50
+        help
+            Duration of the STM32 reset pulse driven by the ESP32 programmer logic.
+
+config ESP32_PROGRAMMER_BOOT_SETTLE_MS
+        int "Boot settle (ms)"
+        range 1 1000
+        default 50
+        help
+            Delay after reset before attempting STM32 ROM bootloader sync.
+
+config ESP32_PROGRAMMER_SYNC_TIMEOUT_MS
+        int "Sync timeout (ms)"
+        range 1 5000
+        default 100
+        help
+            Timeout for each bootloader sync or response wait during programming.
+
+config ESP32_PROGRAMMER_SYNC_RETRIES
+        int "Sync retries"
+        range 1 100
+        default 10
+        help
+            Maximum number of STM32 bootloader sync attempts before the programmer
+            fails initialization.
+
+menu "Verification"
+
+config ESP32_PROGRAMMER_VERIFY_ESP32
+        bool "Verify ESP32"
+        default y
+        help
+            Read back the written ESP32 OTA partition and compare its hash before
+            marking the new image as bootable.
+
+config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
+        int "ESP32 verify chunk size (bytes)"
+        range 1 8192
+        default 1024
+        depends on ESP32_PROGRAMMER_VERIFY_ESP32
+        help
+            Number of ESP32 OTA partition bytes hashed per verification step.
+            Larger values complete verification faster while using more temporary
+            RAM during the verify stage.
+
+config ESP32_PROGRAMMER_VERIFY_STM32
+        bool "Verify STM32"
+        default y
+        help
+            Read back the programmed STM32 image through the ROM bootloader and
+            compare its hash before reporting success.
+
+endmenu
+
+endmenu
+
+menu "Network"
+
 menu "TCP Server"
 
 config ESP32_TCP_SERVER_CTRL_PORT
@@ -406,64 +469,35 @@ config ESP32_UDP_SERVER_NONBLOCKING
       in the normal cooperative service loop without blocking the app state
       machine.
 
-endmenu
+menu "Traffic Limiting"
 
-menu "Programmer"
+config ESP32_UDP_SERVER_UPLOAD_CAP_KBITS
+        int "Upload cap (kbit/s)"
+        range 0 100000
+        default 0
+        help
+            Upload shaping cap for inbound UDP traffic (ground station -> ESP32).
+            Set to 0 to disable shaping. Any value above 0 is interpreted as
+            kbit/s and applies a token-bucket style limiter in the UDP server.
 
-config ESP32_PROGRAMMER_RESET_PULSE_MS
-    int "Reset pulse (ms)"
-    range 1 1000
-    default 50
-    help
-      Duration of the STM32 reset pulse driven by the ESP32 programmer logic.
+config ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS
+        int "Download cap (kbit/s)"
+        range 0 100000
+        default 0
+        help
+            Download shaping cap for outbound UDP traffic (ESP32 -> ground station).
+            Set to 0 to disable shaping. Any value above 0 is interpreted as
+            kbit/s and applies a token-bucket style limiter in the UDP server.
 
-config ESP32_PROGRAMMER_BOOT_SETTLE_MS
-    int "Boot settle (ms)"
-    range 1 1000
-    default 50
-    help
-      Delay after reset before attempting STM32 ROM bootloader sync.
-
-config ESP32_PROGRAMMER_SYNC_TIMEOUT_MS
-    int "Sync timeout (ms)"
-    range 1 5000
-    default 100
-    help
-      Timeout for each bootloader sync or response wait during programming.
-
-config ESP32_PROGRAMMER_SYNC_RETRIES
-    int "Sync retries"
-    range 1 100
-    default 10
-    help
-      Maximum number of STM32 bootloader sync attempts before the programmer
-      fails initialization.
-
-menu "Verification"
-
-config ESP32_PROGRAMMER_VERIFY_ESP32
-    bool "Verify ESP32"
-    default y
-    help
-      Read back the written ESP32 OTA partition and compare its hash before
-      marking the new image as bootable.
-
-config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
-    int "ESP32 verify chunk size (bytes)"
-    range 1 8192
-    default 1024
-    depends on ESP32_PROGRAMMER_VERIFY_ESP32
-    help
-      Number of ESP32 OTA partition bytes hashed per verification step.
-      Larger values complete verification faster while using more temporary
-      RAM during the verify stage.
-
-config ESP32_PROGRAMMER_VERIFY_STM32
-    bool "Verify STM32"
-    default y
-    help
-      Read back the programmed STM32 image through the ROM bootloader and
-      compare its hash before reporting success.
+config ESP32_UDP_SERVER_OVERFLOW_THRESHOLD
+        int "Overflow threshold (packets)"
+        range 1 1000
+        default 16
+        help
+            Number of packet overflows tolerated before a fatal
+            panic. Each overflow plays an error beep. When this threshold is
+            reached, the system panics to signal persistent traffic-shaping
+            overload.
 
 endmenu
 
@@ -551,6 +585,8 @@ config ESP32_WIFI_POWER_SAVE_MAX_MODEM
     bool "Maximum modem"
 
 endchoice
+
+endmenu
 
 endmenu
 
