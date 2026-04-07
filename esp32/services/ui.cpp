@@ -422,12 +422,32 @@ void Ui::StartMainScreenTransition(MainScreen next_screen, TimeMs now,
   RenderMainScreenSnapshot(next_screen, now, transition_to_canvas_);
 
   transition_.active = true;
+  transition_.effect = TransitionEffect::kSlide;
   transition_.target_screen = next_screen;
   transition_.direction = direction;
   transition_.start_ms = now;
   transition_.duration_ms = std::max<TimeMs>(1, duration_ms);
   transition_.accel_ratio = accel_ratio;
   transition_.decel_ratio = decel_ratio;
+  main_screen_ = next_screen;
+}
+
+void Ui::StartMosaicTransitionToScreen(MainScreen next_screen, TimeMs now,
+                                       TimeMs duration_ms,
+                                       uint8_t max_block_size) {
+  transition_from_canvas_ = canvas_;
+  transition_from_canvas_.ClearDirtyRanges();
+  RenderMainScreenSnapshot(next_screen, now, transition_to_canvas_);
+
+  transition_.active = true;
+  transition_.effect = TransitionEffect::kMosaic;
+  transition_.target_screen = next_screen;
+  transition_.direction = SlideDirection::kLeft;
+  transition_.start_ms = now;
+  transition_.duration_ms = std::max<TimeMs>(1, duration_ms);
+  transition_.accel_ratio = 0.0f;
+  transition_.decel_ratio = 0.0f;
+  transition_.mosaic_block_size = std::max<uint8_t>(max_block_size, 1u);
   main_screen_ = next_screen;
 }
 
@@ -439,43 +459,56 @@ bool Ui::RenderActiveTransition(TimeMs now) {
   const float linear_t = Clamp01(
       static_cast<float>(now - transition_.start_ms) /
       static_cast<float>(transition_.duration_ms));
-  const float eased_t = SwipeProgress(linear_t, transition_.accel_ratio,
-                                      transition_.decel_ratio);
-  const int16_t width = static_cast<int16_t>(kWidth);
-  const int16_t shift_px =
-      static_cast<int16_t>(std::lround(eased_t * static_cast<float>(width)));
+  switch (transition_.effect) {
+    case TransitionEffect::kMosaic:
+      renderer_.DrawMosaicTransition(transition_from_canvas_.Data(),
+                                     transition_to_canvas_.Data(), kWidth,
+                                     kHeight, linear_t,
+                                     transition_.mosaic_block_size);
+      break;
 
-  int16_t from_offset_x = 0;
-  int16_t to_offset_x = 0;
-  if (transition_.direction == SlideDirection::kLeft) {
-    from_offset_x = static_cast<int16_t>(-shift_px);
-    to_offset_x = static_cast<int16_t>(width - shift_px);
-  } else {
-    from_offset_x = shift_px;
-    to_offset_x = static_cast<int16_t>(shift_px - width);
-  }
+    case TransitionEffect::kSlide:
+    default: {
+      const float eased_t = SwipeProgress(linear_t, transition_.accel_ratio,
+                                          transition_.decel_ratio);
+      const int16_t width = static_cast<int16_t>(kWidth);
+      const int16_t shift_px =
+          static_cast<int16_t>(std::lround(eased_t * static_cast<float>(width)));
 
-  canvas_.Clear();
-  const auto draw_shifted = [&](const DisplayCanvas &src, int16_t offset_x) {
-    for (size_t y = 0; y < kHeight; ++y) {
-      for (size_t x = 0; x < kWidth; ++x) {
-        if (!ReadPackedPixel(src.Data(), kWidth, kHeight, x, y)) {
-          continue;
-        }
-
-        const int16_t dst_x =
-            static_cast<int16_t>(static_cast<int16_t>(x) + offset_x);
-        if (dst_x < 0 || dst_x >= width) {
-          continue;
-        }
-
-        canvas_.SetPixel(static_cast<size_t>(dst_x), y, true);
+      int16_t from_offset_x = 0;
+      int16_t to_offset_x = 0;
+      if (transition_.direction == SlideDirection::kLeft) {
+        from_offset_x = static_cast<int16_t>(-shift_px);
+        to_offset_x = static_cast<int16_t>(width - shift_px);
+      } else {
+        from_offset_x = shift_px;
+        to_offset_x = static_cast<int16_t>(shift_px - width);
       }
-    }
-  };
 
-  draw_shifted(transition_from_canvas_, from_offset_x);
-  draw_shifted(transition_to_canvas_, to_offset_x);
+      canvas_.Clear();
+      const auto draw_shifted = [&](const DisplayCanvas &src, int16_t offset_x) {
+        for (size_t y = 0; y < kHeight; ++y) {
+          for (size_t x = 0; x < kWidth; ++x) {
+            if (!ReadPackedPixel(src.Data(), kWidth, kHeight, x, y)) {
+              continue;
+            }
+
+            const int16_t dst_x =
+                static_cast<int16_t>(static_cast<int16_t>(x) + offset_x);
+            if (dst_x < 0 || dst_x >= width) {
+              continue;
+            }
+
+            canvas_.SetPixel(static_cast<size_t>(dst_x), y, true);
+          }
+        }
+      };
+
+      draw_shifted(transition_from_canvas_, from_offset_x);
+      draw_shifted(transition_to_canvas_, to_offset_x);
+      break;
+    }
+  }
 
   if (linear_t >= 1.0f) {
     transition_.active = false;
@@ -621,6 +654,17 @@ void Ui::DisplayOff() {
 }
 
 bool Ui::IsScreenOn() const { return display_on_; }
+
+bool Ui::IsTransitionActive() const { return transition_.active; }
+
+void Ui::StartMosaicTransition(TimeMs now, TimeMs duration_ms,
+                               uint8_t max_block_size) {
+  MainScreen next_screen = DeriveMainScreen(CurrentAppState());
+  if (next_screen == MainScreen::kBooting) {
+    next_screen = MainScreen::kServing;
+  }
+  StartMosaicTransitionToScreen(next_screen, now, duration_ms, max_block_size);
+}
 
 TimeMs Ui::GetFrameIntervalMs() const {
   return static_cast<TimeMs>(

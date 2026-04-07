@@ -22,11 +22,11 @@ class BootWidget : public StateMachineWidget {
     BootWidget &widget_;
   };
 
-  class FadingState : public IState<WidgetContext> {
+  class TransitioningState : public IState<WidgetContext> {
    public:
-    explicit FadingState(BootWidget &widget) : widget_(widget) {}
+    explicit TransitioningState(BootWidget &widget) : widget_(widget) {}
 
-    const char *Name() const override { return "fading"; }
+    const char *Name() const override { return "transitioning"; }
     void OnEnter(WidgetContext &ctx) override;
     void OnStep(WidgetContext &ctx, SmTick now) override;
 
@@ -48,13 +48,10 @@ class BootWidget : public StateMachineWidget {
 
   IState<WidgetContext> &InitialState() override;
 
-  static constexpr TimeMs kFadeDurationMs = 1000;
-  static constexpr uint8_t kFadeOutInterval = 0;
   IWidget *next_widget_ = nullptr;
   TimeMs timeout_ms_ = 0;
   TimeMs deadline_ms_ = 0;
-  TimeMs fade_start_ms_ = 0;
   ShowingState showing_state_{*this};
-  FadingState fading_state_{*this};
+  TransitioningState transitioning_state_{*this};
   DoneState done_state_{*this};
 };
