@@ -469,7 +469,7 @@ config ESP32_UDP_SERVER_NONBLOCKING
       in the normal cooperative service loop without blocking the app state
       machine.
 
-menu "Traffic Limiting"
+menu "Bandwidth Limits"
 
 config ESP32_UDP_SERVER_UPLOAD_CAP_KBITS
         int "Upload cap (kbit/s)"
