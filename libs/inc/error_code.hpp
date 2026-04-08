@@ -42,6 +42,7 @@ enum class ErrorCode : uint32_t {
   kUartNotInitialized,
   kUartInvalidArg,
   kUartOperationFailed,
+  kUartFlushFailed,
   kProgrammerUartNull,
   kProgrammerHandshakeFailed,
   kProgrammerBufferOverflow,
