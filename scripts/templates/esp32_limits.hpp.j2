@@ -12,6 +12,10 @@ inline constexpr std::size_t kDisplayPanelColumnOffset = {{ display_panel.column
 inline constexpr std::size_t kFcLinkRxPacketQueueDepth = {{ fclink.rx_queue_depth }};
 
 inline constexpr std::size_t kMavlinkMaxRxReadChunkSize = {{ mavlink.max_rx_read_chunk_size }};
+inline constexpr std::size_t kMavlinkTaskStackDepthWords = {{ mavlink.task_stack_depth_words }};
+inline constexpr std::size_t kMavlinkStackPanicThresholdBytes = {{ mavlink.stack_panic_threshold_bytes }};
+
+inline constexpr std::size_t kPanicTaskStackDepthWords = {{ panic.task_stack_depth_words }};
 
 inline constexpr std::size_t kProgrammerStagingBufferBytes = {{ programmer.staging_buffer_bytes }};
 inline constexpr std::size_t kProgrammerStm32BlockBytes = {{ programmer.stm32_block_bytes }};

@@ -1,14 +1,15 @@
 #include "system.hpp"
 
 #include "esp32_config.hpp"
-#include "panic.hpp"
 
 extern "C" {
 #include "esp_log.h"
+#include "freertos/task.h"
 }
 static constexpr const char *kTag = "system";
 
 void System::Init() {
+  SetMainTaskHandle(xTaskGetCurrentTaskHandle());
   InitComponent(Component::kLed);
   InitComponent(Component::kBuzzer);
   InitComponent(Component::kTonePlayer);
@@ -112,4 +113,15 @@ void System::StartNetwork() {
   Wifi().StartAp();
   Tcp().Start();
   Udp().Start();
+}
+
+void System::SetMainTaskHandle(TaskHandle_t task_handle) {
+  main_task_handle_ = task_handle;
+}
+
+void System::HaltSystem() {
+  if (main_task_handle_ != nullptr &&
+      main_task_handle_ != xTaskGetCurrentTaskHandle()) {
+    vTaskSuspend(main_task_handle_);
+  }
 }
