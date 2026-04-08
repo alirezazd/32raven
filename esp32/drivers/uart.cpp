@@ -57,17 +57,20 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
   if (uart_param_config(port, &ucfg) != ESP_OK) {
     Panic(ErrorCode::kUartParamConfigFailed);
   }
-  if (uart_set_pin(port, cfg_.pins.tx_gpio, cfg_.pins.rx_gpio, UART_PIN_NO_CHANGE,
-                   UART_PIN_NO_CHANGE) != ESP_OK) {
+  if (uart_set_pin(port, cfg_.pins.tx_gpio, cfg_.pins.rx_gpio,
+                   UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
     Panic(ErrorCode::kUartSetPinFailed);
   }
-  if (uart_driver_install(port, cfg_.buffers.rx_bytes, cfg_.buffers.tx_bytes,
-                          0, nullptr, 0) !=
-      ESP_OK) {
+  if (uart_driver_install(port, cfg_.buffers.rx_bytes, cfg_.buffers.tx_bytes, 0,
+                          nullptr, 0) != ESP_OK) {
     Panic(ErrorCode::kUartDriverInstallFailed);
   }
 
-  (void)uart_flush_input(port);
+  if (uart_flush_input(port) != ESP_OK) {
+    Panic(ErrorCode::kUartFlushFailed);  // This is rare but can happen if the
+                                         // driver is in a bad state, so we
+                                         // treat it as fatal
+  }
 }
 
 template <UartInstance Inst>
@@ -120,7 +123,7 @@ size_t Uart<Inst>::BufferedRxBytes() const {
 template <UartInstance Inst>
 void Uart<Inst>::Flush() {
   if (uart_flush_input(ToPort<Inst>()) != ESP_OK) {
-    Panic(ErrorCode::kUartOperationFailed);
+    Panic(ErrorCode::kUartFlushFailed);
   }
 }
 

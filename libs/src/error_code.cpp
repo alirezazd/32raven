@@ -85,6 +85,8 @@ const char *GetMessage(ErrorCode code) {
       return "UART Invalid Argument";
     case ErrorCode::kUartOperationFailed:
       return "UART Operation Failed";
+    case ErrorCode::kUartFlushFailed:
+      return "UART Flush Failed";
     case ErrorCode::kProgrammerUartNull:
       return "Programmer UART Null";
     case ErrorCode::kProgrammerHandshakeFailed:
