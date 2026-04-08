@@ -59,6 +59,9 @@ MAVLINK_HEARTBEAT_DEADLINE_MIN_MS = 1
 MAVLINK_HEARTBEAT_DEADLINE_MAX_MS = 60000
 MAVLINK_START_DELAY_MIN_MS = 0
 MAVLINK_START_DELAY_MAX_MS = 10000
+MAVLINK_TASK_STACK_DEPTH_WORDS = 4096
+MAVLINK_STACK_PANIC_THRESHOLD_BYTES = 400
+PANIC_TASK_STACK_DEPTH_WORDS = 4096
 WIFI_AP_SSID_MIN_LEN = 1
 WIFI_AP_SSID_MAX_LEN = 32
 WIFI_AP_PASSWORD_MAX_LEN = 63
@@ -887,6 +890,11 @@ def _limits_context(
         },
         "mavlink": {
             "max_rx_read_chunk_size": MAVLINK_RX_READ_CHUNK_MAX,
+            "task_stack_depth_words": MAVLINK_TASK_STACK_DEPTH_WORDS,
+            "stack_panic_threshold_bytes": MAVLINK_STACK_PANIC_THRESHOLD_BYTES,
+        },
+        "panic": {
+            "task_stack_depth_words": PANIC_TASK_STACK_DEPTH_WORDS,
         },
         "programmer": {
             "staging_buffer_bytes": PROGRAMMER_STAGING_BUFFER_BYTES,

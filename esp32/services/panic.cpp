@@ -2,6 +2,7 @@
 
 #include "driver/gpio.h"
 #include "esp32_config.hpp"
+#include "esp32_limits.hpp"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
@@ -12,10 +13,37 @@ static constexpr const char *kTag = "panic";
 
 namespace {
 
+static constexpr uint32_t kPanicTaskStackWords =
+    static_cast<uint32_t>(esp32_limits::kPanicTaskStackDepthWords);
+static constexpr UBaseType_t kPanicTaskPrio = 24;
+static StaticTask_t s_panic_task_buffer;
+static StackType_t s_panic_task_stack[kPanicTaskStackWords];
+static TaskHandle_t s_panic_task_handle = nullptr;
+
+[[noreturn]] void RunPanicLoop(ErrorCode code);
+
 enum class RecoveryState : uint8_t {
   kDfu,
   kProgram,
 };
+
+void PanicTask(void *) {
+  while (true) {
+    uint32_t notified_code = static_cast<uint32_t>(ErrorCode::kUnknown);
+    (void)xTaskNotifyWait(0, UINT32_MAX, &notified_code, portMAX_DELAY);
+    RunPanicLoop(static_cast<ErrorCode>(notified_code));
+  }
+}
+
+void EnsurePanicTaskStarted() {
+  if (s_panic_task_handle != nullptr) {
+    return;
+  }
+
+  s_panic_task_handle = xTaskCreateStaticPinnedToCore(
+      PanicTask, "panic", kPanicTaskStackWords, nullptr, kPanicTaskPrio,
+      s_panic_task_stack, &s_panic_task_buffer, 0);
+}
 
 bool SupportsDfuRecovery(ErrorCode code) {
   switch (code) {
@@ -207,7 +235,8 @@ ErrorCode RunRecoverableLoop() {
       size_t free = prog.Free();
       if (free > 0) {
         uint8_t buf[512];
-        size_t n = tcp.ReadDownload(buf, (free < sizeof(buf)) ? free : sizeof(buf));
+        size_t n =
+            tcp.ReadDownload(buf, (free < sizeof(buf)) ? free : sizeof(buf));
         if (n > 0) {
           prog.PushBytes(buf, n, now);
           last_activity = now;
@@ -231,9 +260,8 @@ ErrorCode RunRecoverableLoop() {
   }
 }
 
-}  // namespace
-
-void Panic(ErrorCode code) {
+[[noreturn]] void RunPanicLoop(ErrorCode code) {
+  Sys().HaltSystem();
   bool recoverable = SupportsDfuRecovery(code);
   const char *msg = GetMessage(code);
   Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
@@ -263,4 +291,23 @@ void Panic(ErrorCode code) {
     ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
     vTaskDelay(pdMS_TO_TICKS(40));
   }
+}
+
+}  // namespace
+
+[[noreturn]] void Panic(ErrorCode code) {
+  EnsurePanicTaskStarted();
+  Sys().HaltSystem();
+
+  if (s_panic_task_handle != nullptr &&
+      s_panic_task_handle != xTaskGetCurrentTaskHandle()) {
+    (void)xTaskNotify(s_panic_task_handle, static_cast<uint32_t>(code),
+                      eSetValueWithOverwrite);
+    vTaskSuspend(nullptr);
+    while (true) {
+      vTaskDelay(portMAX_DELAY);
+    }
+  }
+
+  RunPanicLoop(code);
 }

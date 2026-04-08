@@ -1,4 +1,9 @@
 #pragma once
+extern "C" {
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+}
+
 #include "button.hpp"
 #include "buzzer.hpp"
 #include "command_handler.hpp"
@@ -12,9 +17,9 @@
 #include "tcp_server.hpp"
 #include "timebase.hpp"
 #include "tone_player.hpp"
+#include "uart.hpp"
 #include "udp_server.hpp"
 #include "ui.hpp"
-#include "uart.hpp"
 #include "wifi.hpp"
 
 class System {
@@ -65,6 +70,8 @@ class System {
   void Init();
   void StopNetwork();
   void StartNetwork();
+  void SetMainTaskHandle(TaskHandle_t task_handle);
+  void HaltSystem();
 
  private:
   void InitComponent(Component c);
@@ -72,6 +79,8 @@ class System {
   ~System() = default;
   System(const System &) = delete;
   System &operator=(const System &) = delete;
+
+  TaskHandle_t main_task_handle_ = nullptr;
 };
 
 inline System &Sys() { return System::GetInstance(); }
