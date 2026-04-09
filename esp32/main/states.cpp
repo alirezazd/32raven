@@ -78,6 +78,8 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   ctx.sys->Mavlink().Poll();
+  ctx.sys->Mavlink().OfferRcChannels(ctx.sys->Mavlink().GetRcState(),
+                                     ctx.sys->Timebase().NowMs());
   DrainMavlinkCommandEvents(ctx);
   ctx.sys->FcLink().ForwardRcState(
       ctx.sys->Mavlink()
@@ -119,6 +121,9 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
+  ctx.sys->Mavlink().Poll();
+  ctx.sys->Mavlink().OfferRcChannels(ctx.sys->Mavlink().GetRcState(),
+                                     ctx.sys->Timebase().NowMs());
   DrainMavlinkCommandEvents(ctx);
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
