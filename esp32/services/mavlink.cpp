@@ -35,9 +35,8 @@ bool TryBuildGpsUnixUsec(const message::GpsData &gps, uint64_t &unix_usec) {
     return false;
   }
 
-  const int64_t seconds =
-      days * 86400 + (int64_t)gps.hour * 3600 + (int64_t)gps.min * 60 +
-      (int64_t)gps.sec;
+  const int64_t seconds = days * 86400 + (int64_t)gps.hour * 3600 +
+                          (int64_t)gps.min * 60 + (int64_t)gps.sec;
   if (seconds < 0) {
     return false;
   }
@@ -77,6 +76,7 @@ constexpr uint64_t kMavProtocolCapabilityMavlink2 = 1ull << 13;
 constexpr uint64_t kMavProtocolCapabilityParamEncodeCCast = 1ull << 17;
 constexpr uint16_t kSysStatusMs = 1000;
 constexpr uint16_t kSysStatusStartDelayMs = 250;
+constexpr uint32_t kRcChannelsPeriodMs = 1000;
 constexpr size_t kCommandQueueDepth = 8;
 
 }  // namespace
@@ -115,16 +115,17 @@ bool Mavlink::ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
 }
 
 void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
+  // Step 1: Start here. Init validates config/wiring, resets both link state
+  // machines, and launches the worker task that drives MAVLink TX.
   static StaticQueue_t command_queue_buffer;
-  static uint8_t command_queue_storage[kCommandQueueDepth *
-                                       sizeof(CommandLongEvent)];
+  static uint8_t
+      command_queue_storage[kCommandQueueDepth * sizeof(CommandLongEvent)];
   if (uart == nullptr || udp == nullptr) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
   if (cfg.identity.sysid == 0 || cfg.rc.rx.read_chunk_size == 0 ||
       cfg.tx.periods.hb_ms == 0 || cfg.tx.schedule.hb_deadline_ms == 0 ||
-      cfg.rc.tx.periods.hb_ms == 0 ||
-      cfg.rc.tx.schedule.hb_deadline_ms == 0 ||
+      cfg.rc.tx.periods.hb_ms == 0 || cfg.rc.tx.schedule.hb_deadline_ms == 0 ||
       cfg.rc.rx.read_chunk_size > Mavlink::kMaxRxReadChunkSize) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
@@ -149,6 +150,9 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   // Heartbeat timing: allow immediate first HB
   have_latest_ = false;
   latest_update_ms_ = 0;
+  have_latest_rc_channels_ = false;
+  latest_rc_channels_update_ms_ = 0;
+  next_rc_channels_send_ms_ = 0;
   primary_link_enabled_.store(false, std::memory_order_relaxed);
   ArmFirstSchedule(rc_tx_, cfg_.rc.tx, 0);
   ArmFirstSchedule(udp_tx_, cfg_.tx, 0);
@@ -160,6 +164,8 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
 }
 
 void Mavlink::Poll() {
+  // Step 2: This is the RC-side RX entry point.
+  // It pulls raw UART bytes and feeds them one at a time into the parser.
   size_t read_chunk_size = cfg_.rc.rx.read_chunk_size;
   if (read_chunk_size > rx_buf_.size()) {
     read_chunk_size = rx_buf_.size();
@@ -187,6 +193,8 @@ void Mavlink::HandleRxByte(uint8_t b) {
 }
 
 void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
+  // Step 3: Review inbound behavior here.
+  // Each decoded MAVLink message updates RC state or queues a response to send.
   TxState &tx = (source == RxSource::kUdp) ? udp_tx_ : rc_tx_;
 
   switch (msg.msgid) {
@@ -323,8 +331,7 @@ void Mavlink::MaybeLogUdpMessage(const mavlink_message_t &msg) {
                (unsigned long)cmd.command, (unsigned long)cmd.param1,
                (unsigned)cmd.target_system, (unsigned)cmd.target_component);
     } else {
-      ESP_LOGI(kTag,
-               "UDP RX COMMAND_LONG cmd=%lu target_sys=%u target_comp=%u",
+      ESP_LOGI(kTag, "UDP RX COMMAND_LONG cmd=%lu target_sys=%u target_comp=%u",
                (unsigned long)cmd.command, (unsigned)cmd.target_system,
                (unsigned)cmd.target_component);
     }
@@ -335,8 +342,7 @@ void Mavlink::MaybeLogUdpMessage(const mavlink_message_t &msg) {
 }
 
 void Mavlink::QueueCommandAck(TxState &tx, uint16_t command, uint8_t result,
-                              uint8_t target_system,
-                              uint8_t target_component) {
+                              uint8_t target_system, uint8_t target_component) {
   tx.pending_command_ack = true;
   tx.pending_command = command;
   tx.pending_command_result = result;
@@ -364,8 +370,7 @@ uint32_t Mavlink::UdpTxPacketCount() const {
 }
 
 void Mavlink::QueueCommandAck(Link link, uint16_t command, uint8_t result,
-                              uint8_t target_system,
-                              uint8_t target_component) {
+                              uint8_t target_system, uint8_t target_component) {
   QueueCommandAck(TxForLink(link), command, result, target_system,
                   target_component);
 }
@@ -375,15 +380,17 @@ void Mavlink::QueueAutopilotVersion(Link link) {
 }
 
 void Mavlink::StartCommandAckFrame(TxState &tx) {
+  // Step 4: These small builders turn queued replies into one serialized frame.
+  // Read this block before the periodic telemetry builders below.
   if (!tx.pending_command_ack) {
     return;
   }
 
   mavlink_message_t m{};
-  mavlink_msg_command_ack_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, tx.pending_command,
-      tx.pending_command_result, UINT8_MAX, 0, tx.pending_command_target_system,
-      tx.pending_command_target_component);
+  mavlink_msg_command_ack_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+                               tx.pending_command, tx.pending_command_result,
+                               UINT8_MAX, 0, tx.pending_command_target_system,
+                               tx.pending_command_target_component);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -405,17 +412,17 @@ void Mavlink::StartAutopilotVersionFrame(TxState &tx) {
   mavlink_message_t m{};
   // TODO: Populate real firmware/build version fields once version metadata is
   // available in the firmware.
-  mavlink_msg_autopilot_version_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, capabilities,
-      0,  // flight_sw_version
-      0,  // middleware_sw_version
-      0,  // os_sw_version
-      0,  // board_version
-      kZeroHash, kZeroHash, kZeroHash,
-      0,  // vendor_id
-      0,  // product_id
-      0,  // uid
-      kZeroUid2);
+  mavlink_msg_autopilot_version_pack(cfg_.identity.sysid, cfg_.identity.compid,
+                                     &m, capabilities,
+                                     0,  // flight_sw_version
+                                     0,  // middleware_sw_version
+                                     0,  // os_sw_version
+                                     0,  // board_version
+                                     kZeroHash, kZeroHash, kZeroHash,
+                                     0,  // vendor_id
+                                     0,  // product_id
+                                     0,  // uid
+                                     kZeroUid2);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -430,8 +437,8 @@ void Mavlink::StartMissionCountFrame(TxState &tx) {
 
   mavlink_message_t m{};
   mavlink_msg_mission_count_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                                 cfg_.identity.sysid, cfg_.identity.compid,
-                                 0, tx.pending_mission_type, 0);
+                                 cfg_.identity.sysid, cfg_.identity.compid, 0,
+                                 tx.pending_mission_type, 0);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -459,6 +466,34 @@ void Mavlink::StartStatusTextFrame(TxState &tx) {
   tx.is_hb = false;
   tx.pending_statustext = false;
   tx.pending_statustext_text[0] = '\0';
+}
+
+void Mavlink::StartRcChannelsFrame(TxState &tx) {
+  if (!tx.pending_rc_channels || !have_latest_rc_channels_) {
+    return;
+  }
+
+  static constexpr uint16_t kUnusedChannel = UINT16_MAX;
+  static constexpr uint8_t kChannelCount = 16;
+
+  mavlink_message_t m{};
+  mavlink_msg_rc_channels_pack(
+      cfg_.identity.sysid, cfg_.identity.compid, &m,
+      latest_rc_channels_update_ms_, kChannelCount,
+      latest_rc_channels_.channels[0], latest_rc_channels_.channels[1],
+      latest_rc_channels_.channels[2], latest_rc_channels_.channels[3],
+      latest_rc_channels_.channels[4], latest_rc_channels_.channels[5],
+      latest_rc_channels_.channels[6], latest_rc_channels_.channels[7],
+      latest_rc_channels_.channels[8], latest_rc_channels_.channels[9],
+      latest_rc_channels_.channels[10], latest_rc_channels_.channels[11],
+      latest_rc_channels_.channels[12], latest_rc_channels_.channels[13],
+      latest_rc_channels_.channels[14], latest_rc_channels_.channels[15],
+      kUnusedChannel, kUnusedChannel, latest_rc_channels_.rssi);
+
+  tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
+  tx.sent = 0;
+  tx.is_hb = false;
+  tx.pending_rc_channels = false;
 }
 
 void Mavlink::StartParamValueFrame(TxState &tx) {
@@ -521,9 +556,22 @@ void Mavlink::StartParamValueFrame(TxState &tx) {
 // ---------------- Telemetry input (from STM32) ----------------
 
 void Mavlink::OfferTelemetry(const message::GpsData &d, uint32_t now_ms) {
+  // Step 5: This is the telemetry handoff from STM32-facing code into MAVLink.
+  // The TX side only reads from this latest-value cache.
   latest_ = d;
   have_latest_ = true;
   latest_update_ms_ = now_ms;
+}
+
+void Mavlink::OfferRcChannels(const RcState &rc, uint32_t now_ms) {
+  latest_rc_channels_ = rc;
+  have_latest_rc_channels_ = true;
+  latest_rc_channels_update_ms_ = now_ms;
+
+  if ((int32_t)(now_ms - next_rc_channels_send_ms_) >= 0) {
+    udp_tx_.pending_rc_channels = true;
+    next_rc_channels_send_ms_ = now_ms + kRcChannelsPeriodMs;
+  }
 }
 
 void Mavlink::QueueStatusText(const char *text, uint8_t severity) {
@@ -574,6 +622,9 @@ void Mavlink::EnsureScheduleArmed(TxState &tx, const TxConfig &cfg_tx,
 
 bool Mavlink::StartNextFrameIfIdle(TxState &tx, const TxConfig &cfg_tx,
                                    uint32_t now_ms) {
+  // Step 6: This is the TX priority gate.
+  // It chooses what to send next: heartbeat first, then queued replies, then
+  // scheduled telemetry streams.
   if (tx.len > 0) {
     return true;
   }
@@ -590,6 +641,8 @@ bool Mavlink::StartNextFrameIfIdle(TxState &tx, const TxConfig &cfg_tx,
     StartStatusTextFrame(tx);
   } else if (tx.param_stream_active) {
     StartParamValueFrame(tx);
+  } else if (tx.pending_rc_channels) {
+    StartRcChannelsFrame(tx);
   } else {
     StartNextScheduledFrame(tx, cfg_tx, now_ms);
   }
@@ -607,6 +660,8 @@ void Mavlink::CompleteFrame(TxState &tx, uint32_t now_ms) {
 }
 
 void Mavlink::StartHeartbeatFrame(TxState &tx, const TxConfig &cfg_tx) {
+  // Step 7: Heartbeat is the hard-priority periodic frame.
+  // Its timing drives link liveness, so the scheduler treats it specially.
   mavlink_message_t m{};
 
   // TODO: Make vehicle type configurable instead of hardcoding quadrotor.
@@ -622,6 +677,8 @@ void Mavlink::StartHeartbeatFrame(TxState &tx, const TxConfig &cfg_tx) {
 }
 
 void Mavlink::StartSysStatusFrame(TxState &tx) {
+  // Step 8: SYS_STATUS summarizes sensor/battery health from the cached
+  // telemetry and is the first scheduled non-heartbeat stream to inspect.
   tx.next_sys_ms += kSysStatusMs;
 
   uint32_t sensors_present = 0;
@@ -649,20 +706,20 @@ void Mavlink::StartSysStatusFrame(TxState &tx) {
   }
 
   mavlink_message_t m{};
-  mavlink_msg_sys_status_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, sensors_present,
-      sensors_enabled, sensors_health,
-      0,  // load unknown
-      voltage_battery, current_battery, battery_remaining,
-      0,  // drop_rate_comm
-      0,  // errors_comm
-      0,  // errors_count1
-      0,  // errors_count2
-      0,  // errors_count3
-      0,  // errors_count4
-      0,  // sensors_present_extended
-      0,  // sensors_enabled_extended
-      0   // sensors_health_extended
+  mavlink_msg_sys_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+                              sensors_present, sensors_enabled, sensors_health,
+                              0,  // load unknown
+                              voltage_battery, current_battery,
+                              battery_remaining,
+                              0,  // drop_rate_comm
+                              0,  // errors_comm
+                              0,  // errors_count1
+                              0,  // errors_count2
+                              0,  // errors_count3
+                              0,  // errors_count4
+                              0,  // sensors_present_extended
+                              0,  // sensors_enabled_extended
+                              0   // sensors_health_extended
   );
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
@@ -671,6 +728,8 @@ void Mavlink::StartSysStatusFrame(TxState &tx) {
 }
 
 void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
+  // Step 9: GPS_RAW_INT shows how `message::GpsData` is translated into raw
+  // MAVLink GPS fields, including the optional UTC timestamp conversion.
   tx.next_gps_ms += cfg_tx.periods.gps_ms;
 
   // Only send if we have telemetry
@@ -686,8 +745,7 @@ void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
   // fixType maps well to MAVLink fix_type.
 
   mavlink_msg_gps_raw_int_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m,
-      time_usec,
+      cfg_.identity.sysid, cfg_.identity.compid, &m, time_usec,
       (uint8_t)latest_.fixType, latest_.lat, latest_.lon,
       (int32_t)latest_.hMSL,           // alt (mm)
       (uint16_t)(latest_.hAcc / 10u),  // eph (cm) rough
@@ -709,6 +767,8 @@ void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
 }
 
 void Mavlink::StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx) {
+  // Step 10: ATTITUDE is a simple unit-conversion frame.
+  // It is a good reference for the lightweight telemetry packers in this file.
   tx.next_att_ms += cfg_tx.periods.att_ms;
 
   if (!have_latest_) {
@@ -732,8 +792,9 @@ void Mavlink::StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx) {
   tx.is_hb = false;
 }
 
-void Mavlink::StartGlobalPositionIntFrame(TxState &tx,
-                                          const TxConfig &cfg_tx) {
+void Mavlink::StartGlobalPositionIntFrame(TxState &tx, const TxConfig &cfg_tx) {
+  // Step 11: GLOBAL_POSITION_INT shows the current placeholder policy for
+  // fields the STM32 packet does not provide yet, like relative altitude.
   tx.next_gpos_ms += cfg_tx.periods.gpos_ms;
 
   if (!have_latest_) {
@@ -765,6 +826,8 @@ void Mavlink::StartGlobalPositionIntFrame(TxState &tx,
 }
 
 void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
+  // Step 12: BATTERY_STATUS is worth reviewing for semantic mismatches.
+  // Several MAVLink fields are best-effort because the source packet is sparse.
   tx.next_batt_ms += cfg_tx.periods.batt_ms;
 
   if (!have_latest_) {
@@ -809,6 +872,9 @@ void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
 
 void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
                                       uint32_t now_ms) {
+  // Step 13: After the individual builders make sense, read this scheduler.
+  // It picks the oldest due telemetry stream once heartbeat and replies are
+  // out of the way.
   // Heartbeat is handled outside as hard priority.
   // Here we select the next due stream among sys/gps/att/gpos/batt.
   // Keep this simple and deterministic.
@@ -842,15 +908,13 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
       pick = Pick::kAtt;
     }
   }
-  if (cfg_tx.periods.gpos_ms > 0 &&
-      (int32_t)(now_ms - tx.next_gpos_ms) >= 0) {
+  if (cfg_tx.periods.gpos_ms > 0 && (int32_t)(now_ms - tx.next_gpos_ms) >= 0) {
     if (tx.next_gpos_ms < best_due) {
       best_due = tx.next_gpos_ms;
       pick = Pick::kGpos;
     }
   }
-  if (cfg_tx.periods.batt_ms > 0 &&
-      (int32_t)(now_ms - tx.next_batt_ms) >= 0) {
+  if (cfg_tx.periods.batt_ms > 0 && (int32_t)(now_ms - tx.next_batt_ms) >= 0) {
     if (tx.next_batt_ms < best_due) {
       best_due = tx.next_batt_ms;
       pick = Pick::kBatt;
@@ -880,6 +944,9 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
 }
 
 void Mavlink::ServiceRcLink(uint32_t now_ms) {
+  // Step 14: This is the RC link state machine.
+  // It advances partial UART writes, starts new frames when idle, and closes
+  // out completed sends.
   TxState &tx = rc_tx_;
   const TxConfig &cfg_tx = cfg_.rc.tx;
   EnsureScheduleArmed(tx, cfg_tx, now_ms);
@@ -904,6 +971,8 @@ void Mavlink::ServiceRcLink(uint32_t now_ms) {
 }
 
 void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
+  // Step 15: The UDP primary link mirrors the RC flow but also owns UDP RX.
+  // Compare it with `ServiceRcLink` to see what differs per transport.
   if (udp_ == nullptr) {
     return;
   }
@@ -945,6 +1014,8 @@ void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
 }
 
 void Mavlink::WorkerTick(uint32_t now_ms) {
+  // Step 16: End here. The worker tick just runs both link service loops each
+  // cycle, so it ties the whole read order back together.
   ServiceRcLink(now_ms);
   ServicePrimaryLink(now_ms);
 }

@@ -2,12 +2,12 @@
 
 #include <mavlink.h>
 
-#include <atomic>
 #include <array>
+#include <atomic>
 #include <cstdint>
 
-#include "esp32_limits.hpp"
 #include "../drivers/uart.hpp"
+#include "esp32_limits.hpp"
 #include "message.hpp"  // for message::GpsData
 #include "udp_server.hpp"
 
@@ -71,9 +71,8 @@ class Mavlink {
   // Worker: called from one dedicated RTOS task at a steady tick (e.g. 10ms).
   void WorkerTick(uint32_t now_ms);
   void SetPrimaryLinkEnabled(bool enabled);
-
-  // Latest telemetry from STM32 (25Hz input ok; we downsample on TX)
   void OfferTelemetry(const message::GpsData &d, uint32_t now_ms);
+  void OfferRcChannels(const RcState &rc, uint32_t now_ms);
   void QueueStatusText(const char *text, uint8_t severity = MAV_SEVERITY_INFO);
   bool PopCommandLongEvent(CommandLongEvent &event);
   void QueueCommandAck(Link link, uint16_t command, uint8_t result,
@@ -108,6 +107,7 @@ class Mavlink {
     bool pending_statustext = false;
     uint8_t pending_statustext_severity = MAV_SEVERITY_INFO;
     char pending_statustext_text[51]{};
+    bool pending_rc_channels = false;
     bool param_stream_active = false;
     uint16_t next_param_index = 0;
     uint32_t last_hb_done_ms = 0;
@@ -154,6 +154,7 @@ class Mavlink {
   void StartAutopilotVersionFrame(TxState &tx);
   void StartMissionCountFrame(TxState &tx);
   void StartStatusTextFrame(TxState &tx);
+  void StartRcChannelsFrame(TxState &tx);
   void StartParamValueFrame(TxState &tx);
 
   // ---------- TX: atomic frame writes ----------
@@ -172,6 +173,10 @@ class Mavlink {
   message::GpsData latest_{};
   bool have_latest_ = false;
   uint32_t latest_update_ms_ = 0;
+  RcState latest_rc_channels_{};
+  bool have_latest_rc_channels_ = false;
+  uint32_t latest_rc_channels_update_ms_ = 0;
+  uint32_t next_rc_channels_send_ms_ = 0;
 
   // Helpers
 
