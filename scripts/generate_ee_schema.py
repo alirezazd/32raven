@@ -28,6 +28,7 @@ TEMPLATE_DIR = pathlib.Path(__file__).with_name("templates")
 
 CPP_TYPE_MAP = {
     "float": "float",
+    "int8_t": "int8_t",
     "uint32_t": "uint32_t",
     "uint16_t": "uint16_t",
     "uint8_t": "uint8_t",
@@ -36,6 +37,7 @@ CPP_TYPE_MAP = {
 # Byte sizes used for generated struct/layout calculations.
 TYPE_SIZE_MAP = {
     "float": 4,
+    "int8_t": 1,
     "uint32_t": 4,
     "uint16_t": 2,
     "uint8_t": 1,
