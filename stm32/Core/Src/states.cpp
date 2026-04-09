@@ -159,11 +159,9 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
     if (kEnableEspLogs &&
         (current_us - g_fault_log_last_us) >= SECONDS_TO_MICROS(1)) {
-      ctx.sys->GetFcLink().SendLog("IMU_FAULT ovr=%lu dma=%lu prs=%lu hdr=%lu",
-                                   imu.ImuPathOverrun(),
-                                   imu.DmaStartFailCount(),
-                                   imu.ParseFailCount(),
-                                   imu.LastBadHeader());
+      ctx.sys->GetFcLink().SendLog(
+          "IMU_FAULT ovr=%lu dma=%lu prs=%lu hdr=%lu", imu.ImuPathOverrun(),
+          imu.DmaStartFailCount(), imu.ParseFailCount(), imu.LastBadHeader());
       g_fault_log_last_us = current_us;
     }
   }
@@ -178,7 +176,14 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   ctx.sys->GetRcReceiver().Poll(micros());
   if (budget_exhausted()) return;
 
-  // 2. Poll GPS (UART2 <-> M10)
+  // 2. Poll battery and refresh the blackboard copy.
+  {
+    ctx.sys->GetBattery().Poll(micros());
+    ctx.sys->GetVehicleState().UpdateBattery(ctx.sys->GetBattery().GetData());
+  }
+  if (budget_exhausted()) return;
+
+  // 3. Poll GPS (UART2 <-> M10)
   {
     uint32_t t0 = micros();
     auto &gps_uart = ctx.sys->GetUart2();
@@ -195,7 +200,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   }
   if (budget_exhausted()) return;
 
-  // 3. Best-effort IMU telemetry (50Hz): consumes latest state only.
+  // 4. Best-effort IMU telemetry (50Hz): consumes latest state only.
   {
     uint32_t t0 = micros();
     const Icm42688p::SampleBatch batch =
@@ -217,7 +222,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     if (dt > max_send_us_) max_send_us_ = dt;
   }
 
-  // 4. Process GPS Data (Decoupled)
+  // 5. Process GPS Data (Decoupled)
   auto &gps_svc = ctx.sys->ServiceGps();
   if (gps_svc.NewDataAvailable()) {
     uint32_t t0 = micros();
@@ -230,8 +235,8 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     t.lat = pvt.lat;
     t.lon = pvt.lon;
     t.alt = pvt.hMSL;
-    t.vel = (uint16_t)(pvt.gSpeed / 10);    // mm/s -> cm/s
-    t.hdg = (uint16_t)(pvt.headMot / 1000); // 1e-5 deg -> cdeg
+    t.vel = (uint16_t)(pvt.gSpeed / 10);     // mm/s -> cm/s
+    t.hdg = (uint16_t)(pvt.headMot / 1000);  // 1e-5 deg -> cdeg
     t.num_sats = pvt.numSV;
     t.fix_type = pvt.fixType;
     if (HasReliableGpsUtc(pvt)) {
@@ -257,7 +262,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
     ctx.sys->GetVehicleState().UpdateGps(t);
 
-    BatteryData bat = {0};
+    const BatteryData &bat = ctx.sys->GetVehicleState().GetBattery();
     ctx.sys->GetFcLink().SendGps(t, bat);
 
     gps_svc.ClearNewDataFlag();
@@ -265,7 +270,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     if (dt > g_prof_gpspub_us) g_prof_gpspub_us = dt;
   }
 
-  // 5. Print Diagnostics (1Hz) - moved from OnFastTick to avoid blocking IMU
+  // 6. Print Diagnostics (1Hz) - moved from OnFastTick to avoid blocking IMU
   static uint32_t last_diag_print = 0;
   static uint32_t last_drop_snapshot = 0;
   static uint32_t high_loss_consec = 0;

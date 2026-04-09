@@ -5,6 +5,7 @@
 // Drivers
 #include <array>
 
+#include "battery.hpp"
 #include "button.hpp"
 #include "dshot_tim1.hpp"
 #include "gpio.hpp"
@@ -114,3 +115,10 @@ constexpr SpiConfig kSpi1Config = {.polarity = SpiPolarity::kHigh,
                                    .phase = SpiPhase::k2Edge,
                                    .prescaler = SpiPrescaler::kDiv32,
                                    .bit_order = SpiBitOrder::kMsbFirst};
+
+inline constexpr Battery::Config kBatteryConfig = {
+    .voltage_v = 16.0f,
+    .current_a = 1.2f,
+    .mah_drawn = 250.0f,
+    .percentage = 75,
+};

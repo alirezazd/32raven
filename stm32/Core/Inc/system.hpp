@@ -1,5 +1,6 @@
 #pragma once
 
+#include "battery.hpp"
 #include "board.h"
 #include "button.hpp"
 #include "command_handler.hpp"
@@ -29,6 +30,7 @@ class System {
     kTimeBase,
     kGpio,
     kEe,
+    kBattery,
     kRcReceiver,
     kLed,
     kUart1,
@@ -50,6 +52,7 @@ class System {
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
   EE &GetEe() { return EE::GetInstance(); }
+  Battery &GetBattery() { return Battery::GetInstance(); }
   Button &Btn() { return Button::GetInstance(); }
   Uart1 &GetUart() { return Uart1::GetInstance(); }
   // Alias for clarity (Console)

@@ -32,6 +32,7 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kTimeBase);
   InitComponent(Component::kGpio);
   InitComponent(Component::kEe);
+  InitComponent(Component::kBattery);
   InitComponent(Component::kRcReceiver);
   InitComponent(Component::kLed);
   InitComponent(Component::kUart1);
@@ -56,6 +57,9 @@ void System::InitComponent(Component c) {
       break;
     case Component::kEe:
       EE::GetInstance().Init();
+      break;
+    case Component::kBattery:
+      Battery::GetInstance().Init(kBatteryConfig);
       break;
     case Component::kRcReceiver:
       RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
