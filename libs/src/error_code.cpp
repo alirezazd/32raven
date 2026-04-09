@@ -33,6 +33,22 @@ const char *GetMessage(ErrorCode code) {
       return "FcLink Invalid Packet CRC";
     case ErrorCode::kFcLinkTxSerializeFailed:
       return "FcLink TX Serialize Failed";
+    case ErrorCode::kFcLinkRcMapRequestFailed:
+      return "FcLink RC Map Request Failed";
+    case ErrorCode::kFcLinkInvalidRcMapConfig:
+      return "FcLink Invalid RC Map Config";
+    case ErrorCode::kFcLinkRcCalibrationRequestFailed:
+      return "FcLink RC Calibration Request Failed";
+    case ErrorCode::kFcLinkInvalidRcCalibrationConfig:
+      return "FcLink Invalid RC Calibration Config";
+    case ErrorCode::kFcLinkGyroCalibrationIdRequestFailed:
+      return "FcLink Gyro Calibration ID Request Failed";
+    case ErrorCode::kFcLinkInvalidGyroCalibrationIdConfig:
+      return "FcLink Invalid Gyro Calibration ID Config";
+    case ErrorCode::kFcLinkRcMapSetFailed:
+      return "FcLink RC Map Set Failed";
+    case ErrorCode::kFcLinkRcCalibrationSetFailed:
+      return "FcLink RC Calibration Set Failed";
     case ErrorCode::kCommandInitFailed:
       return "Command Init Failed";
     case ErrorCode::kLedGpioConfigFailed:
@@ -225,6 +241,8 @@ const char *GetMessage(ErrorCode code) {
       return "EEPROM emulation write failed";
     case ErrorCode::kEepromSchemaMismatch:
       return "EEPROM schema mismatch";
+    case ErrorCode::kRcReceiverInvalidConfig:
+      return "RC receiver invalid config";
     default:
       return "Unknown error";
   }

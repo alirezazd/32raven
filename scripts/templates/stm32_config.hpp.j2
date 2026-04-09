@@ -111,6 +111,10 @@ inline constexpr RcReceiver::Config kRcReceiverConfig = {
         {{ enabled | cpp_bool }}{{ "," if not loop.last }}
 {% endfor %}
     },
+    .roll_channel = {{ rc_receiver.rc_map.roll }},
+    .pitch_channel = {{ rc_receiver.rc_map.pitch }},
+    .yaw_channel = {{ rc_receiver.rc_map.yaw }},
+    .throttle_channel = {{ rc_receiver.rc_map.throttle }},
 };
 
 inline constexpr M10::Config kM10Config = {

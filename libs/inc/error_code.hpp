@@ -16,6 +16,14 @@ enum class ErrorCode : uint32_t {
   kFcLinkInvalidPacketLength,
   kFcLinkInvalidPacketCrc,
   kFcLinkTxSerializeFailed,
+  kFcLinkRcMapRequestFailed,
+  kFcLinkInvalidRcMapConfig,
+  kFcLinkRcCalibrationRequestFailed,
+  kFcLinkInvalidRcCalibrationConfig,
+  kFcLinkGyroCalibrationIdRequestFailed,
+  kFcLinkInvalidGyroCalibrationIdConfig,
+  kFcLinkRcMapSetFailed,
+  kFcLinkRcCalibrationSetFailed,
   kCommandInitFailed,
   kLedGpioConfigFailed,
   kLedTimerInitFailed,
@@ -113,6 +121,7 @@ enum class ErrorCode : uint32_t {
   kEepromNoValidSlot,
   kEepromWriteFailed,
   kEepromSchemaMismatch,
+  kRcReceiverInvalidConfig,
 };
 
 const char *GetMessage(ErrorCode code);

@@ -7,6 +7,7 @@
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
+#include "mavlink_task.hpp"
 #include "system.hpp"
 
 static constexpr const char *kTag = "panic";
@@ -155,9 +156,10 @@ ErrorCode RunRecoverableLoop() {
       prog.Poll(now);
 
       if (prog.Error()) {
+        const ErrorCode programmer_error = prog.LastErrorCode();
         prog.Abort(now);
         sys.StopNetwork();
-        return prog.LastErrorCode();
+        return programmer_error;
       }
 
       if (prog.Done()) {
@@ -261,6 +263,7 @@ ErrorCode RunRecoverableLoop() {
 }
 
 [[noreturn]] void RunPanicLoop(ErrorCode code) {
+  StopMavlinkTask();
   Sys().HaltSystem();
   bool recoverable = SupportsDfuRecovery(code);
   const char *msg = GetMessage(code);

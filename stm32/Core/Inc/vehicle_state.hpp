@@ -56,6 +56,10 @@ struct BatteryData {
 struct RcData {
   uint32_t timestamp_us = 0;
   std::array<uint16_t, stm32_limits::kRcEnabledChannelCount> channels{};
+  uint16_t roll_us = 0;
+  uint16_t pitch_us = 0;
+  uint16_t yaw_us = 0;
+  uint16_t throttle_us = 0;
   bool rx_online = false;
   bool tx_online = false;
   bool updated = false;

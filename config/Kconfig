@@ -778,6 +778,15 @@ config ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS
       BATTERY_STATUS transmit cadence for the primary MAVLink transport. Set
       to 0 to disable this stream.
 
+config ESP32_MAVLINK_RC_CHANNELS_PERIOD_MS
+    int "RC channels period (ms)"
+    range 0 60000
+    default 1000
+    help
+      RC_CHANNELS transmit cadence for the primary MAVLink transport. The
+      stream publishes the latest cached RC input sample at this rate. Set to
+      0 to disable this stream.
+
 endmenu
 
 menu "Timing"
@@ -2450,6 +2459,38 @@ config STM32_RC_CHANNEL_16_ENABLED
     default y
     help
       Forward and publish RC receiver channel 16.
+
+endmenu
+
+menu "Channel Mapping"
+
+config STM32_RC_MAP_ROLL
+    int "Roll channel"
+    range 1 4
+    default 1
+    help
+      1-based RC channel used for roll input.
+
+config STM32_RC_MAP_PITCH
+    int "Pitch channel"
+    range 1 4
+    default 2
+    help
+      1-based RC channel used for pitch input.
+
+config STM32_RC_MAP_YAW
+    int "Yaw channel"
+    range 1 4
+    default 4
+    help
+      1-based RC channel used for yaw input.
+
+config STM32_RC_MAP_THROTTLE
+    int "Throttle channel"
+    range 1 4
+    default 3
+    help
+      1-based RC channel used for throttle input.
 
 endmenu
 endmenu

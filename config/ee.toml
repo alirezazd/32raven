@@ -19,9 +19,39 @@ tag = "RCC1"
 [[stm32.rc.calibration.fields]]
 name = "min_us"
 type = "uint16_t"
-count = 4
+count = 16
 
 [[stm32.rc.calibration.fields]]
 name = "max_us"
 type = "uint16_t"
-count = 4
+count = 16
+
+[[stm32.rc.calibration.fields]]
+name = "trim_us"
+type = "uint16_t"
+count = 16
+
+[[stm32.rc.calibration.fields]]
+name = "rev"
+type = "int8_t"
+count = 16
+
+[stm32.rc.map]
+type_name = "RcMap"
+tag = "RCM1"
+
+[[stm32.rc.map.fields]]
+name = "roll_channel"
+type = "uint8_t"
+
+[[stm32.rc.map.fields]]
+name = "pitch_channel"
+type = "uint8_t"
+
+[[stm32.rc.map.fields]]
+name = "yaw_channel"
+type = "uint8_t"
+
+[[stm32.rc.map.fields]]
+name = "throttle_channel"
+type = "uint8_t"
