@@ -1,0 +1,228 @@
+#include "command_handler.hpp"
+
+#include <cstdio>
+
+#include "ctx.hpp"
+#include "mavlink.hpp"
+#include "message.hpp"
+#include "panic.hpp"
+#include "state_machine.hpp"
+#include "states.hpp"
+#include "system.hpp"
+#include "tcp_server.hpp"
+
+extern "C" {
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
+#include "freertos/task.h"
+}
+
+static constexpr const char *kTag = "cmd";
+#include "esp_timer.h"  // Added for esp_timer_get_time
+
+static void OnLog(AppContext &ctx, const message::Packet &pkt) {
+  (void)ctx;
+  if (!message::IsPayloadValid(message::MsgId::kLog, pkt.payload,
+                               pkt.header.len) ||
+      pkt.header.len == 0) {
+    return;
+  }
+  char buf[257];
+  memcpy(buf, pkt.payload, pkt.header.len);
+  buf[pkt.header.len] = '\0';
+  ESP_LOGI("FC", "%s", buf);
+}
+
+static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
+  (void)ctx;
+  if (!message::IsPayloadLengthValid(message::MsgId::kRcChannels,
+                                     pkt.header.len)) {
+    ESP_LOGW(kTag, "Invalid RC Channels Length");
+    return;
+  }
+}
+
+static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kGpsData,
+                                     pkt.header.len)) {
+    ESP_LOGW(kTag, "Invalid GPS Data Length");
+    return;
+  }
+
+  const auto *t = (const message::GpsData *)pkt.payload;
+
+  // Format for Monitor Mode (TCP) - Debugging
+  char buf[128];
+  int len = std::snprintf(
+      buf, sizeof(buf),
+      "GPS: fix=%d sats=%d lat=%ld lon=%ld alt=%ld "
+      "vel=%u hdg=%u hac=%lu vac=%lu "
+      "t=%02d:%02d:%02d\n",
+      (int)t->fixType, (int)t->numSV, (long)t->lat, (long)t->lon, (long)t->hMSL,
+      (unsigned)t->vel, (unsigned)t->hdg, (unsigned long)t->hAcc,
+      (unsigned long)t->vAcc, (int)t->hour, (int)t->min, (int)t->sec);
+
+  if (len > 0) {
+    ctx.sys->Tcp().SendData((uint8_t *)buf, (size_t)len);
+  }
+
+  // Update cache for the MAVLink scheduler.
+  ctx.sys->Mavlink().OfferTelemetry(*t,
+                                    (uint32_t)(esp_timer_get_time() / 1000));
+}
+
+static void OnUnknown(AppContext &ctx, const message::Packet &pkt) {
+  (void)ctx;
+  ESP_LOGW(kTag, "Unknown Command ID: %d", pkt.header.id);
+}
+
+static void OnPong(AppContext &ctx, const message::Packet &pkt) {
+  (void)ctx;
+  (void)pkt;
+  // Ping response - ignore
+}
+
+static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kImuData,
+                                     pkt.header.len)) {
+    ESP_LOGW(kTag, "Invalid IMU Data Length");
+    return;
+  }
+
+  const auto *m = (const message::ImuData *)pkt.payload;
+
+  char buf[128];
+  int len = std::snprintf(
+      buf, sizeof(buf),
+      "IMU: ax=%.3f ay=%.3f az=%.3f gx=%.3f gy=%.3f gz=%.3f\n", m->accel[0],
+      m->accel[1], m->accel[2], m->gyro[0], m->gyro[1], m->gyro[2]);
+
+  if (len > 0) {
+    ctx.sys->Tcp().SendData((uint8_t *)buf, (size_t)len);
+  }
+}
+
+static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kPanic,
+                                     pkt.header.len)) {
+    ESP_LOGW(kTag, "Invalid Panic Message Length");
+    return;
+  }
+
+  const auto *m = (const message::PanicMsg *)pkt.payload;
+
+  // In DFU mode, we ignore the panic to allow for flashing/debugging
+  if (ctx.sm->CurrentState() == (const IState<AppContext> *)ctx.dfu_state) {
+    static int64_t last_log_us = 0;
+    int64_t now_us = esp_timer_get_time();
+    if (now_us - last_log_us >= 2000000) {
+      ESP_LOGE(kTag, "STM32 Panic (Ignored in DFU): Code 0x%X: %s",
+               m->error_code,
+               GetMessage(static_cast<ErrorCode>(m->error_code)));
+      last_log_us = now_us;
+    }
+    return;
+  }
+
+  // Enter panic state with error code - this will never return
+  Panic(static_cast<ErrorCode>(m->error_code));
+}
+
+void CommandHandler::Init(const Config &cfg) {
+  cfg_ = cfg;
+
+  // Initialize table
+  for (int i = 0; i < 256; ++i) {
+    handlers_[i] = OnUnknown;
+  }
+
+  handlers_[(uint8_t)message::MsgId::kRcChannels] = OnRcChannels;
+  handlers_[(uint8_t)message::MsgId::kGpsData] = OnGpsData;
+  handlers_[(uint8_t)message::MsgId::kLog] = OnLog;
+  handlers_[(uint8_t)message::MsgId::kPong] = OnPong;
+  handlers_[(uint8_t)message::MsgId::kImuData] = OnImuData;
+  handlers_[(uint8_t)message::MsgId::kPanic] = OnPanic;
+  ESP_LOGI(kTag, "Initialized");
+}
+
+void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
+    ESP_LOGW(kTag, "Rejected invalid packet id=0x%02X len=%u",
+             (unsigned)pkt.header.id, (unsigned)pkt.header.len);
+    return;
+  }
+
+  HandlerFunc handler = handlers_[pkt.header.id];
+  if (handler) {
+    handler(ctx, pkt);
+  } else {
+    ESP_LOGW(kTag, "No handler for ID %d", pkt.header.id);
+  }
+}
+
+CommandHandler::TransitionResult CommandHandler::Dispatch(
+    AppContext &ctx, const TcpServer::Event &ev) {
+  switch (ev.id) {
+    case TcpServer::EventId::kBegin: {
+      ctx.sys->Tcp().StartDownload(ev.begin.size);
+      ctx.sys->Programmer().SetTarget(ev.begin.target);
+
+      ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%d",
+               (unsigned)ev.begin.size, (unsigned)ev.begin.crc,
+               (int)ev.begin.target);
+      return TransitionResult::kTransitionToProgram;
+    }
+    case TcpServer::EventId::kAbort: {
+      ctx.sys->Tcp().StopDownload();
+      ESP_LOGI(kTag, "TCP: ABORT");
+      return TransitionResult::kTransitionToServing;
+    }
+    case TcpServer::EventId::kReset: {
+      ctx.sys->Tcp().DisableBridge();
+      ESP_LOGW(kTag, "TCP: RESET requested. Rebooting...");
+      ctx.sys->Programmer().Boot();
+      esp_restart();
+      return TransitionResult::kNone;
+    }
+    case TcpServer::EventId::kBridge: {
+      ESP_LOGI(kTag, "TCP: BRIDGE requested");
+      ctx.sys->Tcp().EnableBridge();
+      return TransitionResult::kNone;
+    }
+    default:
+      break;
+  }
+  return TransitionResult::kNone;
+}
+
+void CommandHandler::Dispatch(AppContext &ctx,
+                              const Mavlink::CommandLongEvent &ev) {
+  const mavlink_message_t &msg = ev.msg;
+  if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) {
+    return;
+  }
+
+  mavlink_command_long_t cmd{};
+  mavlink_msg_command_long_decode(&msg, &cmd);
+
+  switch (cmd.command) {
+    case MAV_CMD_REQUEST_MESSAGE:
+      if ((uint32_t)cmd.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
+        ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
+                                           MAV_RESULT_ACCEPTED, msg.sysid,
+                                           msg.compid);
+        ctx.sys->Mavlink().QueueAutopilotVersion(ev.link);
+      } else {
+        ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
+                                           MAV_RESULT_UNSUPPORTED, msg.sysid,
+                                           msg.compid);
+      }
+      break;
+
+    default:
+      ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
+                                         MAV_RESULT_UNSUPPORTED, msg.sysid,
+                                         msg.compid);
+      break;
+  }
+}

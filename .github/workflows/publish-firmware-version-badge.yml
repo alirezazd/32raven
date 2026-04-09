@@ -1,0 +1,83 @@
+name: Publish Firmware Version Badge
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-badge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Compute firmware version
+        id: version
+        run: |
+          version="$(python3 scripts/generate_firmware_ver.py --ref HEAD)"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Write badge payload
+        env:
+          FIRMWARE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p .badge-payload
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          payload = {
+              "schemaVersion": 1,
+              "label": "firmware",
+              "message": os.environ["FIRMWARE_VERSION"],
+              "color": "5b6573",
+              "labelColor": "2f363d",
+              "style": "flat-square",
+          }
+          pathlib.Path(".badge-payload/firmware-version-badge.json").write_text(
+              json.dumps(payload, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish badge payload branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git fetch origin badge-data:badge-data; then
+            git worktree add badge-data-worktree badge-data
+          else
+            git worktree add --detach badge-data-worktree
+            (
+              cd badge-data-worktree
+              git checkout --orphan badge-data
+            )
+          fi
+
+          (
+            cd badge-data-worktree
+            find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+            cp ../.badge-payload/firmware-version-badge.json .
+            git add firmware-version-badge.json
+            if git diff --cached --quiet; then
+              exit 0
+            fi
+            git commit -m "docs: publish firmware badge payload [skip ci]"
+            git push origin badge-data
+          )
