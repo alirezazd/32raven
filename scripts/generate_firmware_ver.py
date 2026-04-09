@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import json
 import pathlib
 import re
 import subprocess
-from typing import Any
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -15,12 +13,6 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_VERSION_REF = "origin/master"
 VERSION_TAG_PREFIX = "fw-v"
 INITIAL_BASE_VERSION = 0
-
-# MAVLink exposes flight_sw_version as packed major.minor.patch.type bytes.
-# We keep the user-managed base version in the major byte and spread the
-# commit count across the minor/patch bytes for up to 65535 commits.
-MAVLINK_VERSION_TYPE_DEV = 0
-MAVLINK_COMMIT_COUNT_MAX = 0xFFFF
 
 
 def _git(*args: str) -> str:
@@ -97,80 +89,29 @@ def _base_version_from_tag(tag: str) -> int:
     return int(match.group(1))
 
 
-def _resolve_version_base(ref: str) -> dict[str, Any]:
+def _resolve_version_base(ref: str) -> tuple[int, str]:
     tag = _nearest_version_tag(ref)
     if tag is None:
-        return {
-            "base_version": INITIAL_BASE_VERSION,
-            "base_commit": _first_commit(ref),
-            "base_tag": None,
-        }
+        return INITIAL_BASE_VERSION, _first_commit(ref)
 
-    return {
-        "base_version": _base_version_from_tag(tag),
-        "base_commit": _resolve_commit(tag),
-        "base_tag": tag,
-    }
+    return _base_version_from_tag(tag), _resolve_commit(tag)
 
 
-def _pack_mavlink_flight_sw_version(base_version: int, commit_count: int) -> int:
-    if not 0 <= base_version <= 0xFF:
-        raise ValueError("BASE_VERSION must fit in the MAVLink major version byte")
-    if not 0 <= commit_count <= MAVLINK_COMMIT_COUNT_MAX:
-        raise ValueError(
-            "commit count exceeds MAVLink minor/patch capacity; "
-            "bump BASE_VERSION and BASE_VERSION_COMMIT"
-        )
-
-    minor = (commit_count >> 8) & 0xFF
-    patch = commit_count & 0xFF
-    return (
-        (base_version << 24)
-        | (minor << 16)
-        | (patch << 8)
-        | MAVLINK_VERSION_TYPE_DEV
-    )
-
-
-def resolve_firmware_version(version_ref: str = DEFAULT_VERSION_REF) -> dict[str, Any]:
+def resolve_firmware_version(version_ref: str = DEFAULT_VERSION_REF) -> str:
     ref_commit = _resolve_commit(version_ref)
-    version_base = _resolve_version_base(version_ref)
-    base_version = int(version_base["base_version"])
-    base_commit = str(version_base["base_commit"])
+    base_version, base_commit = _resolve_version_base(version_ref)
     _ensure_ancestor(base_commit, ref_commit)
 
     commit_count = _commit_count_since(base_commit, ref_commit)
-    packed_version = _pack_mavlink_flight_sw_version(base_version, commit_count)
-
-    return {
-        "base_version": base_version,
-        "base_commit": base_commit,
-        "base_tag": version_base["base_tag"],
-        "version_ref": version_ref,
-        "ref_commit": ref_commit,
-        "commit_count": commit_count,
-        "version_string": f"{base_version}.{commit_count}",
-        "mavlink_flight_sw_version": packed_version,
-        "mavlink_flight_sw_version_hex": f"0x{packed_version:08X}u",
-    }
+    return f"{base_version}.{commit_count}"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ref", default=DEFAULT_VERSION_REF)
-    parser.add_argument("--format", choices=("json", "text"), default="json")
     args = parser.parse_args()
 
-    try:
-        version = resolve_firmware_version(args.ref)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
-
-    if args.format == "text":
-        print(version["version_string"])
-        return 0
-
-    print(json.dumps(version, sort_keys=True))
+    print(resolve_firmware_version(args.ref))
     return 0
 
 

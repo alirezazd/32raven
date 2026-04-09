@@ -2,6 +2,8 @@
 ![32Raven project image](./32Raven.png)
 **Status:** Active development. Interfaces, configs, and behavior can change quickly.
 
+[![Firmware Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Falirezazd%2F32raven%2Fbadge-data%2Ffirmware-version-badge.json)](https://github.com/alirezazd/32raven/tags)
+
 ## Overview
 
 **32Raven** is a high-performance, bare-metal flight control ecosystem designed from the ground up.
@@ -120,5 +122,4 @@ make flash-wifi-stm32 ESP_IP=192.168.4.1
 * **Generator:** The top-level build uses `GEN` (default `Ninja`). To change: `make configure GEN="Unix Makefiles"`.
 * **Output:** Build outputs are generator-specific, for example `build/Ninja/stm32/` and `build/Ninja/esp32/`.
 * **Toolchains:** If switching generators or toolchains, always run `make clean` first.
-
 ---
