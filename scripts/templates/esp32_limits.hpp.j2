@@ -17,6 +17,7 @@ inline constexpr std::size_t kMavlinkTaskStackDepthWords = {{ mavlink.task_stack
 inline constexpr std::size_t kMavlinkStackPanicThresholdBytes = {{ mavlink.stack_panic_threshold_bytes }};
 inline constexpr std::uint32_t kMavlinkSysAutostart = {{ mavlink.sys_autostart }}u;
 inline constexpr const char *kMavlinkGitHashShort = "{{ mavlink.git_hash }}";
+inline constexpr const char *kMavlinkVersionString = "{{ mavlink.version_string }}";
 inline constexpr std::uint32_t kMavlinkFlightSwVersion = {{ mavlink.flight_sw_version_hex }};
 
 inline constexpr std::size_t kPanicTaskStackDepthWords = {{ panic.task_stack_depth_words }};

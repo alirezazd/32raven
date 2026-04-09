@@ -13,6 +13,7 @@ import argparse
 import json
 import pathlib
 import subprocess
+import sys
 
 import kconfiglib
 
@@ -30,6 +31,7 @@ AUTOGEN_WARNING = (
 )
 TEMPLATE_DIR = pathlib.Path(__file__).with_name("templates")
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+FIRMWARE_VERSION_TOOL = REPO_ROOT / "scripts" / "generate_firmware_ver.py"
 
 ESP32C3_GPIO_MIN = 0
 ESP32C3_GPIO_MAX = 21
@@ -175,9 +177,6 @@ UI_TRANSITION_SPEED_CHOICES = {
     "ESP32_WIDGET_UI_TRANSITION_SPEED_3X": "3",
 }
 
-MAVLINK_VERSION_TYPE_DEV = 0
-
-
 def _sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
     sym = kconf.syms.get(name)
     if sym is None:
@@ -246,16 +245,29 @@ def _git_head_short_hash() -> str:
     return value[:8]
 
 
-def _mavlink_flight_sw_version_from_hash(hash8: str) -> int:
-    major = int(hash8[0:2], 16)
-    minor = int(hash8[2:4], 16)
-    patch = int(hash8[4:6], 16)
-    return (
-        (major << 24)
-        | (minor << 16)
-        | (patch << 8)
-        | MAVLINK_VERSION_TYPE_DEV
-    )
+def _firmware_version() -> dict[str, object]:
+    try:
+        result = subprocess.run(
+            [sys.executable, str(FIRMWARE_VERSION_TOOL), "--format", "json"],
+            cwd=REPO_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as exc:
+        raise SystemExit(
+            "scripts/generate_firmware_ver.py is required to resolve the MAVLink "
+            "firmware version"
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip()
+        message = stderr or exc.stdout.strip() or "firmware version tool failed"
+        raise SystemExit(message) from exc
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("firmware version tool returned invalid JSON") from exc
 
 
 def _validate_gpio_num(kconf: kconfiglib.Kconfig, name: str) -> None:
@@ -917,6 +929,7 @@ def _limits_context(
     source: pathlib.Path, kconf: kconfiglib.Kconfig
 ) -> dict[str, object]:
     git_hash = _git_head_short_hash()
+    firmware_version = _firmware_version()
     return {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
         "display_panel": {
@@ -934,7 +947,10 @@ def _limits_context(
             "stack_panic_threshold_bytes": MAVLINK_STACK_PANIC_THRESHOLD_BYTES,
             "sys_autostart": 4001,
             "git_hash": git_hash,
-            "flight_sw_version_hex": f"0x{_mavlink_flight_sw_version_from_hash(git_hash):08X}u",
+            "version_string": str(firmware_version["version_string"]),
+            "flight_sw_version_hex": str(
+                firmware_version["mavlink_flight_sw_version_hex"]
+            ),
         },
         "panic": {
             "task_stack_depth_words": PANIC_TASK_STACK_DEPTH_WORDS,
