@@ -245,10 +245,37 @@ def _git_head_short_hash() -> str:
     return value[:8]
 
 
-def _firmware_version() -> dict[str, object]:
+def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
+    parts = version_string.strip().split(".")
+    if len(parts) != 2:
+        raise SystemExit(
+            f"unexpected firmware version format '{version_string}'; expected X.Y"
+        )
+
+    try:
+        base_version = int(parts[0], 10)
+        commit_count = int(parts[1], 10)
+    except ValueError as exc:
+        raise SystemExit(
+            f"unexpected firmware version format '{version_string}'; expected X.Y"
+        ) from exc
+
+    if not 0 <= base_version <= 0xFF:
+        raise SystemExit("firmware base version must fit in one byte")
+    if not 0 <= commit_count <= 0xFFFF:
+        raise SystemExit(
+            "firmware commit count exceeds MAVLink packing capacity; retag a new base version"
+        )
+
+    minor = (commit_count >> 8) & 0xFF
+    patch = commit_count & 0xFF
+    return (base_version << 24) | (minor << 16) | (patch << 8)
+
+
+def _firmware_version_string() -> str:
     try:
         result = subprocess.run(
-            [sys.executable, str(FIRMWARE_VERSION_TOOL), "--format", "json"],
+            [sys.executable, str(FIRMWARE_VERSION_TOOL)],
             cwd=REPO_ROOT,
             check=True,
             capture_output=True,
@@ -264,10 +291,10 @@ def _firmware_version() -> dict[str, object]:
         message = stderr or exc.stdout.strip() or "firmware version tool failed"
         raise SystemExit(message) from exc
 
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError as exc:
-        raise SystemExit("firmware version tool returned invalid JSON") from exc
+    version_string = result.stdout.strip()
+    if not version_string:
+        raise SystemExit("firmware version tool returned an empty version string")
+    return version_string
 
 
 def _validate_gpio_num(kconf: kconfiglib.Kconfig, name: str) -> None:
@@ -929,7 +956,7 @@ def _limits_context(
     source: pathlib.Path, kconf: kconfiglib.Kconfig
 ) -> dict[str, object]:
     git_hash = _git_head_short_hash()
-    firmware_version = _firmware_version()
+    firmware_version_string = _firmware_version_string()
     return {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
         "display_panel": {
@@ -947,9 +974,9 @@ def _limits_context(
             "stack_panic_threshold_bytes": MAVLINK_STACK_PANIC_THRESHOLD_BYTES,
             "sys_autostart": 4001,
             "git_hash": git_hash,
-            "version_string": str(firmware_version["version_string"]),
-            "flight_sw_version_hex": str(
-                firmware_version["mavlink_flight_sw_version_hex"]
+            "version_string": firmware_version_string,
+            "flight_sw_version_hex": (
+                f"0x{_mavlink_flight_sw_version_from_version_string(firmware_version_string):08X}u"
             ),
         },
         "panic": {
