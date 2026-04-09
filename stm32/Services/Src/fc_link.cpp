@@ -184,6 +184,34 @@ void FcLink::SendImu(uint64_t timestamp_us, const float accel[3],
   Send(pkt);
 }
 
+void FcLink::SendRcMapConfig(const message::RcMapConfigMsg &cfg) {
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kRcMapConfig;
+  pkt.header.len = message::PayloadLength<message::RcMapConfigMsg>();
+  memcpy(pkt.payload, &cfg, sizeof(cfg));
+  Send(pkt);
+}
+
+void FcLink::SendRcCalibrationConfig(
+    const message::RcCalibrationConfigMsg &cfg) {
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kRcCalibrationConfig;
+  pkt.header.len =
+      message::PayloadLength<message::RcCalibrationConfigMsg>();
+  memcpy(pkt.payload, &cfg, sizeof(cfg));
+  Send(pkt);
+}
+
+void FcLink::SendGyroCalibrationIdConfig(
+    const message::GyroCalibrationIdConfigMsg &cfg) {
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kGyroCalibrationIdConfig;
+  pkt.header.len =
+      message::PayloadLength<message::GyroCalibrationIdConfigMsg>();
+  memcpy(pkt.payload, &cfg, sizeof(cfg));
+  Send(pkt);
+}
+
 void FcLink::SendLog(const char *format, ...) {
   char buf[128];  // Max payload size relative
   va_list args;

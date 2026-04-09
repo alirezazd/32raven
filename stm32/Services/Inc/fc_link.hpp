@@ -28,6 +28,12 @@ class FcLink {
   void SendImu(uint64_t timestamp_us, const float accel[3],
                const float gyro[3]);
 
+  // Send one-shot RC channel mapping config.
+  void SendRcMapConfig(const message::RcMapConfigMsg &cfg);
+  void SendRcCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
+  void SendGyroCalibrationIdConfig(
+      const message::GyroCalibrationIdConfigMsg &cfg);
+
   // Send Log Message
   void SendLog(const char *format, ...);
 

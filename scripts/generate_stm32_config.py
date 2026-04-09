@@ -289,6 +289,21 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             f"({watermark_records} > {hardware_max_records})"
         )
 
+    rc_map = _rc_map(kconf)
+    if sorted(rc_map.values()) != [1, 2, 3, 4]:
+        raise ValueError(
+            "CONFIG_STM32_RC_MAP_ROLL/PITCH/YAW/THROTTLE must be a unique "
+            "mapping of channels 1..4"
+        )
+
+    enabled_channels = _enabled_rc_channels(kconf)
+    for axis, channel in rc_map.items():
+        if not enabled_channels[channel - 1]:
+            raise ValueError(
+                f"CONFIG_STM32_RC_MAP_{axis.upper()} requires channel {channel} "
+                "to be enabled"
+            )
+
 
 def _cpp_bool(value: bool) -> str:
     return "true" if value else "false"
@@ -315,6 +330,15 @@ def _enabled_rc_channels(kconf: kconfiglib.Kconfig) -> list[bool]:
         _sym_bool(kconf, f"STM32_RC_CHANNEL_{channel_index + 1}_ENABLED")
         for channel_index in range(16)
     ]
+
+
+def _rc_map(kconf: kconfiglib.Kconfig) -> dict[str, int]:
+    return {
+        "roll": _sym_int(kconf, "STM32_RC_MAP_ROLL"),
+        "pitch": _sym_int(kconf, "STM32_RC_MAP_PITCH"),
+        "yaw": _sym_int(kconf, "STM32_RC_MAP_YAW"),
+        "throttle": _sym_int(kconf, "STM32_RC_MAP_THROTTLE"),
+    }
 
 
 def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str, object]:
@@ -497,6 +521,7 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
         },
         "rc_receiver": {
             "enabled_channels": _enabled_rc_channels(kconf),
+            "rc_map": _rc_map(kconf),
         },
     }
 

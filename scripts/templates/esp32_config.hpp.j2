@@ -226,6 +226,7 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                     .att_ms = {{ mavlink.tx.periods.att_ms }},
                     .gpos_ms = {{ mavlink.tx.periods.gpos_ms }},
                     .batt_ms = {{ mavlink.tx.periods.batt_ms }},
+                    .rc_channels_ms = {{ mavlink.tx.periods.rc_channels_ms }},
                 },
             .schedule =
                 {
@@ -251,6 +252,7 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                             .att_ms = {{ mavlink_rc.tx.periods.att_ms }},
                             .gpos_ms = {{ mavlink_rc.tx.periods.gpos_ms }},
                             .batt_ms = {{ mavlink_rc.tx.periods.batt_ms }},
+                            .rc_channels_ms = {{ mavlink_rc.tx.periods.rc_channels_ms }},
                         },
                     .schedule =
                         {
