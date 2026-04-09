@@ -247,29 +247,28 @@ def _git_head_short_hash() -> str:
 
 def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
     parts = version_string.strip().split(".")
-    if len(parts) != 2:
+    if len(parts) != 3:
         raise SystemExit(
-            f"unexpected firmware version format '{version_string}'; expected X.Y"
+            f"unexpected firmware version format '{version_string}'; expected X.Y.Z"
         )
 
     try:
-        base_version = int(parts[0], 10)
-        commit_count = int(parts[1], 10)
+        major = int(parts[0], 10)
+        minor = int(parts[1], 10)
+        patch = int(parts[2], 10)
     except ValueError as exc:
         raise SystemExit(
-            f"unexpected firmware version format '{version_string}'; expected X.Y"
+            f"unexpected firmware version format '{version_string}'; expected X.Y.Z"
         ) from exc
 
-    if not 0 <= base_version <= 0xFF:
-        raise SystemExit("firmware base version must fit in one byte")
-    if not 0 <= commit_count <= 0xFFFF:
-        raise SystemExit(
-            "firmware commit count exceeds MAVLink packing capacity; retag a new base version"
-        )
+    if not 0 <= major <= 0xFF:
+        raise SystemExit("firmware major version must fit in one byte")
+    if not 0 <= minor <= 0xFF:
+        raise SystemExit("firmware minor version must fit in one byte")
+    if not 0 <= patch <= 0xFF:
+        raise SystemExit("firmware patch version must fit in one byte")
 
-    minor = (commit_count >> 8) & 0xFF
-    patch = commit_count & 0xFF
-    return (base_version << 24) | (minor << 16) | (patch << 8)
+    return (major << 24) | (minor << 16) | (patch << 8)
 
 
 def _firmware_version_string() -> str:

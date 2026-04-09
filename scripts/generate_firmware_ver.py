@@ -103,7 +103,14 @@ def resolve_firmware_version(version_ref: str = DEFAULT_VERSION_REF) -> str:
     _ensure_ancestor(base_commit, ref_commit)
 
     commit_count = _commit_count_since(base_commit, ref_commit)
-    return f"{base_version}.{commit_count}"
+    if not 0 <= base_version <= 0xFF:
+        raise SystemExit("firmware base version must fit in one byte")
+    if not 0 <= commit_count <= 0xFF:
+        raise SystemExit(
+            "firmware minor version exceeds 255 commits; tag a new base version"
+        )
+
+    return f"{base_version}.{commit_count}.0"
 
 
 def main() -> int:
