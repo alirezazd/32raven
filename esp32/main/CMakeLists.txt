@@ -13,6 +13,8 @@ set(ESP32_KCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../../config/Kconfig")
 set(ESP32_MASTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../../config/32raven.config")
 set(ESP32_CONFIG_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_esp32_config.py")
+set(ESP32_FIRMWARE_VERSION_TOOL
+    "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_firmware_ver.py")
 set(ESP32_CONFIG_TEMPLATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/templates/esp32_config.hpp.j2")
 set(ESP32_LIMITS_TEMPLATE
@@ -81,6 +83,7 @@ if(CLANG_FORMAT_EXECUTABLE)
         ${ESP32_LIMITS_HPP}
         DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
         ${ESP32_CONFIG_GENERATOR}
+        ${ESP32_FIRMWARE_VERSION_TOOL}
         ${ESP32_CONFIG_TEMPLATE}
         ${ESP32_LIMITS_TEMPLATE}
         COMMENT "Generating ESP32 configuration headers"
@@ -95,6 +98,7 @@ else()
         --limits-out ${ESP32_LIMITS_HPP}
         DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
         ${ESP32_CONFIG_GENERATOR}
+        ${ESP32_FIRMWARE_VERSION_TOOL}
         ${ESP32_CONFIG_TEMPLATE}
         ${ESP32_LIMITS_TEMPLATE}
         COMMENT "Generating ESP32 configuration headers"
