@@ -122,7 +122,7 @@ class Icm42688p {
   uint32_t PublishCount() const {
     return publish_cnt_.load(std::memory_order_relaxed);
   }
-  uint32_t GetGyroCalibrationId() const;
+  uint32_t GetDeviceId() const;
   uint32_t ParseFailCount() const {
     return parse_fail_cnt_.load(std::memory_order_relaxed);
   }
@@ -207,6 +207,7 @@ class Icm42688p {
   uint64_t last_overrun_fault_us_{0};
   uint32_t overrun_window_count_{0};
   uint8_t who_am_i_{0};
+  uint32_t device_id_{0};
   std::atomic<bool> inject_overrun_fault_for_test_{false};
 
   bool initialized_{false};
