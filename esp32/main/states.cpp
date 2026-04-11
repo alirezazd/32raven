@@ -56,7 +56,6 @@ void ServingState::OnEnter(AppContext &ctx) {
   ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
   ctx.sys->StopNetwork();
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
-  ctx.sys->FcLink().PerformHandshake();
   ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
 }
 

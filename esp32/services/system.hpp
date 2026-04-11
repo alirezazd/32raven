@@ -71,7 +71,7 @@ class System {
   void StopNetwork();
   void StartNetwork();
   void SetMainTaskHandle(TaskHandle_t task_handle);
-  void HaltSystem();
+  void Halt();
 
  private:
   void InitComponent(Component c);

@@ -17,6 +17,10 @@ const char *GetMessage(ErrorCode code) {
       return "LED Task Create Failed";
     case ErrorCode::kMavlinkInitFailed:
       return "Mavlink Init Failed";
+    case ErrorCode::kMavlinkTaskAlreadyRunning:
+      return "Mavlink Task Already Running";
+    case ErrorCode::kMavlinkTaskStopOutsidePanic:
+      return "Mavlink Task Stop Called Outside Panic";
     case ErrorCode::kMavlinkStackOverflow:
       return "Mavlink Stack Overflow";
     case ErrorCode::kFcLinkInitFailed:

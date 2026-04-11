@@ -9,7 +9,7 @@ extern "C" {
 static constexpr const char *kTag = "system";
 
 void System::Init() {
-  SetMainTaskHandle(xTaskGetCurrentTaskHandle());
+  main_task_handle_ = xTaskGetCurrentTaskHandle();
   InitComponent(Component::kLed);
   InitComponent(Component::kBuzzer);
   InitComponent(Component::kTonePlayer);
@@ -23,8 +23,8 @@ void System::Init() {
   InitComponent(Component::kFcLinkUart);
   InitComponent(Component::kRcRxUart);
   InitComponent(Component::kProgrammer);
-  InitComponent(Component::kMavlink);
   InitComponent(Component::kFcLink);
+  InitComponent(Component::kMavlink);
   InitComponent(Component::kCommandHandler);
 }
 
@@ -88,13 +88,13 @@ void System::InitComponent(Component c) {
       Programmer().Init(kProgrammerConfig, &FcLinkUart());
       ESP_LOGI(kTag, "Programmer initialized");
       break;
-    case Component::kMavlink:
-      Mavlink().Init(kMavlinkConfig, &RcRxUart(), &Udp());
-      ESP_LOGI(kTag, "Mavlink service initialized");
-      break;
     case Component::kFcLink:
       FcLink().Init(kFcLinkConfig, &FcLinkUart());
       ESP_LOGI(kTag, "FcLink service initialized");
+      break;
+    case Component::kMavlink:
+      Mavlink().Init(kMavlinkConfig, &RcRxUart(), &Udp());
+      ESP_LOGI(kTag, "Mavlink service initialized");
       break;
     case Component::kCommandHandler:
       CommandHandler().Init(::CommandHandler::Config{});
@@ -115,11 +115,7 @@ void System::StartNetwork() {
   Udp().Start();
 }
 
-void System::SetMainTaskHandle(TaskHandle_t task_handle) {
-  main_task_handle_ = task_handle;
-}
-
-void System::HaltSystem() {
+void System::Halt() {
   if (main_task_handle_ != nullptr &&
       main_task_handle_ != xTaskGetCurrentTaskHandle()) {
     vTaskSuspend(main_task_handle_);
