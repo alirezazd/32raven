@@ -49,7 +49,6 @@ idf_component_register(
     "../services/fc_link.cpp"
     "../main/command_handler.cpp"
     "../services/mavlink.cpp"
-    "../services/mavlink_task.cpp"
     "../services/udp_server.cpp"
     "../services/panic.cpp"
     "../../third_party/Adafruit-GFX-Library/Adafruit_GFX.cpp"

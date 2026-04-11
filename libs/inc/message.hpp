@@ -267,20 +267,6 @@ static inline bool IsRcCalibrationConfigValid(
   return true;
 }
 
-static constexpr uint8_t kPx4DeviceBusTypeUnknown = 0u;
-static constexpr uint8_t kPx4DeviceBusTypeI2c = 1u;
-static constexpr uint8_t kPx4DeviceBusTypeSpi = 2u;
-static constexpr uint32_t kPx4DeviceIdBusTypeMask = 0x7u;
-
-static inline bool IsGyroCalibrationIdConfigValid(
-    const GyroCalibrationIdConfigMsg &cfg) {
-  const uint8_t bus_type =
-      static_cast<uint8_t>(cfg.cal_gyro0_id & kPx4DeviceIdBusTypeMask);
-  const uint8_t devtype = static_cast<uint8_t>((cfg.cal_gyro0_id >> 16) & 0xFFu);
-  return cfg.cal_gyro0_id != 0u && bus_type == kPx4DeviceBusTypeSpi &&
-         devtype != 0u;
-}
-
 // ---------------------------------------------------------
 // Helper: Simple CRC16-CCITT (XMODEM)
 // Poly: 0x1021
