@@ -37,6 +37,8 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg) {
   spi.SetPrescaler(cfg.spi_prescaler);
 
   CheckWhoAmI();
+  device_id_ = 2u | (static_cast<uint32_t>(SpiInstance::kSpi1) << 3) |
+               (static_cast<uint32_t>(who_am_i_) << 16);
   SoftReset();
   SetBank(0);
   // Keep gyro/accel OFF while programming non-ODR/FS registers.
@@ -81,6 +83,14 @@ bool Icm42688p::SaveAccelCalibration() {
     return false;
   }
   return ConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
+}
+
+uint32_t Icm42688p::GetDeviceId() const {
+  if (!initialized_ || device_id_ == 0u) {
+    Panic(ErrorCode::kImuNotInitialized);
+  }
+
+  return device_id_;
 }
 
 void Icm42688p::ValidateConfig(const Config &cfg) {
@@ -619,8 +629,9 @@ void Icm42688p::CheckWhoAmI() {
 
   SetBank(0);
   while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
-    uint8_t who = ReadReg(REG_WHO_AM_I);
-    if (who == WHO_AM_I_ICM42688P || who == WHO_AM_I_ICM42686P) {
+    uint8_t id = ReadReg(REG_WHO_AM_I);
+    if (id == WHO_AM_I_ICM42688P || id == WHO_AM_I_ICM42686P) {
+      who_am_i_ = id;
       return;
     }
     time.DelayMicros(MILLIS_TO_MICROS(10));
