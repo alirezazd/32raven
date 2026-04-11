@@ -8,6 +8,8 @@ enum class ErrorCode : uint32_t {
   kTcpServerAcceptFailed,
   kLedTaskCreateFailed,
   kMavlinkInitFailed,
+  kMavlinkTaskAlreadyRunning,
+  kMavlinkTaskStopOutsidePanic,
   kMavlinkStackOverflow,
   kFcLinkInitFailed,
   kFcLinkRxQueueFull,
