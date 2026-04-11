@@ -26,6 +26,14 @@ enum class MsgId : uint8_t {
   kPing = 0x01,
   kLog = 0x02,
   kPong = 0x03,
+  kReqRcMap = 0x04,
+  kRcMapConfig = 0x05,
+  kReqRcCalibration = 0x06,
+  kRcCalibrationConfig = 0x07,
+  kReqGyroCalibrationId = 0x08,
+  kGyroCalibrationIdConfig = 0x09,
+  kSetRcMapConfig = 0x0A,
+  kSetRcCalibrationConfig = 0x0B,
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kImuData = 0x11,
@@ -48,6 +56,24 @@ struct Header {
 struct RcChannelsMsg {
   uint16_t channels[16];
   uint8_t rssi;
+} __attribute__((packed));
+
+struct RcMapConfigMsg {
+  uint8_t roll;
+  uint8_t pitch;
+  uint8_t yaw;
+  uint8_t throttle;
+} __attribute__((packed));
+
+struct RcCalibrationConfigMsg {
+  uint16_t min_us[16];
+  uint16_t max_us[16];
+  uint16_t trim_us[16];
+  int8_t rev[16];
+} __attribute__((packed));
+
+struct GyroCalibrationIdConfigMsg {
+  uint32_t cal_gyro0_id;
 } __attribute__((packed));
 
 struct GpsData {
@@ -132,6 +158,14 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kPing:
     case MsgId::kLog:
     case MsgId::kPong:
+    case MsgId::kReqRcMap:
+    case MsgId::kRcMapConfig:
+    case MsgId::kReqRcCalibration:
+    case MsgId::kRcCalibrationConfig:
+    case MsgId::kReqGyroCalibrationId:
+    case MsgId::kGyroCalibrationIdConfig:
+    case MsgId::kSetRcMapConfig:
+    case MsgId::kSetRcCalibrationConfig:
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
     case MsgId::kImuData:
@@ -149,10 +183,21 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
   switch (id) {
     case MsgId::kPing:
     case MsgId::kPong:
+    case MsgId::kReqRcMap:
+    case MsgId::kReqRcCalibration:
+    case MsgId::kReqGyroCalibrationId:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
       return len == 0;
+    case MsgId::kRcMapConfig:
+    case MsgId::kSetRcMapConfig:
+      return len == PayloadLength<RcMapConfigMsg>();
+    case MsgId::kRcCalibrationConfig:
+    case MsgId::kSetRcCalibrationConfig:
+      return len == PayloadLength<RcCalibrationConfigMsg>();
+    case MsgId::kGyroCalibrationIdConfig:
+      return len == PayloadLength<GyroCalibrationIdConfigMsg>();
     case MsgId::kRcChannels:
       return len == PayloadLength<RcChannelsMsg>();
     case MsgId::kGpsData:
@@ -183,6 +228,57 @@ static inline bool IsPayloadValid(MsgId id, const uint8_t *payload,
 static inline bool IsPacketValid(uint8_t raw_id, const uint8_t *payload,
                                  uint8_t len) {
   return IsPayloadValid(static_cast<MsgId>(raw_id), payload, len);
+}
+
+static constexpr bool IsRcMapChannelValid(uint8_t channel) {
+  return channel >= 1u && channel <= 4u;
+}
+
+static constexpr bool IsRcMapConfigValid(const RcMapConfigMsg &cfg) {
+  return IsRcMapChannelValid(cfg.roll) && IsRcMapChannelValid(cfg.pitch) &&
+         IsRcMapChannelValid(cfg.yaw) &&
+         IsRcMapChannelValid(cfg.throttle) && cfg.roll != cfg.pitch &&
+         cfg.roll != cfg.yaw && cfg.roll != cfg.throttle &&
+         cfg.pitch != cfg.yaw && cfg.pitch != cfg.throttle &&
+         cfg.yaw != cfg.throttle;
+}
+
+static constexpr size_t kRcCalibrationChannelCount = 16u;
+
+static constexpr bool IsRcCalibrationRevValid(int8_t rev) {
+  return rev == 1 || rev == -1;
+}
+
+static constexpr bool IsRcCalibrationRangeValid(uint16_t min_us,
+                                                uint16_t max_us,
+                                                uint16_t trim_us) {
+  return min_us < max_us && trim_us >= min_us && trim_us <= max_us;
+}
+
+static inline bool IsRcCalibrationConfigValid(
+    const RcCalibrationConfigMsg &cfg) {
+  for (size_t i = 0; i < kRcCalibrationChannelCount; ++i) {
+    if (!IsRcCalibrationRangeValid(cfg.min_us[i], cfg.max_us[i],
+                                   cfg.trim_us[i]) ||
+        !IsRcCalibrationRevValid(cfg.rev[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static constexpr uint8_t kPx4DeviceBusTypeUnknown = 0u;
+static constexpr uint8_t kPx4DeviceBusTypeI2c = 1u;
+static constexpr uint8_t kPx4DeviceBusTypeSpi = 2u;
+static constexpr uint32_t kPx4DeviceIdBusTypeMask = 0x7u;
+
+static inline bool IsGyroCalibrationIdConfigValid(
+    const GyroCalibrationIdConfigMsg &cfg) {
+  const uint8_t bus_type =
+      static_cast<uint8_t>(cfg.cal_gyro0_id & kPx4DeviceIdBusTypeMask);
+  const uint8_t devtype = static_cast<uint8_t>((cfg.cal_gyro0_id >> 16) & 0xFFu);
+  return cfg.cal_gyro0_id != 0u && bus_type == kPx4DeviceBusTypeSpi &&
+         devtype != 0u;
 }
 
 // ---------------------------------------------------------
