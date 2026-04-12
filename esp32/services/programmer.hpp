@@ -12,9 +12,8 @@ extern "C" {
 #include <cstdint>
 #include <cstring>
 
-#include "esp32_limits.hpp"
 #include "error_code.hpp"
-#include "hal/gpio_types.h"
+#include "esp32_limits.hpp"
 #include "state_machine.hpp"
 
 class Programmer {
@@ -66,6 +65,7 @@ class Programmer {
   bool IsVerifying() const;
   uint32_t Total() const;
   uint32_t Written() const;
+  uint32_t VerifyOffset() const;
   size_t Free() const;
   bool Boot();
 
@@ -87,7 +87,8 @@ class Programmer {
     uint32_t restore_baud_rate = 115200;
 
     // staging buffer for bytes coming from HTTP (backpressure lives here)
-    static constexpr size_t kBufCap = esp32_limits::kProgrammerStagingBufferBytes;
+    static constexpr size_t kBufCap =
+        esp32_limits::kProgrammerStagingBufferBytes;
     uint8_t buf[kBufCap]{};
     size_t head = 0;
     size_t tail = 0;
@@ -172,7 +173,7 @@ class Programmer {
   bool EnterStm32Bootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
   bool GetStm32BootloaderInfo();  // CMD_GET (0x00)
   bool EraseStm32Sectors();       // STM32 targeted EXT_ERASE preserving EEPROM
-  bool MassEraseStm32();          // Mass erase (STM32 only, no EEPROM preservation)
+  bool MassEraseStm32();  // Mass erase (STM32 only, no EEPROM preservation)
   bool WriteStm32Block(uint32_t addr, const uint8_t *data,
                        size_t len);  // CMD_WRITE_MEMORY (0x31)
   bool ReadStm32Block(uint32_t addr, uint8_t *data,

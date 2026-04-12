@@ -47,9 +47,6 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   ctx.sys->Mavlink().Poll();
-  while (auto ev = ctx.sys->Mavlink().PopCommandLongEvent()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
-  }
   ctx.sys->Mavlink().ForwardRcStateToFcLink(now_ms);
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
@@ -88,9 +85,6 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   ctx.sys->Mavlink().Poll();
-  while (auto ev = ctx.sys->Mavlink().PopCommandLongEvent()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
-  }
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
@@ -124,7 +118,8 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->Tcp().Poll(now);
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    if (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
+    if (ctx.sys->CommandHandler().Dispatch(ctx, *ev) ==
+        CommandHandler::DfuTcpAction::kEnterProgram) {
       ctx.sm->ReqTransition(*ctx.program_state);
       return;
     }
@@ -135,6 +130,8 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
 void ProgramState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Program mode");
   ctx.sys->Ui().SetAppState(Ui::AppState::kProgram);
+  // Treat programming start like user activity so the progress UI is visible.
+  ctx.sys->Ui().NotifyUserActivity();
   ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
