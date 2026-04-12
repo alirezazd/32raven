@@ -54,6 +54,14 @@ constexpr char kProgrammingViewportSample[] = "1234567";
 constexpr TimeMs kDefaultDfuLinkStepPeriodMs = 16;
 constexpr uint16_t kDfuLinkSubpixelScale = 256;
 constexpr uint16_t kDfuLinkPixelsPerSecond = 48;
+constexpr int16_t kProgressBarHeightPx = 1;
+constexpr int16_t kProgressBarIconGapPx = 2;
+constexpr int16_t kProgressBarBlackWidthPx = 2;
+constexpr int16_t kProgressBarWhiteWidthPx =
+    kProgressBarBlackWidthPx * 3;
+constexpr int16_t kProgressBarPitchPx =
+    kProgressBarBlackWidthPx + kProgressBarWhiteWidthPx;
+constexpr uint16_t kProgressBarPixelsPerSecond = 28;
 constexpr uint16_t kMavlinkPacketSubpixelScale = 256;
 constexpr uint16_t kMavlinkPacketPixelsPerSecond = 36;
 constexpr uint16_t kVerifyMagnifierSubpixelScale = 256;
@@ -127,6 +135,57 @@ bool IsWifiCredentialsMode(WidgetMode mode) {
 bool IsMavlinkMode(WidgetMode mode) {
   return mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected;
+}
+
+int16_t ProgressBarFillWidth(DisplayRenderer &renderer, WidgetMode mode) {
+  const size_t width = renderer.Width();
+  if (!IsScrollableProgressMode(mode) || width == 0) {
+    return 0;
+  }
+
+  const Programmer &programmer = Sys().Programmer();
+  const uint32_t total = programmer.Total();
+  if (total == 0) {
+    return 0;
+  }
+
+  uint32_t completed =
+      programmer.IsVerifying() ? programmer.VerifyOffset() : programmer.Written();
+  if (completed > total) {
+    completed = total;
+  }
+
+  return static_cast<int16_t>(
+      (static_cast<uint64_t>(completed) * static_cast<uint64_t>(width)) / total);
+}
+
+void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
+  const int16_t width = static_cast<int16_t>(renderer.Width());
+  const int16_t height = static_cast<int16_t>(renderer.Height());
+  if (width <= 0 || height < kProgressBarHeightPx) {
+    return;
+  }
+
+  const int16_t top = static_cast<int16_t>(height - kProgressBarHeightPx);
+  renderer.FillRect(0, top, width, kProgressBarHeightPx, false);
+
+  const int16_t fill_width = ProgressBarFillWidth(renderer, mode);
+  if (fill_width <= 0) {
+    return;
+  }
+
+  renderer.FillRect(0, top, fill_width, kProgressBarHeightPx, true);
+
+  const int16_t phase_px = static_cast<int16_t>(
+      ((static_cast<uint32_t>(now) * kProgressBarPixelsPerSecond) / 1000u) %
+      kProgressBarPitchPx);
+  for (int16_t x = 0; x < fill_width; ++x) {
+    const int16_t pattern_pos = static_cast<int16_t>(
+        (x + kProgressBarPitchPx - phase_px) % kProgressBarPitchPx);
+    if (pattern_pos < kProgressBarBlackWidthPx) {
+      renderer.DrawFastVLine(x, top, kProgressBarHeightPx, false);
+    }
+  }
 }
 
 bool ShouldShowDfuWifiBadge(WidgetMode mode) {
@@ -741,9 +800,16 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     return;
   }
 
+  const int16_t progress_bottom_inset = IsScrollableProgressMode(mode)
+                                            ? (kProgressBarHeightPx +
+                                               kProgressBarIconGapPx)
+                                            : 0;
   const int16_t status_top = kTextInsetY;
   const int16_t status_y = static_cast<int16_t>(status_top - status_bounds.y);
   const auto finish_render = [&]() {
+    if (IsScrollableProgressMode(mode)) {
+      DrawProgressBar(renderer, now, mode);
+    }
     if (text_animation_active_ && visible_chars >= std::strlen(status)) {
       text_animation_active_ = false;
     }
@@ -907,7 +973,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         chip_verify_bitmap::kVisibleHeight <= renderer.Height()) {
       const int16_t body_top = static_cast<int16_t>(status_bounds.height);
       const int16_t body_height = std::max<int16_t>(
-          0, static_cast<int16_t>(renderer.Height()) - body_top);
+          0, static_cast<int16_t>(renderer.Height()) - body_top -
+                 progress_bottom_inset);
       const int16_t verify_icon_x = std::max<int16_t>(
           0, (static_cast<int16_t>(renderer.Width()) -
               static_cast<int16_t>(chip_verify_bitmap::kVisibleWidth)) /
@@ -977,11 +1044,14 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       const int16_t icon_region_height = static_cast<int16_t>(
           std::max(left_icon.height, chip_bitmap::kVisibleHeight));
       const int16_t icon_region_y =
-          static_cast<int16_t>(renderer.Height() - icon_region_height);
+          static_cast<int16_t>(renderer.Height() - progress_bottom_inset -
+                               icon_region_height);
       const int16_t left_icon_y =
-          static_cast<int16_t>(renderer.Height() - left_icon.height);
+          static_cast<int16_t>(renderer.Height() - progress_bottom_inset -
+                               left_icon.height);
       const int16_t chip_icon_y =
-          static_cast<int16_t>(renderer.Height() - chip_bitmap::kVisibleHeight);
+          static_cast<int16_t>(renderer.Height() - progress_bottom_inset -
+                               chip_bitmap::kVisibleHeight);
       const int16_t gap_left =
           static_cast<int16_t>(kDfuIconLeftX + left_icon.width);
       const int16_t gap_right = static_cast<int16_t>(right_icon_x);
