@@ -172,7 +172,6 @@ inline constexpr UartConfig kRcRxUartConfig = {
 };
 
 inline constexpr FcLink::Config kFcLinkConfig = {
-    .rc_forward_rate_hz = {{ fclink.rc_forward_rate_hz }},
     .handshake_attempts = {{ fclink.handshake_attempts }},
     .handshake_retry_period_ms = {{ fclink.handshake_retry_period_ms }},
     .invalid_packet_threshold = {{ fclink.invalid_packet_threshold }},
@@ -263,5 +262,8 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                             .batt_start_delay_ms = {{ mavlink_rc.tx.schedule.batt_start_delay_ms }},
                         },
                 },
+            .fc_forward_rate_hz = {{ mavlink_rc.fc_forward_rate_hz }},
+            .fc_request_attempts = {{ mavlink_rc.fc_request_attempts }},
+            .fc_request_retry_period_ms = {{ mavlink_rc.fc_request_retry_period_ms }},
         },
 };

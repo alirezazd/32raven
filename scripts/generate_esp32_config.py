@@ -369,7 +369,7 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
     )
     _validate_int_range(
         kconf,
-        "ESP32_FCLINK_RC_FORWARD_RATE_HZ",
+        "ESP32_MAVLINK_RC_FCLINK_FORWARD_RATE_HZ",
         FCLINK_RC_FORWARD_RATE_MIN,
         FCLINK_RC_FORWARD_RATE_MAX,
     )
@@ -808,7 +808,6 @@ def _runtime_context(
         },
         "fclink": {
             "rx_queue_depth": _sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH"),
-            "rc_forward_rate_hz": _sym_int(kconf, "ESP32_FCLINK_RC_FORWARD_RATE_HZ"),
             "handshake_attempts": _sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_ATTEMPTS"),
             "handshake_retry_period_ms": _sym_int(
                 kconf, "ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS"
@@ -947,6 +946,15 @@ def _runtime_context(
                     ),
                 },
             },
+            "fc_forward_rate_hz": _sym_int(
+                kconf, "ESP32_MAVLINK_RC_FCLINK_FORWARD_RATE_HZ"
+            ),
+            "fc_request_attempts": _sym_int(
+                kconf, "ESP32_MAVLINK_RC_FCLINK_REQUEST_ATTEMPTS"
+            ),
+            "fc_request_retry_period_ms": _sym_int(
+                kconf, "ESP32_MAVLINK_RC_FCLINK_REQUEST_RETRY_PERIOD_MS"
+            ),
         },
     }
 
