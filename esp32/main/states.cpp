@@ -11,43 +11,11 @@
 
 extern "C" {
 #include "esp_log.h"
-#include "esp_system.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
 static constexpr const char *kTag = "ESP32-SM";
-
-namespace {
-
-bool ConsumeScreenAwarePress(AppContext &ctx, Button &button) {
-  if (!button.ConsumePress()) {
-    return false;
-  }
-
-  const bool screen_on = ctx.sys->Ui().IsScreenOn();
-  ctx.sys->Ui().NotifyUserActivity();
-  return screen_on;
-}
-
-bool HandleLongLongReboot(Button &button) {
-  if (!button.ConsumeLongLongPress()) {
-    return false;
-  }
-
-  ESP_LOGW(kTag, "LONG-LONG press -> reboot");
-  esp_restart();
-  return true;
-}
-
-void DrainMavlinkCommandEvents(AppContext &ctx) {
-  Mavlink::CommandLongEvent ev{};
-  while (ctx.sys->Mavlink().PopCommandLongEvent(ev)) {
-    ctx.sys->CommandHandler().Dispatch(ctx, ev);
-  }
-}
-
-}  // namespace
 
 // Serving State
 void ServingState::OnEnter(AppContext &ctx) {
@@ -61,15 +29,17 @@ void ServingState::OnEnter(AppContext &ctx) {
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
   (void)now;
+  const uint32_t now_ms = ctx.sys->Timebase().NowMs();
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (ConsumeScreenAwarePress(ctx, button)) {
-    ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
-    return;
-  }
-  if (HandleLongLongReboot(button)) {
-    return;
+  if (button.ConsumePress()) {
+    const bool screen_on = ctx.sys->Ui().IsScreenOn();
+    ctx.sys->Ui().NotifyUserActivity();
+    if (screen_on) {
+      ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
+      return;
+    }
   }
   if (button.ConsumeLongPress()) {
     ctx.sm->ReqTransition(*ctx.dfu_state);
@@ -77,14 +47,11 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   ctx.sys->Mavlink().Poll();
-  ctx.sys->Mavlink().OfferRcChannels(ctx.sys->Mavlink().GetRcState(),
-                                     ctx.sys->Timebase().NowMs());
-  DrainMavlinkCommandEvents(ctx);
-  ctx.sys->FcLink().ForwardRcState(
-      ctx.sys->Mavlink()
-          .GetRcState());  // FcLink will regulate forwarding rate internally
+  while (auto ev = ctx.sys->Mavlink().PopCommandLongEvent()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+  }
+  ctx.sys->Mavlink().ForwardRcStateToFcLink(now_ms);
   ctx.sys->FcLink().Poll();
-  DrainMavlinkCommandEvents(ctx);
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
@@ -95,7 +62,6 @@ void MavlinkWifiState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering MavlinkWifi");
   ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkWifi);
   ctx.sys->Mavlink().SetPrimaryLinkEnabled(true);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().StartAp();
   ctx.sys->Udp().Start();
@@ -106,13 +72,14 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (ConsumeScreenAwarePress(ctx, button)) {
-    ESP_LOGI(kTag, "MavlinkWifi -> Serving (press)");
-    ctx.sm->ReqTransition(*ctx.serving_state);
-    return;
-  }
-  if (HandleLongLongReboot(button)) {
-    return;
+  if (button.ConsumePress()) {
+    const bool screen_on = ctx.sys->Ui().IsScreenOn();
+    ctx.sys->Ui().NotifyUserActivity();
+    if (screen_on) {
+      ESP_LOGI(kTag, "MavlinkWifi -> Serving (press)");
+      ctx.sm->ReqTransition(*ctx.serving_state);
+      return;
+    }
   }
   if (button.ConsumeLongPress()) {
     ESP_LOGI(kTag, "MavlinkWifi -> Dfu (long press)");
@@ -121,14 +88,13 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   ctx.sys->Mavlink().Poll();
-  ctx.sys->Mavlink().OfferRcChannels(ctx.sys->Mavlink().GetRcState(),
-                                     ctx.sys->Timebase().NowMs());
-  DrainMavlinkCommandEvents(ctx);
+  while (auto ev = ctx.sys->Mavlink().PopCommandLongEvent()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+  }
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
-  DrainMavlinkCommandEvents(ctx);
 }
 
 // Dfu State
@@ -145,40 +111,22 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (ConsumeScreenAwarePress(ctx, button)) {
-    ESP_LOGI(kTag, "DFU -> Serving (press)");
-    ctx.sm->ReqTransition(*ctx.serving_state);
-    return;
-  }
-  if (HandleLongLongReboot(button)) {
-    return;
-  }
-  // Poll MAVLink and FcLink for Monitoring
-  ctx.sys->Mavlink().Poll();
-  DrainMavlinkCommandEvents(ctx);
-  ctx.sys->FcLink().Poll();
-  while (auto packet = ctx.sys->FcLink().PopPacket()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
+  if (button.ConsumePress()) {
+    const bool screen_on = ctx.sys->Ui().IsScreenOn();
+    ctx.sys->Ui().NotifyUserActivity();
+    if (screen_on) {
+      ESP_LOGI(kTag, "DFU -> Serving (press)");
+      ctx.sm->ReqTransition(*ctx.serving_state);
+      return;
+    }
   }
 
   ctx.sys->Tcp().Poll(now);
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    CommandHandler::TransitionResult res =
-        ctx.sys->CommandHandler().Dispatch(ctx, *ev);
-    switch (res) {
-      case CommandHandler::TransitionResult::kTransitionToProgram:
-        ctx.sm->ReqTransition(*ctx.program_state);
-        return;
-      case CommandHandler::TransitionResult::kTransitionToServing:
-        ctx.sm->ReqTransition(*ctx.serving_state);
-        return;
-      case CommandHandler::TransitionResult::kNone:
-        break;
-      case CommandHandler::TransitionResult::kUnknown:
-      default:
-        ESP_LOGE(kTag, "Unknown TCP Result: %d -> Panic", (int)res);
-        Panic(ErrorCode::kTcpServerError);
+    if (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
+      ctx.sm->ReqTransition(*ctx.program_state);
+      return;
     }
   }
 }
@@ -198,9 +146,8 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  (void)ConsumeScreenAwarePress(ctx, button);
-  if (HandleLongLongReboot(button)) {
-    return;
+  if (button.ConsumePress()) {
+    ctx.sys->Ui().NotifyUserActivity();
   }
   if (button.ConsumeLongPress()) {
     ESP_LOGI(kTag, "Program -> Dfu (long press)");
@@ -212,21 +159,25 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
 
   ctx.sys->Tcp().Poll(now);
   ctx.sys->Programmer().Poll(now);
-  DrainMavlinkCommandEvents(ctx);
 
   auto &tcp = ctx.sys->Tcp();
   auto &prog = ctx.sys->Programmer();
 
   if (prog.Error()) {
+    const ErrorCode programmer_error = prog.LastErrorCode();
+    tcp.StopDownload();
+    prog.Abort(now);
     ESP_LOGE(kTag, "Prog Error -> Panic");
-    Panic(prog.LastErrorCode());
+    Panic(programmer_error);
   }
 
   if (prog.Done()) {
     ESP_LOGI(kTag, "Prog Done -> Transitioning to Dfu");
-    // Report success status before correct transition
-    TcpServer::Status st = tcp.GetStatus();
-    st.state = 1;  // Done
+    TcpServer::Status st{};
+    st.rx = prog.Written();
+    st.total = prog.Total();
+    st.state = 1;
+    tcp.StopDownload();
     tcp.SetStatus(st);
 
     ctx.sys->Programmer().Boot();
@@ -239,6 +190,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
         ev->id == TcpServer::EventId::kCtrlDown ||
         ev->id == TcpServer::EventId::kDataDown) {
       ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev->id);
+      tcp.StopDownload();
       prog.Abort(now);
       if (ev->id == TcpServer::EventId::kAbort) {
         ctx.sm->ReqTransition(*ctx.serving_state);
@@ -278,6 +230,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   if (!prog.IsVerifying() && !prog.Done()) {
     if ((now - last_activity_) > 3000) {
       ESP_LOGE(kTag, "Programmer timed out -> Panic");
+      tcp.StopDownload();
       prog.Abort(now);
       Panic(ErrorCode::kProgrammerTimedOut);
     }

@@ -156,14 +156,18 @@ ErrorCode RunRecoverableLoop() {
 
       if (prog.Error()) {
         const ErrorCode programmer_error = prog.LastErrorCode();
+        tcp.StopDownload();
         prog.Abort(now);
         sys.StopNetwork();
         return programmer_error;
       }
 
       if (prog.Done()) {
-        TcpServer::Status st = tcp.GetStatus();
+        TcpServer::Status st{};
+        st.rx = prog.Written();
+        st.total = prog.Total();
         st.state = 1;
+        tcp.StopDownload();
         tcp.SetStatus(st);
         (void)prog.Boot();
         recovery_error = EnterRecoveryDfuMode();
