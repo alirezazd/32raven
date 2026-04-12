@@ -623,14 +623,16 @@ size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
   if (!ctx_.ready) return 0;  // not ready to accept bytes
   if (Error() || Done()) return 0;
 
+  size_t accepted = 0;
   if (data && n) {
     const size_t free = RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
-    size_t take = (n <= free) ? n : free;
+    const size_t take = (n <= free) ? n : free;
 
     for (size_t i = 0; i < take; ++i) {
       ctx_.buf[ctx_.tail] = data[i];
       ctx_.tail = (ctx_.tail + 1) % Ctx::kBufCap;
     }
+    accepted = take;
 
     if (take < n) {
       ctx_.overflow = true;
@@ -639,7 +641,7 @@ size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
 
   // Advance internal SM even if n==0 (lets it finish draining / finalize)
   sm_.Step(now);
-  return n ? (n <= RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap) ? n : 0) : 0;
+  return accepted;
 }
 
 bool Programmer::Ready() const { return ctx_.ready && !Error(); }
