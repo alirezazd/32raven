@@ -3,6 +3,7 @@
 enum class ErrorCode : uint32_t {
   kOk,
   kUnknown,
+  kUnknownCommand,
   kSystemReinit,
   kTcpServerStartFailed,
   kTcpServerAcceptFailed,
@@ -27,6 +28,10 @@ enum class ErrorCode : uint32_t {
   kFcLinkRcMapSetFailed,
   kFcLinkRcCalibrationSetFailed,
   kCommandInitFailed,
+  kCommandInvalidPacket,
+  kCommandInvalidRcMapConfig,
+  kCommandInvalidRcCalibrationConfig,
+  kCommandInvalidGyroCalibrationIdConfig,
   kLedGpioConfigFailed,
   kLedTimerInitFailed,
   kLedChannelInitFailed,

@@ -1,13 +1,16 @@
 #pragma once
 
 #include "ctx.hpp"
-#include "mavlink.hpp"
 #include "message.hpp"
 #include "tcp_server.hpp"
 
 class CommandHandler {
  public:
   struct Config {};
+  enum class DfuTcpAction : uint8_t {
+    kStayInDfu = 0,
+    kEnterProgram,
+  };
 
   static CommandHandler &GetInstance() {
     static CommandHandler instance;
@@ -16,24 +19,9 @@ class CommandHandler {
 
   void Init(const Config &cfg);
 
-  enum class TransitionResult {
-    kNone,
-    kUnknown,
-    kTransitionToProgram,
-    kTransitionToServing,
-    kTransitionToBridge,
-    kTransitionToDfu,
-    kTransitionToHardError
-  };
-
-  // Dispatch uses a lookup table for O(1) access
   void Dispatch(AppContext &ctx, const message::Packet &pkt);
 
-  // Dispatch TCP events
-  TransitionResult Dispatch(AppContext &ctx, const TcpServer::Event &ev);
-
-  // Dispatch MAVLink command events
-  void Dispatch(AppContext &ctx, const Mavlink::CommandLongEvent &ev);
+  DfuTcpAction Dispatch(AppContext &ctx, const TcpServer::Event &ev);
 
  private:
   CommandHandler() = default;
@@ -41,6 +29,4 @@ class CommandHandler {
   CommandHandler(const CommandHandler &) = delete;
   CommandHandler &operator=(const CommandHandler &) = delete;
   Config cfg_;
-  using HandlerFunc = void (*)(AppContext &ctx, const message::Packet &pkt);
-  HandlerFunc handlers_[256];
 };

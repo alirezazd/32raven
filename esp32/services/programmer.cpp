@@ -665,6 +665,7 @@ bool Programmer::IsVerifying() const {
 
 uint32_t Programmer::Total() const { return ctx_.total_size; }
 uint32_t Programmer::Written() const { return ctx_.written; }
+uint32_t Programmer::VerifyOffset() const { return ctx_.verify_offset; }
 
 size_t Programmer::Free() const {
   return RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);

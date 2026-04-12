@@ -15,10 +15,16 @@ extern "C" {
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
+#include "panic.hpp"
 }
 
 static constexpr const char *kTag = "cmd";
 #include "esp_timer.h"  // Added for esp_timer_get_time
+
+[[noreturn]] static void PanicUnknownCommand(uint8_t id) {
+  ESP_LOGE(kTag, "Unknown Command ID: 0x%02X (%u)", (unsigned)id, (unsigned)id);
+  Panic(ErrorCode::kUnknownCommand);
+}
 
 static void OnLog(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
@@ -33,22 +39,7 @@ static void OnLog(AppContext &ctx, const message::Packet &pkt) {
   ESP_LOGI("FC", "%s", buf);
 }
 
-static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
-  (void)ctx;
-  if (!message::IsPayloadLengthValid(message::MsgId::kRcChannels,
-                                     pkt.header.len)) {
-    ESP_LOGW(kTag, "Invalid RC Channels Length");
-    return;
-  }
-}
-
 static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
-  if (!message::IsPayloadLengthValid(message::MsgId::kGpsData,
-                                     pkt.header.len)) {
-    ESP_LOGW(kTag, "Invalid GPS Data Length");
-    return;
-  }
-
   const auto *t = (const message::GpsData *)pkt.payload;
 
   // Format for Monitor Mode (TCP) - Debugging
@@ -73,22 +64,46 @@ static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
 
 static void OnUnknown(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
-  ESP_LOGW(kTag, "Unknown Command ID: %d", pkt.header.id);
+  PanicUnknownCommand(pkt.header.id);
 }
 
 static void OnPong(AppContext &ctx, const message::Packet &pkt) {
   (void)ctx;
   (void)pkt;
-  // Ping response - ignore
+}
+
+static void OnRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
+  const auto *cfg = (const message::RcMapConfigMsg *)pkt.payload;
+  if (!message::IsRcMapConfigValid(*cfg)) {
+    ESP_LOGW(kTag, "Invalid RC Map Config Payload");
+    Panic(ErrorCode::kCommandInvalidRcMapConfig);
+  }
+
+  ctx.sys->Mavlink().SetRcMapConfig(*cfg);
+}
+
+static void OnRcCalibrationConfig(AppContext &ctx, const message::Packet &pkt) {
+  const auto *cfg = (const message::RcCalibrationConfigMsg *)pkt.payload;
+  if (!message::IsRcCalibrationConfigValid(*cfg)) {
+    ESP_LOGW(kTag, "Invalid RC Calibration Config Payload");
+    Panic(ErrorCode::kCommandInvalidRcCalibrationConfig);
+  }
+
+  ctx.sys->Mavlink().SetRcCalibrationConfig(*cfg);
+}
+
+static void OnGyroCalibrationIdConfig(AppContext &ctx,
+                                      const message::Packet &pkt) {
+  const auto *cfg = (const message::GyroCalibrationIdConfigMsg *)pkt.payload;
+  if (!message::IsGyroCalibrationIdConfigValid(*cfg)) {
+    ESP_LOGW(kTag, "Invalid Gyro Calibration ID Payload");
+    Panic(ErrorCode::kCommandInvalidGyroCalibrationIdConfig);
+  }
+
+  ctx.sys->Mavlink().SetGyroCalibrationIdConfig(*cfg);
 }
 
 static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
-  if (!message::IsPayloadLengthValid(message::MsgId::kImuData,
-                                     pkt.header.len)) {
-    ESP_LOGW(kTag, "Invalid IMU Data Length");
-    return;
-  }
-
   const auto *m = (const message::ImuData *)pkt.payload;
 
   char buf[128];
@@ -103,19 +118,13 @@ static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
 }
 
 static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
-  if (!message::IsPayloadLengthValid(message::MsgId::kPanic,
-                                     pkt.header.len)) {
-    ESP_LOGW(kTag, "Invalid Panic Message Length");
-    return;
-  }
-
   const auto *m = (const message::PanicMsg *)pkt.payload;
 
   // In DFU mode, we ignore the panic to allow for flashing/debugging
   if (ctx.sm->CurrentState() == (const IState<AppContext> *)ctx.dfu_state) {
     static int64_t last_log_us = 0;
     int64_t now_us = esp_timer_get_time();
-    if (now_us - last_log_us >= 2000000) {
+    if (now_us - last_log_us >= 5000000) {
       ESP_LOGE(kTag, "STM32 Panic (Ignored in DFU): Code 0x%X: %s",
                m->error_code,
                GetMessage(static_cast<ErrorCode>(m->error_code)));
@@ -130,18 +139,6 @@ static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
 
 void CommandHandler::Init(const Config &cfg) {
   cfg_ = cfg;
-
-  // Initialize table
-  for (int i = 0; i < 256; ++i) {
-    handlers_[i] = OnUnknown;
-  }
-
-  handlers_[(uint8_t)message::MsgId::kRcChannels] = OnRcChannels;
-  handlers_[(uint8_t)message::MsgId::kGpsData] = OnGpsData;
-  handlers_[(uint8_t)message::MsgId::kLog] = OnLog;
-  handlers_[(uint8_t)message::MsgId::kPong] = OnPong;
-  handlers_[(uint8_t)message::MsgId::kImuData] = OnImuData;
-  handlers_[(uint8_t)message::MsgId::kPanic] = OnPanic;
   ESP_LOGI(kTag, "Initialized");
 }
 
@@ -149,18 +146,41 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
     ESP_LOGW(kTag, "Rejected invalid packet id=0x%02X len=%u",
              (unsigned)pkt.header.id, (unsigned)pkt.header.len);
-    return;
+    Panic(ErrorCode::kCommandInvalidPacket);
   }
 
-  HandlerFunc handler = handlers_[pkt.header.id];
-  if (handler) {
-    handler(ctx, pkt);
-  } else {
-    ESP_LOGW(kTag, "No handler for ID %d", pkt.header.id);
+  switch (static_cast<message::MsgId>(pkt.header.id)) {
+    case message::MsgId::kPong:
+      OnPong(ctx, pkt);
+      break;
+    case message::MsgId::kGpsData:
+      OnGpsData(ctx, pkt);
+      break;
+    case message::MsgId::kLog:
+      OnLog(ctx, pkt);
+      break;
+    case message::MsgId::kRcMapConfig:
+      OnRcMapConfig(ctx, pkt);
+      break;
+    case message::MsgId::kRcCalibrationConfig:
+      OnRcCalibrationConfig(ctx, pkt);
+      break;
+    case message::MsgId::kGyroCalibrationIdConfig:
+      OnGyroCalibrationIdConfig(ctx, pkt);
+      break;
+    case message::MsgId::kImuData:
+      OnImuData(ctx, pkt);
+      break;
+    case message::MsgId::kPanic:
+      OnPanic(ctx, pkt);
+      break;
+    default:
+      OnUnknown(ctx, pkt);
+      break;
   }
 }
 
-CommandHandler::TransitionResult CommandHandler::Dispatch(
+CommandHandler::DfuTcpAction CommandHandler::Dispatch(
     AppContext &ctx, const TcpServer::Event &ev) {
   switch (ev.id) {
     case TcpServer::EventId::kBegin: {
@@ -170,59 +190,27 @@ CommandHandler::TransitionResult CommandHandler::Dispatch(
       ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%d",
                (unsigned)ev.begin.size, (unsigned)ev.begin.crc,
                (int)ev.begin.target);
-      return TransitionResult::kTransitionToProgram;
+      return DfuTcpAction::kEnterProgram;
     }
     case TcpServer::EventId::kAbort: {
       ctx.sys->Tcp().StopDownload();
       ESP_LOGI(kTag, "TCP: ABORT");
-      return TransitionResult::kTransitionToServing;
+      return DfuTcpAction::kStayInDfu;
     }
     case TcpServer::EventId::kReset: {
       ctx.sys->Tcp().DisableBridge();
       ESP_LOGW(kTag, "TCP: RESET requested. Rebooting...");
       ctx.sys->Programmer().Boot();
       esp_restart();
-      return TransitionResult::kNone;
+      return DfuTcpAction::kStayInDfu;
     }
     case TcpServer::EventId::kBridge: {
       ESP_LOGI(kTag, "TCP: BRIDGE requested");
       ctx.sys->Tcp().EnableBridge();
-      return TransitionResult::kNone;
+      return DfuTcpAction::kStayInDfu;
     }
     default:
       break;
   }
-  return TransitionResult::kNone;
-}
-
-void CommandHandler::Dispatch(AppContext &ctx,
-                              const Mavlink::CommandLongEvent &ev) {
-  const mavlink_message_t &msg = ev.msg;
-  if (msg.msgid != MAVLINK_MSG_ID_COMMAND_LONG) {
-    return;
-  }
-
-  mavlink_command_long_t cmd{};
-  mavlink_msg_command_long_decode(&msg, &cmd);
-
-  switch (cmd.command) {
-    case MAV_CMD_REQUEST_MESSAGE:
-      if ((uint32_t)cmd.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
-        ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
-                                           MAV_RESULT_ACCEPTED, msg.sysid,
-                                           msg.compid);
-        ctx.sys->Mavlink().QueueAutopilotVersion(ev.link);
-      } else {
-        ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
-                                           MAV_RESULT_UNSUPPORTED, msg.sysid,
-                                           msg.compid);
-      }
-      break;
-
-    default:
-      ctx.sys->Mavlink().QueueCommandAck(ev.link, (uint16_t)cmd.command,
-                                         MAV_RESULT_UNSUPPORTED, msg.sysid,
-                                         msg.compid);
-      break;
-  }
+  return DfuTcpAction::kStayInDfu;
 }

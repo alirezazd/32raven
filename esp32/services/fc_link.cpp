@@ -35,6 +35,7 @@ void FcLink::Init(const Config &cfg, UartFcLink *uart) {
 
 void FcLink::PerformHandshake() {
   g_packet_queue.Clear();
+  uart_->Flush();
   ESP_LOGI(kTag, "Handshake Start...");
   message::Packet ping{};
   ping.header.id = static_cast<uint8_t>(message::MsgId::kPing);
@@ -53,6 +54,10 @@ void FcLink::PerformHandshake() {
       message::Packet packet{};
       if (!g_packet_queue.Pop(packet)) {
         Panic(ErrorCode::kFcLinkRxQueueFull);
+      }
+
+      if (packet.header.id == static_cast<uint8_t>(message::MsgId::kPing)) {
+        continue;
       }
 
       if (packet.header.id == static_cast<uint8_t>(message::MsgId::kPong)) {
