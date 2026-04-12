@@ -4,7 +4,6 @@
 
 #include "error_code.hpp"
 #include "esp32_limits.hpp"
-#include "mavlink.hpp"
 #include "panic.hpp"
 #include "ring_buffer.hpp"
 #include "system.hpp"
@@ -24,36 +23,51 @@ void FcLink::Init(const Config &cfg, UartFcLink *uart) {
     Panic(ErrorCode::kFcLinkInitFailed);
   }
   cfg_ = cfg;
-  if (cfg_.rc_forward_rate_hz == 0 || cfg_.handshake_attempts == 0 ||
-      cfg_.handshake_retry_period_ms == 0 ||
+  if (cfg_.handshake_attempts == 0 || cfg_.handshake_retry_period_ms == 0 ||
       cfg_.invalid_packet_threshold == 0) {
     Panic(ErrorCode::kFcLinkInitFailed);
   }
   uart_ = uart;
   g_packet_queue.Clear();
-  next_rc_forward_ms_ = 0;
+  PerformHandshake();
   ESP_LOGI(kTag, "Initialized");
 }
 
 void FcLink::PerformHandshake() {
-  next_rc_forward_ms_ = 0;
   g_packet_queue.Clear();
   ESP_LOGI(kTag, "Handshake Start...");
-
-  uint8_t tx_buf[message::kPacketOverhead];
-  size_t tx_len = message::Serialize(message::MsgId::kPing, nullptr, 0, tx_buf);
+  message::Packet ping{};
+  ping.header.id = static_cast<uint8_t>(message::MsgId::kPing);
+  ping.header.len = 0;
 
   for (uint16_t i = 0; i < cfg_.handshake_attempts; ++i) {
-    uart_->Write(tx_buf, tx_len);
+    SendPacket(ping);
     vTaskDelay(pdMS_TO_TICKS(cfg_.handshake_retry_period_ms));
 
     Poll();
 
-    if (auto response = PopPacket()) {
-      if (response->header.id == (uint8_t)message::MsgId::kPong) {
-        ESP_LOGI(kTag, "Handshake Success!");
-        return;
+    const size_t queued_packet_count = g_packet_queue.Available();
+    bool got_pong = false;
+    for (size_t packet_idx = 0; packet_idx < queued_packet_count;
+         ++packet_idx) {
+      message::Packet packet{};
+      if (!g_packet_queue.Pop(packet)) {
+        Panic(ErrorCode::kFcLinkRxQueueFull);
       }
+
+      if (packet.header.id == static_cast<uint8_t>(message::MsgId::kPong)) {
+        got_pong = true;
+        continue;
+      }
+
+      if (!g_packet_queue.Push(packet)) {
+        Panic(ErrorCode::kFcLinkRxQueueFull);
+      }
+    }
+
+    if (got_pong) {
+      ESP_LOGI(kTag, "Handshake Success!");
+      return;
     }
   }
 
@@ -75,28 +89,6 @@ void FcLink::SendPacket(const message::Packet &pkt) {
   uart_->Write(tx, len);
 }
 
-void FcLink::ForwardRcState(const RcState &rc_state) {
-  const TimeMs now = Sys().Timebase().NowMs();
-  if (!TimeReached(now, next_rc_forward_ms_)) {
-    return;
-  }
-
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kRcChannels;
-  pkt.header.len = message::PayloadLength<message::RcChannelsMsg>();
-  for (size_t i = 0; i < std::size(rc_state.channels); ++i) {
-    const uint16_t channel = rc_state.channels[i];
-    const size_t offset = i * sizeof(uint16_t);
-    pkt.payload[offset] = (uint8_t)(channel & 0xFFu);
-    pkt.payload[offset + 1] = (uint8_t)(channel >> 8);
-  }
-  pkt.payload[sizeof(rc_state.channels)] = rc_state.rssi;
-  SendPacket(pkt);
-  next_rc_forward_ms_ =
-      TimeAfter(now, static_cast<TimeMs>((1000u + cfg_.rc_forward_rate_hz - 1) /
-                                         cfg_.rc_forward_rate_hz));
-}
-
 std::optional<message::Packet> FcLink::PopPacket() {
   message::Packet packet;
   if (!g_packet_queue.Pop(packet)) {
@@ -105,8 +97,16 @@ std::optional<message::Packet> FcLink::PopPacket() {
   return packet;
 }
 
-// Returns true if packet is valid and successfully pushed to queue. Caller
-// should alert on false return.
+size_t FcLink::PendingRxPacketCount() const {
+  return g_packet_queue.Available();
+}
+
+void FcLink::QueueRxPacket(const message::Packet &pkt) {
+  if (!g_packet_queue.Push(pkt)) {
+    Panic(ErrorCode::kFcLinkRxQueueFull);
+  }
+}
+
 void FcLink::FinishRxPacket() {
   const auto should_alert_invalid = [this](ErrorCode code) {
     ++invalid_packet_count_;
