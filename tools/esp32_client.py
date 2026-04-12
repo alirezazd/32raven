@@ -417,38 +417,6 @@ class Esp32Shell(cmd.Cmd):
 
     # --- Helpers ---
 
-    def do_monitor(self, arg):
-        """Launch the Raven Dashboard (TUI)."""
-        if not self.target_ip:
-            print("Not connected.")
-            return
-
-        # 1. Release Control (Disconnect)
-        print("Launching Dashboard... (Shell will resume on exit)")
-        self._close_sockets()
-        self.connected = False
-        
-        # 2. Run Dashboard via pipx
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        script_path = os.path.join(script_dir, "raven_dashboard.py")
-        
-        import subprocess
-        try:
-            # Explicitly use pipx run to handle dependencies
-            cmd = ["pipx", "run", script_path, self.target_ip]
-            subprocess.call(cmd)
-        except OSError as e:
-            print(f"Error launching dashboard: {e}")
-            print("Ensure 'pipx' is installed and in your PATH.")
-
-        # 3. Reconnect on return
-        print("\nDashboard exited. Reconnecting shell...")
-        try:
-            # Accessing internal connection logic to restore state
-            self.do_connect(self.target_ip)
-        except Exception as e:
-            print(f"Reconnect failed: {e}")
-
     def _ensure_connected(self):
         if not self.connected:
             print("Not connected. Trying auto-connect...")
