@@ -267,6 +267,11 @@ static inline bool IsRcCalibrationConfigValid(
   return true;
 }
 
+static inline bool IsGyroCalibrationIdConfigValid(
+    const GyroCalibrationIdConfigMsg &cfg) {
+  return cfg.cal_gyro0_id != 0u;
+}
+
 // ---------------------------------------------------------
 // Helper: Simple CRC16-CCITT (XMODEM)
 // Poly: 0x1021
