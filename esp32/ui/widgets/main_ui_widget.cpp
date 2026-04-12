@@ -129,6 +129,10 @@ bool IsMavlinkMode(WidgetMode mode) {
          mode == WidgetMode::kMavlinkWifiConnected;
 }
 
+bool ShouldShowDfuWifiBadge(WidgetMode mode) {
+  return mode != WidgetMode::kVerifying;
+}
+
 struct IconAsset {
   const uint8_t *data = nullptr;
   size_t width = 0;
@@ -829,7 +833,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
              wifi_bitmap::kVisibleWidth <= renderer.Width() &&
              wifi_bitmap::kVisibleHeight <= renderer.Height()) {
     const bool show_warning_icon =
-        !IsWifiCredentialsMode(mode) || (((now / kDotStepPeriodMs) % 2u) == 0u);
+        ShouldShowDfuWifiBadge(mode) &&
+        (!IsWifiCredentialsMode(mode) || (((now / kDotStepPeriodMs) % 2u) == 0u));
     if (show_warning_icon) {
       const int16_t dfu_wifi_icon_x = static_cast<int16_t>(
           renderer.Width() - wifi_bitmap::kVisibleWidth - kDfuWifiRightInsetX);

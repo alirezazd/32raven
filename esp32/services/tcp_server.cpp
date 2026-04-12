@@ -91,14 +91,17 @@ void TcpServer::DisableBridge() {
 
 void TcpServer::StartDownload(size_t total_size) {
   download_enabled_ = true;
+  down_head_ = down_tail_ = 0;
+  download_overflow_ = false;
+  status_ = Status{};
   status_.total = total_size;
-  status_.rx = 0;
 }
 
 void TcpServer::StopDownload() {
   download_enabled_ = false;
-  status_.total = 0;
-  status_.rx = 0;
+  down_head_ = down_tail_ = 0;
+  download_overflow_ = false;
+  status_ = Status{};
 }
 
 int TcpServer::ReadDownload(uint8_t *dst, size_t max_len) {
