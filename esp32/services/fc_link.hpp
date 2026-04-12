@@ -37,7 +37,7 @@ class FcLink {
   FcLink &operator=(const FcLink &) = delete;
 
   UartFcLink *uart_ = nullptr;
-  Config cfg_;
+  Config cfg_ = {};
   static constexpr size_t kMaxRxReadBufferSize =
       message::kMaxPayload + message::kPacketOverhead;
 

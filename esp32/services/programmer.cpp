@@ -180,20 +180,53 @@ bool Programmer::EnterStm32Bootloader() {
     // Ensure byte physically left UART
     (void)ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-    // Wait for ACK
-    int r = ctx_.uart->Read(&rx, 1, ctx_.cfg.sync_timeout_ms);
-    if (r == 1) {
+    // Wait for ACK. Some boards can leave a stale byte in the RX FIFO during
+    // the reset-to-bootloader transition; keep reading until timeout so one
+    // stray byte does not make us miss the actual ACK.
+    const TimeMs deadline = TimeAfter(Sys().Timebase().NowMs(),
+                                      static_cast<TimeMs>(ctx_.cfg.sync_timeout_ms));
+    uint16_t unexpected_count = 0;
+    uint8_t last_unexpected = 0;
+    bool saw_nack = false;
+
+    while (!TimeReached(Sys().Timebase().NowMs(), deadline)) {
+      const TimeMs now = Sys().Timebase().NowMs();
+      TimeMs remaining = deadline - now;
+      if (remaining > 10) {
+        remaining = 10;
+      }
+
+      int r = ctx_.uart->Read(&rx, 1, remaining);
+      if (r != 1) {
+        continue;
+      }
+
       if (rx == 0x79) {
+        if (unexpected_count > 0) {
+          ESP_LOGW(kTag,
+                   "STM32 Connect ignored %u unexpected byte(s), last=0x%02X",
+                   static_cast<unsigned>(unexpected_count), last_unexpected);
+        }
         ESP_LOGI(kTag, "STM32 Connect ACK (0x79)");
         return true;  // ACK
       }
+
       if (rx == 0x1F) {
-        ESP_LOGW(kTag, "STM32 Connect NACK (0x1F)");
-      } else {
-        ESP_LOGW(kTag, "STM32 Connect Unknown: 0x%02X", rx);
+        saw_nack = true;
+        break;
       }
-    } else {
-      // Timeout or no data, retry
+
+      last_unexpected = rx;
+      ++unexpected_count;
+    }
+
+    if (unexpected_count > 0) {
+      ESP_LOGW(kTag, "STM32 Connect ignored %u unexpected byte(s), last=0x%02X",
+               static_cast<unsigned>(unexpected_count), last_unexpected);
+    }
+
+    if (saw_nack) {
+      ESP_LOGW(kTag, "STM32 Connect NACK (0x1F)");
     }
 
     // small delay between retries

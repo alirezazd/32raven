@@ -669,14 +669,6 @@ config ESP32_FCLINK_UART_TX_BUFFER_SIZE
 
 endmenu
 
-config ESP32_FCLINK_RC_FORWARD_RATE_HZ
-    int "RC forward rate (Hz)"
-    range 1 255
-    default 50
-    help
-      Maximum rate used to forward RC state from the ESP32 MAVLink receiver
-      to STM32 over FcLink while in Serving mode.
-
 config ESP32_FCLINK_INVALID_PACKET_THRESHOLD
     int "Invalid packet threshold"
     range 1 255
@@ -1046,6 +1038,30 @@ config ESP32_MAVLINK_RC_RX_READ_CHUNK_SIZE
     help
       Maximum number of bytes read from the RC receiver UART in one RC MAVLink
       receive pass.
+
+config ESP32_MAVLINK_RC_FCLINK_FORWARD_RATE_HZ
+    int "FcLink RC forward rate (Hz)"
+    range 1 255
+    default 50
+    help
+      Maximum rate used to forward RC state from the ESP32 RC MAVLink bridge
+      to STM32 over FcLink while the system is serving normally.
+
+config ESP32_MAVLINK_RC_FCLINK_REQUEST_ATTEMPTS
+    int "FcLink config request attempts"
+    range 1 1000
+    default 100
+    help
+      Number of request attempts used by the ESP32 RC MAVLink bridge when it
+      asks STM32 for RC-related configuration over FcLink.
+
+config ESP32_MAVLINK_RC_FCLINK_REQUEST_RETRY_PERIOD_MS
+    int "FcLink config request retry period (ms)"
+    range 1 1000
+    default 50
+    help
+      Delay between consecutive RC-configuration request attempts sent from the
+      ESP32 RC MAVLink bridge to STM32 over FcLink.
 
 endmenu
 
