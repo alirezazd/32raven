@@ -16,6 +16,10 @@ class RcReceiver {
  public:
   struct Config {
     bool enabled_channels[16]{};
+    uint8_t roll_channel = 0;
+    uint8_t pitch_channel = 0;
+    uint8_t yaw_channel = 0;
+    uint8_t throttle_channel = 0;
   };
 
   struct RawData {
@@ -36,6 +40,16 @@ class RcReceiver {
     return calibration_;
   }
   ee_schema::RcCalibration &GetCalibration() { return calibration_; }
+  message::RcMapConfigMsg GetRcMapConfig() const {
+    return {
+        .roll = cfg_.roll_channel,
+        .pitch = cfg_.pitch_channel,
+        .yaw = cfg_.yaw_channel,
+        .throttle = cfg_.throttle_channel,
+    };
+  }
+  bool SetRcMapConfig(const message::RcMapConfigMsg &cfg);
+  bool SetCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
 
   bool SaveCalibration();
 
@@ -45,9 +59,13 @@ class RcReceiver {
   void Init(const Config &cfg, EE &ee, VehicleState &vehicle_state,
             FcLink &fc_link);
   uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us,
-                            uint16_t max_us) const;
+                            uint16_t trim_us, uint16_t max_us,
+                            int8_t rev) const;
+  bool IsConfigValid(const Config &cfg) const;
+  void RecomputeCurrentFromRaw();
   void RefreshLinkState(uint32_t now_us);
   bool PublishIfChanged(const RcData &previous);
+  bool SaveRcMap(const Config &cfg);
   void LogState(uint32_t now_us);
 
   RcReceiver() = default;
@@ -67,4 +85,5 @@ class RcReceiver {
   RawData raw_{};
   RcData current_{};
   ee_schema::RcCalibration calibration_{};
+  Config cfg_{};
 };

@@ -1,18 +1,244 @@
 #include "mavlink.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 
 #include "../../third_party/mavlink/standard/mavlink_msg_autopilot_version.h"
-#include "../drivers/uart.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "panic.hpp"
 #include "system.hpp"
 
 static constexpr const char *kTag = "mavlink";
 
 namespace {
+
+namespace mi {
+
+inline constexpr uint64_t kMavProtocolCapabilityParamFloat = 1ull << 1;
+inline constexpr uint64_t kMavProtocolCapabilityMavlink2 = 1ull << 13;
+inline constexpr uint64_t kMavProtocolCapabilityParamEncodeCCast = 1ull << 17;
+
+inline void CopyMavParamId(const char *src, char (&dst)[17]) {
+  std::memcpy(dst, src, 16);
+  dst[16] = '\0';
+}
+
+inline void CopyMavTextField(const char *src, size_t src_len, char *dst,
+                             size_t dst_len) {
+  if (dst == nullptr || dst_len == 0) {
+    return;
+  }
+
+  const size_t copy_len = std::min(src_len, dst_len - 1u);
+  std::memcpy(dst, src, copy_len);
+  dst[copy_len] = '\0';
+}
+
+enum class ParamKey : uint8_t {
+  kSysId,
+  kMavSysId,
+  kCompId,
+  kCalAcc0Id,
+  kCalGyro0Id,
+  kCalMag0Id,
+  kCalMag1Id,
+  kCalMag2Id,
+  kCalMag0Rot,
+  kCalMag1Rot,
+  kCalMag2Rot,
+  kSensBoardRot,
+  kSensDpresOff,
+  kSysHasMag,
+  kSysHasNumAspd,
+  kSysAutostart,
+  kComRcInMode,
+  kRcChanCnt,
+  kRcMapRoll,
+  kRcMapPitch,
+  kRcMapYaw,
+  kRcMapThrottle,
+  kHeartbeatMs,
+  kGpsMs,
+  kAttMs,
+  kGposMs,
+  kBattMs,
+  kComRcLossT,
+};
+
+struct ParamDef {
+  const char *id;
+  uint8_t type;
+  ParamKey key;
+};
+
+inline constexpr ParamDef kParamTable[] = {
+    {"SYSID_THISMAV", MAV_PARAM_TYPE_UINT8, ParamKey::kSysId},
+    {"MAV_SYS_ID", MAV_PARAM_TYPE_UINT8, ParamKey::kMavSysId},
+    {"SYS_COMP_ID", MAV_PARAM_TYPE_UINT8, ParamKey::kCompId},
+    {"CAL_ACC0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalAcc0Id},
+    {"CAL_GYRO0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalGyro0Id},
+    {"CAL_MAG0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag0Id},
+    {"CAL_MAG1_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag1Id},
+    {"CAL_MAG2_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag2Id},
+    {"CAL_MAG0_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag0Rot},
+    {"CAL_MAG1_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag1Rot},
+    {"CAL_MAG2_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag2Rot},
+    {"SENS_BOARD_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kSensBoardRot},
+    {"SENS_DPRES_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensDpresOff},
+    {"SYS_HAS_MAG", MAV_PARAM_TYPE_INT32, ParamKey::kSysHasMag},
+    {"SYS_HAS_NUM_ASPD", MAV_PARAM_TYPE_INT32, ParamKey::kSysHasNumAspd},
+    {"SYS_AUTOSTART", MAV_PARAM_TYPE_INT32, ParamKey::kSysAutostart},
+    {"COM_RC_IN_MODE", MAV_PARAM_TYPE_UINT8, ParamKey::kComRcInMode},
+    {"RC_CHAN_CNT", MAV_PARAM_TYPE_UINT8, ParamKey::kRcChanCnt},
+    {"RC_MAP_ROLL", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapRoll},
+    {"RC_MAP_PITCH", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapPitch},
+    {"RC_MAP_YAW", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapYaw},
+    {"RC_MAP_THROTTLE", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapThrottle},
+    {"MAV_HB_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kHeartbeatMs},
+    {"MAV_GPS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGpsMs},
+    {"MAV_ATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kAttMs},
+    {"MAV_GPOS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGposMs},
+    {"MAV_BATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kBattMs},
+    {"COM_RC_LOSS_T", MAV_PARAM_TYPE_REAL32, ParamKey::kComRcLossT},
+};
+
+inline constexpr uint8_t kRcCalibrationParamCountPerChannel = 4u;
+inline constexpr uint8_t kTotalRcCalibrationParamCount =
+    message::kRcCalibrationChannelCount * kRcCalibrationParamCountPerChannel;
+inline constexpr uint16_t kBaseParamCount =
+    static_cast<uint16_t>(sizeof(kParamTable) / sizeof(kParamTable[0]));
+inline constexpr uint16_t kTotalParamCount =
+    kBaseParamCount + kTotalRcCalibrationParamCount;
+
+enum class RcCalibrationField : uint8_t {
+  kMin,
+  kMax,
+  kTrim,
+  kRev,
+};
+
+inline bool ParamIdEquals(const char *lhs, const char *rhs) {
+  return std::strncmp(lhs, rhs, 16) == 0;
+}
+
+inline bool TryParseRcCalibrationParamId(const char *param_id,
+                                         uint8_t &channel_index,
+                                         RcCalibrationField &field) {
+  unsigned channel = 0;
+  char suffix[6] = {};
+  if (std::sscanf(param_id, "RC%u_%5s", &channel, suffix) != 2) {
+    return false;
+  }
+  if (channel < 1u || channel > message::kRcCalibrationChannelCount) {
+    return false;
+  }
+
+  if (std::strcmp(suffix, "MIN") == 0) {
+    field = RcCalibrationField::kMin;
+  } else if (std::strcmp(suffix, "MAX") == 0) {
+    field = RcCalibrationField::kMax;
+  } else if (std::strcmp(suffix, "TRIM") == 0) {
+    field = RcCalibrationField::kTrim;
+  } else if (std::strcmp(suffix, "REV") == 0) {
+    field = RcCalibrationField::kRev;
+  } else {
+    return false;
+  }
+
+  channel_index = static_cast<uint8_t>(channel - 1u);
+  return true;
+}
+
+inline int8_t QuantizeSignedUnit(float value) {
+  return (value < 0.0f) ? -1 : 1;
+}
+
+inline const char *RcCalibrationFieldName(RcCalibrationField field) {
+  switch (field) {
+    case RcCalibrationField::kMin:
+      return "MIN";
+    case RcCalibrationField::kMax:
+      return "MAX";
+    case RcCalibrationField::kTrim:
+      return "TRIM";
+    case RcCalibrationField::kRev:
+      return "REV";
+  }
+  return "?";
+}
+
+inline float EncodeParamValue(float value, uint8_t param_type) {
+  mavlink_param_union_t param{};
+  param.type = static_cast<mavlink_message_type_t>(param_type);
+
+  switch (param_type) {
+    case MAV_PARAM_TYPE_UINT8:
+      param.param_uint8 = static_cast<uint8_t>(std::lround(value));
+      break;
+    case MAV_PARAM_TYPE_INT8:
+      param.param_int8 = static_cast<int8_t>(std::lround(value));
+      break;
+    case MAV_PARAM_TYPE_UINT16:
+      param.param_uint16 = static_cast<uint16_t>(std::lround(value));
+      break;
+    case MAV_PARAM_TYPE_INT16:
+      param.param_int16 = static_cast<int16_t>(std::lround(value));
+      break;
+    case MAV_PARAM_TYPE_UINT32:
+      param.param_uint32 = static_cast<uint32_t>(std::llround(value));
+      break;
+    case MAV_PARAM_TYPE_INT32:
+      param.param_int32 = static_cast<int32_t>(std::llround(value));
+      break;
+    case MAV_PARAM_TYPE_REAL32:
+    default:
+      param.param_float = value;
+      break;
+  }
+
+  return param.param_float;
+}
+
+inline float DecodeParamValue(float encoded_value, uint8_t param_type) {
+  mavlink_param_union_t param{};
+  param.param_float = encoded_value;
+
+  switch (param_type) {
+    case MAV_PARAM_TYPE_UINT8:
+      return static_cast<float>(param.param_uint8);
+    case MAV_PARAM_TYPE_INT8:
+      return static_cast<float>(param.param_int8);
+    case MAV_PARAM_TYPE_UINT16:
+      return static_cast<float>(param.param_uint16);
+    case MAV_PARAM_TYPE_INT16:
+      return static_cast<float>(param.param_int16);
+    case MAV_PARAM_TYPE_UINT32:
+      return static_cast<float>(param.param_uint32);
+    case MAV_PARAM_TYPE_INT32:
+      return static_cast<float>(param.param_int32);
+    case MAV_PARAM_TYPE_REAL32:
+    default:
+      return param.param_float;
+  }
+}
+
+}  // namespace mi
+
+constexpr uint16_t kSysStatusStartDelayMs = 250;
+constexpr MAV_AUTOPILOT kMavAutopilot32Raven = static_cast<MAV_AUTOPILOT>(200);
+constexpr uint16_t kSysStatusMs = 1000;
+constexpr TickType_t kMavlinkWorkerPeriodTicks = pdMS_TO_TICKS(10);
+constexpr UBaseType_t kMavlinkTaskPrio = 10;
+constexpr uint32_t kMavlinkTaskStackDepthWords =
+    static_cast<uint32_t>(esp32_limits::kMavlinkTaskStackDepthWords);
+
+StaticTask_t s_mavlink_task_buffer;
+StackType_t s_mavlink_task_stack[kMavlinkTaskStackDepthWords];
+TaskHandle_t s_mavlink_task_handle = nullptr;
 
 int64_t DaysFromCivil(int64_t year, unsigned month, unsigned day) {
   year -= month <= 2 ? 1 : 0;
@@ -45,39 +271,44 @@ bool TryBuildGpsUnixUsec(const message::GpsData &gps, uint64_t &unix_usec) {
   return true;
 }
 
-enum class ParamKey : uint8_t {
-  kSysId,
-  kCompId,
-  kHeartbeatMs,
-  kGpsMs,
-  kAttMs,
-  kGposMs,
-  kBattMs,
-};
+void MavlinkTaskEntry(void *arg) {
+  auto *mavlink = static_cast<Mavlink *>(arg);
+  TickType_t last_wake = xTaskGetTickCount();
 
-struct ParamDef {
-  const char *id;
-  uint8_t type;
-  ParamKey key;
-};
+  while (true) {
+    mavlink->WorkerTick(Sys().Timebase().NowMs());
+    vTaskDelayUntil(&last_wake, kMavlinkWorkerPeriodTicks);
 
-constexpr ParamDef kParamTable[] = {
-    {"SYSID_THISMAV", MAV_PARAM_TYPE_UINT8, ParamKey::kSysId},
-    {"SYS_COMP_ID", MAV_PARAM_TYPE_UINT8, ParamKey::kCompId},
-    {"MAV_HB_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kHeartbeatMs},
-    {"MAV_GPS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGpsMs},
-    {"MAV_ATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kAttMs},
-    {"MAV_GPOS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGposMs},
-    {"MAV_BATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kBattMs},
-};
+    const size_t stack_high_water_bytes =
+        uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t);
+    if (stack_high_water_bytes <
+        esp32_limits::kMavlinkStackPanicThresholdBytes) {
+      Panic(ErrorCode::kMavlinkStackOverflow);
+    }
+  }
+}
 
-constexpr uint64_t kMavProtocolCapabilityParamFloat = 1ull << 1;
-constexpr uint64_t kMavProtocolCapabilityMavlink2 = 1ull << 13;
-constexpr uint64_t kMavProtocolCapabilityParamEncodeCCast = 1ull << 17;
-constexpr uint16_t kSysStatusMs = 1000;
-constexpr uint16_t kSysStatusStartDelayMs = 250;
-constexpr uint32_t kRcChannelsPeriodMs = 1000;
-constexpr size_t kCommandQueueDepth = 8;
+template <typename MatchHandler>
+bool ConsumeFcLinkPackets(uint8_t match_id, MatchHandler &&handle_match) {
+  const size_t packet_count = Sys().FcLink().PendingRxPacketCount();
+  bool matched = false;
+
+  for (size_t packet_idx = 0; packet_idx < packet_count; ++packet_idx) {
+    auto packet = Sys().FcLink().PopPacket();
+    if (!packet.has_value()) {
+      Panic(ErrorCode::kFcLinkRxQueueFull);
+    }
+
+    if (packet->header.id == match_id) {
+      matched = handle_match(*packet) || matched;
+      continue;
+    }
+
+    Sys().FcLink().QueueRxPacket(*packet);
+  }
+
+  return matched;
+}
 
 }  // namespace
 
@@ -91,19 +322,17 @@ Mavlink &Mavlink::GetInstance() {
 
 void Mavlink::ArmFirstSchedule(TxState &tx, const TxConfig &cfg_tx,
                                uint32_t now_ms) {
-  // Stagger streams to avoid bursts on ELRS limited bandwidth
   tx.next_hb_ms = now_ms;
   tx.next_sys_ms = now_ms + kSysStatusStartDelayMs;
   tx.next_gps_ms = now_ms + cfg_tx.schedule.gps_start_delay_ms;
   tx.next_att_ms = now_ms + cfg_tx.schedule.att_start_delay_ms;
   tx.next_gpos_ms = now_ms + cfg_tx.schedule.gpos_start_delay_ms;
   tx.next_batt_ms = now_ms + cfg_tx.schedule.batt_start_delay_ms;
+  tx.next_rc_channels_ms = now_ms;
 }
 
 bool Mavlink::ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
                               uint32_t now_ms) const {
-  // Deadline guarantee: never exceed the configured gap between completed HBs.
-  // Also honor the nominal cadence using next_hb_ms_.
   if (cfg_tx.periods.hb_ms == 0 || cfg_tx.schedule.hb_deadline_ms == 0) {
     return false;
   }
@@ -115,17 +344,14 @@ bool Mavlink::ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
 }
 
 void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
-  // Step 1: Start here. Init validates config/wiring, resets both link state
-  // machines, and launches the worker task that drives MAVLink TX.
-  static StaticQueue_t command_queue_buffer;
-  static uint8_t
-      command_queue_storage[kCommandQueueDepth * sizeof(CommandLongEvent)];
   if (uart == nullptr || udp == nullptr) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
   if (cfg.identity.sysid == 0 || cfg.rc.rx.read_chunk_size == 0 ||
       cfg.tx.periods.hb_ms == 0 || cfg.tx.schedule.hb_deadline_ms == 0 ||
       cfg.rc.tx.periods.hb_ms == 0 || cfg.rc.tx.schedule.hb_deadline_ms == 0 ||
+      cfg.rc.fc_forward_rate_hz == 0 || cfg.rc.fc_request_attempts == 0 ||
+      cfg.rc.fc_request_retry_period_ms == 0 ||
       cfg.rc.rx.read_chunk_size > Mavlink::kMaxRxReadChunkSize) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
@@ -136,40 +362,90 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   rc_state_ = RcState{};
   rx_msg_ = mavlink_message_t{};
   rx_status_ = mavlink_status_t{};
-  command_queue_ =
-      xQueueCreateStatic(kCommandQueueDepth, sizeof(CommandLongEvent),
-                         command_queue_storage, &command_queue_buffer);
-  if (command_queue_ == nullptr) {
-    Panic(ErrorCode::kMavlinkInitFailed);
-  }
-
-  // Clear TX state
   rc_tx_ = TxState{};
   udp_tx_ = TxState{};
 
-  // Heartbeat timing: allow immediate first HB
   have_latest_ = false;
   latest_update_ms_ = 0;
   have_latest_rc_channels_ = false;
   latest_rc_channels_update_ms_ = 0;
-  next_rc_channels_send_ms_ = 0;
+  rc_map_config_ = {};
+  have_rc_map_config_ = false;
+  rc_calibration_config_ = {};
+  have_rc_calibration_config_ = false;
+  gyro_calibration_id_config_ = {};
+  have_gyro_calibration_id_config_ = false;
+  unhandled_logged_msgid_count_ = 0;
+  rc_chan_count_ = message::kRcCalibrationChannelCount;
+  next_fc_rc_forward_ms_ = 0;
+  rc_config_confirm_pending_ = false;
+  rc_config_confirm_due_ms_ = 0;
+  pending_rc_map_request_ = PendingFcConfigRequest{};
+  pending_rc_calibration_request_ = PendingFcConfigRequest{};
+  pending_gyro_calibration_id_request_ = PendingFcConfigRequest{};
   primary_link_enabled_.store(false, std::memory_order_relaxed);
+  pending_primary_link_heartbeat_led_pulse_.store(false,
+                                                  std::memory_order_relaxed);
+  primary_link_heartbeat_led_clear_ms_ = 0;
   ArmFirstSchedule(rc_tx_, cfg_.rc.tx, 0);
   ArmFirstSchedule(udp_tx_, cfg_.tx, 0);
 
   ESP_LOGI(kTag, "Initialized (RC + primary MAVLink links)");
 
-  extern void StartMavlinkTask();
+  StartFcConfigRequest(message::MsgId::kReqRcMap,
+                       ErrorCode::kFcLinkRcMapRequestFailed);
+  StartFcConfigRequest(message::MsgId::kReqRcCalibration,
+                       ErrorCode::kFcLinkRcCalibrationRequestFailed);
+  StartFcConfigRequest(message::MsgId::kReqGyroCalibrationId,
+                       ErrorCode::kFcLinkGyroCalibrationIdRequestFailed);
+
   StartMavlinkTask();
 }
 
-void Mavlink::Poll() {
-  // Step 2: This is the RC-side RX entry point.
-  // It pulls raw UART bytes and feeds them one at a time into the parser.
-  size_t read_chunk_size = cfg_.rc.rx.read_chunk_size;
-  if (read_chunk_size > rx_buf_.size()) {
-    read_chunk_size = rx_buf_.size();
+void Mavlink::StartMavlinkTask() {
+  if (s_mavlink_task_handle != nullptr) {
+    Panic(ErrorCode::kMavlinkTaskAlreadyRunning);
   }
+
+  s_mavlink_task_handle = xTaskCreateStaticPinnedToCore(
+      MavlinkTaskEntry, "mavlink", kMavlinkTaskStackDepthWords, this,
+      kMavlinkTaskPrio, s_mavlink_task_stack, &s_mavlink_task_buffer, 0);
+  if (s_mavlink_task_handle == nullptr) {
+    Panic(ErrorCode::kMavlinkInitFailed);
+  }
+}
+
+void Mavlink::StopMavlinkTask() {
+  if (s_mavlink_task_handle == nullptr) {
+    return;
+  }
+
+  if (s_mavlink_task_handle == xTaskGetCurrentTaskHandle()) {
+    return;
+  }
+
+  vTaskSuspend(s_mavlink_task_handle);
+}
+
+void Mavlink::Poll() {
+  static constexpr uint32_t kPrimaryLinkHeartbeatLedPatternMs = 300;
+  const uint32_t now_ms = Sys().Timebase().NowMs();
+
+  if (pending_primary_link_heartbeat_led_pulse_.exchange(
+          false, std::memory_order_relaxed)) {
+    Sys().Led().SetPattern(LED::Pattern::kDoubleBlink,
+                           kPrimaryLinkHeartbeatLedPatternMs);
+    primary_link_heartbeat_led_clear_ms_ =
+        now_ms + kPrimaryLinkHeartbeatLedPatternMs;
+  } else if (primary_link_heartbeat_led_clear_ms_ != 0 &&
+             static_cast<int32_t>(now_ms -
+                                  primary_link_heartbeat_led_clear_ms_) >= 0) {
+    Sys().Led().Off();
+    primary_link_heartbeat_led_clear_ms_ = 0;
+  }
+
+  const size_t read_chunk_size =
+      std::min((size_t)cfg_.rc.rx.read_chunk_size, rx_buf_.size());
 
   int n = uart_->Read(rx_buf_.data(), read_chunk_size, 0);
   if (n > 0) {
@@ -181,9 +457,359 @@ void Mavlink::Poll() {
 
 void Mavlink::SetPrimaryLinkEnabled(bool enabled) {
   primary_link_enabled_.store(enabled, std::memory_order_relaxed);
+  pending_primary_link_heartbeat_led_pulse_.store(false,
+                                                  std::memory_order_relaxed);
+  primary_link_heartbeat_led_clear_ms_ = 0;
+  if (enabled) {
+    Sys().Led().Off();
+  }
   if (!enabled && udp_ != nullptr) {
     udp_->ClearPeer();
   }
+}
+
+void Mavlink::StartFcConfigRequest(message::MsgId request_id,
+                                   ErrorCode failure_code) {
+  PendingFcConfigRequest *request = nullptr;
+  const char *request_log = nullptr;
+
+  switch (request_id) {
+    case message::MsgId::kReqRcMap:
+      ClearRcMapConfig();
+      request = &pending_rc_map_request_;
+      request_log = "Requesting STM32 RC map...";
+      break;
+    case message::MsgId::kReqRcCalibration:
+      ClearRcCalibrationConfig();
+      request = &pending_rc_calibration_request_;
+      request_log = "Requesting STM32 RC calibration...";
+      break;
+    case message::MsgId::kReqGyroCalibrationId:
+      ClearGyroCalibrationIdConfig();
+      request = &pending_gyro_calibration_id_request_;
+      request_log = "Requesting STM32 gyro calibration ID...";
+      break;
+    default:
+      Panic(ErrorCode::kMavlinkInitFailed);
+      return;
+  }
+
+  ESP_LOGI(kTag, "%s", request_log);
+  request->request_id = request_id;
+  request->failure_code = failure_code;
+  request->next_retry_ms = 0;
+  request->attempts_sent = 0;
+  request->active = true;
+  ServiceFcConfigRequests(Sys().Timebase().NowMs());
+}
+
+void Mavlink::ServiceFcConfigRequests(uint32_t now_ms) {
+  const auto service_request = [&](PendingFcConfigRequest &request,
+                                   bool satisfied, const char *success_log,
+                                   const char *failure_log) {
+    if (!request.active) {
+      return;
+    }
+
+    if (satisfied) {
+      request.active = false;
+      ESP_LOGI(kTag, "%s", success_log);
+      return;
+    }
+
+    if ((int32_t)(now_ms - request.next_retry_ms) < 0) {
+      return;
+    }
+
+    if (request.attempts_sent >= cfg_.rc.fc_request_attempts) {
+      ESP_LOGW(kTag, "%s", failure_log);
+      Panic(request.failure_code);
+    }
+
+    message::Packet req_pkt{};
+    req_pkt.header.id = static_cast<uint8_t>(request.request_id);
+    req_pkt.header.len = 0;
+    Sys().FcLink().SendPacket(req_pkt);
+    ++request.attempts_sent;
+    request.next_retry_ms = now_ms + cfg_.rc.fc_request_retry_period_ms;
+  };
+
+  service_request(pending_rc_map_request_, have_rc_map_config_,
+                  "STM32 RC map received", "STM32 RC map request failed");
+  service_request(pending_rc_calibration_request_, have_rc_calibration_config_,
+                  "STM32 RC calibration received",
+                  "STM32 RC calibration request failed");
+  service_request(pending_gyro_calibration_id_request_,
+                  have_gyro_calibration_id_config_,
+                  "STM32 gyro calibration ID received",
+                  "STM32 gyro calibration ID request failed");
+}
+
+uint32_t Mavlink::UdpRxPacketCount() const {
+  return udp_rx_packet_count_.load(std::memory_order_relaxed);
+}
+
+uint32_t Mavlink::UdpTxPacketCount() const {
+  return udp_tx_packet_count_.load(std::memory_order_relaxed);
+}
+
+void Mavlink::OfferTelemetry(const message::GpsData &d, uint32_t now_ms) {
+  latest_ = d;
+  have_latest_ = true;
+  latest_update_ms_ = now_ms;
+}
+
+void Mavlink::UpdateRcChannelsCache(uint32_t now_ms) {
+  const bool had_latest_rc_channels = have_latest_rc_channels_;
+  latest_rc_channels_ = rc_state_;
+  have_latest_rc_channels_ = true;
+  latest_rc_channels_update_ms_ = now_ms;
+
+  if (!had_latest_rc_channels) {
+    udp_tx_.next_rc_channels_ms = now_ms;
+  }
+}
+
+void Mavlink::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
+  rc_map_config_ = cfg;
+  have_rc_map_config_ = true;
+}
+
+void Mavlink::SetRcCalibrationConfig(
+    const message::RcCalibrationConfigMsg &cfg) {
+  rc_calibration_config_ = cfg;
+  have_rc_calibration_config_ = true;
+}
+
+void Mavlink::SetGyroCalibrationIdConfig(
+    const message::GyroCalibrationIdConfigMsg &cfg) {
+  gyro_calibration_id_config_ = cfg;
+  have_gyro_calibration_id_config_ = true;
+}
+
+void Mavlink::ClearRcMapConfig() {
+  rc_map_config_ = {};
+  have_rc_map_config_ = false;
+}
+
+void Mavlink::ClearRcCalibrationConfig() {
+  rc_calibration_config_ = {};
+  have_rc_calibration_config_ = false;
+}
+
+void Mavlink::ClearGyroCalibrationIdConfig() {
+  gyro_calibration_id_config_ = {};
+  have_gyro_calibration_id_config_ = false;
+}
+
+void Mavlink::ForwardRcStateToFcLink(uint32_t now_ms) {
+  if ((int32_t)(now_ms - next_fc_rc_forward_ms_) < 0) {
+    return;
+  }
+
+  message::Packet pkt{};
+  pkt.header.id = static_cast<uint8_t>(message::MsgId::kRcChannels);
+  pkt.header.len = message::PayloadLength<message::RcChannelsMsg>();
+  for (size_t i = 0; i < std::size(rc_state_.channels); ++i) {
+    const uint16_t channel = rc_state_.channels[i];
+    const size_t offset = i * sizeof(uint16_t);
+    pkt.payload[offset] = static_cast<uint8_t>(channel & 0xFFu);
+    pkt.payload[offset + 1] = static_cast<uint8_t>(channel >> 8);
+  }
+  pkt.payload[sizeof(rc_state_.channels)] = rc_state_.rssi;
+  Sys().FcLink().SendPacket(pkt);
+  next_fc_rc_forward_ms_ = now_ms + ((1000u + cfg_.rc.fc_forward_rate_hz - 1u) /
+                                     cfg_.rc.fc_forward_rate_hz);
+}
+
+bool Mavlink::ApplyRcMapConfigToFcLink(const message::RcMapConfigMsg &cfg) {
+  if (!message::IsRcMapConfigValid(cfg)) {
+    ESP_LOGW(kTag, "Rejecting invalid STM32 RC map set request");
+    return false;
+  }
+
+  message::Packet req_pkt{};
+  req_pkt.header.id = static_cast<uint8_t>(message::MsgId::kSetRcMapConfig);
+  req_pkt.header.len = message::PayloadLength<message::RcMapConfigMsg>();
+  std::memcpy(req_pkt.payload, &cfg, sizeof(cfg));
+
+  const auto drain_stale_responses = [&]() {
+    Sys().FcLink().Poll();
+    (void)ConsumeFcLinkPackets(
+        static_cast<uint8_t>(message::MsgId::kRcMapConfig),
+        [&](const message::Packet &response) {
+          if (!message::IsPayloadLengthValid(message::MsgId::kRcMapConfig,
+                                             response.header.len)) {
+            Panic(ErrorCode::kFcLinkInvalidPacketLength);
+          }
+
+          const auto *applied =
+              reinterpret_cast<const message::RcMapConfigMsg *>(
+                  response.payload);
+          if (!message::IsRcMapConfigValid(*applied)) {
+            Panic(ErrorCode::kFcLinkInvalidRcMapConfig);
+          }
+
+          SetRcMapConfig(*applied);
+          return false;
+        });
+  };
+
+  drain_stale_responses();
+
+  for (uint16_t i = 0; i < cfg_.rc.fc_request_attempts; ++i) {
+    Sys().FcLink().SendPacket(req_pkt);
+    const TickType_t deadline =
+        xTaskGetTickCount() + pdMS_TO_TICKS(cfg_.rc.fc_request_retry_period_ms);
+
+    while (xTaskGetTickCount() < deadline) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      Sys().FcLink().Poll();
+
+      if (ConsumeFcLinkPackets(
+              static_cast<uint8_t>(message::MsgId::kRcMapConfig),
+              [&](const message::Packet &response) {
+                if (!message::IsPayloadLengthValid(message::MsgId::kRcMapConfig,
+                                                   response.header.len)) {
+                  Panic(ErrorCode::kFcLinkInvalidPacketLength);
+                }
+
+                const auto *applied =
+                    reinterpret_cast<const message::RcMapConfigMsg *>(
+                        response.payload);
+                if (!message::IsRcMapConfigValid(*applied)) {
+                  Panic(ErrorCode::kFcLinkInvalidRcMapConfig);
+                }
+
+                SetRcMapConfig(*applied);
+                return std::memcmp(applied, &cfg, sizeof(cfg)) == 0;
+              })) {
+        return true;
+      }
+    }
+
+    drain_stale_responses();
+  }
+
+  Panic(ErrorCode::kFcLinkRcMapSetFailed);
+}
+
+bool Mavlink::ApplyRcCalibrationConfigToFcLink(
+    const message::RcCalibrationConfigMsg &cfg) {
+  if (!message::IsRcCalibrationConfigValid(cfg)) {
+    ESP_LOGW(kTag, "Rejecting invalid STM32 RC calibration set request");
+    return false;
+  }
+
+  message::Packet req_pkt{};
+  req_pkt.header.id =
+      static_cast<uint8_t>(message::MsgId::kSetRcCalibrationConfig);
+  req_pkt.header.len =
+      message::PayloadLength<message::RcCalibrationConfigMsg>();
+  std::memcpy(req_pkt.payload, &cfg, sizeof(cfg));
+
+  const auto drain_stale_responses = [&]() {
+    Sys().FcLink().Poll();
+    (void)ConsumeFcLinkPackets(
+        static_cast<uint8_t>(message::MsgId::kRcCalibrationConfig),
+        [&](const message::Packet &response) {
+          if (!message::IsPayloadLengthValid(
+                  message::MsgId::kRcCalibrationConfig, response.header.len)) {
+            Panic(ErrorCode::kFcLinkInvalidPacketLength);
+          }
+
+          const auto *applied =
+              reinterpret_cast<const message::RcCalibrationConfigMsg *>(
+                  response.payload);
+          if (!message::IsRcCalibrationConfigValid(*applied)) {
+            Panic(ErrorCode::kFcLinkInvalidRcCalibrationConfig);
+          }
+
+          SetRcCalibrationConfig(*applied);
+          return false;
+        });
+  };
+
+  drain_stale_responses();
+
+  for (uint16_t i = 0; i < cfg_.rc.fc_request_attempts; ++i) {
+    Sys().FcLink().SendPacket(req_pkt);
+    const TickType_t deadline =
+        xTaskGetTickCount() + pdMS_TO_TICKS(cfg_.rc.fc_request_retry_period_ms);
+
+    while (xTaskGetTickCount() < deadline) {
+      vTaskDelay(pdMS_TO_TICKS(10));
+      Sys().FcLink().Poll();
+
+      if (ConsumeFcLinkPackets(
+              static_cast<uint8_t>(message::MsgId::kRcCalibrationConfig),
+              [&](const message::Packet &response) {
+                if (!message::IsPayloadLengthValid(
+                        message::MsgId::kRcCalibrationConfig,
+                        response.header.len)) {
+                  Panic(ErrorCode::kFcLinkInvalidPacketLength);
+                }
+
+                const auto *applied =
+                    reinterpret_cast<const message::RcCalibrationConfigMsg *>(
+                        response.payload);
+                if (!message::IsRcCalibrationConfigValid(*applied)) {
+                  Panic(ErrorCode::kFcLinkInvalidRcCalibrationConfig);
+                }
+
+                SetRcCalibrationConfig(*applied);
+                return std::memcmp(applied, &cfg, sizeof(cfg)) == 0;
+              })) {
+        return true;
+      }
+    }
+
+    drain_stale_responses();
+  }
+
+  Panic(ErrorCode::kFcLinkRcCalibrationSetFailed);
+}
+
+void Mavlink::QueueStatusText(const char *text, uint8_t severity) {
+  if (text == nullptr || text[0] == '\0') {
+    return;
+  }
+
+  auto queue = [&](TxState &tx) {
+    tx.pending_statustext = true;
+    tx.pending_statustext_severity = severity;
+    std::strncpy(tx.pending_statustext_text, text,
+                 sizeof(tx.pending_statustext_text) - 1);
+    tx.pending_statustext_text[sizeof(tx.pending_statustext_text) - 1] = '\0';
+  };
+
+  queue(rc_tx_);
+  queue(udp_tx_);
+}
+
+void Mavlink::WorkerTick(uint32_t now_ms) {
+  ServiceFcConfigRequests(now_ms);
+  ServiceRcLink(now_ms);
+  ServicePrimaryLink(now_ms);
+  ServiceRcConfigConfirm(now_ms);
+}
+
+void Mavlink::ScheduleRcConfigConfirm(uint32_t now_ms) {
+  static constexpr uint32_t kRcConfigConfirmDelayMs = 1000;
+  rc_config_confirm_pending_ = true;
+  rc_config_confirm_due_ms_ = now_ms + kRcConfigConfirmDelayMs;
+}
+
+void Mavlink::ServiceRcConfigConfirm(uint32_t now_ms) {
+  if (!rc_config_confirm_pending_) {
+    return;
+  }
+  if ((int32_t)(now_ms - rc_config_confirm_due_ms_) < 0) {
+    return;
+  }
+
+  rc_config_confirm_pending_ = false;
+  Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
 }
 
 void Mavlink::HandleRxByte(uint8_t b) {
@@ -193,11 +819,17 @@ void Mavlink::HandleRxByte(uint8_t b) {
 }
 
 void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
-  // Step 3: Review inbound behavior here.
-  // Each decoded MAVLink message updates RC state or queues a response to send.
   TxState &tx = (source == RxSource::kUdp) ? udp_tx_ : rc_tx_;
 
   switch (msg.msgid) {
+    case MAVLINK_MSG_ID_HEARTBEAT: {
+      if (source == RxSource::kUdp &&
+          primary_link_enabled_.load(std::memory_order_relaxed)) {
+        pending_primary_link_heartbeat_led_pulse_.store(
+            true, std::memory_order_relaxed);
+      }
+      break;
+    }
     case MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE: {
       mavlink_rc_channels_override_t rc{};
       mavlink_msg_rc_channels_override_decode(&msg, &rc);
@@ -218,12 +850,14 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
       rc_state_.channels[13] = rc.chan14_raw;
       rc_state_.channels[14] = rc.chan15_raw;
       rc_state_.channels[15] = rc.chan16_raw;
+      UpdateRcChannelsCache(Sys().Timebase().NowMs());
       break;
     }
     case MAVLINK_MSG_ID_RADIO_STATUS: {
       mavlink_radio_status_t radio{};
       mavlink_msg_radio_status_decode(&msg, &radio);
       rc_state_.rssi = radio.rssi;
+      UpdateRcChannelsCache(Sys().Timebase().NowMs());
       break;
     }
     case MAVLINK_MSG_ID_PARAM_REQUEST_LIST: {
@@ -238,6 +872,75 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
       }
       break;
     }
+    case MAVLINK_MSG_ID_PARAM_REQUEST_READ: {
+      mavlink_param_request_read_t req{};
+      mavlink_msg_param_request_read_decode(&msg, &req);
+      if (req.target_system != cfg_.identity.sysid ||
+          (req.target_component != cfg_.identity.compid &&
+           req.target_component != 0 &&
+           req.target_component != MAV_COMP_ID_ALL)) {
+        break;
+      }
+
+      uint16_t param_index = 0;
+      if (TryResolveParamIndex(req.param_index, req.param_id, param_index)) {
+        QueueParamValue((source == RxSource::kUdp) ? Link::kUdp : Link::kRc,
+                        param_index);
+      }
+      break;
+    }
+    case MAVLINK_MSG_ID_PARAM_SET: {
+      mavlink_param_set_t req{};
+      mavlink_msg_param_set_decode(&msg, &req);
+      if (req.target_system != cfg_.identity.sysid ||
+          (req.target_component != cfg_.identity.compid &&
+           req.target_component != 0 &&
+           req.target_component != MAV_COMP_ID_ALL)) {
+        break;
+      }
+
+      char param_id[17] = {};
+      mi::CopyMavParamId(req.param_id, param_id);
+
+      uint16_t param_index = 0;
+      if (!TryResolveParamIndex(-1, req.param_id, param_index)) {
+        ESP_LOGW(kTag, "PARAM_SET unresolved param_id=%s", param_id);
+        break;
+      }
+
+      const float decoded_value =
+          mi::DecodeParamValue(req.param_value, req.param_type);
+      (void)TrySetParamByIndex(param_index, decoded_value, req.param_type);
+      QueueParamValue((source == RxSource::kUdp) ? Link::kUdp : Link::kRc,
+                      param_index);
+      break;
+    }
+    case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_LIST: {
+      ESP_LOGW(kTag, "PARAM_EXT_REQUEST_LIST unsupported");
+      break;
+    }
+    case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_READ: {
+      ESP_LOGW(kTag, "PARAM_EXT_REQUEST_READ unsupported");
+      break;
+    }
+    case MAVLINK_MSG_ID_PARAM_EXT_SET: {
+      mavlink_param_ext_set_t req{};
+      mavlink_msg_param_ext_set_decode(&msg, &req);
+
+      char param_id[17] = {};
+      char param_value[129] = {};
+      mi::CopyMavTextField(req.param_id, sizeof(req.param_id), param_id,
+                           sizeof(param_id));
+      mi::CopyMavTextField(req.param_value, sizeof(req.param_value),
+                           param_value, sizeof(param_value));
+
+      ESP_LOGW(kTag,
+               "PARAM_EXT_SET unsupported target_sys=%u target_comp=%u "
+               "param_id=%s value=%s type=%u",
+               (unsigned)req.target_system, (unsigned)req.target_component,
+               param_id, param_value, (unsigned)req.param_type);
+      break;
+    }
     case MAVLINK_MSG_ID_MISSION_REQUEST_LIST: {
       mavlink_mission_request_list_t req{};
       mavlink_msg_mission_request_list_decode(&msg, &req);
@@ -250,6 +953,12 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
       }
       break;
     }
+    case MAVLINK_MSG_ID_MISSION_ACK: {
+      break;
+    }
+    case MAVLINK_MSG_ID_SYSTEM_TIME: {
+      break;
+    }
     case MAVLINK_MSG_ID_COMMAND_LONG: {
       mavlink_command_long_t cmd{};
       mavlink_msg_command_long_decode(&msg, &cmd);
@@ -259,86 +968,373 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
            cmd.target_component != MAV_COMP_ID_ALL)) {
         break;
       }
-
-      if (command_queue_ != nullptr) {
-        const CommandLongEvent ev = {
-            .link = (source == RxSource::kUdp) ? Link::kUdp : Link::kRc,
-            .msg = msg,
-        };
-        if (xQueueSend((QueueHandle_t)command_queue_, &ev, 0) != pdPASS) {
-          ESP_LOGW(kTag, "dropping COMMAND_LONG: queue full");
-        }
-      }
+      HandleCommandLong(msg, cmd, source);
       break;
     }
 
     default:
+      LogUnhandledMessageOnce(msg, source);
       break;
   }
 }
 
-void Mavlink::MaybeLogUdpMessage(const mavlink_message_t &msg) {
-  for (uint8_t i = 0; i < udp_logged_msgid_count_; ++i) {
-    if (udp_logged_msgids_[i] == msg.msgid) {
+void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
+                                const mavlink_command_long_t &cmd,
+                                RxSource source) {
+  const Link link = (source == RxSource::kUdp) ? Link::kUdp : Link::kRc;
+  const uint8_t source_system = msg.sysid;
+  const uint8_t source_component = msg.compid;
+
+  switch (cmd.command) {
+    case MAV_CMD_REQUEST_MESSAGE:
+      if ((uint32_t)cmd.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
+        QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_ACCEPTED,
+                        source_system, source_component);
+        QueueAutopilotVersion(link);
+      } else {
+        QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
+                        source_system, source_component);
+      }
+      break;
+    case MAV_CMD_PREFLIGHT_CALIBRATION:
+      QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_ACCEPTED,
+                      source_system, source_component);
+      break;
+    default:
+      QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
+                      source_system, source_component);
+      break;
+  }
+}
+
+void Mavlink::LogUnhandledMessageOnce(const mavlink_message_t &msg,
+                                      RxSource source) {
+  for (uint8_t i = 0; i < unhandled_logged_msgid_count_; ++i) {
+    if (unhandled_logged_msgids_[i] == msg.msgid) {
       return;
     }
   }
 
-  if (udp_logged_msgid_count_ < udp_logged_msgids_.size()) {
-    udp_logged_msgids_[udp_logged_msgid_count_++] = (uint16_t)msg.msgid;
+  if (unhandled_logged_msgid_count_ < unhandled_logged_msgids_.size()) {
+    unhandled_logged_msgids_[unhandled_logged_msgid_count_++] =
+        static_cast<uint16_t>(msg.msgid);
   }
 
-  const char *name = "UNKNOWN";
-  switch (msg.msgid) {
-    case MAVLINK_MSG_ID_HEARTBEAT:
-      name = "HEARTBEAT";
+  char text[51] = {};
+  std::snprintf(text, sizeof(text), "Unhandled MAVLink msgid=%lu src=%s",
+                (unsigned long)msg.msgid,
+                (source == RxSource::kUdp) ? "UDP" : "RC");
+  QueueStatusText(text, MAV_SEVERITY_WARNING);
+}
+
+bool Mavlink::TryResolveParamIndex(int16_t requested_index,
+                                   const char *requested_id,
+                                   uint16_t &resolved_index) const {
+  if (requested_index >= 0) {
+    const uint16_t index = static_cast<uint16_t>(requested_index);
+    if (index < mi::kTotalParamCount) {
+      resolved_index = index;
+      return true;
+    }
+    return false;
+  }
+
+  if (requested_id == nullptr) {
+    return false;
+  }
+
+  char param_id[17] = {};
+  mi::CopyMavParamId(requested_id, param_id);
+
+  for (uint16_t i = 0; i < mi::kBaseParamCount; ++i) {
+    if (mi::ParamIdEquals(param_id, mi::kParamTable[i].id)) {
+      resolved_index = i;
+      return true;
+    }
+  }
+
+  uint8_t channel_index = 0;
+  mi::RcCalibrationField field = mi::RcCalibrationField::kMin;
+  if (!mi::TryParseRcCalibrationParamId(param_id, channel_index, field)) {
+    return false;
+  }
+
+  uint16_t field_offset = 0;
+  switch (field) {
+    case mi::RcCalibrationField::kMin:
+      field_offset = 0;
       break;
-    case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:
-      name = "PARAM_REQUEST_LIST";
+    case mi::RcCalibrationField::kMax:
+      field_offset = 1;
       break;
-    case MAVLINK_MSG_ID_PARAM_REQUEST_READ:
-      name = "PARAM_REQUEST_READ";
+    case mi::RcCalibrationField::kTrim:
+      field_offset = 2;
       break;
-    case MAVLINK_MSG_ID_COMMAND_LONG:
-      name = "COMMAND_LONG";
+    case mi::RcCalibrationField::kRev:
+      field_offset = 3;
       break;
-    case MAVLINK_MSG_ID_COMMAND_INT:
-      name = "COMMAND_INT";
+  }
+
+  resolved_index = static_cast<uint16_t>(
+      mi::kBaseParamCount +
+      channel_index * mi::kRcCalibrationParamCountPerChannel + field_offset);
+  return true;
+}
+
+bool Mavlink::TryEncodeParamByIndex(uint16_t param_index, char (&param_id)[17],
+                                    uint8_t &param_type,
+                                    float &param_value) const {
+  if (param_index < mi::kBaseParamCount) {
+    const mi::ParamDef &def = mi::kParamTable[param_index];
+    param_type = def.type;
+    std::strncpy(param_id, def.id, 16);
+    switch (def.key) {
+      case mi::ParamKey::kSysId:
+      case mi::ParamKey::kMavSysId:
+        param_value = static_cast<float>(cfg_.identity.sysid);
+        break;
+      case mi::ParamKey::kCompId:
+        param_value = static_cast<float>(cfg_.identity.compid);
+        break;
+      case mi::ParamKey::kCalAcc0Id:
+      case mi::ParamKey::kCalGyro0Id:
+        param_value =
+            static_cast<float>(gyro_calibration_id_config_.cal_gyro0_id);
+        break;
+      case mi::ParamKey::kCalMag0Id:
+      case mi::ParamKey::kCalMag1Id:
+      case mi::ParamKey::kCalMag2Id:
+        param_value = 0.0f;
+        break;
+      case mi::ParamKey::kCalMag0Rot:
+      case mi::ParamKey::kCalMag1Rot:
+      case mi::ParamKey::kCalMag2Rot:
+        param_value = -1.0f;
+        break;
+      case mi::ParamKey::kSensBoardRot:
+        param_value = 0.0f;
+        break;
+      case mi::ParamKey::kSensDpresOff:
+        param_value = 0.0f;
+        break;
+      case mi::ParamKey::kSysHasMag:
+        param_value = 0.0f;
+        break;
+      case mi::ParamKey::kSysHasNumAspd:
+        param_value = 0.0f;
+        break;
+      case mi::ParamKey::kSysAutostart:
+        param_value = static_cast<float>(esp32_limits::kMavlinkSysAutostart);
+        break;
+      case mi::ParamKey::kComRcInMode:
+        param_value = 0.0f;
+        break;
+      case mi::ParamKey::kRcChanCnt:
+        param_value = static_cast<float>(rc_chan_count_);
+        break;
+      case mi::ParamKey::kRcMapRoll:
+        param_value = static_cast<float>(rc_map_config_.roll);
+        break;
+      case mi::ParamKey::kRcMapPitch:
+        param_value = static_cast<float>(rc_map_config_.pitch);
+        break;
+      case mi::ParamKey::kRcMapYaw:
+        param_value = static_cast<float>(rc_map_config_.yaw);
+        break;
+      case mi::ParamKey::kRcMapThrottle:
+        param_value = static_cast<float>(rc_map_config_.throttle);
+        break;
+      case mi::ParamKey::kHeartbeatMs:
+        param_value = static_cast<float>(cfg_.tx.periods.hb_ms);
+        break;
+      case mi::ParamKey::kGpsMs:
+        param_value = static_cast<float>(cfg_.tx.periods.gps_ms);
+        break;
+      case mi::ParamKey::kAttMs:
+        param_value = static_cast<float>(cfg_.tx.periods.att_ms);
+        break;
+      case mi::ParamKey::kGposMs:
+        param_value = static_cast<float>(cfg_.tx.periods.gpos_ms);
+        break;
+      case mi::ParamKey::kBattMs:
+        param_value = static_cast<float>(cfg_.tx.periods.batt_ms);
+        break;
+      case mi::ParamKey::kComRcLossT:
+        param_value = static_cast<float>(rc_state_.rssi == 0 ? 0 : 1);
+        break;
+    }
+    return true;
+  }
+
+  if (param_index >= mi::kTotalParamCount || !have_rc_calibration_config_) {
+    return false;
+  }
+
+  const uint16_t rc_param_index = param_index - mi::kBaseParamCount;
+  const uint8_t channel_index = static_cast<uint8_t>(
+      rc_param_index / mi::kRcCalibrationParamCountPerChannel);
+  const uint8_t field_index = static_cast<uint8_t>(
+      rc_param_index % mi::kRcCalibrationParamCountPerChannel);
+
+  switch (field_index) {
+    case 0:
+      std::snprintf(param_id, sizeof(param_id), "RC%u_MIN",
+                    (unsigned)(channel_index + 1u));
+      param_type = MAV_PARAM_TYPE_UINT16;
+      param_value =
+          static_cast<float>(rc_calibration_config_.min_us[channel_index]);
       break;
-    case MAVLINK_MSG_ID_REQUEST_DATA_STREAM:
-      name = "REQUEST_DATA_STREAM";
+    case 1:
+      std::snprintf(param_id, sizeof(param_id), "RC%u_MAX",
+                    (unsigned)(channel_index + 1u));
+      param_type = MAV_PARAM_TYPE_UINT16;
+      param_value =
+          static_cast<float>(rc_calibration_config_.max_us[channel_index]);
       break;
-    case MAVLINK_MSG_ID_TIMESYNC:
-      name = "TIMESYNC";
+    case 2:
+      std::snprintf(param_id, sizeof(param_id), "RC%u_TRIM",
+                    (unsigned)(channel_index + 1u));
+      param_type = MAV_PARAM_TYPE_UINT16;
+      param_value =
+          static_cast<float>(rc_calibration_config_.trim_us[channel_index]);
       break;
-    case MAVLINK_MSG_ID_MISSION_REQUEST_LIST:
-      name = "MISSION_REQUEST_LIST";
+    case 3:
+    default:
+      std::snprintf(param_id, sizeof(param_id), "RC%u_REV",
+                    (unsigned)(channel_index + 1u));
+      param_type = MAV_PARAM_TYPE_INT8;
+      param_value =
+          static_cast<float>(rc_calibration_config_.rev[channel_index]);
       break;
-    case MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE:
-      name = "RC_CHANNELS_OVERRIDE";
+  }
+  return true;
+}
+
+bool Mavlink::TrySetParamByIndex(uint16_t param_index, float param_value,
+                                 uint8_t param_type) {
+  (void)param_type;
+  if (param_index >= mi::kTotalParamCount) {
+    ESP_LOGW(kTag, "PARAM_SET rejected: index=%u out of range",
+             (unsigned)param_index);
+    return false;
+  }
+
+  if (param_index < mi::kBaseParamCount) {
+    const mi::ParamDef &def = mi::kParamTable[param_index];
+    switch (def.key) {
+      case mi::ParamKey::kRcChanCnt: {
+        const long value = std::lround(param_value);
+        if (value >= 1 &&
+            value <= static_cast<long>(message::kRcCalibrationChannelCount)) {
+          rc_chan_count_ = static_cast<uint8_t>(value);
+          return true;
+        }
+        return false;
+      }
+      case mi::ParamKey::kRcMapRoll:
+      case mi::ParamKey::kRcMapPitch:
+      case mi::ParamKey::kRcMapYaw:
+      case mi::ParamKey::kRcMapThrottle: {
+        if (!have_rc_map_config_) {
+          ESP_LOGW(kTag, "RC_MAP write rejected: current map unavailable");
+          return false;
+        }
+
+        message::RcMapConfigMsg updated = rc_map_config_;
+        const long value = std::lround(param_value);
+        if (value < 1 || value > 4) {
+          ESP_LOGW(kTag, "RC_MAP write rejected: param=%s value=%ld", def.id,
+                   value);
+          return false;
+        }
+
+        switch (def.key) {
+          case mi::ParamKey::kRcMapRoll:
+            updated.roll = static_cast<uint8_t>(value);
+            break;
+          case mi::ParamKey::kRcMapPitch:
+            updated.pitch = static_cast<uint8_t>(value);
+            break;
+          case mi::ParamKey::kRcMapYaw:
+            updated.yaw = static_cast<uint8_t>(value);
+            break;
+          case mi::ParamKey::kRcMapThrottle:
+            updated.throttle = static_cast<uint8_t>(value);
+            break;
+          default:
+            break;
+        }
+
+        if (!message::IsRcMapConfigValid(updated)) {
+          ESP_LOGW(kTag,
+                   "RC_MAP write rejected: invalid map r=%u p=%u y=%u t=%u",
+                   (unsigned)updated.roll, (unsigned)updated.pitch,
+                   (unsigned)updated.yaw, (unsigned)updated.throttle);
+          return false;
+        }
+        const bool applied = ApplyRcMapConfigToFcLink(updated);
+        if (applied) {
+          ScheduleRcConfigConfirm(Sys().Timebase().NowMs());
+        }
+        return applied;
+      }
+      default:
+        return false;
+    }
+  }
+
+  if (!have_rc_calibration_config_) {
+    ESP_LOGW(kTag, "RC_CAL write rejected: current calibration unavailable");
+    return false;
+  }
+
+  message::RcCalibrationConfigMsg updated = rc_calibration_config_;
+  const uint16_t rc_param_index = param_index - mi::kBaseParamCount;
+  const uint8_t channel_index = static_cast<uint8_t>(
+      rc_param_index / mi::kRcCalibrationParamCountPerChannel);
+  const uint8_t field_index = static_cast<uint8_t>(
+      rc_param_index % mi::kRcCalibrationParamCountPerChannel);
+  mi::RcCalibrationField field = mi::RcCalibrationField::kMin;
+
+  switch (field_index) {
+    case 0:
+      field = mi::RcCalibrationField::kMin;
+      updated.min_us[channel_index] =
+          static_cast<uint16_t>(std::lround(param_value));
+      break;
+    case 1:
+      field = mi::RcCalibrationField::kMax;
+      updated.max_us[channel_index] =
+          static_cast<uint16_t>(std::lround(param_value));
+      break;
+    case 2:
+      field = mi::RcCalibrationField::kTrim;
+      updated.trim_us[channel_index] =
+          static_cast<uint16_t>(std::lround(param_value));
+      break;
+    case 3:
+      field = mi::RcCalibrationField::kRev;
+      updated.rev[channel_index] = mi::QuantizeSignedUnit(param_value);
       break;
     default:
-      break;
+      return false;
   }
 
-  if (msg.msgid == MAVLINK_MSG_ID_COMMAND_LONG) {
-    mavlink_command_long_t cmd{};
-    mavlink_msg_command_long_decode(&msg, &cmd);
-    if (cmd.command == MAV_CMD_REQUEST_MESSAGE) {
-      ESP_LOGI(kTag,
-               "UDP RX COMMAND_LONG cmd=%lu req_msg=%lu target_sys=%u "
-               "target_comp=%u",
-               (unsigned long)cmd.command, (unsigned long)cmd.param1,
-               (unsigned)cmd.target_system, (unsigned)cmd.target_component);
-    } else {
-      ESP_LOGI(kTag, "UDP RX COMMAND_LONG cmd=%lu target_sys=%u target_comp=%u",
-               (unsigned long)cmd.command, (unsigned)cmd.target_system,
-               (unsigned)cmd.target_component);
-    }
-    return;
+  if (!message::IsRcCalibrationConfigValid(updated)) {
+    ESP_LOGW(kTag, "RC_CAL write rejected: ch=%u field=%s result=%u/%u/%u/%d",
+             (unsigned)(channel_index + 1u), mi::RcCalibrationFieldName(field),
+             (unsigned)updated.min_us[channel_index],
+             (unsigned)updated.trim_us[channel_index],
+             (unsigned)updated.max_us[channel_index],
+             (int)updated.rev[channel_index]);
+    return false;
   }
 
-  ESP_LOGI(kTag, "UDP RX msgid=%lu (%s)", (unsigned long)msg.msgid, name);
+  const bool applied = ApplyRcCalibrationConfigToFcLink(updated);
+  if (applied) {
+    ScheduleRcConfigConfirm(Sys().Timebase().NowMs());
+  }
+  return applied;
 }
 
 void Mavlink::QueueCommandAck(TxState &tx, uint16_t command, uint8_t result,
@@ -354,21 +1350,6 @@ Mavlink::TxState &Mavlink::TxForLink(Link link) {
   return (link == Link::kUdp) ? udp_tx_ : rc_tx_;
 }
 
-bool Mavlink::PopCommandLongEvent(CommandLongEvent &event) {
-  if (command_queue_ == nullptr) {
-    return false;
-  }
-  return xQueueReceive((QueueHandle_t)command_queue_, &event, 0) == pdPASS;
-}
-
-uint32_t Mavlink::UdpRxPacketCount() const {
-  return udp_rx_packet_count_.load(std::memory_order_relaxed);
-}
-
-uint32_t Mavlink::UdpTxPacketCount() const {
-  return udp_tx_packet_count_.load(std::memory_order_relaxed);
-}
-
 void Mavlink::QueueCommandAck(Link link, uint16_t command, uint8_t result,
                               uint8_t target_system, uint8_t target_component) {
   QueueCommandAck(TxForLink(link), command, result, target_system,
@@ -379,9 +1360,39 @@ void Mavlink::QueueAutopilotVersion(Link link) {
   TxForLink(link).pending_autopilot_version = true;
 }
 
+void Mavlink::QueueParamValue(Link link, uint16_t param_index) {
+  TxState &tx = TxForLink(link);
+  if (!PushPendingParamValue(tx, param_index)) {
+    ESP_LOGW(kTag, "dropping PARAM_VALUE reply: queue full");
+  }
+}
+
+bool Mavlink::PushPendingParamValue(TxState &tx, uint16_t param_index) {
+  if (tx.pending_param_count >= tx.pending_param_indices.size()) {
+    return false;
+  }
+
+  const uint8_t slot =
+      static_cast<uint8_t>((tx.pending_param_head + tx.pending_param_count) %
+                           tx.pending_param_indices.size());
+  tx.pending_param_indices[slot] = param_index;
+  ++tx.pending_param_count;
+  return true;
+}
+
+bool Mavlink::PopPendingParamValue(TxState &tx, uint16_t &param_index) {
+  if (tx.pending_param_count == 0) {
+    return false;
+  }
+
+  param_index = tx.pending_param_indices[tx.pending_param_head];
+  tx.pending_param_head = static_cast<uint8_t>((tx.pending_param_head + 1) %
+                                               tx.pending_param_indices.size());
+  --tx.pending_param_count;
+  return true;
+}
+
 void Mavlink::StartCommandAckFrame(TxState &tx) {
-  // Step 4: These small builders turn queued replies into one serialized frame.
-  // Read this block before the periodic telemetry builders below.
   if (!tx.pending_command_ack) {
     return;
   }
@@ -403,26 +1414,17 @@ void Mavlink::StartAutopilotVersionFrame(TxState &tx) {
     return;
   }
 
-  const uint64_t capabilities = kMavProtocolCapabilityParamFloat |
-                                kMavProtocolCapabilityMavlink2 |
-                                kMavProtocolCapabilityParamEncodeCCast;
+  const uint64_t capabilities = mi::kMavProtocolCapabilityParamFloat |
+                                mi::kMavProtocolCapabilityMavlink2 |
+                                mi::kMavProtocolCapabilityParamEncodeCCast;
   static constexpr uint8_t kZeroHash[8] = {};
   static constexpr uint8_t kZeroUid2[18] = {};
 
   mavlink_message_t m{};
-  // TODO: Populate real firmware/build version fields once version metadata is
-  // available in the firmware.
-  mavlink_msg_autopilot_version_pack(cfg_.identity.sysid, cfg_.identity.compid,
-                                     &m, capabilities,
-                                     0,  // flight_sw_version
-                                     0,  // middleware_sw_version
-                                     0,  // os_sw_version
-                                     0,  // board_version
-                                     kZeroHash, kZeroHash, kZeroHash,
-                                     0,  // vendor_id
-                                     0,  // product_id
-                                     0,  // uid
-                                     kZeroUid2);
+  mavlink_msg_autopilot_version_pack(
+      cfg_.identity.sysid, cfg_.identity.compid, &m, capabilities,
+      esp32_limits::kMavlinkFlightSwVersion, 0, 0, 0, kZeroHash, kZeroHash,
+      kZeroHash, 0, 0, 0, kZeroUid2);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -456,10 +1458,7 @@ void Mavlink::StartStatusTextFrame(TxState &tx) {
 
   mavlink_message_t m{};
   mavlink_msg_statustext_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                              tx.pending_statustext_severity, text,
-                              0,  // id
-                              0   // chunk_seq
-  );
+                              tx.pending_statustext_severity, text, 0, 0);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -469,7 +1468,7 @@ void Mavlink::StartStatusTextFrame(TxState &tx) {
 }
 
 void Mavlink::StartRcChannelsFrame(TxState &tx) {
-  if (!tx.pending_rc_channels || !have_latest_rc_channels_) {
+  if (!have_latest_rc_channels_) {
     return;
   }
 
@@ -493,7 +1492,30 @@ void Mavlink::StartRcChannelsFrame(TxState &tx) {
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
   tx.is_hb = false;
-  tx.pending_rc_channels = false;
+}
+
+void Mavlink::StartSingleParamValueFrame(TxState &tx) {
+  uint16_t param_index = 0;
+  if (!PopPendingParamValue(tx, param_index)) {
+    return;
+  }
+
+  char param_id[17] = {};
+  uint8_t param_type = 0;
+  float param_value = 0.0f;
+  if (!TryEncodeParamByIndex(param_index, param_id, param_type, param_value)) {
+    return;
+  }
+
+  mavlink_message_t m{};
+  mavlink_msg_param_value_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+                               param_id,
+                               mi::EncodeParamValue(param_value, param_type),
+                               param_type, mi::kTotalParamCount, param_index);
+
+  tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
+  tx.sent = 0;
+  tx.is_hb = false;
 }
 
 void Mavlink::StartParamValueFrame(TxState &tx) {
@@ -501,97 +1523,37 @@ void Mavlink::StartParamValueFrame(TxState &tx) {
     return;
   }
 
-  const uint16_t param_count =
-      static_cast<uint16_t>(sizeof(kParamTable) / sizeof(kParamTable[0]));
-  if (tx.next_param_index >= param_count) {
+  if (tx.next_param_index >= mi::kTotalParamCount) {
     tx.param_stream_active = false;
     tx.next_param_index = 0;
     return;
   }
 
-  const ParamDef &def = kParamTable[tx.next_param_index];
+  char param_id[17] = {};
+  uint8_t param_type = 0;
   float param_value = 0.0f;
-  switch (def.key) {
-    case ParamKey::kSysId:
-      param_value = static_cast<float>(cfg_.identity.sysid);
-      break;
-    case ParamKey::kCompId:
-      param_value = static_cast<float>(cfg_.identity.compid);
-      break;
-    case ParamKey::kHeartbeatMs:
-      param_value = static_cast<float>(cfg_.tx.periods.hb_ms);
-      break;
-    case ParamKey::kGpsMs:
-      param_value = static_cast<float>(cfg_.tx.periods.gps_ms);
-      break;
-    case ParamKey::kAttMs:
-      param_value = static_cast<float>(cfg_.tx.periods.att_ms);
-      break;
-    case ParamKey::kGposMs:
-      param_value = static_cast<float>(cfg_.tx.periods.gpos_ms);
-      break;
-    case ParamKey::kBattMs:
-      param_value = static_cast<float>(cfg_.tx.periods.batt_ms);
-      break;
+  if (!TryEncodeParamByIndex(tx.next_param_index, param_id, param_type,
+                             param_value)) {
+    tx.param_stream_active = false;
+    tx.next_param_index = 0;
+    return;
   }
 
-  char param_id[17] = {};
-  std::strncpy(param_id, def.id, 16);
-
   mavlink_message_t m{};
-  mavlink_msg_param_value_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                               param_id, param_value, def.type, param_count,
-                               tx.next_param_index);
+  mavlink_msg_param_value_pack(
+      cfg_.identity.sysid, cfg_.identity.compid, &m, param_id,
+      mi::EncodeParamValue(param_value, param_type), param_type,
+      mi::kTotalParamCount, tx.next_param_index);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
   tx.is_hb = false;
   tx.next_param_index++;
-  if (tx.next_param_index >= param_count) {
+  if (tx.next_param_index >= mi::kTotalParamCount) {
     tx.param_stream_active = false;
     tx.next_param_index = 0;
   }
 }
-
-// ---------------- Telemetry input (from STM32) ----------------
-
-void Mavlink::OfferTelemetry(const message::GpsData &d, uint32_t now_ms) {
-  // Step 5: This is the telemetry handoff from STM32-facing code into MAVLink.
-  // The TX side only reads from this latest-value cache.
-  latest_ = d;
-  have_latest_ = true;
-  latest_update_ms_ = now_ms;
-}
-
-void Mavlink::OfferRcChannels(const RcState &rc, uint32_t now_ms) {
-  latest_rc_channels_ = rc;
-  have_latest_rc_channels_ = true;
-  latest_rc_channels_update_ms_ = now_ms;
-
-  if ((int32_t)(now_ms - next_rc_channels_send_ms_) >= 0) {
-    udp_tx_.pending_rc_channels = true;
-    next_rc_channels_send_ms_ = now_ms + kRcChannelsPeriodMs;
-  }
-}
-
-void Mavlink::QueueStatusText(const char *text, uint8_t severity) {
-  if (text == nullptr || text[0] == '\0') {
-    return;
-  }
-
-  auto queue = [&](TxState &tx) {
-    tx.pending_statustext = true;
-    tx.pending_statustext_severity = severity;
-    std::strncpy(tx.pending_statustext_text, text,
-                 sizeof(tx.pending_statustext_text) - 1);
-    tx.pending_statustext_text[sizeof(tx.pending_statustext_text) - 1] = '\0';
-  };
-
-  queue(rc_tx_);
-  queue(udp_tx_);
-}
-
-// ---------------- TX core ----------------
 
 void Mavlink::ServiceInFlightTx(TxState &tx) {
   if (!uart_ || tx.len == 0) {
@@ -622,9 +1584,6 @@ void Mavlink::EnsureScheduleArmed(TxState &tx, const TxConfig &cfg_tx,
 
 bool Mavlink::StartNextFrameIfIdle(TxState &tx, const TxConfig &cfg_tx,
                                    uint32_t now_ms) {
-  // Step 6: This is the TX priority gate.
-  // It chooses what to send next: heartbeat first, then queued replies, then
-  // scheduled telemetry streams.
   if (tx.len > 0) {
     return true;
   }
@@ -639,10 +1598,10 @@ bool Mavlink::StartNextFrameIfIdle(TxState &tx, const TxConfig &cfg_tx,
     StartMissionCountFrame(tx);
   } else if (tx.pending_statustext) {
     StartStatusTextFrame(tx);
+  } else if (tx.pending_param_count > 0) {
+    StartSingleParamValueFrame(tx);
   } else if (tx.param_stream_active) {
     StartParamValueFrame(tx);
-  } else if (tx.pending_rc_channels) {
-    StartRcChannelsFrame(tx);
   } else {
     StartNextScheduledFrame(tx, cfg_tx, now_ms);
   }
@@ -660,25 +1619,19 @@ void Mavlink::CompleteFrame(TxState &tx, uint32_t now_ms) {
 }
 
 void Mavlink::StartHeartbeatFrame(TxState &tx, const TxConfig &cfg_tx) {
-  // Step 7: Heartbeat is the hard-priority periodic frame.
-  // Its timing drives link liveness, so the scheduler treats it specially.
   mavlink_message_t m{};
 
-  // TODO: Make vehicle type configurable instead of hardcoding quadrotor.
   mavlink_msg_heartbeat_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                             MAV_TYPE_QUADROTOR, MAV_AUTOPILOT_GENERIC, 0, 0,
+                             MAV_TYPE_QUADROTOR, kMavAutopilot32Raven, 0, 0,
                              MAV_STATE_ACTIVE);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
   tx.is_hb = true;
-
   tx.next_hb_ms += cfg_tx.periods.hb_ms;
 }
 
 void Mavlink::StartSysStatusFrame(TxState &tx) {
-  // Step 8: SYS_STATUS summarizes sensor/battery health from the cached
-  // telemetry and is the first scheduled non-heartbeat stream to inspect.
   tx.next_sys_ms += kSysStatusMs;
 
   uint32_t sensors_present = 0;
@@ -708,19 +1661,8 @@ void Mavlink::StartSysStatusFrame(TxState &tx) {
   mavlink_message_t m{};
   mavlink_msg_sys_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
                               sensors_present, sensors_enabled, sensors_health,
-                              0,  // load unknown
-                              voltage_battery, current_battery,
-                              battery_remaining,
-                              0,  // drop_rate_comm
-                              0,  // errors_comm
-                              0,  // errors_count1
-                              0,  // errors_count2
-                              0,  // errors_count3
-                              0,  // errors_count4
-                              0,  // sensors_present_extended
-                              0,  // sensors_enabled_extended
-                              0   // sensors_health_extended
-  );
+                              0, voltage_battery, current_battery,
+                              battery_remaining, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -728,11 +1670,8 @@ void Mavlink::StartSysStatusFrame(TxState &tx) {
 }
 
 void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
-  // Step 9: GPS_RAW_INT shows how `message::GpsData` is translated into raw
-  // MAVLink GPS fields, including the optional UTC timestamp conversion.
   tx.next_gps_ms += cfg_tx.periods.gps_ms;
 
-  // Only send if we have telemetry
   if (!have_latest_) {
     return;
   }
@@ -741,25 +1680,12 @@ void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
   uint64_t time_usec = 0;
   (void)TryBuildGpsUnixUsec(latest_, time_usec);
 
-  // MAVLink expects: lat/lon 1e7 deg, alt mm, vel cm/s, cog cdeg
-  // fixType maps well to MAVLink fix_type.
-
   mavlink_msg_gps_raw_int_pack(
       cfg_.identity.sysid, cfg_.identity.compid, &m, time_usec,
-      (uint8_t)latest_.fixType, latest_.lat, latest_.lon,
-      (int32_t)latest_.hMSL,           // alt (mm)
-      (uint16_t)(latest_.hAcc / 10u),  // eph (cm) rough
-      (uint16_t)(latest_.vAcc / 10u),  // epv (cm) rough
-      (uint16_t)latest_.vel,           // vel (cm/s)
-      (uint16_t)latest_.hdg,           // cog (cdeg)
-      (uint8_t)latest_.numSV,
-      0,  // alt_ellipsoid
-      0,  // h_acc
-      0,  // v_acc
-      0,  // vel_acc
-      0,  // hdg_acc
-      0   // yaw
-  );
+      (uint8_t)latest_.fixType, latest_.lat, latest_.lon, (int32_t)latest_.hMSL,
+      (uint16_t)(latest_.hAcc / 10u), (uint16_t)(latest_.vAcc / 10u),
+      (uint16_t)latest_.vel, (uint16_t)latest_.hdg, (uint8_t)latest_.numSV, 0,
+      0, 0, 0, 0, 0);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -767,8 +1693,6 @@ void Mavlink::StartGpsRawIntFrame(TxState &tx, const TxConfig &cfg_tx) {
 }
 
 void Mavlink::StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx) {
-  // Step 10: ATTITUDE is a simple unit-conversion frame.
-  // It is a good reference for the lightweight telemetry packers in this file.
   tx.next_att_ms += cfg_tx.periods.att_ms;
 
   if (!have_latest_) {
@@ -776,15 +1700,11 @@ void Mavlink::StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx) {
   }
 
   mavlink_message_t m{};
-
-  // latest_.roll/pitch/yaw are cdeg -> convert to rad
-  // rad = (cdeg / 100.0) * pi/180
   float roll = ((float)latest_.roll * 0.01f) * 0.017453292519943295f;
   float pitch = ((float)latest_.pitch * 0.01f) * 0.017453292519943295f;
   float yaw = ((float)latest_.yaw * 0.01f) * 0.017453292519943295f;
 
-  mavlink_msg_attitude_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                            0,  // time_boot_ms unknown here
+  mavlink_msg_attitude_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
                             roll, pitch, yaw, 0.0f, 0.0f, 0.0f);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
@@ -793,8 +1713,6 @@ void Mavlink::StartAttitudeFrame(TxState &tx, const TxConfig &cfg_tx) {
 }
 
 void Mavlink::StartGlobalPositionIntFrame(TxState &tx, const TxConfig &cfg_tx) {
-  // Step 11: GLOBAL_POSITION_INT shows the current placeholder policy for
-  // fields the STM32 packet does not provide yet, like relative altitude.
   tx.next_gpos_ms += cfg_tx.periods.gpos_ms;
 
   if (!have_latest_) {
@@ -802,23 +1720,18 @@ void Mavlink::StartGlobalPositionIntFrame(TxState &tx, const TxConfig &cfg_tx) {
   }
 
   mavlink_message_t m{};
-
-  // ELRS uses relative_alt and vz for vario. We don't have relative_alt/vz in
-  // GpsData. Use hMSL as a placeholder for alt and set vz=0 unless you later
-  // add vertical speed in your STM32 packet.
   int32_t lat = latest_.lat;
   int32_t lon = latest_.lon;
-  int32_t alt = latest_.hMSL;      // mm
-  int32_t rel_alt = latest_.hMSL;  // mm (placeholder for relative)
-  int16_t vx = 0;                  // cm/s
-  int16_t vy = 0;                  // cm/s
-  int16_t vz = 0;                  // cm/s
-  uint16_t hdg = latest_.hdg;      // cdeg
+  int32_t alt = latest_.hMSL;
+  int32_t rel_alt = latest_.hMSL;
+  int16_t vx = 0;
+  int16_t vy = 0;
+  int16_t vz = 0;
+  uint16_t hdg = latest_.hdg;
 
   mavlink_msg_global_position_int_pack(cfg_.identity.sysid,
-                                       cfg_.identity.compid, &m,
-                                       0,  // time_boot_ms unknown
-                                       lat, lon, alt, rel_alt, vx, vy, vz, hdg);
+                                       cfg_.identity.compid, &m, 0, lat, lon,
+                                       alt, rel_alt, vx, vy, vz, hdg);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -826,8 +1739,6 @@ void Mavlink::StartGlobalPositionIntFrame(TxState &tx, const TxConfig &cfg_tx) {
 }
 
 void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
-  // Step 12: BATTERY_STATUS is worth reviewing for semantic mismatches.
-  // Several MAVLink fields are best-effort because the source packet is sparse.
   tx.next_batt_ms += cfg_tx.periods.batt_ms;
 
   if (!have_latest_) {
@@ -835,11 +1746,6 @@ void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
   }
 
   mavlink_message_t m{};
-
-  // MAVLink BATTERY_STATUS:
-  // - voltages[] is mV per cell, 0xFFFF unknown
-  // We only have pack voltage (mV). Put it in voltages[0] and leave rest
-  // unknown.
   uint16_t voltages[10];
   for (int i = 0; i < 10; ++i) {
     voltages[i] = 0xFFFF;
@@ -847,23 +1753,10 @@ void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
   voltages[0] = latest_.batt_voltage;
 
   mavlink_msg_battery_status_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m,
-      0,  // id
-      MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO,
-      0,  // temperature unknown
-      voltages,
-      (int16_t)latest_.batt_current,  // cA in your struct; MAVLink expects cA
-      (int32_t)latest_
-          .batt_current,  // current_consumed: you have cA, not mAh.
-                          // You should replace this once STM32 provides mAh.
-      0,                  // energy_consumed unknown
-      (int8_t)latest_.batt_remaining,
-      0,         // time_remaining
-      0,         // charge_state
-      voltages,  // voltages_ext (safe re-use, ignores extra)
-      0,         // mode
-      0          // fault_bitmask
-  );
+      cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
+      MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO, 0, voltages,
+      (int16_t)latest_.batt_current, (int32_t)latest_.batt_current, 0,
+      (int8_t)latest_.batt_remaining, 0, 0, voltages, 0, 0);
 
   tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
   tx.sent = 0;
@@ -872,16 +1765,6 @@ void Mavlink::StartBatteryStatusFrame(TxState &tx, const TxConfig &cfg_tx) {
 
 void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
                                       uint32_t now_ms) {
-  // Step 13: After the individual builders make sense, read this scheduler.
-  // It picks the oldest due telemetry stream once heartbeat and replies are
-  // out of the way.
-  // Heartbeat is handled outside as hard priority.
-  // Here we select the next due stream among sys/gps/att/gpos/batt.
-  // Keep this simple and deterministic.
-
-  // Find earliest due among enabled streams.
-  // If multiple are due, pick the one with the oldest deadline (smallest
-  // next_*).
   uint32_t best_due = 0xFFFFFFFFu;
   enum class Pick : uint8_t {
     kNone,
@@ -889,7 +1772,8 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
     kGps,
     kAtt,
     kGpos,
-    kBatt
+    kBatt,
+    kRcChannels
   } pick = Pick::kNone;
 
   if ((int32_t)(now_ms - tx.next_sys_ms) >= 0) {
@@ -920,6 +1804,13 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
       pick = Pick::kBatt;
     }
   }
+  if (cfg_tx.periods.rc_channels_ms > 0 &&
+      (int32_t)(now_ms - tx.next_rc_channels_ms) >= 0) {
+    if (tx.next_rc_channels_ms < best_due) {
+      best_due = tx.next_rc_channels_ms;
+      pick = Pick::kRcChannels;
+    }
+  }
 
   switch (pick) {
     case Pick::kSys:
@@ -937,6 +1828,10 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
     case Pick::kBatt:
       StartBatteryStatusFrame(tx, cfg_tx);
       break;
+    case Pick::kRcChannels:
+      tx.next_rc_channels_ms += cfg_tx.periods.rc_channels_ms;
+      StartRcChannelsFrame(tx);
+      break;
     case Pick::kNone:
     default:
       break;
@@ -944,9 +1839,6 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
 }
 
 void Mavlink::ServiceRcLink(uint32_t now_ms) {
-  // Step 14: This is the RC link state machine.
-  // It advances partial UART writes, starts new frames when idle, and closes
-  // out completed sends.
   TxState &tx = rc_tx_;
   const TxConfig &cfg_tx = cfg_.rc.tx;
   EnsureScheduleArmed(tx, cfg_tx, now_ms);
@@ -971,8 +1863,6 @@ void Mavlink::ServiceRcLink(uint32_t now_ms) {
 }
 
 void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
-  // Step 15: The UDP primary link mirrors the RC flow but also owns UDP RX.
-  // Compare it with `ServiceRcLink` to see what differs per transport.
   if (udp_ == nullptr) {
     return;
   }
@@ -991,7 +1881,6 @@ void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
     for (int i = 0; i < received; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_2, rx_buf[i], &msg, &status)) {
         udp_rx_packet_count_.fetch_add(1, std::memory_order_relaxed);
-        MaybeLogUdpMessage(msg);
         HandleMessage(msg, RxSource::kUdp);
       }
     }
@@ -1011,11 +1900,4 @@ void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
   }
   CompleteFrame(tx, now_ms);
-}
-
-void Mavlink::WorkerTick(uint32_t now_ms) {
-  // Step 16: End here. The worker tick just runs both link service loops each
-  // cycle, so it ties the whole read order back together.
-  ServiceRcLink(now_ms);
-  ServicePrimaryLink(now_ms);
 }
