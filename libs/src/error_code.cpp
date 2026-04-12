@@ -7,6 +7,8 @@ const char *GetMessage(ErrorCode code) {
       return "OK";
     case ErrorCode::kUnknown:
       return "Unknown Error";
+    case ErrorCode::kUnknownCommand:
+      return "Unknown Command Received in Command Handler";
     case ErrorCode::kSystemReinit:
       return "System Re-init";
     case ErrorCode::kTcpServerStartFailed:
@@ -55,6 +57,14 @@ const char *GetMessage(ErrorCode code) {
       return "FcLink RC Calibration Set Failed";
     case ErrorCode::kCommandInitFailed:
       return "Command Init Failed";
+    case ErrorCode::kCommandInvalidPacket:
+      return "Command Handler Invalid Packet";
+    case ErrorCode::kCommandInvalidRcMapConfig:
+      return "Command Handler Invalid RC Map Config";
+    case ErrorCode::kCommandInvalidRcCalibrationConfig:
+      return "Command Handler Invalid RC Calibration Config";
+    case ErrorCode::kCommandInvalidGyroCalibrationIdConfig:
+      return "Command Handler Invalid Gyro Calibration ID Config";
     case ErrorCode::kLedGpioConfigFailed:
       return "LED GPIO Config Failed";
     case ErrorCode::kLedTimerInitFailed:
