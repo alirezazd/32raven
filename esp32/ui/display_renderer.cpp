@@ -1,11 +1,11 @@
 #include "display_renderer.hpp"
 
+#include <Adafruit_GFX.h>
+#include <Fonts/Org_01.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-
-#include <Adafruit_GFX.h>
-#include <Fonts/Org_01.h>
 
 namespace {
 
@@ -15,9 +15,9 @@ inline constexpr uint16_t kPixelOn = 1;
 class GfxRenderer : public Adafruit_GFX {
  public:
   explicit GfxRenderer(RenderCanvas *canvas)
-      : Adafruit_GFX(static_cast<int16_t>(canvas != nullptr ? canvas->Width() : 0),
-                     static_cast<int16_t>(canvas != nullptr ? canvas->Height()
-                                                            : 0)),
+      : Adafruit_GFX(
+            static_cast<int16_t>(canvas != nullptr ? canvas->Width() : 0),
+            static_cast<int16_t>(canvas != nullptr ? canvas->Height() : 0)),
         canvas_(canvas) {}
 
   void ConfigureText(const DisplayTextStyle &style) {
@@ -127,8 +127,7 @@ bool DisplayRenderer::DrawRect(size_t x, size_t y, size_t width, size_t height,
 
   GfxRenderer renderer(canvas_);
   renderer.drawRect(static_cast<int16_t>(x), static_cast<int16_t>(y),
-                    static_cast<int16_t>(width),
-                    static_cast<int16_t>(height),
+                    static_cast<int16_t>(width), static_cast<int16_t>(height),
                     on ? kPixelOn : kPixelOff);
   return true;
 }
@@ -246,8 +245,7 @@ bool DisplayRenderer::DrawBitmap(const uint8_t *bitmap_data, size_t width,
 
 bool DisplayRenderer::DrawMosaicBitmap(const uint8_t *bitmap_data, size_t width,
                                        size_t height, size_t offset_x,
-                                       size_t offset_y,
-                                       uint8_t block_size_px) {
+                                       size_t offset_y, uint8_t block_size_px) {
   if (canvas_ == nullptr || bitmap_data == nullptr || width == 0 ||
       height == 0 || block_size_px == 0 || width > Width() ||
       height > Height() || offset_x + width > Width() ||
@@ -268,8 +266,7 @@ bool DisplayRenderer::DrawMosaicBitmap(const uint8_t *bitmap_data, size_t width,
       const size_t dst_x_begin = offset_x + src_x;
       const size_t dst_y_begin = offset_y + src_y;
       const size_t dst_x_end = std::min(dst_x_begin + block, offset_x + width);
-      const size_t dst_y_end =
-          std::min(dst_y_begin + block, offset_y + height);
+      const size_t dst_y_end = std::min(dst_y_begin + block, offset_y + height);
 
       for (size_t dst_y = dst_y_begin; dst_y < dst_y_end; ++dst_y) {
         for (size_t dst_x = dst_x_begin; dst_x < dst_x_end; ++dst_x) {
@@ -301,7 +298,8 @@ bool DisplayRenderer::DrawMosaicTransition(const uint8_t *from_bitmap_data,
     const float start = descending ? static_cast<float>(max_block) : 1.0f;
     const float end = descending ? 1.0f : static_cast<float>(max_block);
     return static_cast<uint8_t>(std::clamp(
-        std::lround(start + (end - start) * std::clamp(local_progress, 0.0f, 1.0f)),
+        std::lround(start +
+                    (end - start) * std::clamp(local_progress, 0.0f, 1.0f)),
         1l, static_cast<long>(max_block)));
   };
 
@@ -343,8 +341,7 @@ int16_t DisplayRenderer::ScrollOffsetPx(int16_t content_width_px,
   }
 
   const TimeMs scroll_duration_ms = std::max<TimeMs>(
-      1, (static_cast<TimeMs>(overflow_px) * 1000u +
-          (pixels_per_second - 1u)) /
+      1, (static_cast<TimeMs>(overflow_px) * 1000u + (pixels_per_second - 1u)) /
              pixels_per_second);
   const TimeMs cycle_duration_ms = pause_ms + scroll_duration_ms + pause_ms;
   const TimeMs phase_ms = now % cycle_duration_ms;
@@ -384,9 +381,8 @@ bool DisplayRenderer::DrawScrollingText(const char *text, int16_t left_px,
   return DrawText(text, cursor_x, cursor_y, style);
 }
 
-DisplayTextBounds DisplayRenderer::MeasureText(const char *text,
-                                               const DisplayTextStyle &style)
-    const {
+DisplayTextBounds DisplayRenderer::MeasureText(
+    const char *text, const DisplayTextStyle &style) const {
   if (canvas_ == nullptr || text == nullptr) {
     return {};
   }
@@ -433,7 +429,7 @@ size_t DisplayRenderer::AnimatedTextLength(TimeMs start_ms, TimeMs now,
 
   const uint32_t scaled =
       static_cast<uint32_t>(elapsed) * static_cast<uint32_t>(text_len);
-  const size_t visible_chars = static_cast<size_t>(
-      (scaled + duration_ms - 1) / duration_ms);
+  const size_t visible_chars =
+      static_cast<size_t>((scaled + duration_ms - 1) / duration_ms);
   return std::clamp<size_t>(visible_chars, static_cast<size_t>(1), text_len);
 }
