@@ -80,25 +80,12 @@ class Icm42688p {
     Sample samples[kMaxWatermarkRecords];
   };
 
-  // DEBUG_DIAG_BEGIN (remove block when debug campaign is complete)
-  struct DebugDiag {
-    uint8_t hdr;
-    uint8_t rec[16];
-    int16_t be_accel[3];
-    int16_t le_accel[3];
-    int16_t sh1_accel[3];
-    int16_t be_gyro[3];
-    int16_t le_gyro[3];
-    int16_t sh1_gyro[3];
-  };
-  // DEBUG_DIAG_END
-
   static Icm42688p &GetInstance() {
     static Icm42688p inst;
     return inst;
   }
 
-  void Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg);
+  void Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg);
   void OnIrq();
   bool WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out);
   SampleBatch GetLatestBatch() const;
@@ -212,7 +199,7 @@ class Icm42688p {
 
   bool initialized_{false};
   GPIO *gpio_{nullptr};
-  Spi1 *spi_{nullptr};
+  Spi2 *spi_{nullptr};
   EE *ee_{nullptr};
   ee_schema::ImuAccelCalibration accel_calibration_{};
 

@@ -36,7 +36,7 @@ class System {
     kUart1,
 
     // SECONDARY DRIVERS
-    kSpi1,
+    kSpi2,
     kDshot,
     kButton,
     kUart2,
@@ -48,7 +48,7 @@ class System {
 
   LED &Led() { return LED::GetInstance(); }
 
-  Spi1 &GetSpi() { return Spi1::GetInstance(); }
+  Spi2 &GetSpi() { return Spi2::GetInstance(); }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
   EE &GetEe() { return EE::GetInstance(); }
