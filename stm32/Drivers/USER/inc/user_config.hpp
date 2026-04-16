@@ -93,14 +93,22 @@ const std::array kGpioDefault = {
                     {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_VERY_HIGH, 0},
                     false},  // IMU INT
-    GPIO::PinConfig{GPIOA,
-                    {GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7, GPIO_MODE_AF_PP,
-                     GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1},
-                    false},  // SPI Pins (AF)
-    GPIO::PinConfig{GPIOA,
-                    {GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+    GPIO::PinConfig{GPIOB,
+                    {GPIO_PIN_13, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI2},
+                    false},  // IMU SPI2 SCK (AF)
+    GPIO::PinConfig{GPIOB,
+                    {GPIO_PIN_14 | GPIO_PIN_15, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI2},
+                    false},  // IMU SPI2 MISO/MOSI (AF)
+    GPIO::PinConfig{SPI2_CS_GPIO_Port,
+                    {SPI2_CS_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_VERY_HIGH, 0},
-                    true}  // SPI CS Active Low
+                    true},  // IMU SPI2 CS Active Low
+    GPIO::PinConfig{SPI1_CS_GPIO_Port,
+                    {SPI1_CS_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, 0},
+                    true}  // Flash SPI1 CS Active Low
 };
 
 const LED::Config kLedDefault = {
@@ -115,6 +123,8 @@ constexpr SpiConfig kSpi1Config = {.polarity = SpiPolarity::kHigh,
                                    .phase = SpiPhase::k2Edge,
                                    .prescaler = SpiPrescaler::kDiv32,
                                    .bit_order = SpiBitOrder::kMsbFirst};
+
+constexpr SpiConfig kSpi2Config = kSpi1Config;
 
 inline constexpr Battery::Config kBatteryConfig = {
     .voltage_v = 16.0f,

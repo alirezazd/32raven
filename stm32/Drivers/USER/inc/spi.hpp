@@ -5,7 +5,7 @@
 
 #include "stm32f4xx.h"
 
-enum class SpiInstance { kSpi1 };
+enum class SpiInstance { kSpi1, kSpi2 };
 
 enum class SpiPrescaler : uint8_t {
   kDiv2 = 0,
@@ -70,10 +70,13 @@ class Spi {
   static inline SPI_TypeDef *Hw() {
     if constexpr (Inst == SpiInstance::kSpi1)
       return SPI1;
+    else if constexpr (Inst == SpiInstance::kSpi2)
+      return SPI2;
     else
       return nullptr;
   }
-  static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
+  static_assert(Inst == SpiInstance::kSpi1 || Inst == SpiInstance::kSpi2,
+                "Unsupported SPI instance");
 
   bool initialized_ = false;
   volatile bool busy_ = false;
@@ -92,3 +95,4 @@ class Spi {
 };
 
 using Spi1 = Spi<SpiInstance::kSpi1>;
+using Spi2 = Spi<SpiInstance::kSpi2>;
