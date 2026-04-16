@@ -1,7 +1,6 @@
 #include "icm42688p.hpp"
 
 #include <cmath>
-#include <cstdio>
 
 #include "board.h"
 #include "config_storage.hpp"
@@ -13,7 +12,7 @@
 
 using namespace Icm42688pReg;
 
-void Icm42688p::Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg) {
+void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::kImuReinit);
   }
@@ -37,7 +36,7 @@ void Icm42688p::Init(GPIO &gpio, Spi1 &spi, EE &ee, const Config &cfg) {
   spi.SetPrescaler(cfg.spi_prescaler);
 
   CheckWhoAmI();
-  device_id_ = 2u | (static_cast<uint32_t>(SpiInstance::kSpi1) << 3) |
+  device_id_ = 2u | (static_cast<uint32_t>(SpiInstance::kSpi2) << 3) |
                (static_cast<uint32_t>(who_am_i_) << 16);
   SoftReset();
   SetBank(0);
@@ -629,7 +628,7 @@ void Icm42688p::CheckWhoAmI() {
 
   SetBank(0);
   while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
-    uint8_t id = ReadReg(REG_WHO_AM_I);
+    const uint8_t id = ReadReg(REG_WHO_AM_I);
     if (id == WHO_AM_I_ICM42688P || id == WHO_AM_I_ICM42686P) {
       who_am_i_ = id;
       return;
@@ -805,8 +804,8 @@ uint8_t Icm42688p::ReadReg(uint8_t reg) {
   return rx[1];
 }
 void Icm42688p::CsLow() {
-  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, false);
+  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, false);
 }
 void Icm42688p::CsHigh() {
-  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, true);
+  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, true);
 }

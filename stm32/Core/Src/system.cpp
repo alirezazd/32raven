@@ -36,7 +36,7 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kRcReceiver);
   InitComponent(Component::kLed);
   InitComponent(Component::kUart1);
-  InitComponent(Component::kSpi1);
+  InitComponent(Component::kSpi2);
   InitComponent(Component::kDshot);
   InitComponent(Component::kButton);
   InitComponent(Component::kUart2);
@@ -72,8 +72,8 @@ void System::InitComponent(Component c) {
     case Component::kUart1:
       Uart1::GetInstance().Init(kUart1Config);
       break;
-    case Component::kSpi1:
-      Spi1::GetInstance().Init(kSpi1Config);
+    case Component::kSpi2:
+      Spi2::GetInstance().Init(kSpi2Config);
       break;
     case Component::kDshot:
       DShotTim1::init(kDshotTim1Default);
@@ -88,7 +88,7 @@ void System::InitComponent(Component c) {
       M10::GetInstance().Init(kM10Config);
       break;
     case Component::kIcm42688p:
-      Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance(),
+      Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi2::GetInstance(),
                                     EE::GetInstance(), kIcm42688pConfig);
       break;
   }

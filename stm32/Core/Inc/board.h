@@ -16,7 +16,9 @@ void ErrorHandler(void);
 #define USER_LED_Pin GPIO_PIN_1
 #define USER_LED_GPIO_PORT GPIOA
 
-#define SPI1_CS_Pin GPIO_PIN_4
+#define SPI2_CS_Pin GPIO_PIN_4
+#define SPI2_CS_GPIO_Port GPIOA
+#define SPI1_CS_Pin GPIO_PIN_15
 #define SPI1_CS_GPIO_Port GPIOA
 #define IMU_INT_Pin GPIO_PIN_10
 #define IMU_INT_GPIO_Port GPIOB
@@ -28,4 +30,4 @@ void ErrorHandler(void);
 }
 #endif
 
-#endif // CORE_BOARD_H
+#endif  // CORE_BOARD_H
