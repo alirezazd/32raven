@@ -245,6 +245,8 @@ const char *GetMessage(ErrorCode code) {
       return "EEPROM emulation not initialized";
     case ErrorCode::kEepromReinit:
       return "EEPROM emulation re-init";
+    case ErrorCode::kEepromDeviceNotFound:
+      return "EEPROM device not found";
     case ErrorCode::kEepromInvalidConfig:
       return "EEPROM emulation invalid config";
     case ErrorCode::kEepromFormatFailed:

@@ -47,11 +47,7 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
   int16_t line_top = std::max<int16_t>(
       0, static_cast<int16_t>(ui.Height() - total_height) / 2);
 
-  const RcState &rc_state = Sys().Mavlink().GetRcState();
   std::array<uint16_t, kChannelCount> values{};
-  for (size_t index = 0; index < kChannelCount; ++index) {
-    values[index] = rc_state.channels[index];
-  }
 
   renderer.Clear();
 

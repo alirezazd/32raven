@@ -53,15 +53,6 @@
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-static inline void ClearSpi1DmaFlags(void) {
-  // SPI1 is reserved for the onboard W25Q16. Until a flash DMA path exists,
-  // clear any stray DMA2 Stream0/3 flags and leave the flash bus untouched.
-  DMA2->LIFCR = (DMA_LIFCR_CTEIF0 | DMA_LIFCR_CDMEIF0 | DMA_LIFCR_CFEIF0 |
-                 DMA_LIFCR_CHTIF0 | DMA_LIFCR_CTCIF0) |
-                (DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3 |
-                 DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTCIF3);
-}
-
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
@@ -335,13 +326,6 @@ void EXTI15_10_IRQHandler(void) {
 }
 
 /**
- * @brief This function handles DMA2 stream0 global interrupt.
- */
-void DMA2_Stream0_IRQHandler(void) {
-  ClearSpi1DmaFlags();
-}
-
-/**
  * @brief This function handles DMA2 stream1 global interrupt.
  */
 void DMA2_Stream1_IRQHandler(void)
@@ -382,13 +366,6 @@ void DMA2_Stream2_IRQHandler(void) {
       Uart1OnRxCplt();
     }
   }
-}
-
-/**
- * @brief This function handles DMA2 stream3 global interrupt.
- */
-void DMA2_Stream3_IRQHandler(void) {
-  ClearSpi1DmaFlags();
 }
 
 /**

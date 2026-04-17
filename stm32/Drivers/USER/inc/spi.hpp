@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 #include "stm32f4xx.h"
 
@@ -43,20 +44,40 @@ class Spi {
   void Read(uint8_t *rx, size_t len);
 
   void SetPrescaler(SpiPrescaler rate);
-  void EnableIrqs(uint32_t priority = 2);
+  template <SpiInstance I = Inst,
+            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
+  void EnableIrqs(uint32_t priority = 2) {
+    EnableIrqsImpl(priority);
+  }
 
   bool IsInitialized() const { return initialized_; }
 
-  bool Busy() const;
+  template <SpiInstance I = Inst,
+            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
+  bool Busy() const {
+    return BusyImpl();
+  }
 
   using SpiDoneCb = void (*)(void *user, bool ok);
 
+  template <SpiInstance I = Inst,
+            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
   bool StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len, SpiDoneCb cb,
-                    void *user);
-  bool StartRxDma(uint8_t *rx, size_t len, SpiDoneCb cb, void *user);
-  void OnRxDmaTcIrq();
+                    void *user) {
+    return StartTxRxDmaImpl(tx, rx, len, cb, user);
+  }
 
-  void HandleDmaError(uint32_t isr_flags);
+  template <SpiInstance I = Inst,
+            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
+  void OnRxDmaTcIrq() {
+    OnRxDmaTcIrqImpl();
+  }
+
+  template <SpiInstance I = Inst,
+            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
+  void HandleDmaError(uint32_t isr_flags) {
+    HandleDmaErrorImpl(isr_flags);
+  }
 
  private:
   friend class System;
@@ -92,6 +113,12 @@ class Spi {
   void Disable();
   void EnableDmaClk();
   void EnableSpiClk();
+  void EnableIrqsImpl(uint32_t priority);
+  bool BusyImpl() const;
+  bool StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
+                        SpiDoneCb cb, void *user);
+  void OnRxDmaTcIrqImpl();
+  void HandleDmaErrorImpl(uint32_t isr_flags);
 };
 
 using Spi1 = Spi<SpiInstance::kSpi1>;
