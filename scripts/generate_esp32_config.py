@@ -37,8 +37,6 @@ ESP32C3_GPIO_MIN = 0
 ESP32C3_GPIO_MAX = 21
 FCLINK_TELEMETRY_RATE_MIN = 1
 FCLINK_TELEMETRY_RATE_MAX = 255
-FCLINK_RC_FORWARD_RATE_MIN = 1
-FCLINK_RC_FORWARD_RATE_MAX = 255
 FCLINK_INVALID_PACKET_THRESHOLD_MIN = 1
 FCLINK_INVALID_PACKET_THRESHOLD_MAX = 255
 FCLINK_HANDSHAKE_ATTEMPTS_MIN = 1
@@ -143,26 +141,6 @@ FCLINK_UART_PARITY_CHOICES = {
     "ESP32_FCLINK_UART_PARITY_NONE": "UartParity::kNone",
     "ESP32_FCLINK_UART_PARITY_EVEN": "UartParity::kEven",
     "ESP32_FCLINK_UART_PARITY_ODD": "UartParity::kOdd",
-}
-
-RCRX_UART_BAUD_RATE_CHOICES = {
-    "ESP32_RCRX_UART_BAUD_9600": "9600",
-    "ESP32_RCRX_UART_BAUD_19200": "19200",
-    "ESP32_RCRX_UART_BAUD_38400": "38400",
-    "ESP32_RCRX_UART_BAUD_57600": "57600",
-    "ESP32_RCRX_UART_BAUD_115200": "115200",
-    "ESP32_RCRX_UART_BAUD_230400": "230400",
-    "ESP32_RCRX_UART_BAUD_460800": "460800",
-    "ESP32_RCRX_UART_BAUD_921600": "921600",
-    "ESP32_RCRX_UART_BAUD_1000000": "1000000",
-    "ESP32_RCRX_UART_BAUD_2000000": "2000000",
-    "ESP32_RCRX_UART_BAUD_5000000": "5000000",
-}
-
-RCRX_UART_PARITY_CHOICES = {
-    "ESP32_RCRX_UART_PARITY_NONE": "UartParity::kNone",
-    "ESP32_RCRX_UART_PARITY_EVEN": "UartParity::kEven",
-    "ESP32_RCRX_UART_PARITY_ODD": "UartParity::kOdd",
 }
 
 WIFI_POWER_SAVE_CHOICES = {
@@ -348,8 +326,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         "ESP32_PINMAP_BUZZER_GPIO_NUM",
         "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM",
         "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM",
-        "ESP32_PINMAP_RCRX_UART_TX_GPIO_NUM",
-        "ESP32_PINMAP_RCRX_UART_RX_GPIO_NUM",
         "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM",
         "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM",
     )
@@ -366,12 +342,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         "STM32_FCLINK_TELEMETRY_RATE_HZ",
         FCLINK_TELEMETRY_RATE_MIN,
         FCLINK_TELEMETRY_RATE_MAX,
-    )
-    _validate_int_range(
-        kconf,
-        "ESP32_MAVLINK_RC_FCLINK_FORWARD_RATE_HZ",
-        FCLINK_RC_FORWARD_RATE_MIN,
-        FCLINK_RC_FORWARD_RATE_MAX,
     )
     _validate_int_range(
         kconf,
@@ -426,7 +396,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         "ESP32_MAVLINK_ATTITUDE_PERIOD_MS",
         "ESP32_MAVLINK_GLOBAL_POSITION_PERIOD_MS",
         "ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS",
-        "ESP32_MAVLINK_RC_CHANNELS_PERIOD_MS",
     ):
         _validate_int_range(
             kconf,
@@ -434,53 +403,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             MAVLINK_TELEMETRY_PERIOD_MIN_MS,
             MAVLINK_TELEMETRY_PERIOD_MAX_MS,
         )
-    for enable_symbol, value_symbol in (
-        ("ESP32_MAVLINK_RC_GPS_ENABLE", "ESP32_MAVLINK_RC_GPS_PERIOD_MS"),
-        ("ESP32_MAVLINK_RC_ATTITUDE_ENABLE", "ESP32_MAVLINK_RC_ATTITUDE_PERIOD_MS"),
-        (
-            "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE",
-            "ESP32_MAVLINK_RC_GLOBAL_POSITION_PERIOD_MS",
-        ),
-        (
-            "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE",
-            "ESP32_MAVLINK_RC_BATTERY_STATUS_PERIOD_MS",
-        ),
-    ):
-        if _sym_bool(kconf, enable_symbol):
-            _validate_int_range(
-                kconf,
-                value_symbol,
-                MAVLINK_TELEMETRY_PERIOD_MIN_MS,
-                MAVLINK_TELEMETRY_PERIOD_MAX_MS,
-            )
-    _validate_int_range(
-        kconf,
-        "ESP32_MAVLINK_RC_RX_READ_CHUNK_SIZE",
-        MAVLINK_RX_READ_CHUNK_MIN,
-        MAVLINK_RX_READ_CHUNK_MAX,
-    )
-    for enable_symbol, value_symbol in (
-        ("ESP32_MAVLINK_RC_GPS_ENABLE", "ESP32_MAVLINK_RC_GPS_START_DELAY_MS"),
-        (
-            "ESP32_MAVLINK_RC_ATTITUDE_ENABLE",
-            "ESP32_MAVLINK_RC_ATTITUDE_START_DELAY_MS",
-        ),
-        (
-            "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE",
-            "ESP32_MAVLINK_RC_GLOBAL_POSITION_START_DELAY_MS",
-        ),
-        (
-            "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE",
-            "ESP32_MAVLINK_RC_BATTERY_STATUS_START_DELAY_MS",
-        ),
-    ):
-        if _sym_bool(kconf, enable_symbol):
-            _validate_int_range(
-                kconf,
-                value_symbol,
-                MAVLINK_START_DELAY_MIN_MS,
-                MAVLINK_START_DELAY_MAX_MS,
-            )
     _validate_int_range(
         kconf,
         "ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS",
@@ -496,18 +418,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         _validate_int_range(
             kconf, symbol, MAVLINK_START_DELAY_MIN_MS, MAVLINK_START_DELAY_MAX_MS
         )
-    _validate_int_range(
-        kconf,
-        "ESP32_RCRX_UART_RX_BUFFER_SIZE",
-        UART_BUFFER_SIZE_MIN,
-        UART_BUFFER_SIZE_MAX,
-    )
-    _validate_int_range(
-        kconf,
-        "ESP32_RCRX_UART_TX_BUFFER_SIZE",
-        UART_BUFFER_SIZE_MIN,
-        UART_BUFFER_SIZE_MAX,
-    )
     wifi_ssid = _sym_str(kconf, "ESP32_WIFI_AP_SSID")
     wifi_password = _sym_str(kconf, "ESP32_WIFI_AP_PASSWORD")
     if not WIFI_AP_SSID_MIN_LEN <= len(wifi_ssid) <= WIFI_AP_SSID_MAX_LEN:
@@ -722,8 +632,6 @@ def _runtime_context(
             ),
             "fclink_uart_tx": _sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM"),
             "fclink_uart_rx": _sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM"),
-            "rcrx_uart_tx": _sym_int(kconf, "ESP32_PINMAP_RCRX_UART_TX_GPIO_NUM"),
-            "rcrx_uart_rx": _sym_int(kconf, "ESP32_PINMAP_RCRX_UART_RX_GPIO_NUM"),
             "programmer_boot0": _sym_int(
                 kconf, "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM"
             ),
@@ -800,12 +708,6 @@ def _runtime_context(
             "rx_buf": _sym_int(kconf, "ESP32_FCLINK_UART_RX_BUFFER_SIZE"),
             "tx_buf": _sym_int(kconf, "ESP32_FCLINK_UART_TX_BUFFER_SIZE"),
         },
-        "rcrx_uart": {
-            "baud_rate": _choice_value(kconf, RCRX_UART_BAUD_RATE_CHOICES),
-            "parity": _choice_value(kconf, RCRX_UART_PARITY_CHOICES),
-            "rx_buf": _sym_int(kconf, "ESP32_RCRX_UART_RX_BUFFER_SIZE"),
-            "tx_buf": _sym_int(kconf, "ESP32_RCRX_UART_TX_BUFFER_SIZE"),
-        },
         "fclink": {
             "rx_queue_depth": _sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH"),
             "handshake_attempts": _sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_ATTEMPTS"),
@@ -864,9 +766,6 @@ def _runtime_context(
                     "batt_ms": _sym_int(
                         kconf, "ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS"
                     ),
-                    "rc_channels_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_RC_CHANNELS_PERIOD_MS"
-                    ),
                 },
                 "schedule": {
                     "hb_deadline_ms": _sym_int(
@@ -886,75 +785,6 @@ def _runtime_context(
                     ),
                 },
             },
-        },
-        "mavlink_rc": {
-            "rx": {
-                "read_chunk_size": _sym_int(
-                    kconf, "ESP32_MAVLINK_RC_RX_READ_CHUNK_SIZE"
-                ),
-            },
-            "tx": {
-                "periods": {
-                    "hb_ms": 1000,
-                    "gps_ms": (
-                        _sym_int(kconf, "ESP32_MAVLINK_RC_GPS_PERIOD_MS")
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_GPS_ENABLE")
-                        else 0
-                    ),
-                    "att_ms": (
-                        _sym_int(kconf, "ESP32_MAVLINK_RC_ATTITUDE_PERIOD_MS")
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_ATTITUDE_ENABLE")
-                        else 0
-                    ),
-                    "gpos_ms": (
-                        _sym_int(kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_PERIOD_MS")
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE")
-                        else 0
-                    ),
-                    "batt_ms": (
-                        _sym_int(kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_PERIOD_MS")
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE")
-                        else 0
-                    ),
-                    "rc_channels_ms": 0,
-                },
-                "schedule": {
-                    "hb_deadline_ms": 1500,
-                    "gps_start_delay_ms": (
-                        _sym_int(kconf, "ESP32_MAVLINK_RC_GPS_START_DELAY_MS")
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_GPS_ENABLE")
-                        else 0
-                    ),
-                    "att_start_delay_ms": (
-                        _sym_int(kconf, "ESP32_MAVLINK_RC_ATTITUDE_START_DELAY_MS")
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_ATTITUDE_ENABLE")
-                        else 0
-                    ),
-                    "gpos_start_delay_ms": (
-                        _sym_int(
-                            kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_START_DELAY_MS"
-                        )
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_GLOBAL_POSITION_ENABLE")
-                        else 0
-                    ),
-                    "batt_start_delay_ms": (
-                        _sym_int(
-                            kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_START_DELAY_MS"
-                        )
-                        if _sym_bool(kconf, "ESP32_MAVLINK_RC_BATTERY_STATUS_ENABLE")
-                        else 0
-                    ),
-                },
-            },
-            "fc_forward_rate_hz": _sym_int(
-                kconf, "ESP32_MAVLINK_RC_FCLINK_FORWARD_RATE_HZ"
-            ),
-            "fc_request_attempts": _sym_int(
-                kconf, "ESP32_MAVLINK_RC_FCLINK_REQUEST_ATTEMPTS"
-            ),
-            "fc_request_retry_period_ms": _sym_int(
-                kconf, "ESP32_MAVLINK_RC_FCLINK_REQUEST_RETRY_PERIOD_MS"
-            ),
         },
     }
 
