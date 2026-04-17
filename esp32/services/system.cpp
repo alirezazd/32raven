@@ -21,7 +21,6 @@ void System::Init() {
   InitComponent(Component::kTcpServer);
   InitComponent(Component::kUdpServer);
   InitComponent(Component::kFcLinkUart);
-  InitComponent(Component::kRcRxUart);
   InitComponent(Component::kProgrammer);
   InitComponent(Component::kFcLink);
   InitComponent(Component::kMavlink);
@@ -80,10 +79,6 @@ void System::InitComponent(Component c) {
       FcLinkUart().Init(kFcLinkUartConfig);
       ESP_LOGI(kTag, "FcLink Uart initialized");
       break;
-    case Component::kRcRxUart:
-      RcRxUart().Init(kRcRxUartConfig);
-      ESP_LOGI(kTag, "RcRx Uart initialized");
-      break;
     case Component::kProgrammer:
       Programmer().Init(kProgrammerConfig, &FcLinkUart());
       ESP_LOGI(kTag, "Programmer initialized");
@@ -93,7 +88,7 @@ void System::InitComponent(Component c) {
       ESP_LOGI(kTag, "FcLink service initialized");
       break;
     case Component::kMavlink:
-      Mavlink().Init(kMavlinkConfig, &RcRxUart(), &Udp());
+      Mavlink().Init(kMavlinkConfig, &Udp());
       ESP_LOGI(kTag, "Mavlink service initialized");
       break;
     case Component::kCommandHandler:

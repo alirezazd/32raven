@@ -42,7 +42,6 @@ class System {
     kTcpServer,
     kUdpServer,
     kFcLinkUart,
-    kRcRxUart,
     kProgrammer,
     kMavlink,
     kFcLink,
@@ -65,7 +64,6 @@ class System {
   ::FcLink &FcLink() { return ::FcLink::GetInstance(); }
   ::CommandHandler &CommandHandler() { return ::CommandHandler::GetInstance(); }
   ::UartFcLink &FcLinkUart() { return ::UartFcLink::GetInstance(); }
-  ::UartRcRx &RcRxUart() { return ::UartRcRx::GetInstance(); }
   ::Programmer &Programmer() { return ::Programmer::GetInstance(); }
   void Init();
   void StopNetwork();
