@@ -12,7 +12,6 @@
 #include "i2c.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
-#include "spi.hpp"
 #include "stm32_config.hpp"
 #include "stm32f4xx_hal_gpio.h"
 #include "time_base.hpp"
@@ -118,13 +117,6 @@ const LED::Config kLedDefault = {
 constexpr DShotTim1::Config kDshotTim1Default = {
     DShotMode::DSHOT600,  // mode
 };
-
-constexpr SpiConfig kSpi1Config = {.polarity = SpiPolarity::kHigh,
-                                   .phase = SpiPhase::k2Edge,
-                                   .prescaler = SpiPrescaler::kDiv32,
-                                   .bit_order = SpiBitOrder::kMsbFirst};
-
-constexpr SpiConfig kSpi2Config = kSpi1Config;
 
 inline constexpr Battery::Config kBatteryConfig = {
     .voltage_v = 16.0f,

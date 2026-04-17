@@ -81,6 +81,13 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
     },
 };
 
+inline constexpr SpiConfig kSpi2Config = {
+    .polarity = SpiPolarity::kHigh,
+    .phase = SpiPhase::k2Edge,
+    .prescaler = {{ icm42688p.spi_prescaler }},
+    .bit_order = SpiBitOrder::kMsbFirst,
+};
+
 inline constexpr Icm20948::Config kIcm20948Config = {
     .dma_buf_size = {{ icm20948.dma_buf_size }},
     .fifo_size = {{ icm20948.fifo_size }},
