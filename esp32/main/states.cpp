@@ -29,7 +29,6 @@ void ServingState::OnEnter(AppContext &ctx) {
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
   (void)now;
-  const uint32_t now_ms = ctx.sys->Timebase().NowMs();
   auto &button = ctx.sys->Button();
   button.Poll();
 
@@ -47,7 +46,6 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   ctx.sys->Mavlink().Poll();
-  ctx.sys->Mavlink().ForwardRcStateToFcLink(now_ms);
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);

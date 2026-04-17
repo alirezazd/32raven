@@ -231,6 +231,8 @@ inline float DecodeParamValue(float encoded_value, uint8_t param_type) {
 constexpr uint16_t kSysStatusStartDelayMs = 250;
 constexpr MAV_AUTOPILOT kMavAutopilot32Raven = static_cast<MAV_AUTOPILOT>(200);
 constexpr uint16_t kSysStatusMs = 1000;
+constexpr uint16_t kFcConfigRequestAttempts = 100;
+constexpr uint16_t kFcConfigRequestRetryPeriodMs = 50;
 constexpr TickType_t kMavlinkWorkerPeriodTicks = pdMS_TO_TICKS(10);
 constexpr UBaseType_t kMavlinkTaskPrio = 10;
 constexpr uint32_t kMavlinkTaskStackDepthWords =
@@ -328,7 +330,6 @@ void Mavlink::ArmFirstSchedule(TxState &tx, const TxConfig &cfg_tx,
   tx.next_att_ms = now_ms + cfg_tx.schedule.att_start_delay_ms;
   tx.next_gpos_ms = now_ms + cfg_tx.schedule.gpos_start_delay_ms;
   tx.next_batt_ms = now_ms + cfg_tx.schedule.batt_start_delay_ms;
-  tx.next_rc_channels_ms = now_ms;
 }
 
 bool Mavlink::ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
@@ -343,32 +344,21 @@ bool Mavlink::ShouldSendHbNow(const TxState &tx, const TxConfig &cfg_tx,
   return (int32_t)(now_ms - tx.next_hb_ms) >= 0;
 }
 
-void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
-  if (uart == nullptr || udp == nullptr) {
+void Mavlink::Init(const Config &cfg, UdpServer *udp) {
+  if (udp == nullptr) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
-  if (cfg.identity.sysid == 0 || cfg.rc.rx.read_chunk_size == 0 ||
-      cfg.tx.periods.hb_ms == 0 || cfg.tx.schedule.hb_deadline_ms == 0 ||
-      cfg.rc.tx.periods.hb_ms == 0 || cfg.rc.tx.schedule.hb_deadline_ms == 0 ||
-      cfg.rc.fc_forward_rate_hz == 0 || cfg.rc.fc_request_attempts == 0 ||
-      cfg.rc.fc_request_retry_period_ms == 0 ||
-      cfg.rc.rx.read_chunk_size > Mavlink::kMaxRxReadChunkSize) {
+  if (cfg.identity.sysid == 0 || cfg.tx.periods.hb_ms == 0 ||
+      cfg.tx.schedule.hb_deadline_ms == 0) {
     Panic(ErrorCode::kMavlinkInitFailed);
   }
 
   cfg_ = cfg;
-  uart_ = uart;
   udp_ = udp;
-  rc_state_ = RcState{};
-  rx_msg_ = mavlink_message_t{};
-  rx_status_ = mavlink_status_t{};
-  rc_tx_ = TxState{};
   udp_tx_ = TxState{};
 
   have_latest_ = false;
   latest_update_ms_ = 0;
-  have_latest_rc_channels_ = false;
-  latest_rc_channels_update_ms_ = 0;
   rc_map_config_ = {};
   have_rc_map_config_ = false;
   rc_calibration_config_ = {};
@@ -377,7 +367,6 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   have_gyro_calibration_id_config_ = false;
   unhandled_logged_msgid_count_ = 0;
   rc_chan_count_ = message::kRcCalibrationChannelCount;
-  next_fc_rc_forward_ms_ = 0;
   rc_config_confirm_pending_ = false;
   rc_config_confirm_due_ms_ = 0;
   pending_rc_map_request_ = PendingFcConfigRequest{};
@@ -387,10 +376,9 @@ void Mavlink::Init(const Config &cfg, UartRcRx *uart, UdpServer *udp) {
   pending_primary_link_heartbeat_led_pulse_.store(false,
                                                   std::memory_order_relaxed);
   primary_link_heartbeat_led_clear_ms_ = 0;
-  ArmFirstSchedule(rc_tx_, cfg_.rc.tx, 0);
   ArmFirstSchedule(udp_tx_, cfg_.tx, 0);
 
-  ESP_LOGI(kTag, "Initialized (RC + primary MAVLink links)");
+  ESP_LOGI(kTag, "Initialized (primary MAVLink UDP link)");
 
   StartFcConfigRequest(message::MsgId::kReqRcMap,
                        ErrorCode::kFcLinkRcMapRequestFailed);
@@ -442,16 +430,6 @@ void Mavlink::Poll() {
                                   primary_link_heartbeat_led_clear_ms_) >= 0) {
     Sys().Led().Off();
     primary_link_heartbeat_led_clear_ms_ = 0;
-  }
-
-  const size_t read_chunk_size =
-      std::min((size_t)cfg_.rc.rx.read_chunk_size, rx_buf_.size());
-
-  int n = uart_->Read(rx_buf_.data(), read_chunk_size, 0);
-  if (n > 0) {
-    for (int i = 0; i < n; i++) {
-      HandleRxByte(rx_buf_[i]);
-    }
   }
 }
 
@@ -521,7 +499,7 @@ void Mavlink::ServiceFcConfigRequests(uint32_t now_ms) {
       return;
     }
 
-    if (request.attempts_sent >= cfg_.rc.fc_request_attempts) {
+    if (request.attempts_sent >= kFcConfigRequestAttempts) {
       ESP_LOGW(kTag, "%s", failure_log);
       Panic(request.failure_code);
     }
@@ -531,7 +509,7 @@ void Mavlink::ServiceFcConfigRequests(uint32_t now_ms) {
     req_pkt.header.len = 0;
     Sys().FcLink().SendPacket(req_pkt);
     ++request.attempts_sent;
-    request.next_retry_ms = now_ms + cfg_.rc.fc_request_retry_period_ms;
+    request.next_retry_ms = now_ms + kFcConfigRequestRetryPeriodMs;
   };
 
   service_request(pending_rc_map_request_, have_rc_map_config_,
@@ -557,17 +535,6 @@ void Mavlink::OfferTelemetry(const message::GpsData &d, uint32_t now_ms) {
   latest_ = d;
   have_latest_ = true;
   latest_update_ms_ = now_ms;
-}
-
-void Mavlink::UpdateRcChannelsCache(uint32_t now_ms) {
-  const bool had_latest_rc_channels = have_latest_rc_channels_;
-  latest_rc_channels_ = rc_state_;
-  have_latest_rc_channels_ = true;
-  latest_rc_channels_update_ms_ = now_ms;
-
-  if (!had_latest_rc_channels) {
-    udp_tx_.next_rc_channels_ms = now_ms;
-  }
 }
 
 void Mavlink::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
@@ -600,26 +567,6 @@ void Mavlink::ClearRcCalibrationConfig() {
 void Mavlink::ClearGyroCalibrationIdConfig() {
   gyro_calibration_id_config_ = {};
   have_gyro_calibration_id_config_ = false;
-}
-
-void Mavlink::ForwardRcStateToFcLink(uint32_t now_ms) {
-  if ((int32_t)(now_ms - next_fc_rc_forward_ms_) < 0) {
-    return;
-  }
-
-  message::Packet pkt{};
-  pkt.header.id = static_cast<uint8_t>(message::MsgId::kRcChannels);
-  pkt.header.len = message::PayloadLength<message::RcChannelsMsg>();
-  for (size_t i = 0; i < std::size(rc_state_.channels); ++i) {
-    const uint16_t channel = rc_state_.channels[i];
-    const size_t offset = i * sizeof(uint16_t);
-    pkt.payload[offset] = static_cast<uint8_t>(channel & 0xFFu);
-    pkt.payload[offset + 1] = static_cast<uint8_t>(channel >> 8);
-  }
-  pkt.payload[sizeof(rc_state_.channels)] = rc_state_.rssi;
-  Sys().FcLink().SendPacket(pkt);
-  next_fc_rc_forward_ms_ = now_ms + ((1000u + cfg_.rc.fc_forward_rate_hz - 1u) /
-                                     cfg_.rc.fc_forward_rate_hz);
 }
 
 bool Mavlink::ApplyRcMapConfigToFcLink(const message::RcMapConfigMsg &cfg) {
@@ -657,10 +604,10 @@ bool Mavlink::ApplyRcMapConfigToFcLink(const message::RcMapConfigMsg &cfg) {
 
   drain_stale_responses();
 
-  for (uint16_t i = 0; i < cfg_.rc.fc_request_attempts; ++i) {
+  for (uint16_t i = 0; i < kFcConfigRequestAttempts; ++i) {
     Sys().FcLink().SendPacket(req_pkt);
     const TickType_t deadline =
-        xTaskGetTickCount() + pdMS_TO_TICKS(cfg_.rc.fc_request_retry_period_ms);
+        xTaskGetTickCount() + pdMS_TO_TICKS(kFcConfigRequestRetryPeriodMs);
 
     while (xTaskGetTickCount() < deadline) {
       vTaskDelay(pdMS_TO_TICKS(10));
@@ -732,10 +679,10 @@ bool Mavlink::ApplyRcCalibrationConfigToFcLink(
 
   drain_stale_responses();
 
-  for (uint16_t i = 0; i < cfg_.rc.fc_request_attempts; ++i) {
+  for (uint16_t i = 0; i < kFcConfigRequestAttempts; ++i) {
     Sys().FcLink().SendPacket(req_pkt);
     const TickType_t deadline =
-        xTaskGetTickCount() + pdMS_TO_TICKS(cfg_.rc.fc_request_retry_period_ms);
+        xTaskGetTickCount() + pdMS_TO_TICKS(kFcConfigRequestRetryPeriodMs);
 
     while (xTaskGetTickCount() < deadline) {
       vTaskDelay(pdMS_TO_TICKS(10));
@@ -783,13 +730,11 @@ void Mavlink::QueueStatusText(const char *text, uint8_t severity) {
     tx.pending_statustext_text[sizeof(tx.pending_statustext_text) - 1] = '\0';
   };
 
-  queue(rc_tx_);
   queue(udp_tx_);
 }
 
 void Mavlink::WorkerTick(uint32_t now_ms) {
   ServiceFcConfigRequests(now_ms);
-  ServiceRcLink(now_ms);
   ServicePrimaryLink(now_ms);
   ServiceRcConfigConfirm(now_ms);
 }
@@ -812,52 +757,15 @@ void Mavlink::ServiceRcConfigConfirm(uint32_t now_ms) {
   Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
 }
 
-void Mavlink::HandleRxByte(uint8_t b) {
-  if (mavlink_parse_char(MAVLINK_COMM_1, b, &rx_msg_, &rx_status_)) {
-    HandleMessage(rx_msg_, RxSource::kRc);
-  }
-}
-
-void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
-  TxState &tx = (source == RxSource::kUdp) ? udp_tx_ : rc_tx_;
+void Mavlink::HandleMessage(const mavlink_message_t &msg) {
+  TxState &tx = udp_tx_;
 
   switch (msg.msgid) {
     case MAVLINK_MSG_ID_HEARTBEAT: {
-      if (source == RxSource::kUdp &&
-          primary_link_enabled_.load(std::memory_order_relaxed)) {
+      if (primary_link_enabled_.load(std::memory_order_relaxed)) {
         pending_primary_link_heartbeat_led_pulse_.store(
             true, std::memory_order_relaxed);
       }
-      break;
-    }
-    case MAVLINK_MSG_ID_RC_CHANNELS_OVERRIDE: {
-      mavlink_rc_channels_override_t rc{};
-      mavlink_msg_rc_channels_override_decode(&msg, &rc);
-
-      rc_state_.channels[0] = rc.chan1_raw;
-      rc_state_.channels[1] = rc.chan2_raw;
-      rc_state_.channels[2] = rc.chan3_raw;
-      rc_state_.channels[3] = rc.chan4_raw;
-      rc_state_.channels[4] = rc.chan5_raw;
-      rc_state_.channels[5] = rc.chan6_raw;
-      rc_state_.channels[6] = rc.chan7_raw;
-      rc_state_.channels[7] = rc.chan8_raw;
-      rc_state_.channels[8] = rc.chan9_raw;
-      rc_state_.channels[9] = rc.chan10_raw;
-      rc_state_.channels[10] = rc.chan11_raw;
-      rc_state_.channels[11] = rc.chan12_raw;
-      rc_state_.channels[12] = rc.chan13_raw;
-      rc_state_.channels[13] = rc.chan14_raw;
-      rc_state_.channels[14] = rc.chan15_raw;
-      rc_state_.channels[15] = rc.chan16_raw;
-      UpdateRcChannelsCache(Sys().Timebase().NowMs());
-      break;
-    }
-    case MAVLINK_MSG_ID_RADIO_STATUS: {
-      mavlink_radio_status_t radio{};
-      mavlink_msg_radio_status_decode(&msg, &radio);
-      rc_state_.rssi = radio.rssi;
-      UpdateRcChannelsCache(Sys().Timebase().NowMs());
       break;
     }
     case MAVLINK_MSG_ID_PARAM_REQUEST_LIST: {
@@ -884,8 +792,7 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
 
       uint16_t param_index = 0;
       if (TryResolveParamIndex(req.param_index, req.param_id, param_index)) {
-        QueueParamValue((source == RxSource::kUdp) ? Link::kUdp : Link::kRc,
-                        param_index);
+        QueueParamValue(param_index);
       }
       break;
     }
@@ -911,8 +818,7 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
       const float decoded_value =
           mi::DecodeParamValue(req.param_value, req.param_type);
       (void)TrySetParamByIndex(param_index, decoded_value, req.param_type);
-      QueueParamValue((source == RxSource::kUdp) ? Link::kUdp : Link::kRc,
-                      param_index);
+      QueueParamValue(param_index);
       break;
     }
     case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_LIST: {
@@ -968,47 +874,44 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg, RxSource source) {
            cmd.target_component != MAV_COMP_ID_ALL)) {
         break;
       }
-      HandleCommandLong(msg, cmd, source);
+      HandleCommandLong(msg, cmd);
       break;
     }
 
     default:
-      LogUnhandledMessageOnce(msg, source);
+      LogUnhandledMessageOnce(msg);
       break;
   }
 }
 
 void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
-                                const mavlink_command_long_t &cmd,
-                                RxSource source) {
-  const Link link = (source == RxSource::kUdp) ? Link::kUdp : Link::kRc;
+                                const mavlink_command_long_t &cmd) {
   const uint8_t source_system = msg.sysid;
   const uint8_t source_component = msg.compid;
 
   switch (cmd.command) {
     case MAV_CMD_REQUEST_MESSAGE:
       if ((uint32_t)cmd.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
-        QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_ACCEPTED,
+        QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_ACCEPTED,
                         source_system, source_component);
-        QueueAutopilotVersion(link);
+        QueueAutopilotVersion();
       } else {
-        QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
+        QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
                         source_system, source_component);
       }
       break;
     case MAV_CMD_PREFLIGHT_CALIBRATION:
-      QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_ACCEPTED,
-                      source_system, source_component);
+      QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_ACCEPTED, source_system,
+                      source_component);
       break;
     default:
-      QueueCommandAck(link, (uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
+      QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
                       source_system, source_component);
       break;
   }
 }
 
-void Mavlink::LogUnhandledMessageOnce(const mavlink_message_t &msg,
-                                      RxSource source) {
+void Mavlink::LogUnhandledMessageOnce(const mavlink_message_t &msg) {
   for (uint8_t i = 0; i < unhandled_logged_msgid_count_; ++i) {
     if (unhandled_logged_msgids_[i] == msg.msgid) {
       return;
@@ -1021,9 +924,8 @@ void Mavlink::LogUnhandledMessageOnce(const mavlink_message_t &msg,
   }
 
   char text[51] = {};
-  std::snprintf(text, sizeof(text), "Unhandled MAVLink msgid=%lu src=%s",
-                (unsigned long)msg.msgid,
-                (source == RxSource::kUdp) ? "UDP" : "RC");
+  std::snprintf(text, sizeof(text), "Unhandled MAVLink msgid=%lu src=UDP",
+                (unsigned long)msg.msgid);
   QueueStatusText(text, MAV_SEVERITY_WARNING);
 }
 
@@ -1160,7 +1062,7 @@ bool Mavlink::TryEncodeParamByIndex(uint16_t param_index, char (&param_id)[17],
         param_value = static_cast<float>(cfg_.tx.periods.batt_ms);
         break;
       case mi::ParamKey::kComRcLossT:
-        param_value = static_cast<float>(rc_state_.rssi == 0 ? 0 : 1);
+        param_value = 0.0f;
         break;
     }
     return true;
@@ -1346,23 +1248,18 @@ void Mavlink::QueueCommandAck(TxState &tx, uint16_t command, uint8_t result,
   tx.pending_command_target_component = target_component;
 }
 
-Mavlink::TxState &Mavlink::TxForLink(Link link) {
-  return (link == Link::kUdp) ? udp_tx_ : rc_tx_;
+void Mavlink::QueueCommandAck(uint16_t command, uint8_t result,
+                              uint8_t target_system,
+                              uint8_t target_component) {
+  QueueCommandAck(udp_tx_, command, result, target_system, target_component);
 }
 
-void Mavlink::QueueCommandAck(Link link, uint16_t command, uint8_t result,
-                              uint8_t target_system, uint8_t target_component) {
-  QueueCommandAck(TxForLink(link), command, result, target_system,
-                  target_component);
+void Mavlink::QueueAutopilotVersion() {
+  udp_tx_.pending_autopilot_version = true;
 }
 
-void Mavlink::QueueAutopilotVersion(Link link) {
-  TxForLink(link).pending_autopilot_version = true;
-}
-
-void Mavlink::QueueParamValue(Link link, uint16_t param_index) {
-  TxState &tx = TxForLink(link);
-  if (!PushPendingParamValue(tx, param_index)) {
+void Mavlink::QueueParamValue(uint16_t param_index) {
+  if (!PushPendingParamValue(udp_tx_, param_index)) {
     ESP_LOGW(kTag, "dropping PARAM_VALUE reply: queue full");
   }
 }
@@ -1467,33 +1364,6 @@ void Mavlink::StartStatusTextFrame(TxState &tx) {
   tx.pending_statustext_text[0] = '\0';
 }
 
-void Mavlink::StartRcChannelsFrame(TxState &tx) {
-  if (!have_latest_rc_channels_) {
-    return;
-  }
-
-  static constexpr uint16_t kUnusedChannel = UINT16_MAX;
-  static constexpr uint8_t kChannelCount = 16;
-
-  mavlink_message_t m{};
-  mavlink_msg_rc_channels_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m,
-      latest_rc_channels_update_ms_, kChannelCount,
-      latest_rc_channels_.channels[0], latest_rc_channels_.channels[1],
-      latest_rc_channels_.channels[2], latest_rc_channels_.channels[3],
-      latest_rc_channels_.channels[4], latest_rc_channels_.channels[5],
-      latest_rc_channels_.channels[6], latest_rc_channels_.channels[7],
-      latest_rc_channels_.channels[8], latest_rc_channels_.channels[9],
-      latest_rc_channels_.channels[10], latest_rc_channels_.channels[11],
-      latest_rc_channels_.channels[12], latest_rc_channels_.channels[13],
-      latest_rc_channels_.channels[14], latest_rc_channels_.channels[15],
-      kUnusedChannel, kUnusedChannel, latest_rc_channels_.rssi);
-
-  tx.len = (uint16_t)mavlink_msg_to_send_buffer(tx.buf, &m);
-  tx.sent = 0;
-  tx.is_hb = false;
-}
-
 void Mavlink::StartSingleParamValueFrame(TxState &tx) {
   uint16_t param_index = 0;
   if (!PopPendingParamValue(tx, param_index)) {
@@ -1552,22 +1422,6 @@ void Mavlink::StartParamValueFrame(TxState &tx) {
   if (tx.next_param_index >= mi::kTotalParamCount) {
     tx.param_stream_active = false;
     tx.next_param_index = 0;
-  }
-}
-
-void Mavlink::ServiceInFlightTx(TxState &tx) {
-  if (!uart_ || tx.len == 0) {
-    return;
-  }
-
-  uint16_t remaining = (uint16_t)(tx.len - tx.sent);
-  if (remaining == 0) {
-    return;
-  }
-
-  int wrote = uart_->Write(tx.buf + tx.sent, remaining);
-  if (wrote > 0) {
-    tx.sent = (uint16_t)(tx.sent + (uint16_t)wrote);
   }
 }
 
@@ -1773,7 +1627,6 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
     kAtt,
     kGpos,
     kBatt,
-    kRcChannels
   } pick = Pick::kNone;
 
   if ((int32_t)(now_ms - tx.next_sys_ms) >= 0) {
@@ -1804,13 +1657,6 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
       pick = Pick::kBatt;
     }
   }
-  if (cfg_tx.periods.rc_channels_ms > 0 &&
-      (int32_t)(now_ms - tx.next_rc_channels_ms) >= 0) {
-    if (tx.next_rc_channels_ms < best_due) {
-      best_due = tx.next_rc_channels_ms;
-      pick = Pick::kRcChannels;
-    }
-  }
 
   switch (pick) {
     case Pick::kSys:
@@ -1828,37 +1674,9 @@ void Mavlink::StartNextScheduledFrame(TxState &tx, const TxConfig &cfg_tx,
     case Pick::kBatt:
       StartBatteryStatusFrame(tx, cfg_tx);
       break;
-    case Pick::kRcChannels:
-      tx.next_rc_channels_ms += cfg_tx.periods.rc_channels_ms;
-      StartRcChannelsFrame(tx);
-      break;
     case Pick::kNone:
     default:
       break;
-  }
-}
-
-void Mavlink::ServiceRcLink(uint32_t now_ms) {
-  TxState &tx = rc_tx_;
-  const TxConfig &cfg_tx = cfg_.rc.tx;
-  EnsureScheduleArmed(tx, cfg_tx, now_ms);
-
-  if (tx.len > 0 && tx.sent < tx.len) {
-    ServiceInFlightTx(tx);
-  }
-
-  if (tx.len > 0 && tx.sent >= tx.len) {
-    CompleteFrame(tx, now_ms);
-    return;
-  }
-
-  if (!StartNextFrameIfIdle(tx, cfg_tx, now_ms)) {
-    return;
-  }
-
-  ServiceInFlightTx(tx);
-  if (tx.len > 0 && tx.sent >= tx.len) {
-    CompleteFrame(tx, now_ms);
   }
 }
 
@@ -1881,7 +1699,7 @@ void Mavlink::ServicePrimaryLink(uint32_t now_ms) {
     for (int i = 0; i < received; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_2, rx_buf[i], &msg, &status)) {
         udp_rx_packet_count_.fetch_add(1, std::memory_order_relaxed);
-        HandleMessage(msg, RxSource::kUdp);
+        HandleMessage(msg);
       }
     }
   }
