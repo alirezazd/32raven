@@ -24,8 +24,7 @@ struct FlashSector {
 
 struct Stm32FlashLayout {
   static constexpr uint32_t kBase = 0x08000000u;
-  static constexpr uint32_t kVectorsSize = 16u * 1024u;  // sector 0
-  static constexpr uint32_t kAppOffset = 0x0000C000u;    // sector 3
+  static constexpr uint32_t kFlashSize = 1024u * 1024u;
 
   static constexpr FlashSector kSectors[] = {
       {0, 0x08000000u, 16u * 1024u},   {1, 0x08004000u, 16u * 1024u},
@@ -38,17 +37,8 @@ struct Stm32FlashLayout {
 
   static bool ResolveOffset(uint32_t offset, uint32_t total_size,
                             uint32_t *flash_addr, size_t *max_chunk) {
-    if (offset >= total_size || !flash_addr || !max_chunk) {
-      return false;
-    }
-
-    if (offset < kVectorsSize) {
-      *flash_addr = kBase + offset;
-      *max_chunk = kVectorsSize - offset;
-      return true;
-    }
-
-    if (offset < kAppOffset) {
+    if (offset >= total_size || total_size > kFlashSize || !flash_addr ||
+        !max_chunk) {
       return false;
     }
 
@@ -94,8 +84,11 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
 
+  ctx_.uart->Flush();
+
   // Ensure STM32 is reset on ESP32 boot
   NrstPulse(ctx_.cfg.reset_pulse_ms);
+  Sys().Timebase().SleepMs(ctx_.cfg.boot_settle_ms);
 
   sm_.Start(StIdle_);
 }
@@ -332,24 +325,29 @@ bool Programmer::GetStm32BootloaderInfo() {
 
 bool Programmer::EraseStm32Sectors() {
   if (!ctx_.uart) return false;
+  if (ctx_.total_size == 0 || ctx_.total_size > Stm32FlashLayout::kFlashSize) {
+    ESP_LOGE(kTag, "STM32 image size %u is invalid", (unsigned)ctx_.total_size);
+    return false;
+  }
 
-  uint16_t sectors[10];
+  uint16_t sectors[sizeof(Stm32FlashLayout::kSectors) /
+                   sizeof(Stm32FlashLayout::kSectors[0])];
   size_t sector_count = 0;
+  uint32_t remaining = ctx_.total_size;
 
-  sectors[sector_count++] = 0;  // vectors
-
-  if (ctx_.total_size > Stm32FlashLayout::kAppOffset) {
-    uint32_t remaining = ctx_.total_size - Stm32FlashLayout::kAppOffset;
-    for (const auto &sector : Stm32FlashLayout::kSectors) {
-      if (sector.number < 3) {
-        continue;
-      }
-      sectors[sector_count++] = sector.number;
-      if (remaining <= sector.size) {
-        break;
-      }
-      remaining -= sector.size;
+  for (const auto &sector : Stm32FlashLayout::kSectors) {
+    sectors[sector_count++] = sector.number;
+    if (remaining <= sector.size) {
+      break;
     }
+    remaining -= sector.size;
+  }
+
+  if (sector_count == 0 ||
+      remaining > Stm32FlashLayout::kSectors[sector_count - 1].size) {
+    ESP_LOGE(kTag, "STM32 image size %u exceeds flash layout",
+             (unsigned)ctx_.total_size);
+    return false;
   }
 
   ESP_LOGI(kTag, "Sending EXT_ERASE (0x44) for %u sector(s)...",
@@ -396,7 +394,7 @@ bool Programmer::EraseStm32Sectors() {
     return false;
   }
 
-  ESP_LOGI(kTag, "EXT_ERASE Success (sectors 0 and 3+ only)");
+  ESP_LOGI(kTag, "EXT_ERASE Success");
   return true;
 }
 
@@ -689,11 +687,13 @@ bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len) {
   size_t max_chunk = 0;
   if (!Stm32FlashLayout::ResolveOffset(c.written, c.total_size, &flash_addr,
                                        &max_chunk)) {
-    return true;
+    ESP_LOGE(kTag, "STM32 write offset 0x%08X is outside flash image",
+             (unsigned)c.written);
+    return false;
   }
 
   if (len > max_chunk) {
-    ESP_LOGE(kTag, "Write chunk crossed STM32 image region boundary");
+    ESP_LOGE(kTag, "Write chunk crossed STM32 image boundary");
     return false;
   }
 
@@ -727,9 +727,9 @@ bool Programmer::ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len) {
   size_t max_chunk = 0;
   if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size, &flash_addr,
                                        &max_chunk)) {
-    c.verify_offset = Stm32FlashLayout::kAppOffset;
-    *len = 0;
-    return true;
+    ESP_LOGE(kTag, "STM32 verify offset 0x%08X is outside flash image",
+             (unsigned)c.verify_offset);
+    return false;
   }
 
   if (*len > max_chunk) {

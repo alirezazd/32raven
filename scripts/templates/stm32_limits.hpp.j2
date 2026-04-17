@@ -4,9 +4,12 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "spi.hpp"
+
 namespace stm32_limits {
 
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
+inline constexpr SpiPrescaler kEeSpi1Prescaler = {{ ee_spi1_prescaler }};
 inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};
 inline constexpr std::array<uint8_t, kRcEnabledChannelCount> kRcEnabledChannelIndices = {
 {% for channel_index in rc_enabled_indices %}

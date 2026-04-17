@@ -184,6 +184,11 @@ class Ui {
   void UpdatePowerState(TimeMs now);
   SlideDirection TransitionDirectionForScreens(MainScreen from,
                                                MainScreen to) const;
+  bool ShouldSkipMainScreenTransition(MainScreen from,
+                                      MainScreen to) const;
+  bool ShouldUseMosaicMainScreenTransition(MainScreen from,
+                                           MainScreen to) const;
+  TimeMs MosaicDurationForScreens(MainScreen from, MainScreen to) const;
   uint8_t ScreenGroup(MainScreen screen) const;
 
   Config cfg_{};

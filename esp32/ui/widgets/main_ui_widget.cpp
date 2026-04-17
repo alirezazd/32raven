@@ -804,6 +804,12 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                                             ? (kProgressBarHeightPx +
                                                kProgressBarIconGapPx)
                                             : 0;
+  const int16_t dfu_idle_icon_bottom_inset =
+      (mode == Mode::kDfuIdleConnected)
+          ? static_cast<int16_t>(kProgressBarHeightPx + kProgressBarIconGapPx)
+          : 0;
+  const int16_t icon_bottom_inset = static_cast<int16_t>(
+      progress_bottom_inset + dfu_idle_icon_bottom_inset);
   const int16_t status_top = kTextInsetY;
   const int16_t status_y = static_cast<int16_t>(status_top - status_bounds.y);
   const auto finish_render = [&]() {
@@ -1044,13 +1050,13 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       const int16_t icon_region_height = static_cast<int16_t>(
           std::max(left_icon.height, chip_bitmap::kVisibleHeight));
       const int16_t icon_region_y =
-          static_cast<int16_t>(renderer.Height() - progress_bottom_inset -
+          static_cast<int16_t>(renderer.Height() - icon_bottom_inset -
                                icon_region_height);
       const int16_t left_icon_y =
-          static_cast<int16_t>(renderer.Height() - progress_bottom_inset -
+          static_cast<int16_t>(renderer.Height() - icon_bottom_inset -
                                left_icon.height);
       const int16_t chip_icon_y =
-          static_cast<int16_t>(renderer.Height() - progress_bottom_inset -
+          static_cast<int16_t>(renderer.Height() - icon_bottom_inset -
                                chip_bitmap::kVisibleHeight);
       const int16_t gap_left =
           static_cast<int16_t>(kDfuIconLeftX + left_icon.width);

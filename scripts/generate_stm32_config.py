@@ -351,6 +351,7 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
     return {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
         "max_watermark_records": _sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS"),
+        "ee_spi1_prescaler": "SpiPrescaler::kDiv4",
         "rc_enabled_indices": enabled_rc_indices,
     }
 

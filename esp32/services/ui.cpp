@@ -40,9 +40,7 @@ bool ReadPackedPixel(const uint8_t *bitmap_data, size_t width, size_t height,
   return (value & (1u << bit)) != 0;
 }
 
-float Clamp01(float value) {
-  return std::clamp(value, 0.0f, 1.0f);
-}
+float Clamp01(float value) { return std::clamp(value, 0.0f, 1.0f); }
 
 float SwipeProgress(float t, float accel_ratio, float decel_ratio) {
   t = Clamp01(t);
@@ -256,9 +254,8 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   display_on_ = true;
   inactivity_fade_active_ = false;
   boot_widget_->SetNextWidget(main_ui_widget_);
-  task_handle_ =
-      xTaskCreateStatic(TaskEntry, "display", kTaskStackBytes, this, 1,
-                        task_stack, &task_buffer);
+  task_handle_ = xTaskCreateStatic(TaskEntry, "display", kTaskStackBytes, this,
+                                   1, task_stack, &task_buffer);
   if (task_handle_ == nullptr) {
     Panic(ErrorCode::kUiInitFailed);
   }
@@ -355,15 +352,21 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
     case AppState::kServing:
       return MainScreen::kServing;
     case AppState::kDfu:
-      return Sys().Wifi().HasAssociatedStations() ? MainScreen::kDfuIdleConnected
-                                                  : MainScreen::kDfuDisconnected;
+      return Sys().Wifi().HasAssociatedStations()
+                 ? MainScreen::kDfuIdleConnected
+                 : MainScreen::kDfuDisconnected;
     case AppState::kMavlinkWifi:
       return Sys().Wifi().HasAssociatedStations()
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
     case AppState::kProgram:
-      return Sys().Programmer().IsVerifying() ? MainScreen::kVerifying
-                                              : MainScreen::kProgramming;
+      if (Sys().Programmer().IsVerifying()) {
+        return MainScreen::kVerifying;
+      }
+      if (Sys().Programmer().Done() && main_screen_ == MainScreen::kVerifying) {
+        return MainScreen::kVerifying;
+      }
+      return MainScreen::kProgramming;
     case AppState::kHardError:
     default:
       return MainScreen::kServing;
@@ -395,6 +398,28 @@ Ui::SlideDirection Ui::TransitionDirectionForScreens(MainScreen from,
                                                 : SlideDirection::kRight;
 }
 
+bool Ui::ShouldSkipMainScreenTransition(MainScreen from, MainScreen to) const {
+  return from == MainScreen::kDfuIdleConnected &&
+         (to == MainScreen::kProgramming || to == MainScreen::kVerifying);
+}
+
+bool Ui::ShouldUseMosaicMainScreenTransition(MainScreen from,
+                                             MainScreen to) const {
+  if (from == MainScreen::kProgramming && to == MainScreen::kVerifying) {
+    return true;
+  }
+
+  return from == MainScreen::kVerifying &&
+         (to == MainScreen::kDfuIdleConnected ||
+          to == MainScreen::kDfuDisconnected);
+}
+
+TimeMs Ui::MosaicDurationForScreens(MainScreen from, MainScreen to) const {
+  static_cast<void>(from);
+  static_cast<void>(to);
+  return kDefaultMosaicTransitionDurationMs;
+}
+
 void Ui::RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
                                   DisplayCanvas &dst) {
   if (main_ui_widget_ == nullptr) {
@@ -414,9 +439,8 @@ void Ui::RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
 }
 
 void Ui::StartMainScreenTransition(MainScreen next_screen, TimeMs now,
-                                   SlideDirection direction,
-                                   TimeMs duration_ms, float accel_ratio,
-                                   float decel_ratio) {
+                                   SlideDirection direction, TimeMs duration_ms,
+                                   float accel_ratio, float decel_ratio) {
   transition_from_canvas_ = canvas_;
   transition_from_canvas_.ClearDirtyRanges();
   RenderMainScreenSnapshot(next_screen, now, transition_to_canvas_);
@@ -456,15 +480,14 @@ bool Ui::RenderActiveTransition(TimeMs now) {
     return false;
   }
 
-  const float linear_t = Clamp01(
-      static_cast<float>(now - transition_.start_ms) /
-      static_cast<float>(transition_.duration_ms));
+  const float linear_t =
+      Clamp01(static_cast<float>(now - transition_.start_ms) /
+              static_cast<float>(transition_.duration_ms));
   switch (transition_.effect) {
     case TransitionEffect::kMosaic:
-      renderer_.DrawMosaicTransition(transition_from_canvas_.Data(),
-                                     transition_to_canvas_.Data(), kWidth,
-                                     kHeight, linear_t,
-                                     transition_.mosaic_block_size);
+      renderer_.DrawMosaicTransition(
+          transition_from_canvas_.Data(), transition_to_canvas_.Data(), kWidth,
+          kHeight, linear_t, transition_.mosaic_block_size);
       break;
 
     case TransitionEffect::kSlide:
@@ -472,8 +495,8 @@ bool Ui::RenderActiveTransition(TimeMs now) {
       const float eased_t = SwipeProgress(linear_t, transition_.accel_ratio,
                                           transition_.decel_ratio);
       const int16_t width = static_cast<int16_t>(kWidth);
-      const int16_t shift_px =
-          static_cast<int16_t>(std::lround(eased_t * static_cast<float>(width)));
+      const int16_t shift_px = static_cast<int16_t>(
+          std::lround(eased_t * static_cast<float>(width)));
 
       int16_t from_offset_x = 0;
       int16_t to_offset_x = 0;
@@ -486,7 +509,8 @@ bool Ui::RenderActiveTransition(TimeMs now) {
       }
 
       canvas_.Clear();
-      const auto draw_shifted = [&](const DisplayCanvas &src, int16_t offset_x) {
+      const auto draw_shifted = [&](const DisplayCanvas &src,
+                                    int16_t offset_x) {
         for (size_t y = 0; y < kHeight; ++y) {
           for (size_t x = 0; x < kWidth; ++x) {
             if (!ReadPackedPixel(src.Data(), kWidth, kHeight, x, y)) {
@@ -530,13 +554,23 @@ void Ui::SyncPresentation() {
   taskEXIT_CRITICAL(&g_ui_lock);
 
   if (main_ui_widget_ != nullptr && app_state != AppState::kHardError) {
-    const bool main_widget_visible =
-        current == main_ui_widget_ && pending != boot_widget_ &&
-        pending != error_widget_;
+    const bool main_widget_visible = current == main_ui_widget_ &&
+                                     pending != boot_widget_ &&
+                                     pending != error_widget_;
     const bool same_group =
         ScreenGroup(main_screen_) == ScreenGroup(desired_main_screen);
+    const bool skip_transition =
+        ShouldSkipMainScreenTransition(main_screen_, desired_main_screen);
+    const bool mosaic_transition =
+        ShouldUseMosaicMainScreenTransition(main_screen_, desired_main_screen);
     if (main_widget_visible && desired_main_screen != main_screen_ &&
-        !same_group) {
+        mosaic_transition) {
+      StartMosaicTransitionToScreen(desired_main_screen, now,
+                                    MosaicDurationForScreens(
+                                        main_screen_, desired_main_screen),
+                                    kDefaultMosaicBlockSizePx);
+    } else if (main_widget_visible && desired_main_screen != main_screen_ &&
+               !same_group && !skip_transition) {
       const TransitionPreset preset =
           TransitionPresetForSpeed(cfg_.transition_speed_x);
       StartMainScreenTransition(
@@ -544,6 +578,9 @@ void Ui::SyncPresentation() {
           TransitionDirectionForScreens(main_screen_, desired_main_screen),
           preset.duration_ms, preset.accel_ratio, preset.decel_ratio);
     } else {
+      if (skip_transition) {
+        transition_.active = false;
+      }
       main_ui_widget_->SetMode(desired_main_screen);
       main_screen_ = desired_main_screen;
     }
@@ -672,9 +709,7 @@ TimeMs Ui::GetFrameIntervalMs() const {
       static_cast<uint32_t>(cfg_.fps_cap));
 }
 
-void Ui::TaskEntry(void *param) {
-  static_cast<Ui *>(param)->Task();
-}
+void Ui::TaskEntry(void *param) { static_cast<Ui *>(param)->Task(); }
 
 void Ui::Task() {
   WidgetContext ctx{
@@ -712,7 +747,8 @@ void Ui::Task() {
     }
     if (RenderActiveTransition(now)) {
       FlushIfDirty();
-      next_step_ms = transition_.active ? TimeAfter(now, GetFrameIntervalMs()) : 0;
+      next_step_ms =
+          transition_.active ? TimeAfter(now, GetFrameIntervalMs()) : 0;
       continue;
     }
     if (TimeReached(now, next_step_ms)) {

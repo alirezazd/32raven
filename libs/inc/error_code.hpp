@@ -123,6 +123,7 @@ enum class ErrorCode : uint32_t {
   kInvalidFifoWatermarkRecords,
   kEepromNotInitialized,
   kEepromReinit,
+  kEepromDeviceNotFound,
   kEepromInvalidConfig,
   kEepromFormatFailed,
   kEepromNoValidSlot,
