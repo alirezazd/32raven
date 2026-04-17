@@ -29,6 +29,7 @@ class System {
   enum class Component {
     kTimeBase,
     kGpio,
+    kSpi1,
     kEe,
     kBattery,
     kRcReceiver,
@@ -48,6 +49,7 @@ class System {
 
   LED &Led() { return LED::GetInstance(); }
 
+  Spi1 &GetSpi1() { return Spi1::GetInstance(); }
   Spi2 &GetSpi() { return Spi2::GetInstance(); }
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }

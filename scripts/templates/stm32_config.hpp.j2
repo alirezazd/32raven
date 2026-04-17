@@ -32,6 +32,13 @@ inline constexpr UartConfig kUart2Config = {
     .over_sampling = {{ m10.uart.over_sampling }},
 };
 
+inline constexpr SpiConfig kEeSpi1Config = {
+    .polarity = SpiPolarity::kLow,
+    .phase = SpiPhase::k1Edge,
+    .prescaler = stm32_limits::kEeSpi1Prescaler,
+    .bit_order = SpiBitOrder::kMsbFirst,
+};
+
 inline constexpr Icm42688p::Config kIcm42688pConfig = {
     .spi_prescaler = {{ icm42688p.spi_prescaler }},
     .rates = {

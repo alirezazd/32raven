@@ -61,14 +61,9 @@ void Spi<Inst>::Init(const SpiConfig &config) {
 
 template <SpiInstance Inst>
 void Spi<Inst>::EnableDmaClk() {
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
-    (void)RCC->AHB1ENR;  // readback delay
-  } else if constexpr (Inst == SpiInstance::kSpi2) {
+  if constexpr (Inst == SpiInstance::kSpi2) {
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
     (void)RCC->AHB1ENR;  // readback delay
-  } else {
-    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 }
 
@@ -86,23 +81,14 @@ void Spi<Inst>::EnableSpiClk() {
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::EnableIrqs(uint32_t priority) {
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    /* DMA2_Stream0_IRQn interrupt configuration */
-    NVIC_SetPriority(DMA2_Stream0_IRQn, priority);
-    NVIC_EnableIRQ(DMA2_Stream0_IRQn);
-    /* DMA2_Stream3_IRQn interrupt configuration */
-    NVIC_SetPriority(DMA2_Stream3_IRQn, priority);
-    NVIC_EnableIRQ(DMA2_Stream3_IRQn);
-  } else if constexpr (Inst == SpiInstance::kSpi2) {
+void Spi<Inst>::EnableIrqsImpl(uint32_t priority) {
+  if constexpr (Inst == SpiInstance::kSpi2) {
     /* DMA1_Stream3_IRQn interrupt configuration */
     NVIC_SetPriority(DMA1_Stream3_IRQn, priority);
     NVIC_EnableIRQ(DMA1_Stream3_IRQn);
     /* DMA1_Stream4_IRQn interrupt configuration */
     NVIC_SetPriority(DMA1_Stream4_IRQn, priority);
     NVIC_EnableIRQ(DMA1_Stream4_IRQn);
-  } else {
-    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 }
 
@@ -216,13 +202,22 @@ static inline void DmaDisableAndWait(DMA_Stream_TypeDef *s) {
 }
 
 template <SpiInstance Inst>
-bool Spi<Inst>::Busy() const {
+bool Spi<Inst>::BusyImpl() const {
   return busy_;
 }
 
 template <SpiInstance Inst>
-bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
-                             SpiDoneCb cb, void *user) {
+bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
+                                 SpiDoneCb cb, void *user) {
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    (void)tx;
+    (void)rx;
+    (void)len;
+    (void)cb;
+    (void)user;
+    return false;
+  }
+
   if (busy_ || len == 0 || len > 0xFFFF) {
     return false;
   }
@@ -254,20 +249,7 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
   uint32_t high_clear_flags = 0;
   uint32_t channel_sel = 0;
 
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    // SPI1 RX: DMA2_Stream0_Ch3
-    // SPI1 TX: DMA2_Stream3_Ch3
-    dma = DMA2;
-    rx_stream = DMA2_Stream0;
-    tx_stream = DMA2_Stream3;
-    channel_sel = 3UL << DMA_SxCR_CHSEL_Pos;
-    low_clear_flags = (DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 |
-                       DMA_LIFCR_CTEIF0 | DMA_LIFCR_CDMEIF0 |
-                       DMA_LIFCR_CFEIF0) |
-                      (DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 |
-                       DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 |
-                       DMA_LIFCR_CFEIF3);
-  } else if constexpr (Inst == SpiInstance::kSpi2) {
+  if constexpr (Inst == SpiInstance::kSpi2) {
     // SPI2 RX: DMA1_Stream3_Ch0
     // SPI2 TX: DMA1_Stream4_Ch0
     dma = DMA1;
@@ -280,8 +262,6 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
     high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 |
                        DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 |
                        DMA_HIFCR_CFEIF4;
-  } else {
-    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 
   // 1. Disable Streams
@@ -361,7 +341,11 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::OnRxDmaTcIrq() {
+void Spi<Inst>::OnRxDmaTcIrqImpl() {
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    return;
+  }
+
   SPI_TypeDef *spi = Hw();
   DMA_Stream_TypeDef *rx_stream = nullptr;
   DMA_Stream_TypeDef *tx_stream = nullptr;
@@ -369,17 +353,7 @@ void Spi<Inst>::OnRxDmaTcIrq() {
   uint32_t low_clear_flags = 0;
   uint32_t high_clear_flags = 0;
 
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    dma = DMA2;
-    rx_stream = DMA2_Stream0;
-    tx_stream = DMA2_Stream3;
-    low_clear_flags = (DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 |
-                       DMA_LIFCR_CTEIF0 | DMA_LIFCR_CDMEIF0 |
-                       DMA_LIFCR_CFEIF0) |
-                      (DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 |
-                       DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 |
-                       DMA_LIFCR_CFEIF3);
-  } else if constexpr (Inst == SpiInstance::kSpi2) {
+  if constexpr (Inst == SpiInstance::kSpi2) {
     dma = DMA1;
     rx_stream = DMA1_Stream3;
     tx_stream = DMA1_Stream4;
@@ -389,8 +363,6 @@ void Spi<Inst>::OnRxDmaTcIrq() {
     high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 |
                        DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 |
                        DMA_HIFCR_CFEIF4;
-  } else {
-    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 
   // Clear IRQ flags
@@ -432,7 +404,12 @@ void Spi<Inst>::OnRxDmaTcIrq() {
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
+void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
+  if constexpr (Inst == SpiInstance::kSpi1) {
+    (void)isr_flags;
+    return;
+  }
+
   // Just clear flags and maybe fail the callback?
   // Implementation similar to OnRxDmaTcIrq but with ok=false
   SPI_TypeDef *spi = Hw();
@@ -447,17 +424,7 @@ void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
   // Disable SPI DMA Requests
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    dma = DMA2;
-    rx_stream = DMA2_Stream0;
-    tx_stream = DMA2_Stream3;
-    low_clear_flags = (DMA_LIFCR_CTCIF0 | DMA_LIFCR_CHTIF0 |
-                       DMA_LIFCR_CTEIF0 | DMA_LIFCR_CDMEIF0 |
-                       DMA_LIFCR_CFEIF0) |
-                      (DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 |
-                       DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 |
-                       DMA_LIFCR_CFEIF3);
-  } else if constexpr (Inst == SpiInstance::kSpi2) {
+  if constexpr (Inst == SpiInstance::kSpi2) {
     dma = DMA1;
     rx_stream = DMA1_Stream3;
     tx_stream = DMA1_Stream4;
@@ -467,8 +434,6 @@ void Spi<Inst>::HandleDmaError(uint32_t isr_flags) {
     high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 |
                        DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 |
                        DMA_HIFCR_CFEIF4;
-  } else {
-    static_assert(Inst == SpiInstance::kSpi1, "Unsupported SPI instance");
   }
 
   dma->LIFCR = low_clear_flags;
@@ -503,8 +468,6 @@ template class Spi<SpiInstance::kSpi1>;
 template class Spi<SpiInstance::kSpi2>;
 
 extern "C" {
-void Spi1RxDmaComplete() { Spi1::GetInstance().OnRxDmaTcIrq(); }
-void Spi1DmaError(uint32_t isr) { Spi1::GetInstance().HandleDmaError(isr); }
 void Spi2RxDmaComplete() { Spi2::GetInstance().OnRxDmaTcIrq(); }
 void Spi2DmaError(uint32_t isr) { Spi2::GetInstance().HandleDmaError(isr); }
 }

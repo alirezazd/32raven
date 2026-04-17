@@ -15,6 +15,23 @@ extern "C" {
 }
 
 static constexpr const char *kTag = "FC_Link";
+namespace {
+void PanicFromHandshakePacket(const message::Packet &packet) {
+  if (packet.header.id != static_cast<uint8_t>(message::MsgId::kPanic) ||
+      packet.header.len != message::PayloadLength<message::PanicMsg>()) {
+    return;
+  }
+
+  message::PanicMsg panic_msg{};
+  memcpy(&panic_msg, packet.payload, sizeof(panic_msg));
+  const auto error_code = static_cast<ErrorCode>(panic_msg.error_code);
+  ESP_LOGE(kTag, "STM32 panic during handshake: %lu (%s)",
+           static_cast<unsigned long>(panic_msg.error_code),
+           GetMessage(error_code));
+  Panic(error_code);
+}
+}  // namespace
+
 static RingBuffer<message::Packet, esp32_limits::kFcLinkRxPacketQueueDepth + 1>
     g_packet_queue;
 
@@ -35,7 +52,6 @@ void FcLink::Init(const Config &cfg, UartFcLink *uart) {
 
 void FcLink::PerformHandshake() {
   g_packet_queue.Clear();
-  uart_->Flush();
   ESP_LOGI(kTag, "Handshake Start...");
   message::Packet ping{};
   ping.header.id = static_cast<uint8_t>(message::MsgId::kPing);
@@ -63,6 +79,10 @@ void FcLink::PerformHandshake() {
       if (packet.header.id == static_cast<uint8_t>(message::MsgId::kPong)) {
         got_pong = true;
         continue;
+      }
+
+      if (packet.header.id == static_cast<uint8_t>(message::MsgId::kPanic)) {
+        PanicFromHandshakePacket(packet);
       }
 
       if (!g_packet_queue.Push(packet)) {

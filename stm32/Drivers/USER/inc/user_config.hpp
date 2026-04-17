@@ -104,6 +104,14 @@ const std::array kGpioDefault = {
                     {SPI2_CS_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_VERY_HIGH, 0},
                     true},  // IMU SPI2 CS Active Low
+    GPIO::PinConfig{GPIOB,
+                    {GPIO_PIN_3, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1},
+                    false},  // EEPROM SPI1 SCK (AF)
+    GPIO::PinConfig{GPIOB,
+                    {GPIO_PIN_4 | GPIO_PIN_5, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1},
+                    false},  // EEPROM SPI1 MISO/MOSI (AF)
     GPIO::PinConfig{SPI1_CS_GPIO_Port,
                     {SPI1_CS_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_VERY_HIGH, 0},
