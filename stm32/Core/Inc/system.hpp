@@ -4,6 +4,7 @@
 #include "board.h"
 #include "button.hpp"
 #include "command_handler.hpp"
+#include "crsf_link_service.hpp"
 #include "dshot_tim1.hpp"
 #include "ee.hpp"
 #include "fc_link.hpp"
@@ -34,6 +35,7 @@ class System {
     kBattery,
     kUart6,
     kRcReceiver,
+    kCrsfLink,
     kLed,
     kUart1,
 
@@ -66,6 +68,7 @@ class System {
 
   M10 &GetGps() { return M10::GetInstance(); }
   RcReceiver &GetRcReceiver() { return RcReceiver::GetInstance(); }
+  CrsfLinkService &GetCrsfLinkService() { return crsf_link_service_; }
   M10Service &ServiceGps() { return gps_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
 
@@ -79,6 +82,7 @@ class System {
   bool initialized_ = false;
   M10Service gps_service_;
   VehicleState vehicle_state_;
+  CrsfLinkService crsf_link_service_;
 
   System();
   ~System() {}

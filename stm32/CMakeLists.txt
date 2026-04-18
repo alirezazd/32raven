@@ -155,6 +155,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/ee.cpp
     Core/Src/states.cpp
     Services/Src/m10_service.cpp
+    Services/Src/crsf_link_service.cpp
     Services/Src/config_storage.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp

@@ -585,6 +585,59 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
                     kconf, RC_RECEIVER_UART_OVERSAMPLING_CHOICES
                 ),
             },
+            "crsf": {
+                "max_frames_per_poll": _sym_int(
+                    kconf, "STM32_RC_RECEIVER_CRSF_MAX_FRAMES_PER_POLL"
+                ),
+                "gps_fresh_timeout_ms": _sym_int(
+                    kconf, "STM32_RC_RECEIVER_CRSF_GPS_FRESH_TIMEOUT_MS"
+                ),
+                "heartbeat": {
+                    "period_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PERIOD_MS"
+                    ),
+                    "start_delay_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_START_DELAY_MS"
+                    ),
+                    "priority": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY"
+                    ),
+                },
+                "gps": {
+                    "period_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_GPS_PERIOD_MS"
+                    ),
+                    "start_delay_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_GPS_START_DELAY_MS"
+                    ),
+                    "priority": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_GPS_PRIORITY"
+                    ),
+                    "send_on_change": _sym_bool(
+                        kconf, "STM32_RC_RECEIVER_CRSF_GPS_SEND_ON_CHANGE"
+                    ),
+                    "max_silence_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_GPS_MAX_SILENCE_MS"
+                    ),
+                },
+                "battery": {
+                    "period_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_BATTERY_PERIOD_MS"
+                    ),
+                    "start_delay_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_BATTERY_START_DELAY_MS"
+                    ),
+                    "priority": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_BATTERY_PRIORITY"
+                    ),
+                    "send_on_change": _sym_bool(
+                        kconf, "STM32_RC_RECEIVER_CRSF_BATTERY_SEND_ON_CHANGE"
+                    ),
+                    "max_silence_ms": _sym_int(
+                        kconf, "STM32_RC_RECEIVER_CRSF_BATTERY_MAX_SILENCE_MS"
+                    ),
+                },
+            },
         },
     }
 

@@ -34,6 +34,7 @@ enum class MsgId : uint8_t {
   kGyroCalibrationIdConfig = 0x09,
   kSetRcMapConfig = 0x0A,
   kSetRcCalibrationConfig = 0x0B,
+  kReqReceiverBind = 0x0C,
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kImuData = 0x11,
@@ -56,7 +57,11 @@ struct Header {
 struct RcChannelsMsg {
   uint16_t channels[16];
   uint8_t rssi;
+  uint8_t flags;
 } __attribute__((packed));
+
+inline constexpr uint8_t kRcChannelsFlagRxOnline = 1u << 0;
+inline constexpr uint8_t kRcChannelsFlagTxOnline = 1u << 1;
 
 struct RcMapConfigMsg {
   uint8_t roll;
@@ -166,6 +171,7 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kGyroCalibrationIdConfig:
     case MsgId::kSetRcMapConfig:
     case MsgId::kSetRcCalibrationConfig:
+    case MsgId::kReqReceiverBind:
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
     case MsgId::kImuData:
@@ -186,6 +192,7 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
     case MsgId::kReqRcMap:
     case MsgId::kReqRcCalibration:
     case MsgId::kReqGyroCalibrationId:
+    case MsgId::kReqReceiverBind:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
