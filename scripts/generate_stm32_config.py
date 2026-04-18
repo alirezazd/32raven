@@ -76,6 +76,49 @@ M10_UART_BAUD_RATE_CHOICES = {
     "STM32_GPS_M10_BAUD_921600": "921600",
 }
 
+RC_RECEIVER_UART_BAUD_RATE_CHOICES = {
+    "STM32_RC_RECEIVER_UART_BAUD_115200": "115200",
+    "STM32_RC_RECEIVER_UART_BAUD_400000": "400000",
+    "STM32_RC_RECEIVER_UART_BAUD_416666": "416666",
+    "STM32_RC_RECEIVER_UART_BAUD_420000": "420000",
+    "STM32_RC_RECEIVER_UART_BAUD_460800": "460800",
+    "STM32_RC_RECEIVER_UART_BAUD_921600": "921600",
+}
+
+RC_RECEIVER_UART_WORD_LENGTH_CHOICES = {
+    "STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS": "UartWordLength::k8Bits",
+    "STM32_RC_RECEIVER_UART_WORD_LENGTH_9BITS": "UartWordLength::k9Bits",
+}
+
+RC_RECEIVER_UART_STOP_BITS_CHOICES = {
+    "STM32_RC_RECEIVER_UART_STOP_BITS_1": "UartStopBits::k1",
+    "STM32_RC_RECEIVER_UART_STOP_BITS_2": "UartStopBits::k2",
+}
+
+RC_RECEIVER_UART_PARITY_CHOICES = {
+    "STM32_RC_RECEIVER_UART_PARITY_NONE": "UartParity::kNone",
+    "STM32_RC_RECEIVER_UART_PARITY_EVEN": "UartParity::kEven",
+    "STM32_RC_RECEIVER_UART_PARITY_ODD": "UartParity::kOdd",
+}
+
+RC_RECEIVER_UART_MODE_CHOICES = {
+    "STM32_RC_RECEIVER_UART_MODE_RX": "UartMode::kRx",
+    "STM32_RC_RECEIVER_UART_MODE_TX": "UartMode::kTx",
+    "STM32_RC_RECEIVER_UART_MODE_TX_RX": "UartMode::kTxRx",
+}
+
+RC_RECEIVER_UART_HW_FLOW_CONTROL_CHOICES = {
+    "STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE": "UartHwFlowControl::kNone",
+    "STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS": "UartHwFlowControl::kRts",
+    "STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_CTS": "UartHwFlowControl::kCts",
+    "STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS_CTS": "UartHwFlowControl::kRtsCts",
+}
+
+RC_RECEIVER_UART_OVERSAMPLING_CHOICES = {
+    "STM32_RC_RECEIVER_UART_OVERSAMPLING_16": "UartOverSampling::k16",
+    "STM32_RC_RECEIVER_UART_OVERSAMPLING_8": "UartOverSampling::k8",
+}
+
 FCLINK_UART_BAUD_RATE_CHOICES = {
     "ESP32_FCLINK_UART_BAUD_9600": "9600",
     "ESP32_FCLINK_UART_BAUD_19200": "19200",
@@ -523,6 +566,25 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
         "rc_receiver": {
             "enabled_channels": _enabled_rc_channels(kconf),
             "rc_map": _rc_map(kconf),
+            "uart": {
+                "baud_rate": _choice_value(
+                    kconf, RC_RECEIVER_UART_BAUD_RATE_CHOICES
+                ),
+                "word_length": _choice_value(
+                    kconf, RC_RECEIVER_UART_WORD_LENGTH_CHOICES
+                ),
+                "stop_bits": _choice_value(
+                    kconf, RC_RECEIVER_UART_STOP_BITS_CHOICES
+                ),
+                "parity": _choice_value(kconf, RC_RECEIVER_UART_PARITY_CHOICES),
+                "mode": _choice_value(kconf, RC_RECEIVER_UART_MODE_CHOICES),
+                "hw_flow_control": _choice_value(
+                    kconf, RC_RECEIVER_UART_HW_FLOW_CONTROL_CHOICES
+                ),
+                "over_sampling": _choice_value(
+                    kconf, RC_RECEIVER_UART_OVERSAMPLING_CHOICES
+                ),
+            },
         },
     }
 

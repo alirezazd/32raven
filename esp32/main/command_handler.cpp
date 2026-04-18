@@ -92,6 +92,12 @@ static void OnRcCalibrationConfig(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->Mavlink().SetRcCalibrationConfig(*cfg);
 }
 
+static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
+  const auto *msg = (const message::RcChannelsMsg *)pkt.payload;
+  ctx.sys->Mavlink().OfferRcChannels(
+      *msg, (uint32_t)(esp_timer_get_time() / 1000));
+}
+
 static void OnGyroCalibrationIdConfig(AppContext &ctx,
                                       const message::Packet &pkt) {
   const auto *cfg = (const message::GyroCalibrationIdConfigMsg *)pkt.payload;
@@ -164,6 +170,9 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
       break;
     case message::MsgId::kRcCalibrationConfig:
       OnRcCalibrationConfig(ctx, pkt);
+      break;
+    case message::MsgId::kRcChannels:
+      OnRcChannels(ctx, pkt);
       break;
     case message::MsgId::kGyroCalibrationIdConfig:
       OnGyroCalibrationIdConfig(ctx, pkt);

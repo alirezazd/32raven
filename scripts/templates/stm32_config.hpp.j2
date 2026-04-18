@@ -32,6 +32,16 @@ inline constexpr UartConfig kUart2Config = {
     .over_sampling = {{ m10.uart.over_sampling }},
 };
 
+inline constexpr UartConfig kUart6Config = {
+    .baud_rate = {{ rc_receiver.uart.baud_rate }},
+    .word_length = {{ rc_receiver.uart.word_length }},
+    .stop_bits = {{ rc_receiver.uart.stop_bits }},
+    .parity = {{ rc_receiver.uart.parity }},
+    .mode = {{ rc_receiver.uart.mode }},
+    .hw_flow_control = {{ rc_receiver.uart.hw_flow_control }},
+    .over_sampling = {{ rc_receiver.uart.over_sampling }},
+};
+
 inline constexpr SpiConfig kEeSpi1Config = {
     .polarity = SpiPolarity::kLow,
     .phase = SpiPhase::k1Edge,

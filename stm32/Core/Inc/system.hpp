@@ -32,6 +32,7 @@ class System {
     kSpi1,
     kEe,
     kBattery,
+    kUart6,
     kRcReceiver,
     kLed,
     kUart1,
@@ -61,6 +62,7 @@ class System {
   Uart1 &GetUart1() { return Uart1::GetInstance(); }
   // GPS UART
   Uart2 &GetUart2() { return Uart2::GetInstance(); }
+  Uart6 &GetUart6() { return Uart6::GetInstance(); }
 
   M10 &GetGps() { return M10::GetInstance(); }
   RcReceiver &GetRcReceiver() { return RcReceiver::GetInstance(); }
