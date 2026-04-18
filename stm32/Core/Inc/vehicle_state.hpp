@@ -87,6 +87,7 @@ class VehicleState {
   // --- READERS (Called by Logic/Consumers) ---
 
   // Fast access for Control Loop (High Frequency)
+  const GpsData &GetGps() const { return gps_; }
   const BatteryData &GetBattery() const { return bat_; }
   const RcData &GetRc() const { return rc_; }
 

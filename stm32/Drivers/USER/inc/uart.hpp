@@ -71,6 +71,7 @@ class Uart {
   bool Read(uint8_t &out);
   void FlushRx();
   void SetBaudRate(uint32_t baud_rate);
+  size_t TxFree() const { return tx_buffer_.Capacity() - tx_buffer_.Available(); }
 
   // Called from ISR
   void IrqHandler();

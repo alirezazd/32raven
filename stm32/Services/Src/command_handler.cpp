@@ -132,6 +132,16 @@ static void OnReqGyroCalibrationId(AppContext &ctx,
   ctx.sys->GetFcLink().SendGyroCalibrationIdConfig(cfg);
 }
 
+static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kReqReceiverBind,
+                                     pkt.header.len)) {
+    return;
+  }
+
+  ctx.sys->GetCrsfLinkService().RequestReceiverBind();
+  ctx.sys->GetFcLink().SendLog("CRSF RX bind requested");
+}
+
 static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPing, OnPing},
     {message::MsgId::kReqRcMap, OnReqRcMap},
@@ -139,6 +149,7 @@ static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kSetRcMapConfig, OnSetRcMapConfig},
     {message::MsgId::kSetRcCalibrationConfig, OnSetRcCalibration},
     {message::MsgId::kReqGyroCalibrationId, OnReqGyroCalibrationId},
+    {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
     {message::MsgId::kRcChannels, OnRcChannels},
 };
 

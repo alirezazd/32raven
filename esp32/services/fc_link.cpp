@@ -100,6 +100,13 @@ void FcLink::PerformHandshake() {
   Panic(ErrorCode::kFcLinkHandshakeFailed);
 }
 
+void FcLink::RequestReceiverBind() {
+  message::Packet pkt{};
+  pkt.header.id = static_cast<uint8_t>(message::MsgId::kReqReceiverBind);
+  pkt.header.len = 0;
+  SendPacket(pkt);
+}
+
 void FcLink::SendPacket(const message::Packet &pkt) {
   uint8_t tx[message::kMaxPayload +
              message::kPacketOverhead];  // Max payload + header + crc
