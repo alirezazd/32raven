@@ -33,9 +33,8 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   button.Poll();
 
   if (button.ConsumePress()) {
-    const bool screen_on = ctx.sys->Ui().IsScreenOn();
     ctx.sys->Ui().NotifyUserActivity();
-    if (screen_on) {
+    if (ctx.sys->Ui().IsScreenOn()) {
       ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
       return;
     }
@@ -44,8 +43,6 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
-
-  ctx.sys->Mavlink().Poll();
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
@@ -81,8 +78,6 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
-
-  ctx.sys->Mavlink().Poll();
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);

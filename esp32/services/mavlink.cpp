@@ -485,6 +485,13 @@ void Mavlink::StartFcConfigRequest(message::MsgId request_id,
   ServiceFcConfigRequests(Sys().Timebase().NowMs());
 }
 
+void Mavlink::RequestReceiverBind() {
+  message::Packet req_pkt{};
+  req_pkt.header.id = static_cast<uint8_t>(message::MsgId::kReqReceiverBind);
+  req_pkt.header.len = 0;
+  Sys().FcLink().SendPacket(req_pkt);
+}
+
 void Mavlink::ServiceFcConfigRequests(uint32_t now_ms) {
   const auto service_request = [&](PendingFcConfigRequest &request,
                                    bool satisfied, const char *success_log,
@@ -919,6 +926,16 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
   const uint8_t source_component = msg.compid;
 
   switch (cmd.command) {
+    case MAV_CMD_START_RX_PAIR:
+      if (static_cast<uint32_t>(cmd.param1) == RC_TYPE_CRSF) {
+        RequestReceiverBind();
+        QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_ACCEPTED,
+                        source_system, source_component);
+      } else {
+        QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_UNSUPPORTED,
+                        source_system, source_component);
+      }
+      break;
     case MAV_CMD_REQUEST_MESSAGE:
       if ((uint32_t)cmd.param1 == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
         QueueCommandAck((uint16_t)cmd.command, MAV_RESULT_ACCEPTED,

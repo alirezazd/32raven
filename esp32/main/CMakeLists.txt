@@ -109,5 +109,8 @@ add_custom_target(generate_esp32_config
     ${ESP32_LIMITS_HPP})
 add_dependencies(${COMPONENT_LIB} generate_esp32_config)
 
+# `ARDUINO=100` keeps the Adafruit GFX code happy, and the packed-member warning
+# is suppressed because the shared wire/protocol structs intentionally use
+# packed layouts.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ARDUINO=100)
 target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-address-of-packed-member")
