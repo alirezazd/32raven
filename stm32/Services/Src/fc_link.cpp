@@ -184,6 +184,14 @@ void FcLink::SendImu(uint64_t timestamp_us, const float accel[3],
   Send(pkt);
 }
 
+void FcLink::SendRcChannels(const message::RcChannelsMsg &msg) {
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kRcChannels;
+  pkt.header.len = message::PayloadLength<message::RcChannelsMsg>();
+  memcpy(pkt.payload, &msg, sizeof(msg));
+  Send(pkt);
+}
+
 void FcLink::SendRcMapConfig(const message::RcMapConfigMsg &cfg) {
   message::Packet pkt{};
   pkt.header.id = (uint8_t)message::MsgId::kRcMapConfig;

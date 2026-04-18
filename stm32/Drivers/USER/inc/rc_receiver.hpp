@@ -7,6 +7,7 @@
 #include "ee_schema.hpp"
 #include "message.hpp"
 #include "stm32_limits.hpp"
+#include "uart.hpp"
 #include "vehicle_state.hpp"
 
 class FcLink;
@@ -57,11 +58,19 @@ class RcReceiver {
   friend class System;
 
   void Init(const Config &cfg, EE &ee, VehicleState &vehicle_state,
-            FcLink &fc_link);
+            FcLink &fc_link, Uart6 &uart);
   uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us,
                             uint16_t trim_us, uint16_t max_us,
                             int8_t rev) const;
   bool IsConfigValid(const Config &cfg) const;
+  void DrainUart(uint32_t now_us);
+  void ForwardLatestRawState(uint32_t now_us);
+  bool ProcessCrsfByte(uint8_t byte, uint32_t now_us);
+  bool FinishCrsfFrame(uint32_t now_us);
+  bool ParseLinkStatisticsFrame(const uint8_t *payload, std::size_t len,
+                                uint32_t now_us);
+  bool ParseRcChannelsFrame(const uint8_t *payload, std::size_t len,
+                            uint32_t now_us);
   void RecomputeCurrentFromRaw();
   void RefreshLinkState(uint32_t now_us);
   bool PublishIfChanged(const RcData &previous);
@@ -76,14 +85,22 @@ class RcReceiver {
   EE *ee_ = nullptr;
   VehicleState *vehicle_state_ = nullptr;
   FcLink *fc_link_ = nullptr;
+  Uart6 *uart_ = nullptr;
   bool initialized_ = false;
   uint32_t last_log_us_ = 0;
   uint8_t rssi_ = 0;
   uint32_t radio_status_update_us_ = 0;
   uint32_t tx_candidate_since_us_ = 0;
   bool tx_candidate_online_ = false;
+  uint32_t last_forward_us_ = 0;
+  bool pending_forward_ = false;
+  bool crsf_have_length_ = false;
+  uint8_t crsf_frame_len_ = 0;
+  std::size_t crsf_frame_pos_ = 0;
+  std::array<uint8_t, 64> crsf_frame_{};
   RawData raw_{};
   RcData current_{};
+  message::RcChannelsMsg latest_rx_msg_{};
   ee_schema::RcCalibration calibration_{};
   Config cfg_{};
 };

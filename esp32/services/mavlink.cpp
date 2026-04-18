@@ -13,6 +13,7 @@
 #include "system.hpp"
 
 static constexpr const char *kTag = "mavlink";
+portMUX_TYPE g_mavlink_cache_lock = portMUX_INITIALIZER_UNLOCKED;
 
 namespace {
 
@@ -359,6 +360,9 @@ void Mavlink::Init(const Config &cfg, UdpServer *udp) {
 
   have_latest_ = false;
   latest_update_ms_ = 0;
+  latest_rc_channels_ = {};
+  have_latest_rc_channels_ = false;
+  latest_rc_channels_update_ms_ = 0;
   rc_map_config_ = {};
   have_rc_map_config_ = false;
   rc_calibration_config_ = {};
@@ -535,6 +539,31 @@ void Mavlink::OfferTelemetry(const message::GpsData &d, uint32_t now_ms) {
   latest_ = d;
   have_latest_ = true;
   latest_update_ms_ = now_ms;
+}
+
+void Mavlink::OfferRcChannels(const message::RcChannelsMsg &msg,
+                              uint32_t now_ms) {
+  taskENTER_CRITICAL(&g_mavlink_cache_lock);
+  latest_rc_channels_ = msg;
+  have_latest_rc_channels_ = true;
+  latest_rc_channels_update_ms_ = now_ms;
+  taskEXIT_CRITICAL(&g_mavlink_cache_lock);
+}
+
+Mavlink::RcChannelsSnapshot Mavlink::GetRcChannelsSnapshot(
+    uint32_t now_ms) const {
+  RcChannelsSnapshot snapshot{};
+  taskENTER_CRITICAL(&g_mavlink_cache_lock);
+  snapshot.msg = latest_rc_channels_;
+  snapshot.update_ms = latest_rc_channels_update_ms_;
+  snapshot.have_data = have_latest_rc_channels_;
+  taskEXIT_CRITICAL(&g_mavlink_cache_lock);
+
+  if (snapshot.have_data) {
+    snapshot.age_ms = now_ms - snapshot.update_ms;
+    snapshot.live = snapshot.age_ms <= 500u;
+  }
+  return snapshot;
 }
 
 void Mavlink::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
