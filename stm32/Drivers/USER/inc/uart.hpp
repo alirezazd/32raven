@@ -6,7 +6,7 @@
 #include "board.h"
 #include "ring_buffer.hpp"
 
-enum class UartInstance { kUart1, kUart2 };
+enum class UartInstance { kUart1, kUart2, kUart6 };
 
 enum class UartWordLength : uint32_t {
   k8Bits = UART_WORDLENGTH_8B,
@@ -123,3 +123,4 @@ class Uart {
 
 using Uart1 = Uart<UartInstance::kUart1>;
 using Uart2 = Uart<UartInstance::kUart2>;
+using Uart6 = Uart<UartInstance::kUart6>;

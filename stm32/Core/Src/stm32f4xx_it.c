@@ -68,10 +68,13 @@ extern TIM_HandleTypeDef htim5;
 extern void Uart1DmaTxComplete(void);
 extern void Icm42688pOnIrq(void);
 extern void Uart2DmaTxComplete(void);
+extern void Uart6DmaTxComplete(void);
 extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
+extern void Uart6DmaError(uint32_t);
 extern void Uart1RxDmaError(uint32_t);
 extern void Uart2RxDmaError(uint32_t);
+extern void Uart6RxDmaError(uint32_t);
 extern void TimeBaseOnTim5Irq(void);
 extern void ExpressMain(void);
 extern void Spi2RxDmaComplete(void);
@@ -79,10 +82,13 @@ extern void Spi2DmaError(uint32_t isr);
 
 extern void Uart1OnUartInterrupt(void);
 extern void Uart2OnUartInterrupt(void);
+extern void Uart6OnUartInterrupt(void);
 extern void Uart1OnRxHalfCplt(void);
 extern void Uart1OnRxCplt(void);
 extern void Uart2OnRxHalfCplt(void);
 extern void Uart2OnRxCplt(void);
+extern void Uart6OnRxHalfCplt(void);
+extern void Uart6OnRxCplt(void);
 
 /* USER CODE BEGIN EV */
 
@@ -330,13 +336,25 @@ void EXTI15_10_IRQHandler(void) {
  */
 void DMA2_Stream1_IRQHandler(void)
 {
-  /* USER CODE BEGIN DMA2_Stream1_IRQn 0 */
+  const uint32_t lisr = DMA2->LISR;
 
-  /* USER CODE END DMA2_Stream1_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_usart6_rx);
-  /* USER CODE BEGIN DMA2_Stream1_IRQn 1 */
+  if (lisr & (DMA_LISR_TEIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIF1)) {
+    DMA2->LIFCR = DMA_LIFCR_CTEIF1 | DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1 |
+                  DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
+    Uart6RxDmaError(lisr);
+    return;
+  }
 
-  /* USER CODE END DMA2_Stream1_IRQn 1 */
+  if (lisr & (DMA_LISR_HTIF1 | DMA_LISR_TCIF1)) {
+    DMA2->LIFCR = DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
+
+    if (lisr & DMA_LISR_HTIF1) {
+      Uart6OnRxHalfCplt();
+    }
+    if (lisr & DMA_LISR_TCIF1) {
+      Uart6OnRxCplt();
+    }
+  }
 }
 
 /**
@@ -386,13 +404,23 @@ void DMA2_Stream5_IRQHandler(void) {
  */
 void DMA2_Stream6_IRQHandler(void)
 {
-  /* USER CODE BEGIN DMA2_Stream6_IRQn 0 */
+  const uint32_t hisr = DMA2->HISR;
 
-  /* USER CODE END DMA2_Stream6_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_usart6_tx);
-  /* USER CODE BEGIN DMA2_Stream6_IRQn 1 */
+  if (hisr & (DMA_HISR_TEIF6 | DMA_HISR_DMEIF6 | DMA_HISR_FEIF6)) {
+    DMA2->HIFCR = DMA_HIFCR_CTEIF6 | DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CFEIF6 |
+                  DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTCIF6;
+    DMA2_Stream6->CR &= ~DMA_SxCR_EN;
+    while (DMA2_Stream6->CR & DMA_SxCR_EN) {
+    }
 
-  /* USER CODE END DMA2_Stream6_IRQn 1 */
+    Uart6DmaError(hisr);
+    return;
+  }
+
+  if (hisr & DMA_HISR_TCIF6) {
+    DMA2->HIFCR = DMA_HIFCR_CTCIF6;
+    Uart6DmaTxComplete();
+  }
 }
 
 /**
@@ -434,6 +462,8 @@ void TIM5_IRQHandler(void) {
     TimeBaseOnTim5Irq();
   }
 }
+
+void USART6_IRQHandler(void) { Uart6OnUartInterrupt(); }
 
 /* USER CODE BEGIN 1 */
 

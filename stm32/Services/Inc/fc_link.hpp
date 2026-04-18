@@ -29,6 +29,7 @@ class FcLink {
                const float gyro[3]);
 
   // Send one-shot RC channel mapping config.
+  void SendRcChannels(const message::RcChannelsMsg &msg);
   void SendRcMapConfig(const message::RcMapConfigMsg &cfg);
   void SendRcCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
   void SendGyroCalibrationIdConfig(

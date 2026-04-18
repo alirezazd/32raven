@@ -35,6 +35,7 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kSpi1);
   InitComponent(Component::kEe);
   InitComponent(Component::kBattery);
+  InitComponent(Component::kUart6);
   InitComponent(Component::kRcReceiver);
   InitComponent(Component::kLed);
   InitComponent(Component::kSpi2);
@@ -43,9 +44,6 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kUart2);
   InitComponent(Component::kM10);
   InitComponent(Component::kIcm42688p);
-
-  // Init Complete: LEAVE LED ON for Debugging
-  // LED::GetInstance().Set(false);
 }
 
 void System::InitComponent(Component c) {
@@ -65,9 +63,13 @@ void System::InitComponent(Component c) {
     case Component::kBattery:
       Battery::GetInstance().Init(kBatteryConfig);
       break;
+    case Component::kUart6:
+      Uart6::GetInstance().Init(kUart6Config);
+      break;
     case Component::kRcReceiver:
       RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
-                                     vehicle_state_, FcLink::GetInstance());
+                                     vehicle_state_, FcLink::GetInstance(),
+                                     Uart6::GetInstance());
       break;
     case Component::kLed:
       LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);

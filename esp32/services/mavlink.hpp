@@ -13,6 +13,14 @@
 
 class Mavlink {
  public:
+  struct RcChannelsSnapshot {
+    message::RcChannelsMsg msg{};
+    uint32_t update_ms = 0;
+    uint32_t age_ms = 0;
+    bool have_data = false;
+    bool live = false;
+  };
+
   struct Config {
     struct Identity {
       uint8_t sysid = 0;
@@ -51,6 +59,8 @@ class Mavlink {
   void WorkerTick(uint32_t now_ms);
   void SetPrimaryLinkEnabled(bool enabled);
   void OfferTelemetry(const message::GpsData &d, uint32_t now_ms);
+  void OfferRcChannels(const message::RcChannelsMsg &msg, uint32_t now_ms);
+  RcChannelsSnapshot GetRcChannelsSnapshot(uint32_t now_ms) const;
   void SetRcMapConfig(const message::RcMapConfigMsg &cfg);
   void ClearRcMapConfig();
   void SetRcCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
@@ -156,6 +166,9 @@ class Mavlink {
   message::GpsData latest_{};
   bool have_latest_ = false;
   uint32_t latest_update_ms_ = 0;
+  message::RcChannelsMsg latest_rc_channels_{};
+  bool have_latest_rc_channels_ = false;
+  uint32_t latest_rc_channels_update_ms_ = 0;
   message::RcMapConfigMsg rc_map_config_{};
   bool have_rc_map_config_ = false;
   message::RcCalibrationConfigMsg rc_calibration_config_{};

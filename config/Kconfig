@@ -2114,6 +2114,137 @@ endmenu
 
 menu "RC Receiver"
 
+menu "UART"
+
+choice
+    prompt "UART baud rate"
+    default STM32_RC_RECEIVER_UART_BAUD_420000
+    help
+      UART6 baud rate used for the STM32 to RC receiver connection.
+      Use the HappyModel EP1 CRSF default unless you have explicitly
+      reconfigured the receiver output rate.
+
+config STM32_RC_RECEIVER_UART_BAUD_115200
+    bool "115200"
+
+config STM32_RC_RECEIVER_UART_BAUD_400000
+    bool "400000"
+
+config STM32_RC_RECEIVER_UART_BAUD_416666
+    bool "416666"
+
+config STM32_RC_RECEIVER_UART_BAUD_420000
+    bool "420000"
+
+config STM32_RC_RECEIVER_UART_BAUD_460800
+    bool "460800"
+
+config STM32_RC_RECEIVER_UART_BAUD_921600
+    bool "921600"
+
+endchoice
+
+choice
+    prompt "Word length"
+    default STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS
+    help
+      UART6 word length for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_RC_RECEIVER_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_RC_RECEIVER_UART_STOP_BITS_1
+    help
+      UART6 stop-bit configuration for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_RC_RECEIVER_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_RC_RECEIVER_UART_PARITY_NONE
+    help
+      UART6 parity mode for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_PARITY_NONE
+    bool "None"
+
+config STM32_RC_RECEIVER_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_RC_RECEIVER_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_RC_RECEIVER_UART_MODE_TX_RX
+    help
+      UART6 direction mode for the STM32 RC receiver connection.
+      Keep TX/RX enabled so the port is ready if receiver-side telemetry
+      is added later.
+
+config STM32_RC_RECEIVER_UART_MODE_RX
+    bool "RX"
+
+config STM32_RC_RECEIVER_UART_MODE_TX
+    bool "TX"
+
+config STM32_RC_RECEIVER_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE
+    help
+      UART6 hardware flow control for the STM32 RC receiver connection.
+      CRSF receivers normally use no hardware flow control.
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_RC_RECEIVER_UART_OVERSAMPLING_16
+    help
+      UART6 oversampling mode for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_RC_RECEIVER_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+endmenu
+
 menu "Enabled Channels"
 
 config STM32_RC_CHANNEL_1_ENABLED

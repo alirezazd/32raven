@@ -27,6 +27,7 @@ struct BasepriGuard {
 // NOTE: These streams match your CubeMX MSP:
 // USART1_TX -> DMA2_Stream7 Channel 4
 // USART2_TX -> DMA1_Stream6 Channel 4
+// USART6_TX -> DMA2_Stream6 Channel 5
 
 static inline void DmaDisableAndWait(DMA_Stream_TypeDef *s) {
   s->CR &= ~DMA_SxCR_EN;
@@ -51,10 +52,17 @@ static inline bool UartTransmitDma(const uint8_t *buf, uint16_t len) {
     dma = DMA2;
     clear_flags = DMA_HIFCR_CTCIF7 | DMA_HIFCR_CHTIF7 | DMA_HIFCR_CTEIF7 |
                   DMA_HIFCR_CDMEIF7 | DMA_HIFCR_CFEIF7;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     uart = USART2;
     s = DMA1_Stream6;
     dma = DMA1;
+    clear_flags = DMA_HIFCR_CTCIF6 | DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTEIF6 |
+                  DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CFEIF6;
+  } else {
+    static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
+    uart = USART6;
+    s = DMA2_Stream6;
+    dma = DMA2;
     clear_flags = DMA_HIFCR_CTCIF6 | DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTEIF6 |
                   DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CFEIF6;
   }
@@ -73,7 +81,9 @@ static inline bool UartTransmitDma(const uint8_t *buf, uint16_t len) {
   uint32_t cr = s->CR;
   cr &= ~(DMA_SxCR_CHSEL | DMA_SxCR_DIR | DMA_SxCR_MSIZE | DMA_SxCR_PSIZE |
           DMA_SxCR_PINC | DMA_SxCR_CIRC | DMA_SxCR_CT | DMA_SxCR_DBM);
-  cr |= (4u << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DIR_0 | DMA_SxCR_MINC |
+  const uint32_t channel =
+      (Inst == UartInstance::kUart6) ? 5u : 4u;
+  cr |= (channel << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DIR_0 | DMA_SxCR_MINC |
         DMA_SxCR_TCIE | DMA_SxCR_TEIE | DMA_SxCR_DMEIE;
   s->CR = cr;
 
@@ -106,9 +116,11 @@ UART_HandleTypeDef *
 Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::GetHandle() {
   if constexpr (Inst == UartInstance::kUart1) {
     return &huart1;
-  } else {
-    static_assert(Inst == UartInstance::kUart2, "Invalid Uart Instance");
+  } else if constexpr (Inst == UartInstance::kUart2) {
     return &huart2;
+  } else {
+    static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
+    return &huart6;
   }
 }
 
@@ -132,6 +144,12 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
     /* DMA1_Stream6_IRQn interrupt configuration */
     NVIC_SetPriority(DMA1_Stream6_IRQn, 5);
     NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  } else if constexpr (Inst == UartInstance::kUart6) {
+    __HAL_RCC_DMA2_CLK_ENABLE();
+    NVIC_SetPriority(DMA2_Stream1_IRQn, 5);
+    NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+    NVIC_SetPriority(DMA2_Stream6_IRQn, 5);
+    NVIC_EnableIRQ(DMA2_Stream6_IRQn);
   }
   if (initialized_) {
     return;
@@ -148,6 +166,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
     handle->Instance = USART1;
   } else if constexpr (Inst == UartInstance::kUart2) {
     handle->Instance = USART2;
+  } else {
+    static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
+    handle->Instance = USART6;
   }
 
   handle->Init.BaudRate = config.baud_rate;
@@ -294,12 +315,19 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
     dma = DMA2;
     clear_flags = DMA_LIFCR_CTCIF2 | DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTEIF2 |
                   DMA_LIFCR_CDMEIF2 | DMA_LIFCR_CFEIF2;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     uart = USART2;
     s = DMA1_Stream5;
     dma = DMA1;
     clear_flags = DMA_HIFCR_CTCIF5 | DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTEIF5 |
                   DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5;
+  } else {
+    static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
+    uart = USART6;
+    s = DMA2_Stream1;
+    dma = DMA2;
+    clear_flags = DMA_LIFCR_CTCIF1 | DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTEIF1 |
+                  DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1;
   }
 
   // 1. Disable Stream and Wait
@@ -310,8 +338,10 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
   // 2. Clear Flags (ISR flags passed might need clearing too, but we clear all)
   if constexpr (Inst == UartInstance::kUart1) {
     dma->LIFCR = clear_flags;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     dma->HIFCR = clear_flags;
+  } else {
+    dma->LIFCR = clear_flags;
   }
 
   // 3. Re-configure
@@ -391,13 +421,20 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
     // Stream2 is 0..3 Low
     clear_flags = DMA_LIFCR_CTCIF2 | DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTEIF2 |
                   DMA_LIFCR_CDMEIF2 | DMA_LIFCR_CFEIF2;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     uart = USART2;
     s = DMA1_Stream5;
     dma = DMA1;
     // Stream5 is 4..7 High
     clear_flags = DMA_HIFCR_CTCIF5 | DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTEIF5 |
                   DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5;
+  } else {
+    static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
+    uart = USART6;
+    s = DMA2_Stream1;
+    dma = DMA2;
+    clear_flags = DMA_LIFCR_CTCIF1 | DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTEIF1 |
+                  DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1;
   }
 
   // 1. Disable Stream
@@ -408,8 +445,10 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
   // 2. Clear Flags
   if constexpr (Inst == UartInstance::kUart1) {
     dma->LIFCR = clear_flags;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     dma->HIFCR = clear_flags;
+  } else {
+    dma->LIFCR = clear_flags;
   }
 
   // 3. Set PAR (Peripheral Address)
@@ -431,7 +470,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
           DMA_SxCR_PINC | DMA_SxCR_CIRC | DMA_SxCR_DBM | DMA_SxCR_CT);
 
   // Set bits
-  cr |= (4UL << DMA_SxCR_CHSEL_Pos);  // Channel 4
+  const uint32_t channel =
+      (Inst == UartInstance::kUart6) ? 5UL : 4UL;
+  cr |= (channel << DMA_SxCR_CHSEL_Pos);
   // DIR is 00 (Periph-to-Mem) by default, no need to set
   cr |= DMA_SxCR_MINC;
   cr |= DMA_SxCR_CIRC;
@@ -469,9 +510,12 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
   if constexpr (Inst == UartInstance::kUart1) {
     NVIC_SetPriority(USART1_IRQn, 10);
     NVIC_EnableIRQ(USART1_IRQn);
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     NVIC_SetPriority(USART2_IRQn, 5);
     NVIC_EnableIRQ(USART2_IRQn);
+  } else {
+    NVIC_SetPriority(USART6_IRQn, 5);
+    NVIC_EnableIRQ(USART6_IRQn);
   }
 }
 
@@ -481,8 +525,10 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::OnUartInterrupt() {
   USART_TypeDef *uart = nullptr;
   if constexpr (Inst == UartInstance::kUart1) {
     uart = USART1;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     uart = USART2;
+  } else {
+    uart = USART6;
   }
 
   uint32_t sr = uart->SR;
@@ -529,8 +575,10 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::DrainRx() {
   DMA_Stream_TypeDef *s = nullptr;
   if constexpr (Inst == UartInstance::kUart1) {
     s = DMA2_Stream2;
-  } else {
+  } else if constexpr (Inst == UartInstance::kUart2) {
     s = DMA1_Stream5;
+  } else {
+    s = DMA2_Stream1;
   }
 
   // NDTR counts DOWN from Size to 0
@@ -573,11 +621,15 @@ template class Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
                     kUartRxRingSize>;
 template class Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,
                     kUartRxRingSize>;
+template class Uart<UartInstance::kUart6, kUartTxBufSize, kUartRxDmaSize,
+                    kUartRxRingSize>;
 
 extern "C" {
 void Uart1DmaTxComplete() { Uart1::GetInstance().IrqHandler(); }
 
 void Uart2DmaTxComplete() { Uart2::GetInstance().IrqHandler(); }
+
+void Uart6DmaTxComplete() { Uart6::GetInstance().IrqHandler(); }
 
 void Uart1DmaError(uint32_t isr_flags) {
   Uart1::GetInstance().HandleDmaError(isr_flags);
@@ -585,6 +637,10 @@ void Uart1DmaError(uint32_t isr_flags) {
 
 void Uart2DmaError(uint32_t isr_flags) {
   Uart2::GetInstance().HandleDmaError(isr_flags);
+}
+
+void Uart6DmaError(uint32_t isr_flags) {
+  Uart6::GetInstance().HandleDmaError(isr_flags);
 }
 
 void Uart1RxDmaIrq() {
@@ -599,11 +655,17 @@ void Uart2RxDmaError(uint32_t isr_flags) {
   Uart2::GetInstance().HandleRxDmaError(isr_flags);
 }
 
+void Uart6RxDmaError(uint32_t isr_flags) {
+  Uart6::GetInstance().HandleRxDmaError(isr_flags);
+}
+
 // Wrappers for interrupts
 
 void Uart1OnUartInterrupt() { Uart1::GetInstance().OnUartInterrupt(); }
 
 void Uart2OnUartInterrupt() { Uart2::GetInstance().OnUartInterrupt(); }
+
+void Uart6OnUartInterrupt() { Uart6::GetInstance().OnUartInterrupt(); }
 
 void Uart1OnRxHalfCplt() { Uart1::GetInstance().OnRxHalfCplt(); }
 
@@ -611,5 +673,9 @@ void Uart1OnRxCplt() { Uart1::GetInstance().OnRxCplt(); }
 
 void Uart2OnRxHalfCplt() { Uart2::GetInstance().OnRxHalfCplt(); }
 
+void Uart6OnRxHalfCplt() { Uart6::GetInstance().OnRxHalfCplt(); }
+
 void Uart2OnRxCplt() { Uart2::GetInstance().OnRxCplt(); }
+
+void Uart6OnRxCplt() { Uart6::GetInstance().OnRxCplt(); }
 }
