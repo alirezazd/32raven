@@ -2245,6 +2245,146 @@ endchoice
 
 endmenu
 
+menu "CRSF Telemetry"
+
+config STM32_RC_RECEIVER_CRSF_MAX_FRAMES_PER_POLL
+    int "Max frames per slow-loop poll"
+    range 1 8
+    default 1
+    help
+      Maximum number of native CRSF telemetry or command frames the STM32 will
+      try to send during one slow-loop pass on the RC receiver link. Raise
+      this only after confirming the receiver telemetry bandwidth can absorb
+      the extra traffic.
+
+menu "Heartbeat"
+
+config STM32_RC_RECEIVER_CRSF_HEARTBEAT_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Interval between CRSF heartbeat frames sent from the flight controller
+      back through the RC receiver. Set to 0 to disable heartbeat telemetry.
+
+config STM32_RC_RECEIVER_CRSF_HEARTBEAT_START_DELAY_MS
+    int "Initial delay (ms)"
+    range 0 10000
+    default 0
+    help
+      Delay before the first heartbeat frame after boot. Use this to stagger
+      startup traffic so multiple telemetry topics do not all fire at once.
+
+config STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY
+    int "Priority"
+    range 0 15
+    default 15
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+endmenu
+
+menu "GPS"
+
+config STM32_RC_RECEIVER_CRSF_GPS_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 500
+    help
+      Interval between CRSF GPS telemetry frames sent back to the radio. Set
+      to 0 to disable GPS telemetry on the RC receiver link.
+
+config STM32_RC_RECEIVER_CRSF_GPS_START_DELAY_MS
+    int "Initial delay (ms)"
+    range 0 10000
+    default 200
+    help
+      Delay before the first CRSF GPS telemetry frame after boot. This helps
+      spread telemetry topics across time instead of bursting them together.
+
+config STM32_RC_RECEIVER_CRSF_GPS_PRIORITY
+    int "Priority"
+    range 0 15
+    default 12
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+config STM32_RC_RECEIVER_CRSF_GPS_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default y
+    help
+      Suppress repeated CRSF GPS frames when the encoded payload has not
+      changed since the last send. A keepalive resend still occurs when the
+      max-silence window expires.
+
+config STM32_RC_RECEIVER_CRSF_GPS_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 2000
+    help
+      Longest time the scheduler may suppress unchanged CRSF GPS telemetry
+      before forcing a resend. Set to 0 to only send GPS when the payload
+      changes.
+
+config STM32_RC_RECEIVER_CRSF_GPS_FRESH_TIMEOUT_MS
+    int "Freshness timeout (ms)"
+    range 1 60000
+    default 2000
+    help
+      Maximum age of a GPS sample before the CRSF scheduler stops forwarding
+      GPS telemetry and waits for fresher navigation data.
+
+endmenu
+
+menu "Battery"
+
+config STM32_RC_RECEIVER_CRSF_BATTERY_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Interval between CRSF battery telemetry frames sent back to the radio.
+      Set to 0 to disable battery telemetry on the RC receiver link.
+
+config STM32_RC_RECEIVER_CRSF_BATTERY_START_DELAY_MS
+    int "Initial delay (ms)"
+    range 0 10000
+    default 400
+    help
+      Delay before the first CRSF battery telemetry frame after boot. This
+      helps stagger telemetry bursts across the receiver link.
+
+config STM32_RC_RECEIVER_CRSF_BATTERY_PRIORITY
+    int "Priority"
+    range 0 15
+    default 10
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+config STM32_RC_RECEIVER_CRSF_BATTERY_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default y
+    help
+      Suppress repeated CRSF battery frames when the encoded payload has not
+      changed since the last send. A keepalive resend still occurs when the
+      max-silence window expires.
+
+config STM32_RC_RECEIVER_CRSF_BATTERY_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 5000
+    help
+      Longest time the scheduler may suppress unchanged CRSF battery telemetry
+      before forcing a resend. Set to 0 to only send battery data when the
+      payload changes.
+
+endmenu
+
+endmenu
+
 menu "Enabled Channels"
 
 config STM32_RC_CHANNEL_1_ENABLED

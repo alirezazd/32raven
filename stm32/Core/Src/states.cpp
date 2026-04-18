@@ -173,6 +173,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     uint32_t dt = micros() - t0;
     if (dt > g_prof_link_us) g_prof_link_us = dt;
   }
+  ctx.sys->GetCrsfLinkService().PollRx(micros());
   ctx.sys->GetRcReceiver().Poll(micros());
   if (budget_exhausted()) return;
 
@@ -269,6 +270,10 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     uint32_t dt = micros() - t0;
     if (dt > g_prof_gpspub_us) g_prof_gpspub_us = dt;
   }
+
+  if (budget_exhausted()) return;
+  ctx.sys->GetCrsfLinkService().PollTx(micros());
+  if (budget_exhausted()) return;
 
   // 6. Print Diagnostics (1Hz) - moved from OnFastTick to avoid blocking IMU
   static uint32_t last_diag_print = 0;

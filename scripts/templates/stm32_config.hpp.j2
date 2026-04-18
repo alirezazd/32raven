@@ -1,6 +1,7 @@
 {{ autogen_warning }}#pragma once
 
 #include "button.hpp"
+#include "crsf_link_service.hpp"
 #include "icm20948.hpp"
 #include "icm42688p.hpp"
 #include "m10.hpp"
@@ -139,6 +140,38 @@ inline constexpr RcReceiver::Config kRcReceiverConfig = {
     .pitch_channel = {{ rc_receiver.rc_map.pitch }},
     .yaw_channel = {{ rc_receiver.rc_map.yaw }},
     .throttle_channel = {{ rc_receiver.rc_map.throttle }},
+};
+
+inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
+    .max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
+    .gps_fresh_timeout_us =
+        {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u,
+    .heartbeat = {
+        .period_us = {{ rc_receiver.crsf.heartbeat.period_ms }}u * 1000u,
+        .start_delay_us =
+            {{ rc_receiver.crsf.heartbeat.start_delay_ms }}u * 1000u,
+        .max_silence_us = 0u,
+        .priority = {{ rc_receiver.crsf.heartbeat.priority }}u,
+        .send_on_change = false,
+    },
+    .gps = {
+        .period_us = {{ rc_receiver.crsf.gps.period_ms }}u * 1000u,
+        .start_delay_us = {{ rc_receiver.crsf.gps.start_delay_ms }}u * 1000u,
+        .max_silence_us =
+            {{ rc_receiver.crsf.gps.max_silence_ms }}u * 1000u,
+        .priority = {{ rc_receiver.crsf.gps.priority }}u,
+        .send_on_change = {{ rc_receiver.crsf.gps.send_on_change | cpp_bool }},
+    },
+    .battery = {
+        .period_us = {{ rc_receiver.crsf.battery.period_ms }}u * 1000u,
+        .start_delay_us =
+            {{ rc_receiver.crsf.battery.start_delay_ms }}u * 1000u,
+        .max_silence_us =
+            {{ rc_receiver.crsf.battery.max_silence_ms }}u * 1000u,
+        .priority = {{ rc_receiver.crsf.battery.priority }}u,
+        .send_on_change =
+            {{ rc_receiver.crsf.battery.send_on_change | cpp_bool }},
+    },
 };
 
 inline constexpr M10::Config kM10Config = {

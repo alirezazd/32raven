@@ -37,6 +37,7 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kBattery);
   InitComponent(Component::kUart6);
   InitComponent(Component::kRcReceiver);
+  InitComponent(Component::kCrsfLink);
   InitComponent(Component::kLed);
   InitComponent(Component::kSpi2);
   InitComponent(Component::kDshot);
@@ -68,8 +69,12 @@ void System::InitComponent(Component c) {
       break;
     case Component::kRcReceiver:
       RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
-                                     vehicle_state_, FcLink::GetInstance(),
-                                     Uart6::GetInstance());
+                                     vehicle_state_);
+      break;
+    case Component::kCrsfLink:
+      crsf_link_service_.Init(kCrsfLinkConfig, Uart6::GetInstance(), vehicle_state_,
+                              RcReceiver::GetInstance(),
+                              FcLink::GetInstance());
       break;
     case Component::kLed:
       LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
