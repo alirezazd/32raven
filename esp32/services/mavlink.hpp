@@ -198,6 +198,7 @@ class Mavlink {
   void ArmFirstSchedule(TxState &tx, const TxConfig &cfg_tx, uint32_t now_ms);
   void StartFcConfigRequest(message::MsgId request_id, ErrorCode failure_code);
   void ServiceFcConfigRequests(uint32_t now_ms);
+  void RequestReceiverBind();
   bool ApplyRcMapConfigToFcLink(const message::RcMapConfigMsg &cfg);
   bool ApplyRcCalibrationConfigToFcLink(
       const message::RcCalibrationConfigMsg &cfg);

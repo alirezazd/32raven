@@ -22,7 +22,6 @@ class FcLink {
   void Poll();
   void PerformHandshake();  // Blocking handshake (Ping/Pong)
   void SendPacket(const message::Packet &pkt);
-  void RequestReceiverBind();
 
   std::optional<message::Packet> PopPacket();
   size_t PendingRxPacketCount() const;
