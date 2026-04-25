@@ -32,6 +32,7 @@ class Mavlink {
         uint16_t att_ms = 0;
         uint16_t gpos_ms = 0;
         uint16_t batt_ms = 0;
+        uint16_t rc_ms = 0;
       } periods;
 
       struct Schedule {
@@ -40,6 +41,7 @@ class Mavlink {
         uint16_t att_start_delay_ms = 0;
         uint16_t gpos_start_delay_ms = 0;
         uint16_t batt_start_delay_ms = 0;
+        uint16_t rc_start_delay_ms = 0;
       } schedule;
     } tx;
   };
@@ -162,6 +164,7 @@ class Mavlink {
     uint32_t next_att_ms = 0;
     uint32_t next_gpos_ms = 0;
     uint32_t next_batt_ms = 0;
+    uint32_t next_rc_ms = 0;
   };
 
   Mavlink();
@@ -201,6 +204,7 @@ class Mavlink {
                                   TxFrameState &frame);
   void StartMissionCountFrame(const MissionCount &work, TxFrameState &frame);
   void StartStatusTextFrame(const StatusText &work, TxFrameState &frame);
+  void StartRcChannelsFrame(TxFrameState &frame, const TxConfig &cfg_tx);
   void ResetParamState();
   std::optional<ParamRef> TryResolveParam(int16_t requested_index,
                                           const char *requested_id) const;

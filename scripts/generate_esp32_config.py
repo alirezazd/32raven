@@ -766,6 +766,7 @@ def _runtime_context(
                     "att_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_ATT_MS"),
                     "gpos_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_GPOS_MS"),
                     "batt_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_BATT_MS"),
+                    "rc_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_RC_MS"),
                 },
                 "schedule": {
                     "hb_deadline_ms": _sym_int(
@@ -782,6 +783,9 @@ def _runtime_context(
                     ),
                     "batt_start_delay_ms": _sym_int(
                         kconf, "ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS"
+                    ),
+                    "rc_start_delay_ms": _sym_int(
+                        kconf, "ESP32_MAVLINK_TX_SCHEDULE_RC_START_DELAY_MS"
                     ),
                 },
             },
