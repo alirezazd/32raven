@@ -19,7 +19,53 @@ extern "C" {
 
 static constexpr const char *kTag = "udp_server";
 
+static bool IsWouldBlock(int error) {
+  return error == EWOULDBLOCK || error == EAGAIN;
+}
+
+UdpServer::LockGuard::LockGuard(const UdpServer &server) : server_(server) {
+  server_.Lock();
+}
+
+UdpServer::LockGuard::~LockGuard() { server_.Unlock(); }
+
+void UdpServer::Lock() const {
+  if (mutex_ != nullptr) {
+    xSemaphoreTake(mutex_, portMAX_DELAY);
+  }
+}
+
+void UdpServer::Unlock() const {
+  if (mutex_ != nullptr) {
+    xSemaphoreGive(mutex_);
+  }
+}
+
+void UdpServer::ClearPeerLocked() {
+  peer_ipv4_ = 0;
+  peer_port_ = 0;
+}
+
+void UdpServer::ResetShaperStateLocked() {
+  upload_tokens_bytes_ = 0;
+  upload_last_refill_us_ = 0;
+  upload_overflow_count_ = 0;
+  upload_shaper_buffer_.Clear();
+  download_tokens_bytes_ = 0;
+  download_last_refill_us_ = 0;
+  download_overflow_count_ = 0;
+  download_shaper_buffer_.Clear();
+}
+
 void UdpServer::Init(const Config &cfg) {
+  if (mutex_ == nullptr) {
+    mutex_ = xSemaphoreCreateMutexStatic(&mutex_buffer_);
+  }
+  if (mutex_ == nullptr) {
+    Panic(ErrorCode::kUdpServerInitFailed);
+  }
+
+  const LockGuard lock(*this);
   cfg_ = cfg;
   if (cfg_.overflow_threshold == 0) {
     Panic(ErrorCode::kUdpServerInvalidOverflowThreshold);
@@ -36,14 +82,10 @@ void UdpServer::Init(const Config &cfg) {
   if (download_cap_enabled_ && download_cap_bytes_per_s_ == 0) {
     download_cap_bytes_per_s_ = 1;
   }
-  upload_tokens_bytes_ = 0;
-  upload_last_refill_us_ = 0;
-  upload_overflow_count_ = 0;
-  upload_shaper_buffer_.Clear();
-  download_tokens_bytes_ = 0;
-  download_last_refill_us_ = 0;
-  download_overflow_count_ = 0;
-  download_shaper_buffer_.Clear();
+  ResetShaperStateLocked();
+  ClearPeerLocked();
+  running_ = false;
+  fd_ = -1;
   ESP_LOGI(kTag, "initialized on port %u", static_cast<unsigned>(cfg_.port));
 }
 
@@ -55,7 +97,27 @@ bool UdpServer::SetNonblock(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
 
+void UdpServer::RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
+                             uint32_t &tokens_bytes, int64_t &last_refill_us) {
+  const int64_t now_us = esp_timer_get_time();
+  if (last_refill_us == 0) {
+    last_refill_us = now_us;
+  }
+  if (now_us <= last_refill_us) {
+    return;
+  }
+
+  const uint64_t elapsed_us = static_cast<uint64_t>(now_us - last_refill_us);
+  const uint64_t refill =
+      (elapsed_us * static_cast<uint64_t>(bytes_per_s)) / 1000000ull;
+  const uint64_t topped = static_cast<uint64_t>(tokens_bytes) + refill;
+  tokens_bytes = static_cast<uint32_t>(
+      std::min<uint64_t>(topped, static_cast<uint64_t>(burst_bytes)));
+  last_refill_us = now_us;
+}
+
 esp_err_t UdpServer::Start() {
+  const LockGuard lock(*this);
   if (running_) {
     return ESP_OK;
   }
@@ -86,44 +148,38 @@ esp_err_t UdpServer::Start() {
     return ESP_FAIL;
   }
 
-  if (cfg_.nonblocking && !SetNonblock(fd_)) {
+  if (!SetNonblock(fd_)) {
     ESP_LOGE(kTag, "failed to enable non-blocking mode");
     close(fd_);
     fd_ = -1;
     return ESP_FAIL;
   }
 
-  peer_ipv4_ = 0;
-  peer_port_ = 0;
-  upload_tokens_bytes_ = 0;
-  upload_last_refill_us_ = 0;
-  upload_overflow_count_ = 0;
-  upload_shaper_buffer_.Clear();
-  download_tokens_bytes_ = 0;
-  download_last_refill_us_ = 0;
-  download_overflow_count_ = 0;
-  download_shaper_buffer_.Clear();
+  ClearPeerLocked();
+  ResetShaperStateLocked();
   running_ = true;
   ESP_LOGI(kTag, "listening on UDP port %u", static_cast<unsigned>(cfg_.port));
   return ESP_OK;
 }
 
 void UdpServer::Stop() {
+  const LockGuard lock(*this);
   if (fd_ >= 0) {
     close(fd_);
     fd_ = -1;
   }
 
-  ClearPeer();
+  ClearPeerLocked();
   running_ = false;
 }
 
 void UdpServer::ClearPeer() {
-  peer_ipv4_ = 0;
-  peer_port_ = 0;
+  const LockGuard lock(*this);
+  ClearPeerLocked();
 }
 
 int UdpServer::Receive(uint8_t *dst, size_t max_len) {
+  const LockGuard lock(*this);
   if (!running_ || fd_ < 0 || dst == nullptr || max_len == 0) {
     return 0;
   }
@@ -139,7 +195,7 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
       return received;
     }
 
-    if (received < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+    if (received < 0 && !IsWouldBlock(errno)) {
       ESP_LOGW(kTag, "recvfrom failed: errno=%d", errno);
     }
     return 0;
@@ -156,23 +212,8 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
     }
   };
 
-  const int64_t now_us = esp_timer_get_time();
-  if (upload_last_refill_us_ == 0) {
-    upload_last_refill_us_ = now_us;
-  }
-  if (now_us > upload_last_refill_us_) {
-    const uint64_t elapsed_us =
-        static_cast<uint64_t>(now_us - upload_last_refill_us_);
-    const uint64_t refill =
-        (elapsed_us * static_cast<uint64_t>(upload_cap_bytes_per_s_)) /
-        1000000ull;
-    const uint32_t burst_bytes = kUploadBufferBytes;
-    const uint64_t topped =
-        static_cast<uint64_t>(upload_tokens_bytes_) + refill;
-    upload_tokens_bytes_ =
-        static_cast<uint32_t>(std::min<uint64_t>(topped, burst_bytes));
-    upload_last_refill_us_ = now_us;
-  }
+  RefillTokens(upload_cap_bytes_per_s_, kUploadBufferBytes,
+               upload_tokens_bytes_, upload_last_refill_us_);
 
   uint8_t rx_buf[512];
   while (upload_shaper_buffer_.Available() < kUploadBufferBytes) {
@@ -213,7 +254,7 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
       continue;
     }
 
-    if (received < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+    if (received < 0 && !IsWouldBlock(errno)) {
       ESP_LOGW(kTag, "recvfrom failed: errno=%d", errno);
     }
     break;
@@ -244,13 +285,14 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
 }
 
 int UdpServer::Send(const uint8_t *data, size_t len) {
+  const LockGuard lock(*this);
   if (!running_ || fd_ < 0 || data == nullptr || len == 0) {
     return 0;
   }
 
   sockaddr_in peer{};
   peer.sin_family = AF_INET;
-  if (HasPeer()) {
+  if (peer_port_ != 0) {
     peer.sin_addr.s_addr = peer_ipv4_;
     peer.sin_port = peer_port_;
   } else {
@@ -262,11 +304,29 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
     const int sent =
         sendto(fd_, chunk, chunk_len, 0,
                reinterpret_cast<const sockaddr *>(&peer), sizeof(peer));
-    if (sent < 0 && errno != EWOULDBLOCK && errno != EAGAIN) {
+    if (sent < 0 && !IsWouldBlock(errno)) {
       ESP_LOGW(kTag, "sendto failed: errno=%d", errno);
-      ClearPeer();
+      ClearPeerLocked();
     }
     return (sent > 0) ? static_cast<size_t>(sent) : static_cast<size_t>(0);
+  };
+
+  const auto flush_download_buffer = [&]() {
+    while (download_tokens_bytes_ > 0 && !download_shaper_buffer_.IsEmpty()) {
+      const uint8_t *ptr = nullptr;
+      const size_t contiguous = download_shaper_buffer_.ContiguousReadable(ptr);
+      if (contiguous == 0 || ptr == nullptr) {
+        break;
+      }
+      const size_t budget =
+          std::min(contiguous, static_cast<size_t>(download_tokens_bytes_));
+      const size_t sent = send_chunk(ptr, budget);
+      if (sent == 0) {
+        break;
+      }
+      download_shaper_buffer_.Consume(sent);
+      download_tokens_bytes_ -= static_cast<uint32_t>(sent);
+    }
   };
 
   if (!download_cap_enabled_) {
@@ -284,39 +344,10 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
     }
   };
 
-  const int64_t now_us = esp_timer_get_time();
-  if (download_last_refill_us_ == 0) {
-    download_last_refill_us_ = now_us;
-  }
-  if (now_us > download_last_refill_us_) {
-    const uint64_t elapsed_us =
-        static_cast<uint64_t>(now_us - download_last_refill_us_);
-    const uint64_t refill =
-        (elapsed_us * static_cast<uint64_t>(download_cap_bytes_per_s_)) /
-        1000000ull;
-    const uint32_t burst_bytes = kDownloadBufferBytes;
-    const uint64_t topped =
-        static_cast<uint64_t>(download_tokens_bytes_) + refill;
-    download_tokens_bytes_ =
-        static_cast<uint32_t>(std::min<uint64_t>(topped, burst_bytes));
-    download_last_refill_us_ = now_us;
-  }
+  RefillTokens(download_cap_bytes_per_s_, kDownloadBufferBytes,
+               download_tokens_bytes_, download_last_refill_us_);
 
-  while (download_tokens_bytes_ > 0 && !download_shaper_buffer_.IsEmpty()) {
-    const uint8_t *ptr = nullptr;
-    const size_t contiguous = download_shaper_buffer_.ContiguousReadable(ptr);
-    if (contiguous == 0 || ptr == nullptr) {
-      break;
-    }
-    const size_t budget =
-        std::min(contiguous, static_cast<size_t>(download_tokens_bytes_));
-    const size_t sent = send_chunk(ptr, budget);
-    if (sent == 0) {
-      break;
-    }
-    download_shaper_buffer_.Consume(sent);
-    download_tokens_bytes_ -= static_cast<uint32_t>(sent);
-  }
+  flush_download_buffer();
 
   const size_t buffered = download_shaper_buffer_.Available();
   const size_t free_bytes =
@@ -335,21 +366,7 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
   }
   download_overflow_count_ = 0;
 
-  while (download_tokens_bytes_ > 0 && !download_shaper_buffer_.IsEmpty()) {
-    const uint8_t *ptr = nullptr;
-    const size_t contiguous = download_shaper_buffer_.ContiguousReadable(ptr);
-    if (contiguous == 0 || ptr == nullptr) {
-      break;
-    }
-    const size_t budget =
-        std::min(contiguous, static_cast<size_t>(download_tokens_bytes_));
-    const size_t sent = send_chunk(ptr, budget);
-    if (sent == 0) {
-      break;
-    }
-    download_shaper_buffer_.Consume(sent);
-    download_tokens_bytes_ -= static_cast<uint32_t>(sent);
-  }
+  flush_download_buffer();
 
   return static_cast<int>(len);
 }

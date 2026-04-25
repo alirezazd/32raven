@@ -21,14 +21,17 @@ static constexpr const char *kTag = "ESP32-SM";
 void ServingState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
   ctx.sys->Ui().SetAppState(Ui::AppState::kServing);
-  ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
+  ctx.sys->Mavlink().DisableTelemetryLink();
+  // The STM32 keeps streaming FC link packets while DFU/program modes are not
+  // polling them, so resume in a fresh resync state instead of parsing stale
+  // buffered bytes as fatal corruption.
+  ctx.sys->FcLink().ResetRxState();
   ctx.sys->StopNetwork();
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
   ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
 }
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {
-  (void)now;
   auto &button = ctx.sys->Button();
   button.Poll();
 
@@ -53,14 +56,13 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
 void MavlinkWifiState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering MavlinkWifi");
   ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkWifi);
-  ctx.sys->Mavlink().SetPrimaryLinkEnabled(true);
+  ctx.sys->Mavlink().EnableTelemetryLink();
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().StartAp();
   ctx.sys->Udp().Start();
 }
 
 void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
-  (void)now;
   auto &button = ctx.sys->Button();
   button.Poll();
 
@@ -82,13 +84,14 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
+  ctx.sys->Mavlink().Poll(now);
 }
 
 // Dfu State
 void DfuState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Dfu");
   ctx.sys->Ui().SetAppState(Ui::AppState::kDfu);
-  ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
+  ctx.sys->Mavlink().DisableTelemetryLink();
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().DisableBridge();
@@ -125,7 +128,7 @@ void ProgramState::OnEnter(AppContext &ctx) {
   ctx.sys->Ui().SetAppState(Ui::AppState::kProgram);
   // Treat programming start like user activity so the progress UI is visible.
   ctx.sys->Ui().NotifyUserActivity();
-  ctx.sys->Mavlink().SetPrimaryLinkEnabled(false);
+  ctx.sys->Mavlink().DisableTelemetryLink();
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
   last_activity_ = ctx.sys->Timebase().NowMs();

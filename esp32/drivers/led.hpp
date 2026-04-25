@@ -1,5 +1,7 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
+#include <optional>
 
 extern "C" {
 #include "hal/gpio_types.h"  // IWYU pragma: keep
@@ -30,10 +32,12 @@ class LED {
   };
 
   // Set a specific pattern type with a period
-  void SetPattern(Pattern p, uint32_t period_ms);
+  void SetPattern(Pattern p, uint32_t period_ms,
+                  std::optional<int> repeat_count = std::nullopt);
 
   // Set a custom sequence of steps
-  void SetPattern(const Step *steps, size_t count);
+  void SetPattern(const Step *steps, size_t count,
+                  std::optional<int> repeat_count = std::nullopt);
   void On();
   void Off();
   void Toggle();
@@ -59,6 +63,7 @@ class LED {
 
   const Step *current_steps_ = nullptr;
   size_t current_step_count_ = 0;
+  std::optional<int> repeat_count_ = std::nullopt;
 
   // Buffer for dynamic patterns (max 4 steps for double blink)
   Step dynamic_steps_[4];

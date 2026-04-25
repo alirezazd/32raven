@@ -53,16 +53,12 @@ MAVLINK_COMPID_MIN = 0
 MAVLINK_COMPID_MAX = 255
 MAVLINK_HEARTBEAT_PERIOD_MIN_MS = 1
 MAVLINK_HEARTBEAT_PERIOD_MAX_MS = 60000
-MAVLINK_TELEMETRY_PERIOD_MIN_MS = 0
-MAVLINK_TELEMETRY_PERIOD_MAX_MS = 60000
-MAVLINK_RX_READ_CHUNK_MIN = 1
-MAVLINK_RX_READ_CHUNK_MAX = 256
+MAVLINK_TX_PERIOD_MIN_MS = 0
+MAVLINK_TX_PERIOD_MAX_MS = 60000
 MAVLINK_HEARTBEAT_DEADLINE_MIN_MS = 1
 MAVLINK_HEARTBEAT_DEADLINE_MAX_MS = 60000
-MAVLINK_START_DELAY_MIN_MS = 0
-MAVLINK_START_DELAY_MAX_MS = 10000
-MAVLINK_TASK_STACK_DEPTH_WORDS = 8192
-MAVLINK_STACK_PANIC_THRESHOLD_BYTES = 400
+MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS = 0
+MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS = 10000
 PANIC_TASK_STACK_DEPTH_WORDS = 4096
 WIFI_AP_SSID_MIN_LEN = 1
 WIFI_AP_SSID_MAX_LEN = 32
@@ -380,43 +376,52 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         UART_BUFFER_SIZE_MAX,
     )
     _validate_int_range(
-        kconf, "ESP32_MAVLINK_SYSID", MAVLINK_SYSID_MIN, MAVLINK_SYSID_MAX
-    )
-    _validate_int_range(
-        kconf, "ESP32_MAVLINK_COMPID", MAVLINK_COMPID_MIN, MAVLINK_COMPID_MAX
+        kconf,
+        "ESP32_MAVLINK_IDENTITY_SYSID",
+        MAVLINK_SYSID_MIN,
+        MAVLINK_SYSID_MAX,
     )
     _validate_int_range(
         kconf,
-        "ESP32_MAVLINK_HEARTBEAT_PERIOD_MS",
+        "ESP32_MAVLINK_IDENTITY_COMPID",
+        MAVLINK_COMPID_MIN,
+        MAVLINK_COMPID_MAX,
+    )
+    _validate_int_range(
+        kconf,
+        "ESP32_MAVLINK_TX_PERIODS_HB_MS",
         MAVLINK_HEARTBEAT_PERIOD_MIN_MS,
         MAVLINK_HEARTBEAT_PERIOD_MAX_MS,
     )
     for symbol in (
-        "ESP32_MAVLINK_GPS_PERIOD_MS",
-        "ESP32_MAVLINK_ATTITUDE_PERIOD_MS",
-        "ESP32_MAVLINK_GLOBAL_POSITION_PERIOD_MS",
-        "ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS",
+        "ESP32_MAVLINK_TX_PERIODS_GPS_MS",
+        "ESP32_MAVLINK_TX_PERIODS_ATT_MS",
+        "ESP32_MAVLINK_TX_PERIODS_GPOS_MS",
+        "ESP32_MAVLINK_TX_PERIODS_BATT_MS",
     ):
         _validate_int_range(
             kconf,
             symbol,
-            MAVLINK_TELEMETRY_PERIOD_MIN_MS,
-            MAVLINK_TELEMETRY_PERIOD_MAX_MS,
+            MAVLINK_TX_PERIOD_MIN_MS,
+            MAVLINK_TX_PERIOD_MAX_MS,
         )
     _validate_int_range(
         kconf,
-        "ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS",
+        "ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS",
         MAVLINK_HEARTBEAT_DEADLINE_MIN_MS,
         MAVLINK_HEARTBEAT_DEADLINE_MAX_MS,
     )
     for symbol in (
-        "ESP32_MAVLINK_GPS_START_DELAY_MS",
-        "ESP32_MAVLINK_ATTITUDE_START_DELAY_MS",
-        "ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS",
-        "ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS",
+        "ESP32_MAVLINK_TX_SCHEDULE_GPS_START_DELAY_MS",
+        "ESP32_MAVLINK_TX_SCHEDULE_ATT_START_DELAY_MS",
+        "ESP32_MAVLINK_TX_SCHEDULE_GPOS_START_DELAY_MS",
+        "ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS",
     ):
         _validate_int_range(
-            kconf, symbol, MAVLINK_START_DELAY_MIN_MS, MAVLINK_START_DELAY_MAX_MS
+            kconf,
+            symbol,
+            MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS,
+            MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS,
         )
     wifi_ssid = _sym_str(kconf, "ESP32_WIFI_AP_SSID")
     wifi_password = _sym_str(kconf, "ESP32_WIFI_AP_PASSWORD")
@@ -693,7 +698,6 @@ def _runtime_context(
         },
         "udp_server": {
             "port": _sym_int(kconf, "ESP32_UDP_SERVER_PORT"),
-            "nonblocking": _sym_bool(kconf, "ESP32_UDP_SERVER_NONBLOCKING"),
             "upload_cap_kbits": _sym_int(kconf, "ESP32_UDP_SERVER_UPLOAD_CAP_KBITS"),
             "download_cap_kbits": _sym_int(
                 kconf, "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS"
@@ -752,36 +756,32 @@ def _runtime_context(
         },
         "mavlink": {
             "identity": {
-                "sysid": _sym_int(kconf, "ESP32_MAVLINK_SYSID"),
-                "compid": _sym_int(kconf, "ESP32_MAVLINK_COMPID"),
+                "sysid": _sym_int(kconf, "ESP32_MAVLINK_IDENTITY_SYSID"),
+                "compid": _sym_int(kconf, "ESP32_MAVLINK_IDENTITY_COMPID"),
             },
             "tx": {
                 "periods": {
-                    "hb_ms": _sym_int(kconf, "ESP32_MAVLINK_HEARTBEAT_PERIOD_MS"),
-                    "gps_ms": _sym_int(kconf, "ESP32_MAVLINK_GPS_PERIOD_MS"),
-                    "att_ms": _sym_int(kconf, "ESP32_MAVLINK_ATTITUDE_PERIOD_MS"),
-                    "gpos_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_GLOBAL_POSITION_PERIOD_MS"
-                    ),
-                    "batt_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_BATTERY_STATUS_PERIOD_MS"
-                    ),
+                    "hb_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_HB_MS"),
+                    "gps_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_GPS_MS"),
+                    "att_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_ATT_MS"),
+                    "gpos_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_GPOS_MS"),
+                    "batt_ms": _sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_BATT_MS"),
                 },
                 "schedule": {
                     "hb_deadline_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_HEARTBEAT_DEADLINE_MS"
+                        kconf, "ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS"
                     ),
                     "gps_start_delay_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_GPS_START_DELAY_MS"
+                        kconf, "ESP32_MAVLINK_TX_SCHEDULE_GPS_START_DELAY_MS"
                     ),
                     "att_start_delay_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_ATTITUDE_START_DELAY_MS"
+                        kconf, "ESP32_MAVLINK_TX_SCHEDULE_ATT_START_DELAY_MS"
                     ),
                     "gpos_start_delay_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_GLOBAL_POSITION_START_DELAY_MS"
+                        kconf, "ESP32_MAVLINK_TX_SCHEDULE_GPOS_START_DELAY_MS"
                     ),
                     "batt_start_delay_ms": _sym_int(
-                        kconf, "ESP32_MAVLINK_BATTERY_STATUS_START_DELAY_MS"
+                        kconf, "ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS"
                     ),
                 },
             },
@@ -806,9 +806,6 @@ def _limits_context(
             "rx_queue_depth": _sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH"),
         },
         "mavlink": {
-            "max_rx_read_chunk_size": MAVLINK_RX_READ_CHUNK_MAX,
-            "task_stack_depth_words": MAVLINK_TASK_STACK_DEPTH_WORDS,
-            "stack_panic_threshold_bytes": MAVLINK_STACK_PANIC_THRESHOLD_BYTES,
             "sys_autostart": 4001,
             "git_hash": git_hash,
             "version_string": firmware_version_string,
