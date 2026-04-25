@@ -8,8 +8,6 @@
 
 extern "C" {
 #include "esp_err.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 }
 
 class UdpServer {
@@ -34,34 +32,19 @@ class UdpServer {
   int Send(const uint8_t *data, size_t len);
 
  private:
-  class LockGuard {
-   public:
-    explicit LockGuard(const UdpServer &server);
-    ~LockGuard();
-    LockGuard(const LockGuard &) = delete;
-    LockGuard &operator=(const LockGuard &) = delete;
-
-   private:
-    const UdpServer &server_;
-  };
-
   friend class System;
   void Init(const Config &cfg);
   static bool SetNonblock(int fd);
   static void RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
                            uint32_t &tokens_bytes, int64_t &last_refill_us);
-  void Lock() const;
-  void Unlock() const;
-  void ClearPeerLocked();
-  void ResetShaperStateLocked();
+  void ClearPeerState();
+  void ResetShaperState();
 
   Config cfg_{};
   int fd_ = -1;
   bool running_ = false;
   uint32_t peer_ipv4_ = 0;
   uint16_t peer_port_ = 0;
-  mutable StaticSemaphore_t mutex_buffer_{};
-  mutable SemaphoreHandle_t mutex_ = nullptr;
   static constexpr uint32_t kUploadBufferBytes =
       static_cast<uint32_t>(esp32_limits::kUdpServerUploadBufferBytes);
   static constexpr uint32_t kDownloadBufferBytes =

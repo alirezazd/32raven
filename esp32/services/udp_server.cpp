@@ -23,30 +23,12 @@ static bool IsWouldBlock(int error) {
   return error == EWOULDBLOCK || error == EAGAIN;
 }
 
-UdpServer::LockGuard::LockGuard(const UdpServer &server) : server_(server) {
-  server_.Lock();
-}
-
-UdpServer::LockGuard::~LockGuard() { server_.Unlock(); }
-
-void UdpServer::Lock() const {
-  if (mutex_ != nullptr) {
-    xSemaphoreTake(mutex_, portMAX_DELAY);
-  }
-}
-
-void UdpServer::Unlock() const {
-  if (mutex_ != nullptr) {
-    xSemaphoreGive(mutex_);
-  }
-}
-
-void UdpServer::ClearPeerLocked() {
+void UdpServer::ClearPeerState() {
   peer_ipv4_ = 0;
   peer_port_ = 0;
 }
 
-void UdpServer::ResetShaperStateLocked() {
+void UdpServer::ResetShaperState() {
   upload_tokens_bytes_ = 0;
   upload_last_refill_us_ = 0;
   upload_overflow_count_ = 0;
@@ -58,14 +40,6 @@ void UdpServer::ResetShaperStateLocked() {
 }
 
 void UdpServer::Init(const Config &cfg) {
-  if (mutex_ == nullptr) {
-    mutex_ = xSemaphoreCreateMutexStatic(&mutex_buffer_);
-  }
-  if (mutex_ == nullptr) {
-    Panic(ErrorCode::kUdpServerInitFailed);
-  }
-
-  const LockGuard lock(*this);
   cfg_ = cfg;
   if (cfg_.overflow_threshold == 0) {
     Panic(ErrorCode::kUdpServerInvalidOverflowThreshold);
@@ -82,8 +56,8 @@ void UdpServer::Init(const Config &cfg) {
   if (download_cap_enabled_ && download_cap_bytes_per_s_ == 0) {
     download_cap_bytes_per_s_ = 1;
   }
-  ResetShaperStateLocked();
-  ClearPeerLocked();
+  ResetShaperState();
+  ClearPeerState();
   running_ = false;
   fd_ = -1;
   ESP_LOGI(kTag, "initialized on port %u", static_cast<unsigned>(cfg_.port));
@@ -117,7 +91,6 @@ void UdpServer::RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
 }
 
 esp_err_t UdpServer::Start() {
-  const LockGuard lock(*this);
   if (running_) {
     return ESP_OK;
   }
@@ -155,31 +128,28 @@ esp_err_t UdpServer::Start() {
     return ESP_FAIL;
   }
 
-  ClearPeerLocked();
-  ResetShaperStateLocked();
+  ClearPeerState();
+  ResetShaperState();
   running_ = true;
   ESP_LOGI(kTag, "listening on UDP port %u", static_cast<unsigned>(cfg_.port));
   return ESP_OK;
 }
 
 void UdpServer::Stop() {
-  const LockGuard lock(*this);
   if (fd_ >= 0) {
     close(fd_);
     fd_ = -1;
   }
 
-  ClearPeerLocked();
+  ClearPeerState();
   running_ = false;
 }
 
 void UdpServer::ClearPeer() {
-  const LockGuard lock(*this);
-  ClearPeerLocked();
+  ClearPeerState();
 }
 
 int UdpServer::Receive(uint8_t *dst, size_t max_len) {
-  const LockGuard lock(*this);
   if (!running_ || fd_ < 0 || dst == nullptr || max_len == 0) {
     return 0;
   }
@@ -285,7 +255,6 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
 }
 
 int UdpServer::Send(const uint8_t *data, size_t len) {
-  const LockGuard lock(*this);
   if (!running_ || fd_ < 0 || data == nullptr || len == 0) {
     return 0;
   }
@@ -306,7 +275,7 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
                reinterpret_cast<const sockaddr *>(&peer), sizeof(peer));
     if (sent < 0 && !IsWouldBlock(errno)) {
       ESP_LOGW(kTag, "sendto failed: errno=%d", errno);
-      ClearPeerLocked();
+      ClearPeerState();
     }
     return (sent > 0) ? static_cast<size_t>(sent) : static_cast<size_t>(0);
   };
