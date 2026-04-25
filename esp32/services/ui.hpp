@@ -133,6 +133,7 @@ class Ui {
   }
 
   void Init(const Config &cfg, Ssd1306Panel *panel);
+  void Poll(TimeMs now);
   void LoadWidget(IWidget *widget);
   void SetAppState(AppState state);
   void SetErrorCode(ErrorCode code);
@@ -162,14 +163,12 @@ class Ui {
   friend class System;
 
   Ui();
-  static void TaskEntry(void *param);
-  void Task();
   AppState CurrentAppState() const;
   ErrorCode CurrentErrorCode() const;
   bool CurrentErrorRecoverable() const;
   uint8_t CurrentInactivityTimeoutSeconds() const;
   MainScreen DeriveMainScreen(AppState state) const;
-  void SyncPresentation();
+  void SyncPresentation(TimeMs now);
   void RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
                                 DisplayCanvas &dst);
   void StartMosaicTransitionToScreen(MainScreen next_screen, TimeMs now,
@@ -184,8 +183,7 @@ class Ui {
   void UpdatePowerState(TimeMs now);
   SlideDirection TransitionDirectionForScreens(MainScreen from,
                                                MainScreen to) const;
-  bool ShouldSkipMainScreenTransition(MainScreen from,
-                                      MainScreen to) const;
+  bool ShouldSkipMainScreenTransition(MainScreen from, MainScreen to) const;
   bool ShouldUseMosaicMainScreenTransition(MainScreen from,
                                            MainScreen to) const;
   TimeMs MosaicDurationForScreens(MainScreen from, MainScreen to) const;
@@ -200,11 +198,11 @@ class Ui {
   ErrorWidget *error_widget_ = nullptr;
   IWidget *current_widget_ = nullptr;
   IWidget *pending_widget_ = nullptr;
-  void *task_handle_ = nullptr;  // TaskHandle_t
   AppState app_state_ = AppState::kBooting;
   ErrorCode error_code_ = ErrorCode::kUnknown;
   bool error_recoverable_ = false;
   MainScreen main_screen_ = MainScreen::kBooting;
+  TimeMs next_step_ms_ = 0;
   struct TransitionState {
     bool active = false;
     TransitionEffect effect = TransitionEffect::kSlide;

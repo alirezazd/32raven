@@ -185,8 +185,15 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     -fno-rtti
     -fno-exceptions
+    -ffunction-sections
+    -fdata-sections
     -Wdouble-promotion
+    -Wunused
     -Werror=switch
+)
+
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -Wl,--gc-sections
 )
 
 # Remove wrong libob.a library dependency when using cpp files

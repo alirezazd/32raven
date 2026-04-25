@@ -104,6 +104,7 @@ enum class ErrorCode : uint32_t {
   kGpsVerifyConstellationFailed,
   kGpsVerifyItfmFailed,
   kGpsVerifyTimepulseFailed,
+  kUdpServerInitFailed,
   kUdpServerInvalidOverflowThreshold,
   kUdpServerUploadOverflow,
   kUdpServerDownloadOverflow,

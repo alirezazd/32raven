@@ -121,7 +121,6 @@ inline constexpr TcpServer::Config kTcpServerConfig = {
 
 inline constexpr UdpServer::Config kUdpServerConfig = {
     .port = {{ udp_server.port }},
-    .nonblocking = {{ udp_server.nonblocking | cpp_bool }},
     .upload_cap_kbits = {{ udp_server.upload_cap_kbits }},
     .download_cap_kbits = {{ udp_server.download_cap_kbits }},
     .overflow_threshold = {{ udp_server.overflow_threshold }},

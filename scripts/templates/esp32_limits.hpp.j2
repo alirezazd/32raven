@@ -12,9 +12,6 @@ inline constexpr std::size_t kDisplayPanelColumnOffset = {{ display_panel.column
 
 inline constexpr std::size_t kFcLinkRxPacketQueueDepth = {{ fclink.rx_queue_depth }};
 
-inline constexpr std::size_t kMavlinkMaxRxReadChunkSize = {{ mavlink.max_rx_read_chunk_size }};
-inline constexpr std::size_t kMavlinkTaskStackDepthWords = {{ mavlink.task_stack_depth_words }};
-inline constexpr std::size_t kMavlinkStackPanicThresholdBytes = {{ mavlink.stack_panic_threshold_bytes }};
 inline constexpr std::uint32_t kMavlinkSysAutostart = {{ mavlink.sys_autostart }}u;
 inline constexpr const char *kMavlinkGitHashShort = "{{ mavlink.git_hash }}";
 inline constexpr const char *kMavlinkVersionString = "{{ mavlink.version_string }}";

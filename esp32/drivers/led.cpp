@@ -65,25 +65,33 @@ void LED::Init(const Config &cfg) {
   }
 }
 
-void LED::SetPattern(const Step *steps, size_t count) {
+void LED::SetPattern(const Step *steps, size_t count,
+                     std::optional<int> repeat_count) {
+  if (repeat_count.has_value() && *repeat_count <= 0) {
+    Off();
+    return;
+  }
+
   current_steps_ = steps;
   current_step_count_ = count;
+  repeat_count_ = repeat_count;
   if (task_handle_) {
     xTaskNotifyGive((TaskHandle_t)task_handle_);
   }
 }
 
-void LED::SetPattern(Pattern p, uint32_t period_ms) {
+void LED::SetPattern(Pattern p, uint32_t period_ms,
+                     std::optional<int> repeat_count) {
   if (p == Pattern::kBlink) {
     // 50% duty
     dynamic_steps_[0] = {100, 0, (uint16_t)(period_ms / 2)};
     dynamic_steps_[1] = {0, 0, (uint16_t)(period_ms / 2)};
-    SetPattern(dynamic_steps_, 2);
+    SetPattern(dynamic_steps_, 2, repeat_count);
   } else if (p == Pattern::kBreathe) {
     // Fade In/Out
     dynamic_steps_[0] = {100, (uint16_t)(period_ms / 2), 0};
     dynamic_steps_[1] = {0, (uint16_t)(period_ms / 2), 0};
-    SetPattern(dynamic_steps_, 2);
+    SetPattern(dynamic_steps_, 2, repeat_count);
   } else if (p == Pattern::kDoubleBlink) {
     // On 10%, Off 10%, On 10%, Off 70%
     uint16_t t_on = period_ms / 10;
@@ -94,7 +102,7 @@ void LED::SetPattern(Pattern p, uint32_t period_ms) {
     dynamic_steps_[1] = {0, 0, t_off_short};
     dynamic_steps_[2] = {100, 0, t_on};
     dynamic_steps_[3] = {0, 0, t_off_long};
-    SetPattern(dynamic_steps_, 4);
+    SetPattern(dynamic_steps_, 4, repeat_count);
   }
 }
 
@@ -120,13 +128,28 @@ void LED::Toggle() {
 void LED::TaskEntry(void *param) { static_cast<LED *>(param)->Task(); }
 
 void LED::Task() {
+  static const Step kOffStep = {0, 0, 1000};
+
   size_t step_idx = 0;
+  const Step *steps = current_steps_;
+  size_t count = current_step_count_;
+  std::optional<int> repeat_count = repeat_count_;
+
   while (true) {
-    const Step *steps = current_steps_;
-    size_t count = current_step_count_;
+    const auto load_pattern = [&]() {
+      steps = current_steps_;
+      count = current_step_count_;
+      repeat_count = repeat_count_;
+      step_idx = 0;
+    };
+
+    if (ulTaskNotifyTake(pdTRUE, 0) > 0) {
+      load_pattern();
+    }
 
     if (!steps || count == 0) {
       ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+      load_pattern();
       continue;
     }
 
@@ -145,8 +168,8 @@ void LED::Task() {
       // Wait for fade to complete or new pattern
       if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(s.fade_ms)) > 0) {
         ledc_stop(kLedcMode, kLedcChannel, target_duty);  // Stop at current
-        step_idx = 0;
-        continue;  // Restart loop with new pattern
+        load_pattern();
+        continue;
       }
     } else {
       ledc_set_duty(kLedcMode, kLedcChannel, target_duty);
@@ -155,11 +178,21 @@ void LED::Task() {
 
     if (s.hold_ms > 0) {
       if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(s.hold_ms)) > 0) {
-        step_idx = 0;
+        load_pattern();
         continue;
       }
     }
 
     step_idx = (step_idx + 1) % count;
+    if (step_idx == 0 && repeat_count.has_value()) {
+      --(*repeat_count);
+      if (*repeat_count <= 0) {
+        is_on_ = false;
+        current_steps_ = &kOffStep;
+        current_step_count_ = 1;
+        repeat_count_ = std::nullopt;
+        load_pattern();
+      }
+    }
   }
 }

@@ -11,6 +11,7 @@ namespace {
 constexpr DisplayTextStyle kTextStyle{
     .scale = 1,
 };
+constexpr uint32_t kRcSampleFreshMs = 500;
 constexpr char kSampleLine[] = "ch1: 2000";
 constexpr char kStatusSampleLine[] = "LQ:100 STALE";
 constexpr int16_t kTextInsetX = 1;
@@ -45,8 +46,8 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
     return;
   }
 
-  const auto snapshot =
-      Sys().Mavlink().GetRcChannelsSnapshot(Sys().Timebase().NowMs());
+  const uint32_t now_ms = Sys().Timebase().NowMs();
+  const auto sample = Sys().Mavlink().GetLatestRcChannelsData();
 
   const int16_t line_height = static_cast<int16_t>(sample_bounds.height);
   const int16_t line_step = static_cast<int16_t>(line_height + kLineSpacing);
@@ -61,7 +62,7 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
 
   for (size_t index = 0; index < kChannelCount; ++index) {
     const uint16_t value =
-        snapshot.have_data ? snapshot.msg.channels[index] : 0u;
+        sample.has_value() ? sample->msg.channels[index] : 0u;
     char line[16];
     std::snprintf(line, sizeof(line), "ch%u: %u",
                   static_cast<unsigned>(index + 1u),
@@ -73,10 +74,11 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
 
   line_top = static_cast<int16_t>(line_top + kStatusGap);
   char status[20];
-  if (snapshot.have_data) {
+  if (sample.has_value()) {
+    const bool live = (now_ms - sample->update_ms) <= kRcSampleFreshMs;
     std::snprintf(status, sizeof(status), "LQ:%3u %s",
-                  static_cast<unsigned>(snapshot.msg.rssi),
-                  snapshot.live ? "LIVE" : "STALE");
+                  static_cast<unsigned>(sample->msg.rssi),
+                  live ? "LIVE" : "STALE");
   } else {
     std::snprintf(status, sizeof(status), "LQ: -- STALE");
   }
