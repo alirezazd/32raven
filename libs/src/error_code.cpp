@@ -207,6 +207,8 @@ const char *GetMessage(ErrorCode code) {
       return "GPS Verify ITFM Failed";
     case ErrorCode::kGpsVerifyTimepulseFailed:
       return "GPS Verify Timepulse Failed";
+    case ErrorCode::kUdpServerInitFailed:
+      return "UDP Server Init Failed";
     case ErrorCode::kUdpServerInvalidOverflowThreshold:
       return "UDP Server Invalid Overflow Threshold";
     case ErrorCode::kUdpServerUploadOverflow:

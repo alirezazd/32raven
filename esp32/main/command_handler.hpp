@@ -21,7 +21,7 @@ class CommandHandler {
 
   void Dispatch(AppContext &ctx, const message::Packet &pkt);
 
-  DfuTcpAction Dispatch(AppContext &ctx, const TcpServer::Event &ev);
+ DfuTcpAction Dispatch(AppContext &ctx, const TcpServer::Event &ev);
 
  private:
   CommandHandler() = default;

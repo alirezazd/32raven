@@ -95,6 +95,7 @@ void ShowPanicUi(ErrorCode code, bool recoverable) {
   Sys().Ui().SetAppState(Ui::AppState::kHardError);
   Sys().Ui().DisableInactivityTimeout();
   Sys().Ui().NotifyUserActivity();
+  Sys().Ui().Poll(Sys().Timebase().NowMs());
 }
 
 ErrorCode EnterRecoveryDfuMode() {
@@ -229,6 +230,7 @@ ErrorCode RunRecoverableLoop() {
 
     if (state == RecoveryState::kProgram) {
       if (prog.IsVerifying()) {
+        sys.Ui().Poll(now);
         vTaskDelay(1);
         continue;
       }
@@ -261,12 +263,12 @@ ErrorCode RunRecoverableLoop() {
       }
     }
 
+    sys.Ui().Poll(now);
     vTaskDelay(1);
   }
 }
 
 [[noreturn]] void RunPanicLoop(ErrorCode code) {
-  Sys().Mavlink().StopMavlinkTask();
   Sys().Halt();
   bool recoverable = SupportsDfuRecovery(code);
   const char *msg = GetMessage(code);
@@ -295,6 +297,7 @@ ErrorCode RunRecoverableLoop() {
     gpio_set_level(kPinMap.led, level);
     level = !level;
     ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
+    Sys().Ui().Poll(Sys().Timebase().NowMs());
     vTaskDelay(pdMS_TO_TICKS(40));
   }
 }

@@ -3,7 +3,6 @@
 #include <cstdio>
 
 #include "ctx.hpp"
-#include "mavlink.hpp"
 #include "message.hpp"
 #include "panic.hpp"
 #include "state_machine.hpp"
@@ -56,10 +55,6 @@ static void OnGpsData(AppContext &ctx, const message::Packet &pkt) {
   if (len > 0) {
     ctx.sys->Tcp().SendData((uint8_t *)buf, (size_t)len);
   }
-
-  // Update cache for the MAVLink scheduler.
-  ctx.sys->Mavlink().OfferTelemetry(*t,
-                                    (uint32_t)(esp_timer_get_time() / 1000));
 }
 
 static void OnUnknown(AppContext &ctx, const message::Packet &pkt) {
@@ -74,39 +69,27 @@ static void OnPong(AppContext &ctx, const message::Packet &pkt) {
 
 static void OnRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
   const auto *cfg = (const message::RcMapConfigMsg *)pkt.payload;
-  if (!message::IsRcMapConfigValid(*cfg)) {
-    ESP_LOGW(kTag, "Invalid RC Map Config Payload");
-    Panic(ErrorCode::kCommandInvalidRcMapConfig);
-  }
-
-  ctx.sys->Mavlink().SetRcMapConfig(*cfg);
+  (void)ctx;
+  (void)cfg;
 }
 
 static void OnRcCalibrationConfig(AppContext &ctx, const message::Packet &pkt) {
   const auto *cfg = (const message::RcCalibrationConfigMsg *)pkt.payload;
-  if (!message::IsRcCalibrationConfigValid(*cfg)) {
-    ESP_LOGW(kTag, "Invalid RC Calibration Config Payload");
-    Panic(ErrorCode::kCommandInvalidRcCalibrationConfig);
-  }
-
-  ctx.sys->Mavlink().SetRcCalibrationConfig(*cfg);
+  (void)ctx;
+  (void)cfg;
 }
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
   const auto *msg = (const message::RcChannelsMsg *)pkt.payload;
-  ctx.sys->Mavlink().OfferRcChannels(
-      *msg, (uint32_t)(esp_timer_get_time() / 1000));
+  (void)ctx;
+  (void)msg;
 }
 
 static void OnGyroCalibrationIdConfig(AppContext &ctx,
                                       const message::Packet &pkt) {
   const auto *cfg = (const message::GyroCalibrationIdConfigMsg *)pkt.payload;
-  if (!message::IsGyroCalibrationIdConfigValid(*cfg)) {
-    ESP_LOGW(kTag, "Invalid Gyro Calibration ID Payload");
-    Panic(ErrorCode::kCommandInvalidGyroCalibrationIdConfig);
-  }
-
-  ctx.sys->Mavlink().SetGyroCalibrationIdConfig(*cfg);
+  (void)ctx;
+  (void)cfg;
 }
 
 static void OnImuData(AppContext &ctx, const message::Packet &pkt) {
@@ -155,26 +138,43 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
     Panic(ErrorCode::kCommandInvalidPacket);
   }
 
+  const uint32_t now_ms = ctx.sys->Timebase().NowMs();
+
   switch (static_cast<message::MsgId>(pkt.header.id)) {
     case message::MsgId::kPong:
       OnPong(ctx, pkt);
       break;
     case message::MsgId::kGpsData:
+      ctx.sys->Mavlink().UpdateGpsCache(
+          *reinterpret_cast<const message::GpsData *>(pkt.payload), now_ms);
       OnGpsData(ctx, pkt);
       break;
     case message::MsgId::kLog:
       OnLog(ctx, pkt);
       break;
     case message::MsgId::kRcMapConfig:
+      ctx.sys->Mavlink().UpdateRcMapConfigCache(
+          *reinterpret_cast<const message::RcMapConfigMsg *>(pkt.payload),
+          now_ms);
       OnRcMapConfig(ctx, pkt);
       break;
     case message::MsgId::kRcCalibrationConfig:
+      ctx.sys->Mavlink().UpdateRcCalibrationConfigCache(
+          *reinterpret_cast<const message::RcCalibrationConfigMsg *>(pkt.payload),
+          now_ms);
       OnRcCalibrationConfig(ctx, pkt);
       break;
     case message::MsgId::kRcChannels:
+      ctx.sys->Mavlink().UpdateRcChannelsCache(
+          *reinterpret_cast<const message::RcChannelsMsg *>(pkt.payload),
+          now_ms);
       OnRcChannels(ctx, pkt);
       break;
     case message::MsgId::kGyroCalibrationIdConfig:
+      ctx.sys->Mavlink().UpdateGyroCalibrationIdConfigCache(
+          *reinterpret_cast<const message::GyroCalibrationIdConfigMsg *>(
+              pkt.payload),
+          now_ms);
       OnGyroCalibrationIdConfig(ctx, pkt);
       break;
     case message::MsgId::kImuData:
