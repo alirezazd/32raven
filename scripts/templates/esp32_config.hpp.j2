@@ -198,6 +198,7 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                     .att_ms = {{ mavlink.tx.periods.att_ms }},
                     .gpos_ms = {{ mavlink.tx.periods.gpos_ms }},
                     .batt_ms = {{ mavlink.tx.periods.batt_ms }},
+                    .rc_ms = {{ mavlink.tx.periods.rc_ms }},
                 },
             .schedule =
                 {
@@ -206,6 +207,7 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                     .att_start_delay_ms = {{ mavlink.tx.schedule.att_start_delay_ms }},
                     .gpos_start_delay_ms = {{ mavlink.tx.schedule.gpos_start_delay_ms }},
                     .batt_start_delay_ms = {{ mavlink.tx.schedule.batt_start_delay_ms }},
+                    .rc_start_delay_ms = {{ mavlink.tx.schedule.rc_start_delay_ms }},
                 },
         },
 };

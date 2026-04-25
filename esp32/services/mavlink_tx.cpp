@@ -171,6 +171,7 @@ void Mavlink::InitTxSchedule(const TxConfig &cfg_tx, uint32_t now_ms,
   tx_schedule_.next_att_ms = now_ms + cfg_tx.schedule.att_start_delay_ms;
   tx_schedule_.next_gpos_ms = now_ms + cfg_tx.schedule.gpos_start_delay_ms;
   tx_schedule_.next_batt_ms = now_ms + cfg_tx.schedule.batt_start_delay_ms;
+  tx_schedule_.next_rc_ms = now_ms + cfg_tx.schedule.rc_start_delay_ms;
 }
 
 bool Mavlink::ShouldSendHbNow(const TxConfig &cfg_tx, uint32_t now_ms) const {
@@ -393,6 +394,51 @@ void Mavlink::StartBatteryStatusFrame(TxFrameState &frame,
   frame.is_hb = false;
 }
 
+void Mavlink::StartRcChannelsFrame(TxFrameState &frame, const TxConfig &cfg_tx) {
+  tx_schedule_.next_rc_ms += cfg_tx.periods.rc_ms;
+
+  const std::optional<RcChannelsSample> sample = GetLatestRcChannelsData();
+  if (!sample.has_value()) {
+    return;
+  }
+
+  constexpr uint16_t kInvalidChannelValue = UINT16_MAX;
+  constexpr uint16_t kMavlinkUnusedChannelValue = UINT16_MAX;
+  constexpr uint8_t kRcChannelCount =
+      static_cast<uint8_t>(sizeof(sample->msg.channels) /
+                           sizeof(sample->msg.channels[0]));
+
+  const bool rx_online =
+      (sample->msg.flags & message::kRcChannelsFlagRxOnline) != 0;
+  const uint8_t channel_count = rx_online ? kRcChannelCount : 0u;
+  const uint8_t rssi = rx_online ? sample->msg.rssi : UINT8_MAX;
+
+  mavlink_message_t m{};
+  mavlink_msg_rc_channels_pack(
+      cfg_.identity.sysid, cfg_.identity.compid, &m, sample->update_ms,
+      channel_count,
+      rx_online ? sample->msg.channels[0] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[1] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[2] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[3] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[4] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[5] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[6] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[7] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[8] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[9] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[10] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[11] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[12] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[13] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[14] : kInvalidChannelValue,
+      rx_online ? sample->msg.channels[15] : kInvalidChannelValue,
+      kMavlinkUnusedChannelValue, kMavlinkUnusedChannelValue, rssi);
+
+  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
+  frame.is_hb = false;
+}
+
 void Mavlink::StartNextScheduledFrame(TxFrameState &frame,
                                       const TxConfig &cfg_tx, uint32_t now_ms) {
   // Among periodic streams, send whichever frame has been due the longest.
@@ -405,6 +451,7 @@ void Mavlink::StartNextScheduledFrame(TxFrameState &frame,
     kAtt,
     kGpos,
     kBatt,
+    kRc,
   } pick = Pick::kNone;
 
   uint32_t best_age = 0;
@@ -429,6 +476,7 @@ void Mavlink::StartNextScheduledFrame(TxFrameState &frame,
   consider(cfg_tx.periods.att_ms > 0, tx_schedule_.next_att_ms, Pick::kAtt);
   consider(cfg_tx.periods.gpos_ms > 0, tx_schedule_.next_gpos_ms, Pick::kGpos);
   consider(cfg_tx.periods.batt_ms > 0, tx_schedule_.next_batt_ms, Pick::kBatt);
+  consider(cfg_tx.periods.rc_ms > 0, tx_schedule_.next_rc_ms, Pick::kRc);
 
   switch (pick) {
     case Pick::kSys:
@@ -445,6 +493,9 @@ void Mavlink::StartNextScheduledFrame(TxFrameState &frame,
       break;
     case Pick::kBatt:
       StartBatteryStatusFrame(frame, cfg_tx);
+      break;
+    case Pick::kRc:
+      StartRcChannelsFrame(frame, cfg_tx);
       break;
     case Pick::kNone:
     default:
