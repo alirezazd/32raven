@@ -744,6 +744,14 @@ config ESP32_MAVLINK_TX_PERIODS_BATT_MS
       BATTERY_STATUS transmit cadence for the primary MAVLink transport. Set
       to 0 to disable this stream.
 
+config ESP32_MAVLINK_TX_PERIODS_RC_MS
+    int "RC channels period (ms)"
+    range 0 60000
+    default 40
+    help
+      RC_CHANNELS transmit cadence for the primary MAVLink transport. Set to 0
+      to disable this stream.
+
 endmenu
 
 menu "Timing"
@@ -788,6 +796,14 @@ config ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS
     help
       Initial BATTERY_STATUS delay used to stagger the first MAVLink TX
       schedule cycle.
+
+config ESP32_MAVLINK_TX_SCHEDULE_RC_START_DELAY_MS
+    int "RC channels initial delay (ms)"
+    range 0 10000
+    default 1000
+    help
+      Initial RC_CHANNELS delay used to stagger the first MAVLink TX schedule
+      cycle.
 
 endmenu
 

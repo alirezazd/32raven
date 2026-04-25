@@ -59,11 +59,19 @@ enum class ParamKey : uint8_t {
   kRcMapPitch,
   kRcMapYaw,
   kRcMapThrottle,
+  kRcMapFlaps,
+  kRcMapAux1,
+  kRcMapAux2,
+  kRcMapParam1,
+  kRcMapParam2,
+  kRcMapParam3,
+  kRcMapPaySw,
   kHeartbeatMs,
   kGpsMs,
   kAttMs,
   kGposMs,
   kBattMs,
+  kRcMs,
   kComRcLossT,
 };
 
@@ -96,11 +104,19 @@ inline constexpr ParamDef kParamTable[] = {
     {"RC_MAP_PITCH", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapPitch},
     {"RC_MAP_YAW", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapYaw},
     {"RC_MAP_THROTTLE", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapThrottle},
+    {"RC_MAP_FLAPS", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapFlaps},
+    {"RC_MAP_AUX1", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapAux1},
+    {"RC_MAP_AUX2", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapAux2},
+    {"RC_MAP_PARAM1", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapParam1},
+    {"RC_MAP_PARAM2", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapParam2},
+    {"RC_MAP_PARAM3", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapParam3},
+    {"RC_MAP_PAY_SW", MAV_PARAM_TYPE_INT32, ParamKey::kRcMapPaySw},
     {"MAV_HB_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kHeartbeatMs},
     {"MAV_GPS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGpsMs},
     {"MAV_ATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kAttMs},
     {"MAV_GPOS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGposMs},
     {"MAV_BATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kBattMs},
+    {"MAV_RC_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kRcMs},
     {"COM_RC_LOSS_T", MAV_PARAM_TYPE_REAL32, ParamKey::kComRcLossT},
 };
 
@@ -533,6 +549,15 @@ bool Mavlink::TryEncodeFixedParam(const ParamRef &param, char (&param_id)[17],
     case param_detail::ParamKey::kRcMapYaw:
     case param_detail::ParamKey::kRcMapThrottle:
       return TryEncodeRcMapParam(param, param_value);
+    case param_detail::ParamKey::kRcMapFlaps:
+    case param_detail::ParamKey::kRcMapAux1:
+    case param_detail::ParamKey::kRcMapAux2:
+    case param_detail::ParamKey::kRcMapParam1:
+    case param_detail::ParamKey::kRcMapParam2:
+    case param_detail::ParamKey::kRcMapParam3:
+    case param_detail::ParamKey::kRcMapPaySw:
+      param_value = 0.0f;
+      return true;
     case param_detail::ParamKey::kHeartbeatMs:
       param_value = static_cast<float>(cfg_.tx.periods.hb_ms);
       return true;
@@ -547,6 +572,9 @@ bool Mavlink::TryEncodeFixedParam(const ParamRef &param, char (&param_id)[17],
       return true;
     case param_detail::ParamKey::kBattMs:
       param_value = static_cast<float>(cfg_.tx.periods.batt_ms);
+      return true;
+    case param_detail::ParamKey::kRcMs:
+      param_value = static_cast<float>(cfg_.tx.periods.rc_ms);
       return true;
   }
 
@@ -649,6 +677,14 @@ bool Mavlink::TrySetFixedParam(const ParamRef &param, float param_value) {
     case param_detail::ParamKey::kRcMapYaw:
     case param_detail::ParamKey::kRcMapThrottle:
       return TrySetRcMapParam(param, param_value);
+    case param_detail::ParamKey::kRcMapFlaps:
+    case param_detail::ParamKey::kRcMapAux1:
+    case param_detail::ParamKey::kRcMapAux2:
+    case param_detail::ParamKey::kRcMapParam1:
+    case param_detail::ParamKey::kRcMapParam2:
+    case param_detail::ParamKey::kRcMapParam3:
+    case param_detail::ParamKey::kRcMapPaySw:
+      return std::lround(param_value) == 0;
     default:
       return false;
   }
