@@ -57,8 +57,7 @@ constexpr uint16_t kDfuLinkPixelsPerSecond = 48;
 constexpr int16_t kProgressBarHeightPx = 1;
 constexpr int16_t kProgressBarIconGapPx = 2;
 constexpr int16_t kProgressBarBlackWidthPx = 2;
-constexpr int16_t kProgressBarWhiteWidthPx =
-    kProgressBarBlackWidthPx * 3;
+constexpr int16_t kProgressBarWhiteWidthPx = kProgressBarBlackWidthPx * 3;
 constexpr int16_t kProgressBarPitchPx =
     kProgressBarBlackWidthPx + kProgressBarWhiteWidthPx;
 constexpr uint16_t kProgressBarPixelsPerSecond = 28;
@@ -149,14 +148,15 @@ int16_t ProgressBarFillWidth(DisplayRenderer &renderer, WidgetMode mode) {
     return 0;
   }
 
-  uint32_t completed =
-      programmer.IsVerifying() ? programmer.VerifyOffset() : programmer.Written();
+  uint32_t completed = programmer.IsVerifying() ? programmer.VerifyOffset()
+                                                : programmer.Written();
   if (completed > total) {
     completed = total;
   }
 
   return static_cast<int16_t>(
-      (static_cast<uint64_t>(completed) * static_cast<uint64_t>(width)) / total);
+      (static_cast<uint64_t>(completed) * static_cast<uint64_t>(width)) /
+      total);
 }
 
 void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
@@ -568,8 +568,10 @@ bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
 void MainUiWidget::ResetMavlinkPacketAnimation() {
   mavlink_tx_lane_ = {};
   mavlink_rx_lane_ = {};
-  mavlink_tx_lane_.last_seen_packet_count = Sys().Mavlink().UdpTxPacketCount();
-  mavlink_rx_lane_.last_seen_packet_count = Sys().Mavlink().UdpRxPacketCount();
+  mavlink_tx_lane_.last_seen_packet_count =
+      Sys().Mavlink().GetUdpTxPacketCount();
+  mavlink_rx_lane_.last_seen_packet_count =
+      Sys().Mavlink().GetUdpRxPacketCount();
   mavlink_packet_last_step_ms_ = Sys().Timebase().NowMs();
 }
 
@@ -657,8 +659,8 @@ bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
     lane.last_seen_packet_count = packet_count;
   };
 
-  maybe_spawn(mavlink_tx_lane_, Sys().Mavlink().UdpTxPacketCount());
-  maybe_spawn(mavlink_rx_lane_, Sys().Mavlink().UdpRxPacketCount());
+  maybe_spawn(mavlink_tx_lane_, Sys().Mavlink().GetUdpTxPacketCount());
+  maybe_spawn(mavlink_rx_lane_, Sys().Mavlink().GetUdpRxPacketCount());
 
   return changed;
 }
@@ -800,16 +802,16 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     return;
   }
 
-  const int16_t progress_bottom_inset = IsScrollableProgressMode(mode)
-                                            ? (kProgressBarHeightPx +
-                                               kProgressBarIconGapPx)
-                                            : 0;
+  const int16_t progress_bottom_inset =
+      IsScrollableProgressMode(mode)
+          ? (kProgressBarHeightPx + kProgressBarIconGapPx)
+          : 0;
   const int16_t dfu_idle_icon_bottom_inset =
       (mode == Mode::kDfuIdleConnected)
           ? static_cast<int16_t>(kProgressBarHeightPx + kProgressBarIconGapPx)
           : 0;
-  const int16_t icon_bottom_inset = static_cast<int16_t>(
-      progress_bottom_inset + dfu_idle_icon_bottom_inset);
+  const int16_t icon_bottom_inset =
+      static_cast<int16_t>(progress_bottom_inset + dfu_idle_icon_bottom_inset);
   const int16_t status_top = kTextInsetY;
   const int16_t status_y = static_cast<int16_t>(status_top - status_bounds.y);
   const auto finish_render = [&]() {
@@ -904,9 +906,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
   } else if (IsDfuVisualMode(mode) &&
              wifi_bitmap::kVisibleWidth <= renderer.Width() &&
              wifi_bitmap::kVisibleHeight <= renderer.Height()) {
-    const bool show_warning_icon =
-        ShouldShowDfuWifiBadge(mode) &&
-        (!IsWifiCredentialsMode(mode) || (((now / kDotStepPeriodMs) % 2u) == 0u));
+    const bool show_warning_icon = ShouldShowDfuWifiBadge(mode) &&
+                                   (!IsWifiCredentialsMode(mode) ||
+                                    (((now / kDotStepPeriodMs) % 2u) == 0u));
     if (show_warning_icon) {
       const int16_t dfu_wifi_icon_x = static_cast<int16_t>(
           renderer.Width() - wifi_bitmap::kVisibleWidth - kDfuWifiRightInsetX);
@@ -978,9 +980,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         chip_verify_bitmap::kVisibleWidth <= renderer.Width() &&
         chip_verify_bitmap::kVisibleHeight <= renderer.Height()) {
       const int16_t body_top = static_cast<int16_t>(status_bounds.height);
-      const int16_t body_height = std::max<int16_t>(
-          0, static_cast<int16_t>(renderer.Height()) - body_top -
-                 progress_bottom_inset);
+      const int16_t body_height =
+          std::max<int16_t>(0, static_cast<int16_t>(renderer.Height()) -
+                                   body_top - progress_bottom_inset);
       const int16_t verify_icon_x = std::max<int16_t>(
           0, (static_cast<int16_t>(renderer.Width()) -
               static_cast<int16_t>(chip_verify_bitmap::kVisibleWidth)) /
@@ -1049,15 +1051,12 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           renderer.Width() - chip_bitmap::kVisibleWidth - kDfuIconRightInsetX;
       const int16_t icon_region_height = static_cast<int16_t>(
           std::max(left_icon.height, chip_bitmap::kVisibleHeight));
-      const int16_t icon_region_y =
-          static_cast<int16_t>(renderer.Height() - icon_bottom_inset -
-                               icon_region_height);
-      const int16_t left_icon_y =
-          static_cast<int16_t>(renderer.Height() - icon_bottom_inset -
-                               left_icon.height);
-      const int16_t chip_icon_y =
-          static_cast<int16_t>(renderer.Height() - icon_bottom_inset -
-                               chip_bitmap::kVisibleHeight);
+      const int16_t icon_region_y = static_cast<int16_t>(
+          renderer.Height() - icon_bottom_inset - icon_region_height);
+      const int16_t left_icon_y = static_cast<int16_t>(
+          renderer.Height() - icon_bottom_inset - left_icon.height);
+      const int16_t chip_icon_y = static_cast<int16_t>(
+          renderer.Height() - icon_bottom_inset - chip_bitmap::kVisibleHeight);
       const int16_t gap_left =
           static_cast<int16_t>(kDfuIconLeftX + left_icon.width);
       const int16_t gap_right = static_cast<int16_t>(right_icon_x);
@@ -1139,9 +1138,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
 
       if (mode == Mode::kDfuIdleConnected && dot_count > 0 &&
           (kDfuIconLeftX + left_icon.width) <= right_icon_x) {
-        constexpr char kSleepChar[] = "z";
+        constexpr char sleep_char[] = "z";
         const DisplayTextBounds z_bounds =
-            renderer.MeasureText(kSleepChar, kDfuSleepStyle);
+            renderer.MeasureText(sleep_char, kDfuSleepStyle);
         const DisplayTextBounds zz_bounds =
             renderer.MeasureText("zz", kDfuSleepStyle);
         const DisplayTextBounds zzz_bounds =
@@ -1170,7 +1169,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           };
           const uint8_t visible_z_count = std::min<uint8_t>(dot_count, 3);
           for (uint8_t index = 0; index < visible_z_count; ++index) {
-            renderer.DrawText(kSleepChar, z_positions[index], sleep_y,
+            renderer.DrawText(sleep_char, z_positions[index], sleep_y,
                               kDfuSleepStyle);
           }
         }

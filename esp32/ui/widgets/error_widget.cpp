@@ -46,11 +46,11 @@ void DrawConstructionRibbon(DisplayRenderer &renderer, int16_t top,
       kRibbonStripePitchPx);
   for (int16_t y = 0; y < height; ++y) {
     for (int16_t x = 0; x < width; ++x) {
-      const int16_t pattern_pos = static_cast<int16_t>(
-          (x + y + phase_px) % kRibbonStripePitchPx);
+      const int16_t pattern_pos =
+          static_cast<int16_t>((x + y + phase_px) % kRibbonStripePitchPx);
       if (pattern_pos < kRibbonStripeWidthPx) {
-        renderer.SetPixel(static_cast<size_t>(x),
-                          static_cast<size_t>(top + y), false);
+        renderer.SetPixel(static_cast<size_t>(x), static_cast<size_t>(top + y),
+                          false);
       }
     }
   }
@@ -106,20 +106,21 @@ void ErrorWidget::Render(WidgetContext &ctx, TimeMs now) {
                 error_message != nullptr ? error_message : "",
                 recoverable ? kRecoverableHint : "");
 
-  const DisplayTextBounds title_bounds = renderer.MeasureText("PANIC!", kTitleStyle);
+  const DisplayTextBounds title_bounds =
+      renderer.MeasureText("PANIC!", kTitleStyle);
   const DisplayTextBounds error_bounds =
       renderer.MeasureText(error_line, kBodyStyle);
 
   const int16_t line1_top = kTopY;
-  const int16_t title_left = std::max<int16_t>(
-      0, (static_cast<int16_t>(renderer.Width()) -
-          static_cast<int16_t>(title_bounds.width)) /
-             2);
-  const int16_t line2_top = std::max<int16_t>(
-      0, static_cast<int16_t>(renderer.Height()) -
-             static_cast<int16_t>(error_bounds.height));
-  const int16_t error_width = static_cast<int16_t>(
-      renderer.Width() - static_cast<size_t>(kInsetX));
+  const int16_t title_left =
+      std::max<int16_t>(0, (static_cast<int16_t>(renderer.Width()) -
+                            static_cast<int16_t>(title_bounds.width)) /
+                               2);
+  const int16_t line2_top =
+      std::max<int16_t>(0, static_cast<int16_t>(renderer.Height()) -
+                               static_cast<int16_t>(error_bounds.height));
+  const int16_t error_width =
+      static_cast<int16_t>(renderer.Width() - static_cast<size_t>(kInsetX));
   const int16_t ribbon_top = static_cast<int16_t>(
       line1_top + static_cast<int16_t>(title_bounds.height) + kRibbonGapPx);
   const int16_t ribbon_bottom = static_cast<int16_t>(line2_top - kRibbonGapPx);
@@ -129,16 +130,15 @@ void ErrorWidget::Render(WidgetContext &ctx, TimeMs now) {
 
   renderer.Clear();
   if (show_title) {
-    renderer.DrawText("PANIC!",
-                      static_cast<int16_t>(title_left - title_bounds.x),
-                      static_cast<int16_t>(line1_top - title_bounds.y),
-                      kTitleStyle);
+    renderer.DrawText(
+        "PANIC!", static_cast<int16_t>(title_left - title_bounds.x),
+        static_cast<int16_t>(line1_top - title_bounds.y), kTitleStyle);
   }
   DrawConstructionRibbon(renderer, ribbon_top, ribbon_height, now);
   if (error_bounds.width > 0 && error_bounds.height > 0) {
-    renderer.DrawScrollingText(error_line, kInsetX, line2_top,
-                               static_cast<int16_t>(
-                                   std::max<int16_t>(0, error_width)),
-                               now, kBodyStyle);
+    renderer.DrawScrollingText(
+        error_line, kInsetX, line2_top,
+        static_cast<int16_t>(std::max<int16_t>(0, error_width)), now,
+        kBodyStyle);
   }
 }

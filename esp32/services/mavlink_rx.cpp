@@ -76,5 +76,5 @@ void Mavlink::LogUnhandledMessageOnce(const mavlink_message_t &msg) {
   char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
   std::snprintf(text, sizeof(text), "Unhandled MAVLink msgid=%lu src=UDP",
                 (unsigned long)msg.msgid);
-  QueueStatusText(text, MAV_SEVERITY_WARNING);
+  NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
 }

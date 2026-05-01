@@ -33,9 +33,7 @@ extern "C" void app_main(void) {  // NOLINT as IDF requires app_main
   ctx.sm = &sm;
   sm.Start(*ctx.serving_state);
   while (true) {
-    const SmTick now = Sys().Timebase().NowMs();
-    sm.Step(now);
-    Sys().Ui().Poll(now);
+    sm.Step(Sys().Timebase().NowMs());
     vTaskDelay(1);  // must block at least 1 tick for watchdog
   }
 }

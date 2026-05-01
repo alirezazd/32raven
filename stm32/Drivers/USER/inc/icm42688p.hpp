@@ -19,6 +19,11 @@ class Icm42688p {
   struct Config {
     SpiPrescaler spi_prescaler;
 
+    struct ExternalClock {
+      bool enabled;
+      uint32_t frequency_hz;
+    } external_clock;
+
     struct Rates {
       Icm42688pReg::Odr gyro;
       Icm42688pReg::Odr accel;
@@ -71,13 +76,21 @@ class Icm42688p {
     uint64_t timestamp_us;
     int16_t accel[3];
     int16_t gyro[3];
-    int16_t temp_raw;
+    int8_t temp_raw;
     uint32_t seq;
   };
 
   struct SampleBatch {
     uint8_t count;
     Sample samples[kMaxWatermarkRecords];
+  };
+
+  struct ScaledSample {
+    uint64_t timestamp_us;
+    float accel_mps2[3];
+    float gyro_rad_s[3];
+    float temperature_c;
+    uint32_t seq;
   };
 
   static Icm42688p &GetInstance() {
@@ -91,6 +104,7 @@ class Icm42688p {
   SampleBatch GetLatestBatch() const;
   void CalibrateGyro();
   void InjectOverrunFaultForTest();
+  ScaledSample ScaleSample(const Sample &sample) const;
   const ee_schema::ImuAccelCalibration &GetAccelCalibration() const {
     return accel_calibration_;
   }
@@ -123,7 +137,7 @@ class Icm42688p {
   uint32_t LatestSeq() const {
     return tick_seq_.load(std::memory_order_relaxed);
   }
-  bool IsInitialized() const { return initialized_; }
+  bool IsInitialized() const { return device_id_ != 0u; }
 
  private:
   Icm42688p() = default;
@@ -140,7 +154,7 @@ class Icm42688p {
   void CheckWhoAmI();
   void ValidateConfig(const Config &cfg);
   void SoftReset();
-  void SetClockSource();  // INTF_CONFIG1: AFSR off + CLKSEL=PLL
+  void SetClockSource(const Config &cfg);
   void SetInterfaceConfig(const Config &cfg);
   void DisableFsync();        // FSYNC_UI_SEL = 0
   void SetInterruptConfig();  // INT_CONFIG=0x03, INT_CONFIG1=0x60
@@ -162,6 +176,17 @@ class Icm42688p {
   void PublishLatestBatch(const SampleBatch &batch);
   bool ParsePacket3Record(const uint8_t *rec, Sample &out);
   void UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us);
+  static uint32_t EffectiveOdrHz(Icm42688pReg::Odr odr,
+                                 const Config::ExternalClock &external_clock);
+  static uint32_t TimestampTickScaleQ16(
+      const Config::ExternalClock &external_clock);
+
+  static constexpr uint32_t kExternalClockMinHz = 31000u;
+  static constexpr uint32_t kExternalClockMaxHz = 50000u;
+  static constexpr uint32_t kExternalClockOdrReferenceHz = 32000u;
+  static constexpr uint32_t kExternalClockTimestampReferenceHz = 32768u;
+  static constexpr uint32_t kTimestampScaleQ16 = 1u << 16;
+
   // Packet3 record stride remains 16 bytes in FIFO stream layout.
   static constexpr uint16_t kPacketBytes = 16;
   static constexpr uint16_t kMaxReadBytes = kMaxWatermarkRecords * kPacketBytes;
@@ -182,13 +207,17 @@ class Icm42688p {
 
   uint16_t last_tmst16_{0};
   uint64_t tmst64_us_{0};
+  uint32_t timestamp_tick_scale_q16_{kTimestampScaleQ16};
+  uint32_t timestamp_tick_remainder_q16_{0};
   bool tmst_inited_{false};
 
   int64_t host_offset_us_{0};
   bool host_sync_inited_{false};
   bool fifo_hold_last_data_en_{false};
+  Icm42688pReg::AccelFs accel_fs_{};
   Icm42688pReg::GyroFs gyro_fs_{};
   Icm42688pReg::Odr gyro_odr_{};
+  uint32_t gyro_odr_hz_{0};
   Config::Calibration calibration_cfg_{};
   Config::Recovery recovery_cfg_{};
   uint64_t last_overrun_fault_us_{0};
@@ -197,7 +226,6 @@ class Icm42688p {
   uint32_t device_id_{0};
   std::atomic<bool> inject_overrun_fault_for_test_{false};
 
-  bool initialized_{false};
   GPIO *gpio_{nullptr};
   Spi2 *spi_{nullptr};
   EE *ee_{nullptr};

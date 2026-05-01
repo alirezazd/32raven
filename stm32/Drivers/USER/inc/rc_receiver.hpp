@@ -57,9 +57,8 @@ class RcReceiver {
   friend class System;
 
   void Init(const Config &cfg, EE &ee, VehicleState &vehicle_state);
-  uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us,
-                            uint16_t trim_us, uint16_t max_us,
-                            int8_t rev) const;
+  uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us, uint16_t trim_us,
+                            uint16_t max_us, int8_t rev) const;
   bool IsConfigValid(const Config &cfg) const;
   void RecomputeCurrentFromRaw();
   void RefreshLinkState(uint32_t now_us);

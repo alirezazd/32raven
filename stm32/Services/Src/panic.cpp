@@ -102,10 +102,9 @@ static void SendPanicMessage(ErrorCode error_code) {
 
   // Serialize Epistole message
   auto pkt_buf = message::MakePacketBuffer(panic_msg);
-  size_t pkt_len =
-      message::Serialize(message::MsgId::kPanic, (const uint8_t *)&panic_msg,
-                         message::PayloadLength<message::PanicMsg>(),
-                         pkt_buf.data());
+  size_t pkt_len = message::Serialize(
+      message::MsgId::kPanic, (const uint8_t *)&panic_msg,
+      message::PayloadLength<message::PanicMsg>(), pkt_buf.data());
 
   // Guard: if Serialize returns something bogus, do not overrun UART loop
   if (pkt_len == 0 || pkt_len > pkt_buf.size()) {

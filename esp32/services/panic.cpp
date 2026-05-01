@@ -15,17 +15,14 @@ namespace {
 
 static constexpr uint32_t kPanicTaskStackWords =
     static_cast<uint32_t>(esp32_limits::kPanicTaskStackDepthWords);
-static constexpr UBaseType_t kPanicTaskPrio = 24;
+static_assert(esp32_limits::kPanicTaskPriority < configMAX_PRIORITIES);
+static constexpr UBaseType_t kPanicTaskPrio =
+    static_cast<UBaseType_t>(esp32_limits::kPanicTaskPriority);
 static StaticTask_t s_panic_task_buffer;
 static StackType_t s_panic_task_stack[kPanicTaskStackWords];
 static TaskHandle_t s_panic_task_handle = nullptr;
 
 [[noreturn]] void RunPanicLoop(ErrorCode code);
-
-enum class RecoveryState : uint8_t {
-  kDfu,
-  kProgram,
-};
 
 void PanicTask(void *) {
   while (true) {
@@ -95,7 +92,6 @@ void ShowPanicUi(ErrorCode code, bool recoverable) {
   Sys().Ui().SetAppState(Ui::AppState::kHardError);
   Sys().Ui().DisableInactivityTimeout();
   Sys().Ui().NotifyUserActivity();
-  Sys().Ui().Poll(Sys().Timebase().NowMs());
 }
 
 ErrorCode EnterRecoveryDfuMode() {
@@ -131,141 +127,217 @@ void EnterRecoveryProgramMode(SmTick now, SmTick *last_activity,
   }
 }
 
-ErrorCode RunRecoverableLoop() {
-  System &sys = Sys();
-  Button &button = sys.Button();
-  TcpServer &tcp = sys.Tcp();
-  Programmer &prog = sys.Programmer();
+class RecoverySession {
+ public:
+  explicit RecoverySession(System &sys);
 
-  ErrorCode recovery_error = EnterRecoveryDfuMode();
+  ErrorCode RunUntilFailure();
+
+ private:
+  enum class Mode : uint8_t {
+    kDfu,
+    kProgram,
+  };
+
+  bool EnterDfuMode(SmTick now, bool stop_network_on_error);
+  void EnterProgramMode(SmTick now);
+  void StepDfuMode(SmTick now);
+  void StepProgramMode(SmTick now);
+  void Exit(ErrorCode code, bool stop_network);
+
+  System &sys_;
+  TcpServer &tcp_;
+  Programmer &prog_;
+  Mode mode_ = Mode::kDfu;
+  ErrorCode result_ = ErrorCode::kOk;
+  bool exit_ = false;
+  SmTick last_activity_ = 0;
+  uint32_t last_written_ = 0;
+};
+
+RecoverySession::RecoverySession(System &sys)
+    : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
+
+bool RecoverySession::EnterDfuMode(SmTick now, bool stop_network_on_error) {
+  const ErrorCode recovery_error = EnterRecoveryDfuMode();
   if (recovery_error != ErrorCode::kOk) {
-    return recovery_error;
+    Exit(recovery_error, stop_network_on_error);
+    return false;
   }
 
-  RecoveryState state = RecoveryState::kDfu;
-  SmTick last_activity = sys.Timebase().NowMs();
-  uint32_t last_written = prog.Written();
+  mode_ = Mode::kDfu;
+  last_written_ = prog_.Written();
+  last_activity_ = now;
+  return true;
+}
+
+void RecoverySession::StepDfuMode(SmTick now) {
+  while (auto ev = tcp_.PopEvent()) {
+    switch (ev->id) {
+      case TcpServer::EventId::kBegin:
+        tcp_.StartDownload(ev->begin.size);
+        prog_.SetTarget(ev->begin.target);
+        EnterProgramMode(now);
+        return;
+      case TcpServer::EventId::kAbort: {
+        prog_.Abort(now);
+        tcp_.StopDownload();
+        if (!EnterDfuMode(now, true)) {
+          return;
+        }
+        break;
+      }
+      case TcpServer::EventId::kReset:
+        tcp_.DisableBridge();
+        (void)prog_.Boot();
+        esp_restart();
+        break;
+      case TcpServer::EventId::kBridge:
+        tcp_.EnableBridge();
+        break;
+      case TcpServer::EventId::kNone:
+      case TcpServer::EventId::kCtrlUp:
+      case TcpServer::EventId::kCtrlDown:
+      case TcpServer::EventId::kDataUp:
+      case TcpServer::EventId::kDataDown:
+      default:
+        break;
+    }
+  }
+}
+
+void RecoverySession::EnterProgramMode(SmTick now) {
+  mode_ = Mode::kProgram;
+  EnterRecoveryProgramMode(now, &last_activity_, &last_written_);
+}
+
+void RecoverySession::StepProgramMode(SmTick now) {
+  prog_.Poll(now);
+
+  if (prog_.Error()) {
+    const ErrorCode programmer_error = prog_.LastErrorCode();
+    tcp_.StopDownload();
+    prog_.Abort(now);
+    Exit(programmer_error, true);
+    return;
+  }
+
+  if (prog_.Done()) {
+    TcpServer::Status st{};
+    st.rx = prog_.Written();
+    st.total = prog_.Total();
+    st.state = 1;
+    tcp_.StopDownload();
+    tcp_.SetStatus(st);
+    (void)prog_.Boot();
+    (void)EnterDfuMode(now, true);
+    return;
+  }
+
+  while (auto ev = tcp_.PopEvent()) {
+    switch (ev->id) {
+      case TcpServer::EventId::kBegin:
+        tcp_.StartDownload(ev->begin.size);
+        prog_.SetTarget(ev->begin.target);
+        EnterProgramMode(now);
+        return;
+      case TcpServer::EventId::kAbort:
+        prog_.Abort(now);
+        tcp_.StopDownload();
+        (void)EnterDfuMode(now, true);
+        return;
+      case TcpServer::EventId::kReset:
+        tcp_.DisableBridge();
+        (void)prog_.Boot();
+        esp_restart();
+        break;
+      case TcpServer::EventId::kBridge:
+        tcp_.EnableBridge();
+        break;
+      case TcpServer::EventId::kCtrlDown:
+      case TcpServer::EventId::kDataDown:
+        prog_.Abort(now);
+        tcp_.StopDownload();
+        (void)EnterDfuMode(now, true);
+        return;
+      case TcpServer::EventId::kNone:
+      case TcpServer::EventId::kCtrlUp:
+      case TcpServer::EventId::kDataUp:
+      default:
+        break;
+    }
+  }
+
+  if (prog_.IsVerifying()) {
+    return;
+  }
+
+  TcpServer::Status st = tcp_.GetStatus();
+  st.rx = prog_.Written();
+  tcp_.SetStatus(st);
+
+  size_t free = prog_.Free();
+  if (free > 0) {
+    uint8_t buf[512];
+    size_t n =
+        tcp_.ReadDownload(buf, (free < sizeof(buf)) ? free : sizeof(buf));
+    if (n > 0) {
+      prog_.PushBytes(buf, n, now);
+      last_activity_ = now;
+    }
+  }
+
+  const uint32_t current_written = prog_.Written();
+  if (current_written != last_written_) {
+    last_activity_ = now;
+    last_written_ = current_written;
+  }
+
+  if (!prog_.Done() && (now - last_activity_) > 3000) {
+    prog_.Abort(now);
+    Exit(ErrorCode::kProgrammerTimedOut, true);
+  }
+}
+
+void RecoverySession::Exit(ErrorCode code, bool stop_network) {
+  if (stop_network) {
+    sys_.StopNetwork();
+  }
+  result_ = code;
+  exit_ = true;
+}
+
+ErrorCode RecoverySession::RunUntilFailure() {
+  if (!EnterDfuMode(sys_.Timebase().NowMs(), false)) {
+    return result_;
+  }
 
   while (true) {
-    const SmTick now = sys.Timebase().NowMs();
-    button.Poll();
+    const SmTick now = sys_.Timebase().NowMs();
+    sys_.Button().Poll();
+    tcp_.Poll(now);
 
-    tcp.Poll(now);
-
-    if (state == RecoveryState::kProgram) {
-      prog.Poll(now);
-
-      if (prog.Error()) {
-        const ErrorCode programmer_error = prog.LastErrorCode();
-        tcp.StopDownload();
-        prog.Abort(now);
-        sys.StopNetwork();
-        return programmer_error;
-      }
-
-      if (prog.Done()) {
-        TcpServer::Status st{};
-        st.rx = prog.Written();
-        st.total = prog.Total();
-        st.state = 1;
-        tcp.StopDownload();
-        tcp.SetStatus(st);
-        (void)prog.Boot();
-        recovery_error = EnterRecoveryDfuMode();
-        if (recovery_error != ErrorCode::kOk) {
-          sys.StopNetwork();
-          return recovery_error;
-        }
-        state = RecoveryState::kDfu;
-        continue;
-      }
+    switch (mode_) {
+      case Mode::kDfu:
+        StepDfuMode(now);
+        break;
+      case Mode::kProgram:
+        StepProgramMode(now);
+        break;
     }
 
-    while (auto ev = tcp.PopEvent()) {
-      switch (ev->id) {
-        case TcpServer::EventId::kBegin:
-          tcp.StartDownload(ev->begin.size);
-          prog.SetTarget(ev->begin.target);
-          EnterRecoveryProgramMode(now, &last_activity, &last_written);
-          state = RecoveryState::kProgram;
-          break;
-        case TcpServer::EventId::kAbort:
-          prog.Abort(now);
-          tcp.StopDownload();
-          recovery_error = EnterRecoveryDfuMode();
-          if (recovery_error != ErrorCode::kOk) {
-            sys.StopNetwork();
-            return recovery_error;
-          }
-          state = RecoveryState::kDfu;
-          break;
-        case TcpServer::EventId::kReset:
-          tcp.DisableBridge();
-          (void)prog.Boot();
-          esp_restart();
-          break;
-        case TcpServer::EventId::kBridge:
-          tcp.EnableBridge();
-          break;
-        case TcpServer::EventId::kCtrlDown:
-        case TcpServer::EventId::kDataDown:
-          if (state == RecoveryState::kProgram) {
-            prog.Abort(now);
-            tcp.StopDownload();
-            recovery_error = EnterRecoveryDfuMode();
-            if (recovery_error != ErrorCode::kOk) {
-              sys.StopNetwork();
-              return recovery_error;
-            }
-            state = RecoveryState::kDfu;
-          }
-          break;
-        case TcpServer::EventId::kNone:
-        case TcpServer::EventId::kCtrlUp:
-        case TcpServer::EventId::kDataUp:
-        default:
-          break;
-      }
+    if (exit_) {
+      return result_;
     }
 
-    if (state == RecoveryState::kProgram) {
-      if (prog.IsVerifying()) {
-        sys.Ui().Poll(now);
-        vTaskDelay(1);
-        continue;
-      }
-
-      TcpServer::Status st = tcp.GetStatus();
-      st.rx = prog.Written();
-      tcp.SetStatus(st);
-
-      size_t free = prog.Free();
-      if (free > 0) {
-        uint8_t buf[512];
-        size_t n =
-            tcp.ReadDownload(buf, (free < sizeof(buf)) ? free : sizeof(buf));
-        if (n > 0) {
-          prog.PushBytes(buf, n, now);
-          last_activity = now;
-        }
-      }
-
-      const uint32_t current_written = prog.Written();
-      if (current_written != last_written) {
-        last_activity = now;
-        last_written = current_written;
-      }
-
-      if (!prog.Done() && (now - last_activity) > 3000) {
-        prog.Abort(now);
-        sys.StopNetwork();
-        return ErrorCode::kProgrammerTimedOut;
-      }
-    }
-
-    sys.Ui().Poll(now);
     vTaskDelay(1);
   }
+}
+
+ErrorCode RunRecoverableLoop() {
+  System &sys = Sys();
+  RecoverySession recovery(sys);
+  return recovery.RunUntilFailure();
 }
 
 [[noreturn]] void RunPanicLoop(ErrorCode code) {
@@ -277,6 +349,7 @@ ErrorCode RunRecoverableLoop() {
   gpio_reset_pin(kPinMap.led);
   gpio_set_direction(kPinMap.led, GPIO_MODE_OUTPUT);
   ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
+  Sys().Mavlink().ReportPanic(Mavlink::PanicSource::kEsp32, code);
   if (recoverable) {
     Sys().Button().FlushEvents();
   }
@@ -289,6 +362,7 @@ ErrorCode RunRecoverableLoop() {
         recoverable = SupportsDfuRecovery(code);
         msg = GetMessage(code);
         ShowPanicUi(code, recoverable);
+        Sys().Mavlink().ReportPanic(Mavlink::PanicSource::kEsp32, code);
         if (recoverable) {
           Sys().Button().FlushEvents();
         }
@@ -297,7 +371,6 @@ ErrorCode RunRecoverableLoop() {
     gpio_set_level(kPinMap.led, level);
     level = !level;
     ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
-    Sys().Ui().Poll(Sys().Timebase().NowMs());
     vTaskDelay(pdMS_TO_TICKS(40));
   }
 }

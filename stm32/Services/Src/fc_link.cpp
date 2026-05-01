@@ -55,8 +55,8 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
       case RxState::kCrc2:
         rx_pkt_internal_.crc |= ((uint16_t)c << 8);
 
-        if (message::IsPacketValid(rx_pkt_internal_.id, rx_pkt_internal_.payload,
-                                   rx_len_)) {
+        if (message::IsPacketValid(rx_pkt_internal_.id,
+                                   rx_pkt_internal_.payload, rx_len_)) {
           // Verify CRC
           uint8_t check_buf[sizeof(message::Header) + message::kMaxPayload];
           message::Header *h = (message::Header *)check_buf;
@@ -204,8 +204,7 @@ void FcLink::SendRcCalibrationConfig(
     const message::RcCalibrationConfigMsg &cfg) {
   message::Packet pkt{};
   pkt.header.id = (uint8_t)message::MsgId::kRcCalibrationConfig;
-  pkt.header.len =
-      message::PayloadLength<message::RcCalibrationConfigMsg>();
+  pkt.header.len = message::PayloadLength<message::RcCalibrationConfigMsg>();
   memcpy(pkt.payload, &cfg, sizeof(cfg));
   Send(pkt);
 }
@@ -217,6 +216,22 @@ void FcLink::SendGyroCalibrationIdConfig(
   pkt.header.len =
       message::PayloadLength<message::GyroCalibrationIdConfigMsg>();
   memcpy(pkt.payload, &cfg, sizeof(cfg));
+  Send(pkt);
+}
+
+void FcLink::SendSystemStatus(const message::SystemStatusMsg &msg) {
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kSystemStatus;
+  pkt.header.len = message::PayloadLength<message::SystemStatusMsg>();
+  memcpy(pkt.payload, &msg, sizeof(msg));
+  Send(pkt);
+}
+
+void FcLink::SendVehicleStatus(const message::VehicleStatusMsg &msg) {
+  message::Packet pkt{};
+  pkt.header.id = (uint8_t)message::MsgId::kVehicleStatus;
+  pkt.header.len = message::PayloadLength<message::VehicleStatusMsg>();
+  memcpy(pkt.payload, &msg, sizeof(msg));
   Send(pkt);
 }
 

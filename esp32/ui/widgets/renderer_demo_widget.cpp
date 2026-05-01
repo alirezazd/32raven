@@ -60,7 +60,8 @@ void RendererDemoWidget::Render(WidgetContext &ctx) const {
   RenderPage(renderer, page_);
 }
 
-void RendererDemoWidget::RenderPage(DisplayRenderer &renderer, Page page) const {
+void RendererDemoWidget::RenderPage(DisplayRenderer &renderer,
+                                    Page page) const {
   switch (page) {
     case Page::kLines:
       renderer.DrawLine(4, 34, 67, 12);

@@ -17,6 +17,7 @@ Use this file for repository-wide guidance. More specific `AGENTS.md` files in s
 - Match the surrounding file’s style unless it conflicts with the enforced naming rules in `.clang-tidy`.
 - Treat `.clang-tidy` as the source of truth for identifier naming.
 - Prefer extending existing abstractions over adding parallel ones.
+- Prefer true function-style APIs with explicit input parameters and return values. Avoid output-parameter/reference styles such as `bool BuildThing(Thing &out)` when the result can be returned directly as `Thing`, `std::optional<Thing>`, or another clear return type. Use non-const references for intentional in-place mutation of existing state, not as a substitute for return values.
 - Do not edit vendored code under `third_party/` unless the task is explicitly to update or patch that dependency.
 - Do not hand-edit generated files or build outputs.
 

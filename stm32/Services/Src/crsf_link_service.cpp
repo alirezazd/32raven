@@ -209,7 +209,6 @@ void CrsfLinkService::PollRx(uint32_t now_us, size_t byte_budget) {
     ++count;
     (void)ProcessCrsfByte(byte, now_us);
   }
-
 }
 
 void CrsfLinkService::PollTx(uint32_t now_us, size_t max_frames) {
@@ -299,7 +298,8 @@ bool CrsfLinkService::SendScheduledTelemetry(uint32_t now_us) {
     uint8_t type = 0;
     uint8_t payload[16] = {};
     uint8_t payload_len = 0;
-    if (!PrepareTelemetryTopic(best_topic, now_us, type, payload, payload_len)) {
+    if (!PrepareTelemetryTopic(best_topic, now_us, type, payload,
+                               payload_len)) {
       skipped[static_cast<size_t>(best_topic)] = true;
       ++skipped_count;
       continue;
@@ -314,12 +314,14 @@ bool CrsfLinkService::SendScheduledTelemetry(uint32_t now_us) {
       continue;
     }
 
-    if (!TrySendTelemetryTopic(best_topic, now_us, payload, payload_len, type)) {
+    if (!TrySendTelemetryTopic(best_topic, now_us, payload, payload_len,
+                               type)) {
       return false;
     }
 
     topic_state.last_sent_us = now_us;
-    topic_state.next_due_us = now_us + GetTelemetryTopicConfig(best_topic).period_us;
+    topic_state.next_due_us =
+        now_us + GetTelemetryTopicConfig(best_topic).period_us;
     topic_state.last_payload_len = payload_len;
     topic_state.have_last_payload = true;
     if (payload_len > 0u) {
@@ -430,8 +432,7 @@ bool CrsfLinkService::ShouldSendTelemetryTopic(TelemetryTopic topic,
                                                const uint8_t *payload,
                                                uint8_t payload_len) const {
   const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
-  const TopicState &topic_state =
-      telemetry_states_[static_cast<size_t>(topic)];
+  const TopicState &topic_state = telemetry_states_[static_cast<size_t>(topic)];
 
   if (!topic_cfg.send_on_change || !topic_state.have_last_payload) {
     return true;
@@ -460,14 +461,14 @@ uint32_t CrsfLinkService::ComputeDeferredDueTime(TelemetryTopic topic,
   (void)payload;
   (void)payload_len;
   const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
-  const TopicState &topic_state =
-      telemetry_states_[static_cast<size_t>(topic)];
+  const TopicState &topic_state = telemetry_states_[static_cast<size_t>(topic)];
   const uint32_t period_due = now_us + topic_cfg.period_us;
   if (topic_cfg.max_silence_us == 0u || topic_state.last_sent_us == 0u) {
     return period_due;
   }
 
-  const uint32_t silence_due = topic_state.last_sent_us + topic_cfg.max_silence_us;
+  const uint32_t silence_due =
+      topic_state.last_sent_us + topic_cfg.max_silence_us;
   return (int32_t)(period_due - silence_due) < 0 ? period_due : silence_due;
 }
 
@@ -541,8 +542,7 @@ bool CrsfLinkService::ParseLinkStatisticsFrame(const uint8_t *payload,
 }
 
 bool CrsfLinkService::ParseRcChannelsFrame(const uint8_t *payload,
-                                           std::size_t len,
-                                           uint32_t now_us) {
+                                           std::size_t len, uint32_t now_us) {
   if (payload == nullptr || len < kCrsfRcChannelsPayloadSize ||
       rc_receiver_ == nullptr) {
     return false;
@@ -662,7 +662,8 @@ void CrsfLinkService::ForwardLatestRawState(uint32_t now_us) {
     flags |= message::kRcChannelsFlagTxOnline;
   }
 
-  const bool flags_changed = !have_forwarded_state_ || flags != last_forwarded_flags_;
+  const bool flags_changed =
+      !have_forwarded_state_ || flags != last_forwarded_flags_;
   if (!pending_forward_ && !flags_changed) {
     return;
   }
@@ -732,8 +733,7 @@ bool CrsfLinkService::SendDirectCommand(uint8_t destination, uint8_t command_id,
 
   frame[6u + payload_len] =
       CrsfCommandCrc8(frame + 2u, (size_t)command_payload_len + 3u);
-  frame[total_len - 1u] =
-      CrsfCrc8(frame + 2u, (size_t)frame_payload_len + 1u);
+  frame[total_len - 1u] = CrsfCrc8(frame + 2u, (size_t)frame_payload_len + 1u);
 
   uart_->Send(frame, total_len);
   return true;

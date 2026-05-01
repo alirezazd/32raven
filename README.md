@@ -4,6 +4,8 @@
 
 [![Firmware Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Falirezazd%2F32raven%2Fbadge-data%2Ffirmware-version-badge.json)](https://github.com/alirezazd/32raven/tags)
 
+**Firmware Version:** v0.0.x Stable
+
 ## Overview
 
 **32Raven** is a high-performance, bare-metal flight control ecosystem designed from the ground up.

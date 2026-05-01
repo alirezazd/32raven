@@ -179,7 +179,8 @@ class TcpServer {
   size_t evt_tail_ = 0;
 
   // ---- download ring buffer ----
-  static constexpr size_t kDownCap = esp32_limits::kTcpServerDownloadBufferBytes;
+  static constexpr size_t kDownCap =
+      esp32_limits::kTcpServerDownloadBufferBytes;
   uint8_t down_[kDownCap]{};
   size_t down_head_ = 0;
   size_t down_tail_ = 0;

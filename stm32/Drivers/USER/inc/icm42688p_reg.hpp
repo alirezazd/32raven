@@ -245,6 +245,10 @@ enum class AccelFs : uint8_t {
   k2g = 0x03,
 };
 
+constexpr float kStandardGravityMps2 = 9.80665f;
+constexpr float kDegToRad = 0.017453292519943295f;
+constexpr float kFifoDataLsb = 32768.0f;
+
 static constexpr float GyroRangeDps(GyroFs fs) {
   switch (fs) {
     case GyroFs::k2000dps:
@@ -281,6 +285,21 @@ static constexpr float AccelRangeG(AccelFs fs) {
     default:
       return 16.0f;
   }
+}
+
+// Datasheet conversion for the 16-bit FIFO accel samples.
+static constexpr float AccelLsbToMps2(AccelFs fs) {
+  return (AccelRangeG(fs) / kFifoDataLsb) * kStandardGravityMps2;
+}
+
+// Datasheet conversion for the 16-bit FIFO gyro samples.
+static constexpr float GyroLsbToRadS(GyroFs fs) {
+  return (GyroRangeDps(fs) / kFifoDataLsb) * kDegToRad;
+}
+
+// Datasheet conversion for the 8-bit FIFO temperature sample.
+static constexpr float FifoTemperatureC(int8_t fifo_temp_data) {
+  return (static_cast<float>(fifo_temp_data) / 2.07f) + 25.0f;
 }
 
 static constexpr uint32_t OdrHz(Odr odr) {

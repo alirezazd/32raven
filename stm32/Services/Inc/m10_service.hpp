@@ -5,6 +5,8 @@
 
 #include "state_machine.hpp"
 
+struct GpsData;
+
 struct M10PVTData {
   uint32_t iTOW;
   uint16_t year;
@@ -112,7 +114,8 @@ struct M10ParserContext {
 
   StateMachine<M10ParserContext> *sm = nullptr;
 
-  M10ParserContext(M10PVTData &pvt, M10DOPData &dop, M10COVData &cov, bool &flag)
+  M10ParserContext(M10PVTData &pvt, M10DOPData &dop, M10COVData &cov,
+                   bool &flag)
       : pvt_out(pvt), dop_out(dop), cov_out(cov), new_data_out(flag) {}
 };
 
@@ -127,6 +130,7 @@ class M10Service {
   const M10COVData &GetCOV() const { return cov_data_; }
   bool NewDataAvailable() const { return new_data_; }
   void ClearNewDataFlag() { new_data_ = false; }
+  bool PopGpsData(uint64_t timestamp_us, GpsData &out);
 
   uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
   uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }

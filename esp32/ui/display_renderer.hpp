@@ -47,8 +47,7 @@ class DisplayRenderer {
   size_t Width() const;
   size_t Height() const;
   bool SetPixel(size_t x, size_t y, bool on);
-  bool DrawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
-                bool on = true);
+  bool DrawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, bool on = true);
   bool DrawFastHLine(int16_t x, int16_t y, int16_t width, bool on = true);
   bool DrawFastVLine(int16_t x, int16_t y, int16_t height, bool on = true);
   bool DrawRect(size_t x, size_t y, size_t width, size_t height,
@@ -61,10 +60,10 @@ class DisplayRenderer {
                    bool on = true);
   bool FillEllipse(int16_t x, int16_t y, int16_t radius_w, int16_t radius_h,
                    bool on = true);
-  bool DrawTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
-                    int16_t x2, int16_t y2, bool on = true);
-  bool FillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
-                    int16_t x2, int16_t y2, bool on = true);
+  bool DrawTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2,
+                    int16_t y2, bool on = true);
+  bool FillTriangle(int16_t x0, int16_t y0, int16_t x1, int16_t y1, int16_t x2,
+                    int16_t y2, bool on = true);
   bool DrawRoundRect(int16_t x, int16_t y, int16_t width, int16_t height,
                      int16_t radius, bool on = true);
   bool FillRoundRect(int16_t x, int16_t y, int16_t width, int16_t height,

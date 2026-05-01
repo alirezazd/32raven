@@ -38,6 +38,8 @@ enum class MsgId : uint8_t {
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kImuData = 0x11,
+  kSystemStatus = 0x12,
+  kVehicleStatus = 0x13,
   kPanic = 0x14,
 
   // System
@@ -137,6 +139,44 @@ struct ImuData {
   float gyro[3];          // rad/s (X, Y, Z)
 } __attribute__((packed));
 
+inline constexpr uint8_t kSystemBootStateBooting = 0u;
+inline constexpr uint8_t kSystemBootStateReady = 1u;
+inline constexpr uint8_t kSystemBootStateError = 2u;
+
+inline constexpr uint8_t kSystemStatusFlagLoopAlive = 1u << 0;
+
+inline constexpr uint32_t kSystemSensorFlagImu = 1u << 0;
+inline constexpr uint32_t kSystemSensorFlagGps = 1u << 1;
+inline constexpr uint32_t kSystemSensorFlagBattery = 1u << 2;
+inline constexpr uint32_t kSystemSensorFlagRcReceiver = 1u << 3;
+
+struct SystemStatusMsg {
+  uint32_t uptime_ms;
+  uint32_t loop_counter;
+  ErrorCode error_code;
+  uint32_t sensor_present_flags;
+  uint32_t sensor_health_flags;
+  uint16_t batt_voltage;
+  int16_t batt_current;
+  int8_t batt_remaining;
+  uint8_t boot_state;
+  uint8_t flags;
+} __attribute__((packed));
+
+inline constexpr uint8_t kVehicleArmedStateDisarmed = 0u;
+inline constexpr uint8_t kVehicleArmedStateArmed = 1u;
+
+inline constexpr uint32_t kVehicleFailsafeFlagRcLoss = 1u << 0;
+inline constexpr uint32_t kVehicleFailsafeFlagBattery = 1u << 1;
+inline constexpr uint32_t kVehicleFailsafeFlagImu = 1u << 2;
+inline constexpr uint32_t kVehicleFailsafeFlagGps = 1u << 3;
+
+struct VehicleStatusMsg {
+  uint8_t armed_state;
+  uint32_t failsafe_flags;
+  uint8_t reserved[3];
+} __attribute__((packed));
+
 struct PanicMsg {
   ErrorCode error_code;  // Error code
 } __attribute__((packed));
@@ -175,6 +215,8 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
     case MsgId::kImuData:
+    case MsgId::kSystemStatus:
+    case MsgId::kVehicleStatus:
     case MsgId::kPanic:
     case MsgId::kReboot:
     case MsgId::kBootload:
@@ -211,6 +253,10 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<GpsData>();
     case MsgId::kImuData:
       return len == PayloadLength<ImuData>();
+    case MsgId::kSystemStatus:
+      return len == PayloadLength<SystemStatusMsg>();
+    case MsgId::kVehicleStatus:
+      return len == PayloadLength<VehicleStatusMsg>();
     case MsgId::kPanic:
       return len == PayloadLength<PanicMsg>();
     case MsgId::kLog:
@@ -243,11 +289,10 @@ static constexpr bool IsRcMapChannelValid(uint8_t channel) {
 
 static constexpr bool IsRcMapConfigValid(const RcMapConfigMsg &cfg) {
   return IsRcMapChannelValid(cfg.roll) && IsRcMapChannelValid(cfg.pitch) &&
-         IsRcMapChannelValid(cfg.yaw) &&
-         IsRcMapChannelValid(cfg.throttle) && cfg.roll != cfg.pitch &&
-         cfg.roll != cfg.yaw && cfg.roll != cfg.throttle &&
-         cfg.pitch != cfg.yaw && cfg.pitch != cfg.throttle &&
-         cfg.yaw != cfg.throttle;
+         IsRcMapChannelValid(cfg.yaw) && IsRcMapChannelValid(cfg.throttle) &&
+         cfg.roll != cfg.pitch && cfg.roll != cfg.yaw &&
+         cfg.roll != cfg.throttle && cfg.pitch != cfg.yaw &&
+         cfg.pitch != cfg.throttle && cfg.yaw != cfg.throttle;
 }
 
 static constexpr size_t kRcCalibrationChannelCount = 16u;

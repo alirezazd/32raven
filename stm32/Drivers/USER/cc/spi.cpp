@@ -256,12 +256,10 @@ bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
     rx_stream = DMA1_Stream3;
     tx_stream = DMA1_Stream4;
     channel_sel = 0;
-    low_clear_flags = DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 |
-                      DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 |
-                      DMA_LIFCR_CFEIF3;
-    high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 |
-                       DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 |
-                       DMA_HIFCR_CFEIF4;
+    low_clear_flags = DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTEIF3 |
+                      DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3;
+    high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 | DMA_HIFCR_CTEIF4 |
+                       DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4;
   }
 
   // 1. Disable Streams
@@ -357,12 +355,10 @@ void Spi<Inst>::OnRxDmaTcIrqImpl() {
     dma = DMA1;
     rx_stream = DMA1_Stream3;
     tx_stream = DMA1_Stream4;
-    low_clear_flags = DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 |
-                      DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 |
-                      DMA_LIFCR_CFEIF3;
-    high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 |
-                       DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 |
-                       DMA_HIFCR_CFEIF4;
+    low_clear_flags = DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTEIF3 |
+                      DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3;
+    high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 | DMA_HIFCR_CTEIF4 |
+                       DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4;
   }
 
   // Clear IRQ flags
@@ -428,12 +424,10 @@ void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
     dma = DMA1;
     rx_stream = DMA1_Stream3;
     tx_stream = DMA1_Stream4;
-    low_clear_flags = DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 |
-                      DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 |
-                      DMA_LIFCR_CFEIF3;
-    high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 |
-                       DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 |
-                       DMA_HIFCR_CFEIF4;
+    low_clear_flags = DMA_LIFCR_CTCIF3 | DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTEIF3 |
+                      DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3;
+    high_clear_flags = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4 | DMA_HIFCR_CTEIF4 |
+                       DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4;
   }
 
   dma->LIFCR = low_clear_flags;

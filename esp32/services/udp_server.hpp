@@ -34,11 +34,10 @@ class UdpServer {
  private:
   friend class System;
   void Init(const Config &cfg);
-  static bool SetNonblock(int fd);
-  static void RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
-                           uint32_t &tokens_bytes, int64_t &last_refill_us);
-  void ClearPeerState();
-  void ResetShaperState();
+	  static bool SetNonblock(int fd);
+	  static void RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
+	                           uint32_t &tokens_bytes, int64_t &last_refill_us);
+	  void ResetShaperState();
 
   Config cfg_{};
   int fd_ = -1;

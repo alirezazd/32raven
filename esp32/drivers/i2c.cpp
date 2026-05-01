@@ -69,7 +69,8 @@ bool I2c<Inst>::Probe(uint16_t address) const {
   }
 
   return i2c_master_probe(bus_, address,
-                          static_cast<int>(cfg_.bus.transfer_timeout_ms)) == ESP_OK;
+                          static_cast<int>(cfg_.bus.transfer_timeout_ms)) ==
+         ESP_OK;
 }
 
 template <I2cInstance Inst>
@@ -80,7 +81,8 @@ void I2c<Inst>::Transmit(i2c_master_dev_handle_t device, const uint8_t *data,
   }
 
   if (i2c_master_transmit(device, data, size,
-                          static_cast<int>(cfg_.bus.transfer_timeout_ms)) != ESP_OK) {
+                          static_cast<int>(cfg_.bus.transfer_timeout_ms)) !=
+      ESP_OK) {
     Panic(ErrorCode::kI2cOperationFailed);
   }
 }

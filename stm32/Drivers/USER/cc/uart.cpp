@@ -81,8 +81,7 @@ static inline bool UartTransmitDma(const uint8_t *buf, uint16_t len) {
   uint32_t cr = s->CR;
   cr &= ~(DMA_SxCR_CHSEL | DMA_SxCR_DIR | DMA_SxCR_MSIZE | DMA_SxCR_PSIZE |
           DMA_SxCR_PINC | DMA_SxCR_CIRC | DMA_SxCR_CT | DMA_SxCR_DBM);
-  const uint32_t channel =
-      (Inst == UartInstance::kUart6) ? 5u : 4u;
+  const uint32_t channel = (Inst == UartInstance::kUart6) ? 5u : 4u;
   cr |= (channel << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DIR_0 | DMA_SxCR_MINC |
         DMA_SxCR_TCIE | DMA_SxCR_TEIE | DMA_SxCR_DMEIE;
   s->CR = cr;
@@ -470,8 +469,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
           DMA_SxCR_PINC | DMA_SxCR_CIRC | DMA_SxCR_DBM | DMA_SxCR_CT);
 
   // Set bits
-  const uint32_t channel =
-      (Inst == UartInstance::kUart6) ? 5UL : 4UL;
+  const uint32_t channel = (Inst == UartInstance::kUart6) ? 5UL : 4UL;
   cr |= (channel << DMA_SxCR_CHSEL_Pos);
   // DIR is 00 (Periph-to-Mem) by default, no need to set
   cr |= DMA_SxCR_MINC;
