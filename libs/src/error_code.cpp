@@ -25,6 +25,8 @@ const char *GetMessage(ErrorCode code) {
       return "Mavlink Task Stop Called Outside Panic";
     case ErrorCode::kMavlinkStackOverflow:
       return "Mavlink Stack Overflow";
+    case ErrorCode::kMavlinkPanicSendFailed:
+      return "Mavlink Panic Status Send Failed";
     case ErrorCode::kFcLinkInitFailed:
       return "FcLink Init Failed";
     case ErrorCode::kFcLinkRxQueueFull:

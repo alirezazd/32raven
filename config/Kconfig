@@ -996,6 +996,27 @@ config STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS
 
 endmenu
 
+menu "Clock"
+
+config STM32_IMU_EXTERNAL_CLOCK_ENABLED
+    bool "Enable external CLKIN"
+    default n
+    help
+      Use ICM42688P pin 9 as CLKIN and require an external low-frequency
+      clock source on the IMU INT2/FSYNC/CLKIN pin. Enable this only on board
+      hardware that drives that pin from a TCXO or external oscillator.
+
+config STM32_IMU_EXTERNAL_CLOCK_FREQ_HZ
+    int "External CLKIN frequency (Hz)"
+    range 31000 50000
+    default 32768
+    help
+      Frequency of the clock driven into the ICM42688P CLKIN pin. Firmware
+      uses this value to compensate FIFO timestamps and IMU calibration timing
+      when external CLKIN is enabled.
+
+endmenu
+
 menu "Gyroscope"
 
 choice

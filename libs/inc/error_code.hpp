@@ -12,6 +12,7 @@ enum class ErrorCode : uint32_t {
   kMavlinkTaskAlreadyRunning,
   kMavlinkTaskStopOutsidePanic,
   kMavlinkStackOverflow,
+  kMavlinkPanicSendFailed,
   kFcLinkInitFailed,
   kFcLinkRxQueueFull,
   kFcLinkInvalidPacketMagic1,

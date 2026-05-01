@@ -50,8 +50,7 @@ class MainUiWidget : public IWidget {
   bool AdvanceVerifyMagnifierAnimation(TimeMs now, bool active,
                                        TimeMs step_period_ms);
 
-  static constexpr size_t kStatusLineBufferSize =
-      kStatusBufferSize + 5;
+  static constexpr size_t kStatusLineBufferSize = kStatusBufferSize + 5;
   static constexpr size_t kDfuLinkGlyphCapacity = 16;
 
   void AdvanceGearAnimation(WidgetContext &ctx, TimeMs now, bool active);

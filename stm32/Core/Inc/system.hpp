@@ -14,6 +14,7 @@
 #include "m10_service.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
+#include "stat_publisher.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "user_config.hpp"  // For SystemConfig
@@ -75,6 +76,7 @@ class System {
   VehicleState &GetVehicleState() { return vehicle_state_; }
   FcLink &GetFcLink() { return FcLink::GetInstance(); }
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
+  StatPublisher &GetStatPublisher() { return StatPublisher::GetInstance(); }
 
  private:
   void InitComponent(Component c);

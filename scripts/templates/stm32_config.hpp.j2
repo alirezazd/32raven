@@ -52,6 +52,10 @@ inline constexpr SpiConfig kEeSpi1Config = {
 
 inline constexpr Icm42688p::Config kIcm42688pConfig = {
     .spi_prescaler = {{ icm42688p.spi_prescaler }},
+    .external_clock = {
+        .enabled = {{ icm42688p.external_clock.enabled | cpp_bool }},
+        .frequency_hz = {{ icm42688p.external_clock.frequency_hz }},
+    },
     .rates = {
         .gyro = {{ icm42688p.rates.gyro }},
         .accel = {{ icm42688p.rates.accel }},

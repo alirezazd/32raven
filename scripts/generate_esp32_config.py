@@ -59,7 +59,9 @@ MAVLINK_HEARTBEAT_DEADLINE_MIN_MS = 1
 MAVLINK_HEARTBEAT_DEADLINE_MAX_MS = 60000
 MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS = 0
 MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS = 10000
+MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL = 0xFF
 PANIC_TASK_STACK_DEPTH_WORDS = 4096
+PANIC_TASK_PRIORITY = 24
 WIFI_AP_SSID_MIN_LEN = 1
 WIFI_AP_SSID_MAX_LEN = 32
 WIFI_AP_PASSWORD_MAX_LEN = 63
@@ -242,7 +244,12 @@ def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
     if not 0 <= patch <= 0xFF:
         raise SystemExit("firmware patch version must fit in one byte")
 
-    return (major << 24) | (minor << 16) | (patch << 8)
+    return (
+        (major << 24)
+        | (minor << 16)
+        | (patch << 8)
+        | MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL
+    )
 
 
 def _firmware_version_string() -> str:
@@ -819,6 +826,7 @@ def _limits_context(
         },
         "panic": {
             "task_stack_depth_words": PANIC_TASK_STACK_DEPTH_WORDS,
+            "task_priority": PANIC_TASK_PRIORITY,
         },
         "programmer": {
             "staging_buffer_bytes": PROGRAMMER_STAGING_BUFFER_BYTES,

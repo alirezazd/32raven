@@ -23,7 +23,7 @@ static bool IsWouldBlock(int error) {
   return error == EWOULDBLOCK || error == EAGAIN;
 }
 
-void UdpServer::ClearPeerState() {
+void UdpServer::ClearPeer() {
   peer_ipv4_ = 0;
   peer_port_ = 0;
 }
@@ -57,7 +57,7 @@ void UdpServer::Init(const Config &cfg) {
     download_cap_bytes_per_s_ = 1;
   }
   ResetShaperState();
-  ClearPeerState();
+  ClearPeer();
   running_ = false;
   fd_ = -1;
   ESP_LOGI(kTag, "initialized on port %u", static_cast<unsigned>(cfg_.port));
@@ -128,7 +128,7 @@ esp_err_t UdpServer::Start() {
     return ESP_FAIL;
   }
 
-  ClearPeerState();
+  ClearPeer();
   ResetShaperState();
   running_ = true;
   ESP_LOGI(kTag, "listening on UDP port %u", static_cast<unsigned>(cfg_.port));
@@ -141,12 +141,8 @@ void UdpServer::Stop() {
     fd_ = -1;
   }
 
-  ClearPeerState();
+  ClearPeer();
   running_ = false;
-}
-
-void UdpServer::ClearPeer() {
-  ClearPeerState();
 }
 
 int UdpServer::Receive(uint8_t *dst, size_t max_len) {
@@ -275,7 +271,7 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
                reinterpret_cast<const sockaddr *>(&peer), sizeof(peer));
     if (sent < 0 && !IsWouldBlock(errno)) {
       ESP_LOGW(kTag, "sendto failed: errno=%d", errno);
-      ClearPeerState();
+      ClearPeer();
     }
     return (sent > 0) ? static_cast<size_t>(sent) : static_cast<size_t>(0);
   };

@@ -117,8 +117,8 @@ bool EE::Read(void *dst, size_t len, size_t offset) const {
     return true;
   }
 
-  const size_t readable = std::min(
-      len, static_cast<size_t>(active_record_.header.size - offset));
+  const size_t readable =
+      std::min(len, static_cast<size_t>(active_record_.header.size - offset));
   if (!ReadRaw(PayloadAddress(active_record_) + offset, dst, readable)) {
     return false;
   }
@@ -139,9 +139,11 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
     return true;
   }
 
-  const uint32_t current_size = active_record_.valid ? active_record_.header.size : 0u;
+  const uint32_t current_size =
+      active_record_.valid ? active_record_.header.size : 0u;
   const size_t write_end = offset + len;
-  const uint32_t new_size = std::max(current_size, static_cast<uint32_t>(write_end));
+  const uint32_t new_size =
+      std::max(current_size, static_cast<uint32_t>(write_end));
   if (new_size > kCapacity) {
     return false;
   }
@@ -156,8 +158,9 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
   uint8_t page[kPageSize] = {};
   for (uint32_t page_offset = 0u; page_offset < new_size;
        page_offset += kPageSize) {
-    const size_t page_len = std::min(static_cast<size_t>(kPageSize),
-                                     static_cast<size_t>(new_size - page_offset));
+    const size_t page_len =
+        std::min(static_cast<size_t>(kPageSize),
+                 static_cast<size_t>(new_size - page_offset));
 
     if (active_record_.valid && page_offset < current_size) {
       const size_t readable =
@@ -179,9 +182,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
           (offset > page_offset) ? (offset - page_offset) : 0u;
       const size_t src_offset =
           (page_offset > offset) ? (page_offset - offset) : 0u;
-      const size_t copy_begin =
-          std::max(static_cast<size_t>(offset),
-                   static_cast<size_t>(page_offset));
+      const size_t copy_begin = std::max(static_cast<size_t>(offset),
+                                         static_cast<size_t>(page_offset));
       const size_t copy_end = std::min(write_end, page_end);
       const size_t copy_len = copy_end - copy_begin;
       std::memcpy(&page[dst_offset], &src_bytes[src_offset], copy_len);
@@ -191,8 +193,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
       crc32 = UpdateCrc32(crc32, page[i]);
     }
 
-    if (!ProgramBytes(PayloadAddress(next_write_address_) + page_offset,
-                      page, page_len)) {
+    if (!ProgramBytes(PayloadAddress(next_write_address_) + page_offset, page,
+                      page_len)) {
       return false;
     }
   }
@@ -200,8 +202,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
 
   RecordHeader header = {
       .magic = kRecordMagic,
-      .sequence = active_record_.valid ? (active_record_.header.sequence + 1u)
-                                        : 1u,
+      .sequence =
+          active_record_.valid ? (active_record_.header.sequence + 1u) : 1u,
       .size = new_size,
       .payload_crc32 = crc32,
       .header_crc32 = 0u,
@@ -220,7 +222,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
   }
 
   active_record_ = verify;
-  next_write_address_ = AlignUp(next_write_address_ + record_size, kRecordAlign);
+  next_write_address_ =
+      AlignUp(next_write_address_ + record_size, kRecordAlign);
 
   if (previous_record.valid) {
     const uint32_t previous_begin = RecordSectorBegin(previous_record);
@@ -230,7 +233,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
 
     // Once the new record verifies, reclaiming the previous sectors is
     // best-effort cleanup. The committed data is already durable.
-    if (!RangesOverlap(previous_begin, previous_end, active_begin, active_end)) {
+    if (!RangesOverlap(previous_begin, previous_end, active_begin,
+                       active_end)) {
       static_cast<void>(EraseRange(previous_begin, previous_end));
     }
   }
@@ -332,8 +336,7 @@ bool EE::WriteEnable() const {
   CsHigh();
 
   uint8_t status = 0u;
-  return ReadStatus(&status) &&
-         (status & kStatusWriteEnableLatchMask) != 0u;
+  return ReadStatus(&status) && (status & kStatusWriteEnableLatchMask) != 0u;
 }
 
 bool EE::ReadRaw(uint32_t address, void *dst, size_t len) const {
@@ -434,8 +437,8 @@ bool EE::EraseRange(uint32_t begin, uint32_t end) {
 }
 
 bool EE::PageProgram(uint32_t address, const uint8_t *src, size_t len) {
-  if ((src == nullptr && len != 0u) || len > kPageSize || address > kFlashSize ||
-      len > (kFlashSize - address)) {
+  if ((src == nullptr && len != 0u) || len > kPageSize ||
+      address > kFlashSize || len > (kFlashSize - address)) {
     return false;
   }
 
@@ -508,8 +511,8 @@ uint32_t EE::SectorEnd(uint32_t address) {
   return AlignUp(address, kSectorSize);
 }
 
-bool EE::RangesOverlap(uint32_t lhs_begin, uint32_t lhs_end,
-                       uint32_t rhs_begin, uint32_t rhs_end) {
+bool EE::RangesOverlap(uint32_t lhs_begin, uint32_t lhs_end, uint32_t rhs_begin,
+                       uint32_t rhs_end) {
   return lhs_begin < rhs_end && rhs_begin < lhs_end;
 }
 
@@ -541,8 +544,7 @@ uint32_t EE::PayloadAddress(const RecordState &record) const {
 
 bool EE::HeaderIsBlank(const RecordHeader &header) const {
   return header.magic == 0xFFFFFFFFu && header.sequence == 0xFFFFFFFFu &&
-         header.size == 0xFFFFFFFFu &&
-         header.payload_crc32 == 0xFFFFFFFFu &&
+         header.size == 0xFFFFFFFFu && header.payload_crc32 == 0xFFFFFFFFu &&
          header.header_crc32 == 0xFFFFFFFFu;
 }
 
@@ -639,7 +641,8 @@ EE::RecordState EE::ScanLatestRecord() const {
                 }
               : ReadRecord(cursor);
       if (offset == 0u) {
-        if (!HeaderIsBlank(record.header) && record.header.magic == kRecordMagic &&
+        if (!HeaderIsBlank(record.header) &&
+            record.header.magic == kRecordMagic &&
             HeaderHasValidCrc(record.header)) {
           record.valid = ValidateRecord(record);
         } else {
@@ -703,8 +706,8 @@ bool EE::PrepareWriteSpace(uint32_t record_size) {
   return try_prepare(active_end) || (prefix_fits && try_prepare(0u));
 }
 
-bool EE::EnsureRangeErased(uint32_t begin, uint32_t end, uint32_t preserve_begin,
-                           uint32_t preserve_end) {
+bool EE::EnsureRangeErased(uint32_t begin, uint32_t end,
+                           uint32_t preserve_begin, uint32_t preserve_end) {
   if (begin > end || end > kFlashSize) {
     return false;
   }
@@ -734,7 +737,8 @@ bool EE::ReadLogical(uint32_t offset, void *dst, size_t len) const {
   return Read(dst, len, offset);
 }
 
-bool EE::CompareLogical(uint32_t offset, const uint8_t *data, size_t len) const {
+bool EE::CompareLogical(uint32_t offset, const uint8_t *data,
+                        size_t len) const {
   if ((data == nullptr && len != 0u) || !CheckRange(len, offset)) {
     return false;
   }

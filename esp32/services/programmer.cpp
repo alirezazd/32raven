@@ -176,8 +176,9 @@ bool Programmer::EnterStm32Bootloader() {
     // Wait for ACK. Some boards can leave a stale byte in the RX FIFO during
     // the reset-to-bootloader transition; keep reading until timeout so one
     // stray byte does not make us miss the actual ACK.
-    const TimeMs deadline = TimeAfter(Sys().Timebase().NowMs(),
-                                      static_cast<TimeMs>(ctx_.cfg.sync_timeout_ms));
+    const TimeMs deadline =
+        TimeAfter(Sys().Timebase().NowMs(),
+                  static_cast<TimeMs>(ctx_.cfg.sync_timeout_ms));
     uint16_t unexpected_count = 0;
     uint8_t last_unexpected = 0;
     bool saw_nack = false;
@@ -674,8 +675,9 @@ bool Programmer::BeginTargetSession(Ctx &c) {
 }
 
 size_t Programmer::TargetWriteChunkLimit(const Ctx &c) const {
-  return (c.target == Target::kEsp32) ? kEsp32OtaWriteChunkBytes
-                                      : esp32_limits::kProgrammerStm32BlockBytes;
+  return (c.target == Target::kEsp32)
+             ? kEsp32OtaWriteChunkBytes
+             : esp32_limits::kProgrammerStm32BlockBytes;
 }
 
 bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len) {
@@ -710,8 +712,9 @@ bool Programmer::FinalizeTargetWrite(Ctx &c) {
 }
 
 size_t Programmer::TargetVerifyChunkSize(const Ctx &c) const {
-  return (c.target == Target::kEsp32) ? c.cfg.verify.esp32_chunk_bytes
-                                      : esp32_limits::kProgrammerStm32BlockBytes;
+  return (c.target == Target::kEsp32)
+             ? c.cfg.verify.esp32_chunk_bytes
+             : esp32_limits::kProgrammerStm32BlockBytes;
 }
 
 bool Programmer::ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len) {
@@ -725,8 +728,8 @@ bool Programmer::ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len) {
 
   uint32_t flash_addr = 0;
   size_t max_chunk = 0;
-  if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size, &flash_addr,
-                                       &max_chunk)) {
+  if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size,
+                                       &flash_addr, &max_chunk)) {
     ESP_LOGE(kTag, "STM32 verify offset 0x%08X is outside flash image",
              (unsigned)c.verify_offset);
     return false;
@@ -884,7 +887,8 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
   while (c.written < c.total_size) {
     size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
 
-    const size_t protocol_limit = Programmer::GetInstance().TargetWriteChunkLimit(c);
+    const size_t protocol_limit =
+        Programmer::GetInstance().TargetWriteChunkLimit(c);
 
     size_t needed = protocol_limit;
     size_t remaining_file = c.total_size - c.written;
@@ -951,7 +955,8 @@ void Programmer::VerifyingState::OnEnter(Ctx &c) {
 
 void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
   while (c.verify_offset < c.total_size) {
-    // Reuse the upload staging buffer as verify scratch after writing completes.
+    // Reuse the upload staging buffer as verify scratch after writing
+    // completes.
     size_t chunk = Programmer::GetInstance().TargetVerifyChunkSize(c);
     if (chunk > Ctx::kBufCap) {
       chunk = Ctx::kBufCap;

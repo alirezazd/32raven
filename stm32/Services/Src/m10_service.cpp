@@ -3,6 +3,21 @@
 #include "m10_reg.hpp"
 #include "system.hpp"
 #include "uart.hpp"
+#include "vehicle_state.hpp"
+
+namespace {
+
+static constexpr uint8_t kNavPvtValidDateBit = 1u << 0;
+static constexpr uint8_t kNavPvtValidTimeBit = 1u << 1;
+static constexpr uint8_t kNavPvtFullyResolvedBit = 1u << 2;
+
+bool HasReliableGpsUtc(const M10PVTData &pvt) {
+  const uint8_t required_bits =
+      kNavPvtValidDateBit | kNavPvtValidTimeBit | kNavPvtFullyResolvedBit;
+  return (pvt.valid & required_bits) == required_bits;
+}
+
+}  // namespace
 
 struct M10BaseState : public IState<M10ParserContext> {
   const char *Name() const override { return "Base"; }
@@ -182,10 +197,10 @@ void M10CkBState::OnStep(M10ParserContext &ctx, SmTick) {
                            ((uint32_t)ctx.payload_buf[3] << 24);
 
     uint64_t now_us = Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
-    constexpr uint64_t kMaxAgeUs = 150000;
+    constexpr uint64_t max_age_us = 150000;
 
     if (ctx.epoch_ready && eoe_itow_ms == ctx.pvt_itow_ms &&
-        (uint64_t)(now_us - ctx.pvt_rx_us) < kMaxAgeUs) {
+        (uint64_t)(now_us - ctx.pvt_rx_us) < max_age_us) {
       ctx.new_data_out = true;
     }
 
@@ -210,4 +225,45 @@ M10Service::M10Service()
 void M10Service::ProcessByte(uint8_t byte) {
   ctx_.current_byte = byte;
   sm_.Step(0);
+}
+
+bool M10Service::PopGpsData(uint64_t timestamp_us, GpsData &out) {
+  if (!new_data_) {
+    return false;
+  }
+
+  GpsData data{};
+  data.timestamp_us = timestamp_us;
+  data.lat = pvt_data_.lat;
+  data.lon = pvt_data_.lon;
+  data.alt = pvt_data_.hMSL;
+  data.vel = static_cast<uint16_t>(pvt_data_.gSpeed / 10);  // mm/s -> cm/s
+  data.hdg =
+      static_cast<uint16_t>(pvt_data_.headMot / 1000);  // 1e-5 deg -> cdeg
+  data.num_sats = pvt_data_.numSV;
+  data.fix_type = pvt_data_.fixType;
+  if (HasReliableGpsUtc(pvt_data_)) {
+    data.year = pvt_data_.year;
+    data.month = pvt_data_.month;
+    data.day = pvt_data_.day;
+    data.hour = pvt_data_.hour;
+    data.min = pvt_data_.min;
+    data.sec = pvt_data_.sec;
+  }
+  data.hAcc = pvt_data_.hAcc;
+  data.vAcc = pvt_data_.vAcc;
+  data.gDOP = dop_data_.gDOP;
+  data.pDOP = dop_data_.pDOP;
+  data.hDOP = dop_data_.hDOP;
+  data.vDOP = dop_data_.vDOP;
+
+  data.posCovValid = cov_data_.posCovValid;
+  data.velCovValid = cov_data_.velCovValid;
+  data.posCovNN = cov_data_.posCovNN;
+  data.posCovEE = cov_data_.posCovEE;
+  data.posCovDD = cov_data_.posCovDD;
+
+  out = data;
+  new_data_ = false;
+  return true;
 }

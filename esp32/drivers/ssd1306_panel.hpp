@@ -50,7 +50,8 @@ class Ssd1306Panel {
 
   static constexpr size_t kControllerWidth =
       esp32_limits::kDisplayPanelControllerWidth;
-  static constexpr size_t kColumnOffset = esp32_limits::kDisplayPanelColumnOffset;
+  static constexpr size_t kColumnOffset =
+      esp32_limits::kDisplayPanelColumnOffset;
 
   void SendCommands(const uint8_t *commands, size_t count);
   void SetPageAddress(uint8_t page, uint8_t column);

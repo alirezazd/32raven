@@ -18,6 +18,7 @@ extern "C" {
 namespace {
 
 constexpr const char *kTag = "ui";
+constexpr uint32_t kTaskStackDepthWords = 3072;
 constexpr TimeMs kUiFadeOutDurationMs = 2000;
 constexpr uint8_t kUiFadeOutInterval = 0;
 portMUX_TYPE g_ui_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -75,6 +76,10 @@ float SwipeProgress(float t, float accel_ratio, float decel_ratio) {
   const float decel_distance =
       velocity * u - 0.5f * velocity * u * u / decel_ratio;
   return Clamp01(accel_distance + cruise_distance + decel_distance);
+}
+
+TickType_t WaitTicksFromMs(TimeMs wait_ms) {
+  return pdMS_TO_TICKS(wait_ms > 0 ? wait_ms : 1);
 }
 
 BootWidget &BootWidgetInstance() {
@@ -217,18 +222,10 @@ void WidgetContext::LoadWidget(IWidget *widget) const {
   }
 }
 
-void StateMachineWidget::OnEnter(WidgetContext &ctx) {
-  ctx_ = ctx;
-  ctx_.sm = &sm_;
-  sm_.Start(InitialState());
-}
-
-void StateMachineWidget::OnStep(WidgetContext &ctx, TimeMs now) {
-  (void)ctx;
-  sm_.Step(now);
-}
-
 void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
+  static StaticTask_t task_buffer;
+  static StackType_t task_stack[kTaskStackDepthWords];
+
   cfg_ = cfg;
   if (panel == nullptr || cfg_.fps_cap == 0) {
     Panic(ErrorCode::kUiInitFailed);
@@ -238,6 +235,7 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   SetAppState(AppState::kBooting);
   main_screen_ = MainScreen::kBooting;
   transition_ = {};
+  transition_active_ = false;
   if (main_ui_widget_ != nullptr) {
     main_ui_widget_->SetMode(MainScreen::kBooting);
   }
@@ -247,6 +245,13 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   inactivity_fade_active_ = false;
   next_step_ms_ = 0;
   boot_widget_->SetNextWidget(main_ui_widget_);
+  if (task_handle_ == nullptr) {
+    task_handle_ = xTaskCreateStatic(TaskEntry, "display", kTaskStackDepthWords,
+                                     this, 1, task_stack, &task_buffer);
+    if (task_handle_ == nullptr) {
+      Panic(ErrorCode::kUiInitFailed);
+    }
+  }
 
   if (cfg_.boot_logo_timeout_s > 0) {
     boot_widget_->SetTimeoutMs(static_cast<TimeMs>(cfg_.boot_logo_timeout_s) *
@@ -269,24 +274,28 @@ void Ui::LoadWidget(IWidget *widget) {
   taskENTER_CRITICAL(&g_ui_lock);
   pending_widget_ = widget;
   taskEXIT_CRITICAL(&g_ui_lock);
+  WakeTask();
 }
 
 void Ui::SetAppState(AppState state) {
   taskENTER_CRITICAL(&g_ui_lock);
   app_state_ = state;
   taskEXIT_CRITICAL(&g_ui_lock);
+  WakeTask();
 }
 
 void Ui::SetErrorCode(ErrorCode code) {
   taskENTER_CRITICAL(&g_ui_lock);
   error_code_ = code;
   taskEXIT_CRITICAL(&g_ui_lock);
+  WakeTask();
 }
 
 void Ui::SetErrorRecoverable(bool recoverable) {
   taskENTER_CRITICAL(&g_ui_lock);
   error_recoverable_ = recoverable;
   taskEXIT_CRITICAL(&g_ui_lock);
+  WakeTask();
 }
 
 Ui::AppState Ui::CurrentAppState() const {
@@ -417,7 +426,6 @@ void Ui::StartMainScreenTransition(MainScreen next_screen, TimeMs now,
   transition_from_canvas_.ClearDirtyRanges();
   RenderMainScreenSnapshot(next_screen, now, transition_to_canvas_);
 
-  transition_.active = true;
   transition_.effect = TransitionEffect::kSlide;
   transition_.target_screen = next_screen;
   transition_.direction = direction;
@@ -427,6 +435,7 @@ void Ui::StartMainScreenTransition(MainScreen next_screen, TimeMs now,
   transition_.decel_ratio = decel_ratio;
   main_screen_ = next_screen;
   next_step_ms_ = 0;
+  transition_active_ = true;
 }
 
 void Ui::StartMosaicTransitionToScreen(MainScreen next_screen, TimeMs now,
@@ -436,7 +445,6 @@ void Ui::StartMosaicTransitionToScreen(MainScreen next_screen, TimeMs now,
   transition_from_canvas_.ClearDirtyRanges();
   RenderMainScreenSnapshot(next_screen, now, transition_to_canvas_);
 
-  transition_.active = true;
   transition_.effect = TransitionEffect::kMosaic;
   transition_.target_screen = next_screen;
   transition_.direction = SlideDirection::kLeft;
@@ -447,13 +455,10 @@ void Ui::StartMosaicTransitionToScreen(MainScreen next_screen, TimeMs now,
   transition_.mosaic_block_size = std::max<uint8_t>(max_block_size, 1u);
   main_screen_ = next_screen;
   next_step_ms_ = 0;
+  transition_active_ = true;
 }
 
 bool Ui::RenderActiveTransition(TimeMs now) {
-  if (!transition_.active) {
-    return false;
-  }
-
   const float linear_t =
       Clamp01(static_cast<float>(now - transition_.start_ms) /
               static_cast<float>(transition_.duration_ms));
@@ -508,11 +513,7 @@ bool Ui::RenderActiveTransition(TimeMs now) {
     }
   }
 
-  if (linear_t >= 1.0f) {
-    transition_.active = false;
-  }
-
-  return true;
+  return linear_t >= 1.0f;
 }
 
 void Ui::SyncPresentation(TimeMs now) {
@@ -552,7 +553,7 @@ void Ui::SyncPresentation(TimeMs now) {
           preset.duration_ms, preset.accel_ratio, preset.decel_ratio);
     } else {
       if (skip_transition) {
-        transition_.active = false;
+        StopTransition();
       }
       main_ui_widget_->SetMode(desired_main_screen);
       main_screen_ = desired_main_screen;
@@ -590,6 +591,7 @@ void Ui::NotifyUserActivity() {
       DisplayOn();
     }
   }
+  WakeTask();
 }
 
 void Ui::SetInactivityTimeoutSeconds(uint8_t timeout_s) {
@@ -607,6 +609,7 @@ void Ui::SetInactivityTimeoutSeconds(uint8_t timeout_s) {
       DisplayOn();
     }
   }
+  WakeTask();
 }
 
 void Ui::DisableInactivityTimeout() { SetInactivityTimeoutSeconds(0); }
@@ -657,7 +660,28 @@ void Ui::DisplayOff() {
 
 bool Ui::IsScreenOn() const { return display_on_; }
 
-bool Ui::IsTransitionActive() const { return transition_.active; }
+bool Ui::IsTransitionActive() const {
+  return transition_active_;
+}
+
+void Ui::StopTransition() {
+  transition_active_ = false;
+  next_step_ms_ = 0;
+}
+
+void Ui::ServiceTransition(TimeMs now) {
+  if (!transition_active_) {
+    return;
+  }
+
+  if (RenderActiveTransition(now)) {
+    transition_active_ = false;
+    next_step_ms_ = 0;
+    return;
+  }
+
+  next_step_ms_ = TimeAfter(now, GetFrameIntervalMs());
+}
 
 void Ui::StartMosaicTransition(TimeMs now, TimeMs duration_ms,
                                uint8_t max_block_size) {
@@ -674,22 +698,46 @@ TimeMs Ui::GetFrameIntervalMs() const {
       static_cast<uint32_t>(cfg_.fps_cap));
 }
 
-void Ui::Poll(TimeMs now) {
-  if (panel_ == nullptr || cfg_.fps_cap == 0) {
-    return;
-  }
+void Ui::TaskEntry(void *param) { static_cast<Ui *>(param)->Task(); }
 
+void Ui::Task() {
   WidgetContext ctx{
       .ui = this,
       .renderer = &renderer_,
   };
 
+  while (true) {
+    const TimeMs now = Sys().Timebase().NowMs();
+    Step(now, ctx);
+
+    TimeMs wait_ms = GetFrameIntervalMs();
+    if (next_step_ms_ != 0) {
+      const TimeMs after_step = Sys().Timebase().NowMs();
+      if (!TimeReached(after_step, next_step_ms_)) {
+        wait_ms = next_step_ms_ - after_step;
+      }
+    }
+
+    ulTaskNotifyTake(pdTRUE, WaitTicksFromMs(wait_ms));
+  }
+}
+
+void Ui::WakeTask() const {
+  if (task_handle_ != nullptr) {
+    xTaskNotifyGive((TaskHandle_t)task_handle_);
+  }
+}
+
+void Ui::Step(TimeMs now, WidgetContext &ctx) {
+  if (panel_ == nullptr || cfg_.fps_cap == 0) {
+    return;
+  }
+
   bool widget_changed = ApplyPendingWidget(ctx);
   SyncPresentation(now);
   widget_changed = ApplyPendingWidget(ctx) || widget_changed;
   if (widget_changed) {
-    transition_.active = false;
-    next_step_ms_ = 0;
+    StopTransition();
     FlushIfDirty();
   }
 
@@ -708,16 +756,15 @@ void Ui::Poll(TimeMs now) {
     return;
   }
 
-  if (transition_.active) {
+  if (IsTransitionActive()) {
     if (!TimeReached(now, next_step_ms_)) {
       FlushIfDirty();
       return;
     }
 
-    if (RenderActiveTransition(now)) {
-      FlushIfDirty();
-      next_step_ms_ =
-          transition_.active ? TimeAfter(now, GetFrameIntervalMs()) : 0;
+    ServiceTransition(now);
+    FlushIfDirty();
+    if (IsTransitionActive()) {
       return;
     }
   }

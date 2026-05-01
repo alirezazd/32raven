@@ -31,7 +31,8 @@ void Buzzer::Init(const Config &cfg) {
 
   cfg_ = cfg;
   freq_hz_ = cfg.startup.freq_hz;
-  duty_ticks_ = ComputeDutyTicks(cfg.pwm.duty_resolution, cfg.startup.duty_cycle);
+  duty_ticks_ =
+      ComputeDutyTicks(cfg.pwm.duty_resolution, cfg.startup.duty_cycle);
 
   ledc_timer_config_t timer_cfg = {};
   timer_cfg.speed_mode = cfg.pwm.speed_mode;
