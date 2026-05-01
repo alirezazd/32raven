@@ -478,6 +478,10 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
         },
         "icm42688p": {
             "spi_prescaler": _choice_value(kconf, SPI_PRESCALER_CHOICES),
+            "external_clock": {
+                "enabled": _sym_bool(kconf, "STM32_IMU_EXTERNAL_CLOCK_ENABLED"),
+                "frequency_hz": _sym_int(kconf, "STM32_IMU_EXTERNAL_CLOCK_FREQ_HZ"),
+            },
             "rates": {
                 "gyro": _choice_value(kconf, ODR_CHOICES),
                 "accel": _choice_value(kconf, ACCEL_ODR_CHOICES),

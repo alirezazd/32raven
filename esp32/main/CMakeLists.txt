@@ -38,7 +38,6 @@ idf_component_register(
     "../ui/widgets/error_widget.cpp"
     "../ui/widgets/main_ui_widget.cpp"
     "../ui/widgets/matrix_widget.cpp"
-    "../ui/widgets/rc_channels_widget.cpp"
     "../ui/widgets/renderer_demo_widget.cpp"
     "../services/wifi.cpp"
     "../services/tone_player.cpp"

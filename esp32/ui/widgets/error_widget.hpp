@@ -1,7 +1,7 @@
 #pragma once
 
-#include "ui.hpp"
 #include "error_code.hpp"
+#include "ui.hpp"
 
 extern "C" {
 #include "freertos/FreeRTOS.h"

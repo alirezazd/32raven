@@ -30,48 +30,34 @@ void DrawCenteredBitmap(WidgetContext &ctx, const uint8_t *bitmap_data) {
 
 }  // namespace
 
-void BootWidget::ShowingState::OnEnter(WidgetContext &ctx) {
+void BootWidget::OnEnter(WidgetContext &ctx) {
   DrawCenteredBitmap(ctx, boot_logo::kBitmapData.data());
-  widget_.deadline_ms_ =
-      TimeAfter(Sys().Timebase().NowMs(), widget_.timeout_ms_);
+  deadline_ms_ = TimeAfter(Sys().Timebase().NowMs(), timeout_ms_);
+  mode_ = Mode::kShowing;
 }
 
-void BootWidget::ShowingState::OnStep(WidgetContext &ctx, SmTick now) {
-  if (ctx.sm == nullptr) {
-    return;
-  }
-  if (!TimeReached(now, widget_.deadline_ms_)) {
-    return;
-  }
+void BootWidget::OnStep(WidgetContext &ctx, TimeMs now) {
+  switch (mode_) {
+    case Mode::kShowing:
+      if (!TimeReached(now, deadline_ms_)) {
+        return;
+      }
+      if (ctx.ui != nullptr) {
+        ctx.ui->StartMosaicTransition(now);
+      }
+      mode_ = Mode::kTransitioning;
+      return;
 
-  ctx.sm->ReqTransition(widget_.transitioning_state_);
-}
+    case Mode::kTransitioning:
+      if (ctx.ui != nullptr && ctx.ui->IsTransitionActive()) {
+        return;
+      }
+      ctx.LoadWidget(next_widget_);
+      mode_ = Mode::kDone;
+      return;
 
-void BootWidget::TransitioningState::OnEnter(WidgetContext &ctx) {
-  if (ctx.ui == nullptr) {
-    return;
-  }
-
-  ctx.ui->StartMosaicTransition(Sys().Timebase().NowMs());
-}
-
-void BootWidget::TransitioningState::OnStep(WidgetContext &ctx, SmTick now) {
-  (void)now;
-  if (ctx.sm == nullptr) {
-    return;
-  }
-  if (ctx.ui == nullptr || !ctx.ui->IsTransitionActive()) {
-    ctx.sm->ReqTransition(widget_.done_state_);
+    case Mode::kDone:
+    default:
+      return;
   }
 }
-
-void BootWidget::DoneState::OnEnter(WidgetContext &ctx) {
-  ctx.LoadWidget(widget_.next_widget_);
-}
-
-void BootWidget::DoneState::OnStep(WidgetContext &ctx, SmTick now) {
-  (void)ctx;
-  (void)now;
-}
-
-IState<WidgetContext> &BootWidget::InitialState() { return showing_state_; }

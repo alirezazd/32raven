@@ -7,7 +7,6 @@
 #include "display_renderer.hpp"
 #include "error_code.hpp"
 #include "ssd1306_panel.hpp"
-#include "state_machine.hpp"
 #include "timebase.hpp"
 
 class Ui;
@@ -58,7 +57,6 @@ class DisplayCanvas : public RenderCanvas {
 struct WidgetContext {
   Ui *ui = nullptr;
   DisplayRenderer *renderer = nullptr;
-  StateMachine<WidgetContext> *sm = nullptr;
 
   void LoadWidget(IWidget *widget) const;
 };
@@ -68,20 +66,6 @@ struct IWidget {
   virtual const char *Name() const = 0;
   virtual void OnEnter(WidgetContext &ctx) { (void)ctx; }
   virtual void OnStep(WidgetContext &ctx, TimeMs now) = 0;
-};
-
-class StateMachineWidget : public IWidget {
- public:
-  void OnEnter(WidgetContext &ctx) override final;
-  void OnStep(WidgetContext &ctx, TimeMs now) override final;
-
- protected:
-  virtual IState<WidgetContext> &InitialState() = 0;
-  WidgetContext &Context() { return ctx_; }
-
- private:
-  WidgetContext ctx_{};
-  StateMachine<WidgetContext> sm_{ctx_};
 };
 
 class Ui {
@@ -133,7 +117,6 @@ class Ui {
   }
 
   void Init(const Config &cfg, Ssd1306Panel *panel);
-  void Poll(TimeMs now);
   void LoadWidget(IWidget *widget);
   void SetAppState(AppState state);
   void SetErrorCode(ErrorCode code);
@@ -163,6 +146,11 @@ class Ui {
   friend class System;
 
   Ui();
+  static void TaskEntry(void *param);
+  void Task();
+  void Step(TimeMs now, WidgetContext &ctx);
+  void WakeTask() const;
+  void ServiceTransition(TimeMs now);
   AppState CurrentAppState() const;
   ErrorCode CurrentErrorCode() const;
   bool CurrentErrorRecoverable() const;
@@ -178,6 +166,7 @@ class Ui {
                                  SlideDirection direction, TimeMs duration_ms,
                                  float accel_ratio, float decel_ratio);
   bool RenderActiveTransition(TimeMs now);
+  void StopTransition();
   bool ApplyPendingWidget(WidgetContext &ctx);
   void FlushIfDirty();
   void UpdatePowerState(TimeMs now);
@@ -198,13 +187,14 @@ class Ui {
   ErrorWidget *error_widget_ = nullptr;
   IWidget *current_widget_ = nullptr;
   IWidget *pending_widget_ = nullptr;
+  void *task_handle_ = nullptr;  // TaskHandle_t
   AppState app_state_ = AppState::kBooting;
   ErrorCode error_code_ = ErrorCode::kUnknown;
   bool error_recoverable_ = false;
   MainScreen main_screen_ = MainScreen::kBooting;
   TimeMs next_step_ms_ = 0;
+  bool transition_active_ = false;
   struct TransitionState {
-    bool active = false;
     TransitionEffect effect = TransitionEffect::kSlide;
     MainScreen target_screen = MainScreen::kBooting;
     SlideDirection direction = SlideDirection::kLeft;

@@ -20,9 +20,7 @@ constexpr int16_t kStatusGap = 3;
 
 }  // namespace
 
-void RcChannelsWidget::OnEnter(WidgetContext &ctx) {
-  Render(ctx);
-}
+void RcChannelsWidget::OnEnter(WidgetContext &ctx) { Render(ctx); }
 
 void RcChannelsWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   (void)now;

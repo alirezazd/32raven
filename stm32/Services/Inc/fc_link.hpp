@@ -34,6 +34,8 @@ class FcLink {
   void SendRcCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
   void SendGyroCalibrationIdConfig(
       const message::GyroCalibrationIdConfigMsg &cfg);
+  void SendSystemStatus(const message::SystemStatusMsg &msg);
+  void SendVehicleStatus(const message::VehicleStatusMsg &msg);
 
   // Send Log Message
   void SendLog(const char *format, ...);

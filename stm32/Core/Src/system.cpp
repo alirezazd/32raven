@@ -72,8 +72,8 @@ void System::InitComponent(Component c) {
                                      vehicle_state_);
       break;
     case Component::kCrsfLink:
-      crsf_link_service_.Init(kCrsfLinkConfig, Uart6::GetInstance(), vehicle_state_,
-                              RcReceiver::GetInstance(),
+      crsf_link_service_.Init(kCrsfLinkConfig, Uart6::GetInstance(),
+                              vehicle_state_, RcReceiver::GetInstance(),
                               FcLink::GetInstance());
       break;
     case Component::kLed:

@@ -13,7 +13,7 @@
 using namespace Icm42688pReg;
 
 void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
-  if (initialized_) {
+  if (device_id_ != 0u) {
     Panic(ErrorCode::kImuReinit);
   }
 
@@ -24,13 +24,15 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   ee_ = &ee;
   fifo_wm_records_ = cfg.fifo.watermark_records;
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
+  accel_fs_ = cfg.fs.accel;
   gyro_fs_ = cfg.fs.gyro;
   gyro_odr_ = cfg.rates.gyro;
+  gyro_odr_hz_ = EffectiveOdrHz(cfg.rates.gyro, cfg.external_clock);
+  timestamp_tick_scale_q16_ = TimestampTickScaleQ16(cfg.external_clock);
+  timestamp_tick_remainder_q16_ = 0;
   calibration_cfg_ = cfg.calibration;
   recovery_cfg_ = cfg.recovery;
   accel_calibration_ = ConfigStorage::LoadOrInitImuAccelCalibration(ee);
-  last_overrun_fault_us_ = 0;
-  overrun_window_count_ = 0;
 
   System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(10));
   spi.SetPrescaler(cfg.spi_prescaler);
@@ -45,7 +47,7 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   WriteReg(REG_PWR_MGMT0, 0x00u);
   System::GetInstance().Time().DelayMicros(200);
 
-  SetClockSource();
+  SetClockSource(cfg);
   SetInterfaceConfig(cfg);
   DisableFsync();
   SetInterruptConfig();
@@ -60,9 +62,9 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   WriteReg(REG_PWR_MGMT0, PWR_MGMT0_TEMP_DIS);
   ConfigureFifo();
 
-  // Enable sensors ONCE, last.
-  WriteReg(REG_PWR_MGMT0, PWR_MGMT0_TEMP_DIS | PWR_MGMT0_GYRO_MODE_LN |
-                              PWR_MGMT0_ACCEL_MODE_LN);
+  // Enable sensors ONCE, last, including the temperature sensor so FIFO samples
+  // carry die temperature for future estimator compensation.
+  WriteReg(REG_PWR_MGMT0, PWR_MGMT0_GYRO_MODE_LN | PWR_MGMT0_ACCEL_MODE_LN);
 
   // Datasheet: no register writes after OFF->ON transition
   System::GetInstance().Time().DelayMicros(200);
@@ -71,21 +73,20 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
 
   // EXTI->PR = (1u << 10);
 
-  initialized_ = true;
   spi.EnableIrqs();  // SPI DMA interrupts
   NVIC_SetPriority(IMU_INT_EXTI_IRQn, 3);
   NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
 }
 
 bool Icm42688p::SaveAccelCalibration() {
-  if (!initialized_ || ee_ == nullptr) {
+  if (ee_ == nullptr) {
     return false;
   }
   return ConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
 }
 
 uint32_t Icm42688p::GetDeviceId() const {
-  if (!initialized_ || device_id_ == 0u) {
+  if (device_id_ == 0u) {
     Panic(ErrorCode::kImuNotInitialized);
   }
 
@@ -100,6 +101,12 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
 
   if (cfg.rates.gyro != cfg.rates.accel) {
     Panic(ErrorCode::kImuOdrMismatch);
+  }
+
+  if (cfg.external_clock.enabled &&
+      (cfg.external_clock.frequency_hz < kExternalClockMinHz ||
+       cfg.external_clock.frequency_hz > kExternalClockMaxHz)) {
+    Panic(ErrorCode::kImuInvalidOdr);
   }
 
   if (Icm42688pReg::OdrHz(cfg.rates.gyro) == 0 ||
@@ -323,6 +330,7 @@ void Icm42688p::RecoverFromFifoFault() {
   host_sync_inited_ = false;
   last_tmst16_ = 0;
   tmst64_us_ = 0;
+  timestamp_tick_remainder_q16_ = 0;
   host_offset_us_ = 0;
   last_count_ = 0;
 }
@@ -355,6 +363,23 @@ void Icm42688p::InjectOverrunFaultForTest() {
   inject_overrun_fault_for_test_.store(true, std::memory_order_release);
 }
 
+Icm42688p::ScaledSample Icm42688p::ScaleSample(const Sample &sample) const {
+  const float accel_scale = Icm42688pReg::AccelLsbToMps2(accel_fs_);
+  const float gyro_scale = Icm42688pReg::GyroLsbToRadS(gyro_fs_);
+
+  ScaledSample out{};
+  out.timestamp_us = sample.timestamp_us;
+  out.temperature_c = Icm42688pReg::FifoTemperatureC(sample.temp_raw);
+  out.seq = sample.seq;
+
+  for (uint8_t axis = 0; axis < 3u; ++axis) {
+    out.accel_mps2[axis] = static_cast<float>(sample.accel[axis]) * accel_scale;
+    out.gyro_rad_s[axis] = static_cast<float>(sample.gyro[axis]) * gyro_scale;
+  }
+
+  return out;
+}
+
 void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
   // Unwrap 16-bit timestamp (1us ticks) into tmst64_us_
   if (!tmst_inited_) {
@@ -364,7 +389,12 @@ void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
   } else {
     const uint16_t dt16 = static_cast<uint16_t>(ts16 - last_tmst16_);
     last_tmst16_ = ts16;
-    tmst64_us_ += static_cast<uint64_t>(dt16);
+    const uint64_t scaled_dt_q16 =
+        static_cast<uint64_t>(dt16) * timestamp_tick_scale_q16_ +
+        timestamp_tick_remainder_q16_;
+    tmst64_us_ += scaled_dt_q16 >> 16;
+    timestamp_tick_remainder_q16_ =
+        static_cast<uint32_t>(scaled_dt_q16 & (kTimestampScaleQ16 - 1u));
   }
 
   const int64_t host_us = static_cast<int64_t>(last_irq_us_);
@@ -402,7 +432,8 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
                                 static_cast<uint16_t>(q[1]));
   };
 
-  // Packet3 timestamp field stays at bytes 0x0E..0x0F.
+  // Packet3 temperature byte is at 0x0D and timestamp stays at 0x0E..0x0F.
+  out.temp_raw = static_cast<int8_t>(rec[0x0D]);
   const uint16_t ts16 = be_u16(&rec[0x0E]);
 
   uint64_t host_ts_us = 0;
@@ -430,9 +461,6 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
       return false;
     }
   }
-
-  // Temperature is disabled (PWR_MGMT0.TEMP_DIS=1, FIFO_TEMP_EN=0).
-  out.temp_raw = 0;
 
   return true;
 }
@@ -508,7 +536,7 @@ void Icm42688p::CalibrateGyro() {
       SECONDS_TO_MICROS(calibration_cfg_.gyro_timeout_s);
   const uint32_t still_threshold_raw =
       calibration_cfg_.gyro_still_threshold_raw;
-  const uint32_t odr_hz = Icm42688pReg::OdrHz(gyro_odr_);
+  const uint32_t odr_hz = gyro_odr_hz_;
   const uint64_t sample_count_u64 =
       ((uint64_t)duration_us * odr_hz + SECONDS_TO_MICROS(1) - 1ULL) /
       SECONDS_TO_MICROS(1);
@@ -558,7 +586,8 @@ void Icm42688p::CalibrateGyro() {
   }
 
   int16_t offset_lsb[3] = {0, 0, 0};
-  const float dps_per_lsb = Icm42688pReg::GyroRangeDps(gyro_fs_) / 32768.0f;
+  const float dps_per_lsb =
+      Icm42688pReg::GyroRangeDps(gyro_fs_) / Icm42688pReg::kFifoDataLsb;
   for (int axis = 0; axis < 3; ++axis) {
     const int32_t bias_raw =
         static_cast<int32_t>(sum[axis] / static_cast<int64_t>(collected));
@@ -588,6 +617,7 @@ void Icm42688p::CalibrateGyro() {
   host_sync_inited_ = false;
   last_tmst16_ = 0;
   tmst64_us_ = 0;
+  timestamp_tick_remainder_q16_ = 0;
   host_offset_us_ = 0;
 
   WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
@@ -650,16 +680,54 @@ void Icm42688p::SoftReset() {
   SetBank(0);
 }
 
-void Icm42688p::SetClockSource() {
+uint32_t Icm42688p::EffectiveOdrHz(
+    Icm42688pReg::Odr odr, const Config::ExternalClock &external_clock) {
+  const uint32_t odr_hz = Icm42688pReg::OdrHz(odr);
+  if (!external_clock.enabled) {
+    return odr_hz;
+  }
+
+  return static_cast<uint32_t>(
+      (static_cast<uint64_t>(odr_hz) * external_clock.frequency_hz +
+       kExternalClockOdrReferenceHz / 2u) /
+      kExternalClockOdrReferenceHz);
+}
+
+uint32_t Icm42688p::TimestampTickScaleQ16(
+    const Config::ExternalClock &external_clock) {
+  if (!external_clock.enabled) {
+    return kTimestampScaleQ16;
+  }
+
+  return static_cast<uint32_t>(
+      ((static_cast<uint64_t>(kExternalClockTimestampReferenceHz) << 16u) +
+       external_clock.frequency_hz / 2u) /
+      external_clock.frequency_hz);
+}
+
+void Icm42688p::SetClockSource(const Config &cfg) {
+  SetBank(1);
+
+  uint8_t pin_cfg = ReadReg(REG_INTF_CONFIG5);
+  pin_cfg &= static_cast<uint8_t>(~INTF_CONFIG5_PIN9_FUNCTION_MASK);
+  pin_cfg |= cfg.external_clock.enabled ? INTF_CONFIG5_PIN9_FUNCTION_CLKIN
+                                        : INTF_CONFIG5_PIN9_FUNCTION_FSYNC;
+  WriteReg(REG_INTF_CONFIG5, pin_cfg);
+
   SetBank(0);
 
   uint8_t v = ReadReg(REG_INTF_CONFIG1);
   // INTF_CONFIG1:
   // - AFSR bits[7:6] = 01 (disable adaptive full-scale)
   // - CLKSEL bits[1:0] = 01 (PLL when available)
-  // Preserve RTC_MODE and reserved bits.
-  v &= static_cast<uint8_t>(~0xC3u);
-  v |= 0x41u;
+  // - RTC_MODE bit2 requires the pin 9 CLKIN function when external clocking.
+  // Preserve other reserved bits.
+  v &=
+      static_cast<uint8_t>(~(0xC3u | Icm42688pReg::INTF_CONFIG1_RTC_MODE_MASK));
+  v |= static_cast<uint8_t>(0x40u | Icm42688pReg::INTF_CONFIG1_CLKSEL_PLL);
+  if (cfg.external_clock.enabled) {
+    v |= Icm42688pReg::INTF_CONFIG1_RTC_MODE_EN;
+  }
   WriteReg(REG_INTF_CONFIG1, v);
 }
 
@@ -759,9 +827,11 @@ void Icm42688p::ConfigureFifo() {
   v = ReadReg(REG_FIFO_CONFIG);
   v &= 0x3F;  // clear bits 7:6 → FIFO_MODE = 00 (bypass)
   WriteReg(REG_FIFO_CONFIG, v);
-  WriteReg(REG_FIFO_CONFIG1,
-           0x4B);  // FIFO_CONFIG1: resume partial read + accel+gyro+timestamp,
-                   // FIFO_TEMP_EN=0, 16-bit (HIRES=0)
+  WriteReg(
+      REG_FIFO_CONFIG1,
+      static_cast<uint8_t>(FIFO_CONFIG1_RESUME_PARTIAL_RD |
+                           FIFO_CONFIG1_TMST_FSYNC_EN | FIFO_CONFIG1_TEMP_EN |
+                           FIFO_CONFIG1_GYRO_EN | FIFO_CONFIG1_ACCEL_EN));
   const uint16_t fifo_wm_bytes =
       static_cast<uint16_t>(fifo_wm_records_ * kPacketBytes);
   WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));

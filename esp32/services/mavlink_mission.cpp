@@ -7,10 +7,8 @@ void Mavlink::HandleMissionMessage(const mavlink_message_t &msg) {
       mavlink_msg_mission_request_list_decode(&msg, &req);
       // Mission inventory requests are queued so RX only records the request
       // metadata if it is actually addressed to this endpoint.
-      if (req.target_system == cfg_.identity.sysid &&
-          (req.target_component == cfg_.identity.compid ||
-           req.target_component == 0 ||
-           req.target_component == MAV_COMP_ID_ALL)) {
+      if (IsTargetedToThisComponent(req.target_system,
+                                    req.target_component)) {
         QueueMissionCount(msg.sysid, msg.compid, req.mission_type);
       }
       break;

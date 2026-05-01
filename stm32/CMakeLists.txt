@@ -157,6 +157,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/m10_service.cpp
     Services/Src/crsf_link_service.cpp
     Services/Src/config_storage.cpp
+    Services/Src/stat_publisher.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp
     Services/Src/panic.cpp
