@@ -1,5 +1,6 @@
 {{ autogen_warning }}#pragma once
 
+#include "battery.hpp"
 #include "button.hpp"
 #include "crsf_link_service.hpp"
 #include "icm20948.hpp"
@@ -132,6 +133,25 @@ inline const Button::Config kButtonConfig = {
     .active_low = {{ button.active_low | cpp_bool }},
     .debounce_ms = {{ button.debounce_ms }},
     .long_press_ms = {{ button.long_press_ms }},
+};
+
+inline constexpr Battery::Config kBatteryConfig = {
+    .sample_period_us = {{ battery.sample_period_ms }}u * 1000u,
+    .adc_reference_mv = {{ battery.adc_reference_mv }},
+    .voltage_adc_channel = stm32_limits::kBatteryVoltageAdcChannel,
+    .current_adc_channel = stm32_limits::kBatteryCurrentAdcChannel,
+    .oversample_count = {{ battery.oversample_count }},
+    .filter_alpha_permille = {{ battery.filter_alpha_permille }},
+    .adc_timeout_us = {{ battery.adc_timeout_us }},
+    .voltage_multiplier_milli = {{ battery.voltage_multiplier_milli }},
+    .voltage_offset_mv = {{ battery.voltage_offset_mv }},
+    .current_scale_ma_per_v = {{ battery.current_scale_ma_per_v }},
+    .current_offset_mv = {{ battery.current_offset_mv }},
+    .current_deadband_ma = {{ battery.current_deadband_ma }},
+    .cell_count = {{ battery.cell_count }},
+    .cell_empty_mv = {{ battery.cell_empty_mv }},
+    .cell_full_mv = {{ battery.cell_full_mv }},
+    .initial_mah_drawn = {{ battery.initial_mah_drawn }},
 };
 
 inline constexpr RcReceiver::Config kRcReceiverConfig = {

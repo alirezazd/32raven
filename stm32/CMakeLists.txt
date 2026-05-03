@@ -144,6 +144,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/time_base.cpp
     Drivers/USER/cc/led.cpp
     Drivers/USER/cc/battery.cpp
+    Drivers/USER/cc/esc_telemetry.cpp
 
     Drivers/USER/cc/dshot_tim1.cpp
     Drivers/USER/cc/spi.cpp
@@ -157,6 +158,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/m10_service.cpp
     Services/Src/crsf_link_service.cpp
     Services/Src/config_storage.cpp
+    Services/Src/dshot_codec.cpp
+    Services/Src/esc_service.cpp
     Services/Src/stat_publisher.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp

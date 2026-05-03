@@ -41,6 +41,7 @@ enum class MsgId : uint8_t {
   kSystemStatus = 0x12,
   kVehicleStatus = 0x13,
   kPanic = 0x14,
+  kEscTelemetry = 0x15,
 
   // System
   kReboot = 0xC0,    // 192
@@ -149,6 +150,7 @@ inline constexpr uint32_t kSystemSensorFlagImu = 1u << 0;
 inline constexpr uint32_t kSystemSensorFlagGps = 1u << 1;
 inline constexpr uint32_t kSystemSensorFlagBattery = 1u << 2;
 inline constexpr uint32_t kSystemSensorFlagRcReceiver = 1u << 3;
+inline constexpr uint32_t kSystemSensorFlagEsc = 1u << 4;
 
 struct SystemStatusMsg {
   uint32_t uptime_ms;
@@ -179,6 +181,25 @@ struct VehicleStatusMsg {
 
 struct PanicMsg {
   ErrorCode error_code;  // Error code
+} __attribute__((packed));
+
+inline constexpr uint8_t kEscTelemetryMotorCount = 4u;
+
+struct EscTelemetryMsg {
+  uint64_t timestamp_us;
+  uint32_t frame_count;
+  uint32_t crc_error_count;
+  uint32_t unassigned_frame_count;
+  uint32_t rx_drop_bytes;
+  uint32_t rx_dma_error_count;
+  uint32_t uart_error_count;
+  uint32_t rpm[kEscTelemetryMotorCount];
+  uint32_t electrical_rpm[kEscTelemetryMotorCount];
+  uint16_t voltage_centivolts[kEscTelemetryMotorCount];
+  uint16_t current_centiamps[kEscTelemetryMotorCount];
+  uint16_t consumption_mah[kEscTelemetryMotorCount];
+  int16_t temperature_c[kEscTelemetryMotorCount];
+  uint8_t valid_mask;
 } __attribute__((packed));
 
 struct Packet {
@@ -218,6 +239,7 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kSystemStatus:
     case MsgId::kVehicleStatus:
     case MsgId::kPanic:
+    case MsgId::kEscTelemetry:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
@@ -259,6 +281,8 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<VehicleStatusMsg>();
     case MsgId::kPanic:
       return len == PayloadLength<PanicMsg>();
+    case MsgId::kEscTelemetry:
+      return len == PayloadLength<EscTelemetryMsg>();
     case MsgId::kLog:
       return len <= kMaxLogTextPayload;
     default:

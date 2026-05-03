@@ -80,6 +80,14 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
     }
   }
 
+  const EscTelemetryData &esc = vehicle_state.GetEscTelemetry();
+  if (esc.valid_mask != 0u) {
+    sensors_present |= message::kSystemSensorFlagEsc;
+    if (esc.rx_dma_error_count == 0u && esc.uart_error_count == 0u) {
+      sensors_health |= message::kSystemSensorFlagEsc;
+    }
+  }
+
   message::SystemStatusMsg msg{};
   msg.uptime_ms = now_us / 1000u;
   msg.loop_counter = loop_counter;
@@ -107,4 +115,8 @@ void StatPublisher::Publish(AppContext &ctx, uint32_t now_us,
   ctx.sys->GetFcLink().SendSystemStatus(
       BuildSystemStatusMsg(ctx, now_us, loop_counter, imu));
   ctx.sys->GetFcLink().SendVehicleStatus(BuildVehicleStatusMsg());
+  const EscTelemetryData &esc = ctx.sys->GetVehicleState().GetEscTelemetry();
+  if (esc.valid_mask != 0u) {
+    ctx.sys->GetFcLink().SendEscTelemetry(esc);
+  }
 }

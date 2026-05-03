@@ -219,6 +219,38 @@ void FcLink::SendGyroCalibrationIdConfig(
   Send(pkt);
 }
 
+void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
+  message::EscTelemetryMsg msg{};
+  msg.frame_count = data.frame_count;
+  msg.crc_error_count = data.crc_error_count;
+  msg.unassigned_frame_count = data.unassigned_frame_count;
+  msg.rx_drop_bytes = data.rx_drop_bytes;
+  msg.rx_dma_error_count = data.rx_dma_error_count;
+  msg.uart_error_count = data.uart_error_count;
+  msg.valid_mask = data.valid_mask;
+
+  for (uint8_t i = 0; i < message::kEscTelemetryMotorCount; ++i) {
+    const EscTelemetryMotorData &src = data.motors[i];
+    if (src.timestamp_us > msg.timestamp_us) {
+      msg.timestamp_us = src.timestamp_us;
+    }
+    msg.rpm[i] = src.rpm;
+    msg.electrical_rpm[i] = src.electrical_rpm;
+    msg.voltage_centivolts[i] =
+        static_cast<uint16_t>(src.voltage * 100.0f + 0.5f);
+    msg.current_centiamps[i] =
+        static_cast<uint16_t>(src.current * 100.0f + 0.5f);
+    msg.consumption_mah[i] = src.consumption_mah;
+    msg.temperature_c[i] = src.temperature_c;
+  }
+
+  message::Packet pkt{};
+  pkt.header.id = static_cast<uint8_t>(message::MsgId::kEscTelemetry);
+  pkt.header.len = message::PayloadLength<message::EscTelemetryMsg>();
+  memcpy(pkt.payload, &msg, sizeof(msg));
+  Send(pkt);
+}
+
 void FcLink::SendSystemStatus(const message::SystemStatusMsg &msg) {
   message::Packet pkt{};
   pkt.header.id = (uint8_t)message::MsgId::kSystemStatus;

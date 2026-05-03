@@ -1,6 +1,5 @@
 #include "states.hpp"
 
-#include "board.h"
 #include "user_config.hpp"
 
 static constexpr uint32_t kLossPanicPerSec =
@@ -40,6 +39,7 @@ void IdleState::OnEnter(AppContext &ctx) {
   last_status_send_us_ = 0;
   slow_loop_counter_ = 0;
   prev_imu_seq_ = 0;
+  g_fast_last_us = 0;
 }
 
 void IdleState::OnStep(AppContext &ctx, SmTick now) {
@@ -98,9 +98,12 @@ void IdleState::OnFastTick(AppContext &ctx,
   for (uint8_t i = 0; i < batch.count; ++i) {
     const Icm42688p::Sample &raw = batch.samples[i];
     if (i > 0) {
-      const uint32_t dt_us =
-          (uint32_t)(raw.timestamp_us - batch.samples[i - 1u].timestamp_us);
-      if (dt_us > max_raw_dt_us_) max_raw_dt_us_ = dt_us;
+      const uint64_t prev_ts = batch.samples[i - 1u].timestamp_us;
+      if (raw.timestamp_us > prev_ts) {
+        const uint32_t dt_us =
+            static_cast<uint32_t>(raw.timestamp_us - prev_ts);
+        if (dt_us > max_raw_dt_us_) max_raw_dt_us_ = dt_us;
+      }
     }
   }
 
@@ -116,6 +119,7 @@ void IdleState::OnFastTick(AppContext &ctx,
 void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
   auto budget_exhausted = [&]() -> bool {
+    if (g_fast_last_us == 0u) return false;
     return (uint32_t)(micros() - g_fast_last_us) >= kSlowBudgetFromFastUs;
   };
 
@@ -152,6 +156,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   }
   ctx.sys->GetCrsfLinkService().PollRx(micros());
   ctx.sys->GetRcReceiver().Poll(micros());
+  ctx.sys->GetEscService().Poll(micros());
   if (budget_exhausted()) return;
 
   // 2. Poll battery and refresh the blackboard copy.

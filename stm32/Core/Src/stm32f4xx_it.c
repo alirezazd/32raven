@@ -89,6 +89,10 @@ extern void Uart2OnRxHalfCplt(void);
 extern void Uart2OnRxCplt(void);
 extern void Uart6OnRxHalfCplt(void);
 extern void Uart6OnRxCplt(void);
+extern void EscTelemetryOnUartInterrupt(void);
+extern void EscTelemetryOnRxHalfCplt(void);
+extern void EscTelemetryOnRxCplt(void);
+extern void EscTelemetryRxDmaError(uint32_t);
 
 /* USER CODE BEGIN EV */
 
@@ -222,6 +226,32 @@ void SysTick_Handler(void) {
 /******************************************************************************/
 
 /**
+  * @brief This function handles DMA1 stream1 global interrupt.
+  */
+void DMA1_Stream1_IRQHandler(void)
+{
+  const uint32_t lisr = DMA1->LISR;
+
+  if (lisr & (DMA_LISR_TEIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIF1)) {
+    DMA1->LIFCR = DMA_LIFCR_CTEIF1 | DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1 |
+                  DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
+    EscTelemetryRxDmaError(lisr);
+    return;
+  }
+
+  if (lisr & (DMA_LISR_HTIF1 | DMA_LISR_TCIF1)) {
+    DMA1->LIFCR = DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
+
+    if (lisr & DMA_LISR_HTIF1) {
+      EscTelemetryOnRxHalfCplt();
+    }
+    if (lisr & DMA_LISR_TCIF1) {
+      EscTelemetryOnRxCplt();
+    }
+  }
+}
+
+/**
   * @brief This function handles DMA1 stream3 global interrupt.
   */
 void DMA1_Stream3_IRQHandler(void)
@@ -297,6 +327,11 @@ void USART1_IRQHandler(void) { Uart1OnUartInterrupt(); }
  * @brief This function handles USART2 global interrupt.
  */
 void USART2_IRQHandler(void) { Uart2OnUartInterrupt(); }
+
+/**
+ * @brief This function handles USART3 global interrupt.
+ */
+void USART3_IRQHandler(void) { EscTelemetryOnUartInterrupt(); }
 
 /**
  * @brief This function handles DMA1 stream6 global interrupt.
