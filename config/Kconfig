@@ -932,6 +932,135 @@ endmenu
 
 endmenu
 
+menu "Battery Monitor"
+
+config STM32_BATTERY_SAMPLE_PERIOD_MS
+    int "Sample period (ms)"
+    range 1 1000
+    default 100
+    help
+      Period for reading the battery voltage/current ADC channels. Lower
+      values update telemetry faster but spend more slow-loop time sampling
+      analog inputs. The driver still filters the readings before publishing.
+
+config STM32_BATTERY_ADC_REFERENCE_MV
+    int "ADC reference voltage (mV)"
+    range 1000 3600
+    default 3300
+    help
+      VDDA/reference voltage used by ADC1 in millivolts. Set this to the
+      measured 3.3 V rail if it differs from the nominal value; voltage and
+      current accuracy are directly proportional to this setting.
+
+config STM32_BATTERY_ADC_OVERSAMPLE_COUNT
+    int "ADC oversample count"
+    range 1 64
+    default 16
+    help
+      Number of ADC conversion pairs averaged each battery sample period.
+      Increase to reduce analog noise; decrease to reduce sampling time.
+
+config STM32_BATTERY_FILTER_ALPHA_PERMILLE
+    int "Filter alpha (permille)"
+    range 1 1000
+    default 250
+    help
+      Low-pass filter coefficient in thousandths. 1000 publishes each new
+      sample directly; lower values smooth voltage/current telemetry more.
+
+config STM32_BATTERY_ADC_TIMEOUT_US
+    int "ADC conversion timeout (us)"
+    range 100 10000
+    default 1000
+    help
+      Maximum time allowed for each ADC conversion before the sample is
+      discarded and the previous battery reading is retained.
+
+menu "Voltage"
+
+config STM32_BATTERY_VOLTAGE_MULTIPLIER_MILLI
+    int "Voltage multiplier x1000"
+    range 1000 100000
+    default 11000
+    help
+      Battery-voltage multiplier in thousandths applied to the ADC pin
+      voltage. For example, use 11000 when 1.000 V on PC0 represents 11.000 V
+      battery voltage. Calibrate this from measured pack voltage versus ADC
+      pin voltage.
+
+config STM32_BATTERY_VOLTAGE_OFFSET_MV
+    int "Voltage offset (mV)"
+    range -2000 2000
+    default 0
+    help
+      Signed correction added after voltage scaling. Use this to remove a
+      small fixed offset after the divider multiplier is calibrated.
+
+config STM32_BATTERY_CELL_COUNT
+    int "Cell count"
+    range 1 12
+    default 4
+    help
+      Battery cell count used to estimate remaining percentage from pack
+      voltage. This does not affect the reported pack voltage.
+
+config STM32_BATTERY_CELL_EMPTY_MV
+    int "Empty cell voltage (mV)"
+    range 2500 3800
+    default 3500
+    help
+      Per-cell voltage treated as 0 percent for telemetry percentage. Choose a
+      conservative loaded voltage for the battery chemistry you use.
+
+config STM32_BATTERY_CELL_FULL_MV
+    int "Full cell voltage (mV)"
+    range 3600 4400
+    default 4200
+    help
+      Per-cell voltage treated as 100 percent for telemetry percentage.
+
+endmenu
+
+menu "Current"
+
+config STM32_BATTERY_CURRENT_SCALE_MA_PER_V
+    int "Current scale (mA/V)"
+    range 1 500000
+    default 50000
+    help
+      Current-sensor scale in milliamps per volt at PC1. For example, use
+      50000 when 1.000 V on the current ADC input represents 50.000 A.
+      Calibrate this from a known current load.
+
+config STM32_BATTERY_CURRENT_OFFSET_MV
+    int "Current zero offset (mV)"
+    range -3300 3300
+    default 0
+    help
+      ADC pin voltage that represents zero current, in millivolts. Most ESC
+      current outputs are ground-referenced and should stay at 0 unless the
+      sensor has a mid-rail or fixed zero-current offset.
+
+config STM32_BATTERY_CURRENT_DEADBAND_MA
+    int "Current deadband (mA)"
+    range 0 5000
+    default 250
+    help
+      Absolute current below this value is reported as zero and not integrated
+      into consumed mAh. This suppresses idle ADC noise.
+
+config STM32_BATTERY_INITIAL_MAH_DRAWN
+    int "Initial consumed capacity (mAh)"
+    range 0 100000
+    default 0
+    help
+      Initial consumed capacity used at boot. Keep this at 0 for a fresh
+      battery; raise it only when resuming from a known partially used pack.
+
+endmenu
+
+endmenu
+
 menu "IMU"
 menu "ICM42688P"
 

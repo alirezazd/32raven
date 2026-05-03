@@ -53,6 +53,28 @@ struct BatteryData {
   uint8_t percentage;  // 0-100
 };
 
+struct EscTelemetryMotorData {
+  uint32_t timestamp_us = 0;
+  float voltage = 0.0f;
+  float current = 0.0f;
+  uint16_t consumption_mah = 0;
+  uint32_t electrical_rpm = 0;
+  uint32_t rpm = 0;
+  int16_t temperature_c = 0;
+  bool valid = false;
+};
+
+struct EscTelemetryData {
+  std::array<EscTelemetryMotorData, 4> motors{};
+  uint8_t valid_mask = 0;
+  uint32_t frame_count = 0;
+  uint32_t crc_error_count = 0;
+  uint32_t unassigned_frame_count = 0;
+  uint32_t rx_drop_bytes = 0;
+  uint32_t rx_dma_error_count = 0;
+  uint32_t uart_error_count = 0;
+};
+
 struct RcData {
   uint32_t timestamp_us = 0;
   std::array<uint16_t, stm32_limits::kRcEnabledChannelCount> channels{};
@@ -79,6 +101,7 @@ class VehicleState {
   }
 
   void UpdateBattery(const BatteryData &data) { bat_ = data; }
+  void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
   void UpdateRc(const RcData &data) {
     rc_ = data;
     rc_.updated = true;
@@ -89,6 +112,7 @@ class VehicleState {
   // Fast access for Control Loop (High Frequency)
   const GpsData &GetGps() const { return gps_; }
   const BatteryData &GetBattery() const { return bat_; }
+  const EscTelemetryData &GetEscTelemetry() const { return esc_; }
   const RcData &GetRc() const { return rc_; }
 
   // Polling access for Telemetry/Log (Low Frequency)
@@ -114,5 +138,6 @@ class VehicleState {
  private:
   GpsData gps_{};
   BatteryData bat_{};
+  EscTelemetryData esc_{};
   RcData rc_{};
 };

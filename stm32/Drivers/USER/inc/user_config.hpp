@@ -7,7 +7,10 @@
 
 #include "battery.hpp"
 #include "button.hpp"
+#include "dshot_codec.hpp"
 #include "dshot_tim1.hpp"
+#include "esc_telemetry.hpp"
+#include "esc_service.hpp"
 #include "gpio.hpp"
 #include "i2c.hpp"
 #include "icm42688p.hpp"
@@ -123,12 +126,22 @@ const LED::Config kLedDefault = {
     .active_low = true};
 
 constexpr DShotTim1::Config kDshotTim1Default = {
-    DShotMode::DSHOT600,  // mode
+    DShotMode::kDshot300,  // mode
 };
 
-inline constexpr Battery::Config kBatteryConfig = {
-    .voltage_v = 16.0f,
-    .current_a = 1.2f,
-    .mah_drawn = 250.0f,
-    .percentage = 75,
+inline constexpr EscService::Config kEscServiceConfig = {
+    .dshot =
+        {
+            .gap_bits = 2,
+        },
+    .idle_period_us = 1000,
+    .command_period_us = 2000,
+    .telemetry_request_period_us = 4000,
+    .command_repeat_count = 10,
+};
+
+inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
+    .baud_rate = 115200,
+    .motor_pole_count = 14,
+    .response_timeout_us = 2500,
 };

@@ -122,6 +122,10 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
       ctx.sys->Mavlink().UpdateTelemetryCache(
           PayloadAs<message::VehicleStatusMsg>(pkt), now_ms);
       break;
+    case message::MsgId::kEscTelemetry:
+      ctx.sys->Mavlink().UpdateTelemetryCache(
+          PayloadAs<message::EscTelemetryMsg>(pkt), now_ms);
+      break;
     case message::MsgId::kGyroCalibrationIdConfig:
       ctx.sys->Mavlink().UpdateConfigCache(
           PayloadAs<message::GyroCalibrationIdConfigMsg>(pkt), now_ms);

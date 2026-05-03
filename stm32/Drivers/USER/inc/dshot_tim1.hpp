@@ -1,19 +1,17 @@
 #pragma once
 #include <cstdint>
 
-extern "C" volatile uint32_t g_dshot_dma_done;
-
 struct DShotTim1Timings {
   uint16_t arr;
   uint16_t t1h;
   uint16_t t0h;
 };
 
-enum class DShotMode : uint8_t { DSHOT150, DSHOT300, DSHOT600 };
+enum class DShotMode : uint8_t { kDshot150, kDshot300, kDshot600 };
 
 class DShotTim1 {
  public:
-  static DShotTim1 &getInstance() {
+  static DShotTim1 &GetInstance() {
     static DShotTim1 instance;
     return instance;
   }
@@ -22,19 +20,21 @@ class DShotTim1 {
     DShotMode mode;
   };
 
-  static bool isBusy() { return getInstance().busy_; }
+  static bool IsBusy() { return GetInstance().busy_; }
 
-  static const DShotTim1Timings &timings() { return getInstance().timings_; }
+  static const DShotTim1Timings &Timings() { return GetInstance().timings_; }
 
-  static bool sendBits(const uint16_t *interleaved_ccr, uint16_t total_bits) {
-    return getInstance().SendBitsImpl(interleaved_ccr, total_bits);
+  static bool SendBits(const uint16_t *interleaved_ccr, uint16_t total_bits) {
+    return GetInstance().SendBitsImpl(interleaved_ccr, total_bits);
   }
 
-  void finishAndIdle();
+  void FinishAndIdle();
+
+  bool IsInitialized() const { return initialized_; }
+  uint32_t DmaStartFailCount() const { return dma_start_fail_count_; }
 
  private:
   friend class System;
-  static void init(const Config &config) { getInstance().Init(config); }
 
   DShotTim1() = default;
   DShotTim1(const DShotTim1 &) = delete;
@@ -45,13 +45,13 @@ class DShotTim1 {
 
   void DmaInit();
   void Tim1Init(uint16_t period);
-  void ConfigureBurstMode();
   void StartOutputsOnce();
-  void StartTransfer(const uint16_t *buf, uint32_t count_words);
+  bool StartTransfer(const uint16_t *buf, uint32_t count_words);
 
   static constexpr uint8_t kMotors = 4;
 
   DShotTim1Timings timings_{};
   volatile bool busy_ = false;
+  volatile uint32_t dma_start_fail_count_ = 0;
   bool initialized_ = false;
 };

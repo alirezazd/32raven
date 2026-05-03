@@ -37,6 +37,7 @@ class Mavlink {
         uint16_t gpos_ms = 0;
         uint16_t batt_ms = 0;
         uint16_t rc_ms = 0;
+        uint16_t esc_ms = 2000;
       } periods;
 
       struct Schedule {
@@ -46,6 +47,7 @@ class Mavlink {
         uint16_t gpos_start_delay_ms = 0;
         uint16_t batt_start_delay_ms = 0;
         uint16_t rc_start_delay_ms = 0;
+        uint16_t esc_start_delay_ms = 1200;
       } schedule;
     } tx;
   };
@@ -73,6 +75,8 @@ class Mavlink {
       UpdateCache(system_status_, value, now_ms);
     } else if constexpr (std::is_same_v<T, message::VehicleStatusMsg>) {
       UpdateCache(vehicle_status_, value, now_ms);
+    } else if constexpr (std::is_same_v<T, message::EscTelemetryMsg>) {
+      UpdateCache(esc_telemetry_, value, now_ms);
     } else {
       static_assert(sizeof(T) == 0, "unsupported MAVLink telemetry cache type");
     }
@@ -277,6 +281,7 @@ class Mavlink {
     uint32_t next_gpos_ms = 0;
     uint32_t next_batt_ms = 0;
     uint32_t next_rc_ms = 0;
+    uint32_t next_esc_ms = 0;
   };
 
   Mavlink();
@@ -298,6 +303,7 @@ class Mavlink {
   CachedValue<message::RcChannelsMsg> rc_channels_{};
   CachedValue<message::SystemStatusMsg> system_status_{};
   CachedValue<message::VehicleStatusMsg> vehicle_status_{};
+  CachedValue<message::EscTelemetryMsg> esc_telemetry_{};
 
   void HandleMessage(const mavlink_message_t &msg);
   void HandleParamMessage(const mavlink_message_t &msg);
@@ -406,6 +412,7 @@ class Mavlink {
       const Config::Tx &cfg_tx);
   std::optional<TxFrameState> StartBatteryStatusFrame(
       const Config::Tx &cfg_tx);
+  std::optional<TxFrameState> StartEscStatusFrame(const Config::Tx &cfg_tx);
 
   // Pick next stream to send when idle (hb has priority)
   std::optional<TxFrameState> StartNextScheduledFrame(

@@ -718,13 +718,12 @@ void Icm42688p::SetClockSource(const Config &cfg) {
 
   uint8_t v = ReadReg(REG_INTF_CONFIG1);
   // INTF_CONFIG1:
-  // - AFSR bits[7:6] = 01 (disable adaptive full-scale)
   // - CLKSEL bits[1:0] = 01 (PLL when available)
   // - RTC_MODE bit2 requires the pin 9 CLKIN function when external clocking.
-  // Preserve other reserved bits.
-  v &=
-      static_cast<uint8_t>(~(0xC3u | Icm42688pReg::INTF_CONFIG1_RTC_MODE_MASK));
-  v |= static_cast<uint8_t>(0x40u | Icm42688pReg::INTF_CONFIG1_CLKSEL_PLL);
+  // Preserve reserved bits [7:4] and ACCEL_LP_CLK_SEL bit3.
+  v &= static_cast<uint8_t>(~(Icm42688pReg::INTF_CONFIG1_CLKSEL_MASK |
+                              Icm42688pReg::INTF_CONFIG1_RTC_MODE_MASK));
+  v |= Icm42688pReg::INTF_CONFIG1_CLKSEL_PLL;
   if (cfg.external_clock.enabled) {
     v |= Icm42688pReg::INTF_CONFIG1_RTC_MODE_EN;
   }

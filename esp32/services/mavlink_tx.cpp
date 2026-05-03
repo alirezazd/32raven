@@ -1,5 +1,6 @@
 #include <mavlink.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <type_traits>
@@ -60,6 +61,9 @@ uint32_t MapSystemSensorFlagsToMavlink(uint32_t flags) {
   if ((flags & message::kSystemSensorFlagRcReceiver) != 0u) {
     mavlink_flags |= MAV_SYS_STATUS_SENSOR_RC_RECEIVER;
   }
+  if ((flags & message::kSystemSensorFlagEsc) != 0u) {
+    mavlink_flags |= MAV_SYS_STATUS_SENSOR_PROPULSION;
+  }
   return mavlink_flags;
 }
 
@@ -118,7 +122,10 @@ void Mavlink::ReportPanic(PanicSource source, ErrorCode error_code) {
                 static_cast<unsigned long>(static_cast<uint32_t>(error_code)),
                 GetMessage(error_code));
 
+  const bool have_transport =
+      udp_ != nullptr && Sys().Wifi().HasAssociatedStations();
   if (!SendStatusTextFrameNow(status, false) &&
+      have_transport &&
       error_code != ErrorCode::kMavlinkPanicSendFailed) {
     Panic(ErrorCode::kMavlinkPanicSendFailed);
   }
@@ -254,6 +261,7 @@ void Mavlink::InitTxSchedule(const Config::Tx &cfg_tx, uint32_t now_ms,
   tx_schedule_.next_gpos_ms = now_ms + cfg_tx.schedule.gpos_start_delay_ms;
   tx_schedule_.next_batt_ms = now_ms + cfg_tx.schedule.batt_start_delay_ms;
   tx_schedule_.next_rc_ms = now_ms + cfg_tx.schedule.rc_start_delay_ms;
+  tx_schedule_.next_esc_ms = now_ms + cfg_tx.schedule.esc_start_delay_ms;
 }
 
 bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
@@ -583,6 +591,41 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
   return frame;
 }
 
+std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
+    const Config::Tx &cfg_tx) {
+  tx_schedule_.next_esc_ms += cfg_tx.periods.esc_ms;
+
+  if (!esc_telemetry_.have_data) {
+    return std::nullopt;
+  }
+
+  const message::EscTelemetryMsg &esc = esc_telemetry_.value;
+  int32_t rpm[message::kEscTelemetryMotorCount] = {};
+  float voltage[message::kEscTelemetryMotorCount] = {};
+  float current[message::kEscTelemetryMotorCount] = {};
+
+  for (uint8_t i = 0; i < message::kEscTelemetryMotorCount; ++i) {
+    const bool valid = (esc.valid_mask & (1u << i)) != 0u;
+    if (!valid) {
+      continue;
+    }
+    rpm[i] = esc.rpm[i] > static_cast<uint32_t>(INT32_MAX)
+                 ? INT32_MAX
+                 : static_cast<int32_t>(esc.rpm[i]);
+    voltage[i] = static_cast<float>(esc.voltage_centivolts[i]) * 0.01f;
+    current[i] = static_cast<float>(esc.current_centiamps[i]) * 0.01f;
+  }
+
+  mavlink_message_t m{};
+  mavlink_msg_esc_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
+                              esc.timestamp_us, rpm, voltage, current);
+
+  TxFrameState frame{};
+  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
+  frame.is_hb = false;
+  return frame;
+}
+
 std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
     const Config::Tx &cfg_tx, uint32_t now_ms) {
   // Among periodic streams, send whichever frame has been due the longest.
@@ -595,6 +638,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
     kAtt,
     kGpos,
     kBatt,
+    kEsc,
     kRc,
   } pick = Pick::kNone;
 
@@ -620,6 +664,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
   consider(cfg_tx.periods.att_ms > 0, tx_schedule_.next_att_ms, Pick::kAtt);
   consider(cfg_tx.periods.gpos_ms > 0, tx_schedule_.next_gpos_ms, Pick::kGpos);
   consider(cfg_tx.periods.batt_ms > 0, tx_schedule_.next_batt_ms, Pick::kBatt);
+  consider(cfg_tx.periods.esc_ms > 0, tx_schedule_.next_esc_ms, Pick::kEsc);
   consider(cfg_tx.periods.rc_ms > 0, tx_schedule_.next_rc_ms, Pick::kRc);
 
   switch (pick) {
@@ -633,6 +678,8 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
       return StartGlobalPositionIntFrame(cfg_tx);
     case Pick::kBatt:
       return StartBatteryStatusFrame(cfg_tx);
+    case Pick::kEsc:
+      return StartEscStatusFrame(cfg_tx);
     case Pick::kRc:
       return StartRcChannelsFrame(cfg_tx);
     case Pick::kNone:

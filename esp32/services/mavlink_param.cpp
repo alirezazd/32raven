@@ -199,14 +199,12 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
       if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
         break;
       }
-
       const std::optional<ParamRef> param =
           TryResolveParam(req.param_index, req.param_id);
       if (param.has_value()) {
         QueueParamValue(udp_tx_, ParamMavlinkIndex(*param));
         break;
       }
-
       if (req.param_index >= 0) {
         ESP_LOGW(kTag, "PARAM_REQUEST_READ unresolved index=%d",
                  static_cast<int>(req.param_index));
@@ -231,7 +229,6 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
       if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
         break;
       }
-
       const std::optional<ParamRef> param = TryResolveParam(-1, req.param_id);
       if (!param.has_value()) {
         const auto param_id = param_detail::MavTextToCString(req.param_id);
@@ -242,7 +239,6 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
         break;
       }
-
       const float decoded_value =
           param_detail::DecodeParamValue(req.param_value, req.param_type);
       const ParamSetResult set_result = TrySetParam(*param, decoded_value);
@@ -284,7 +280,6 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
       if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
         break;
       }
-
       const auto param_id = param_detail::MavTextToCString(req.param_id);
       const auto param_value = param_detail::MavTextToCString(req.param_value);
 
@@ -393,7 +388,7 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveParam(
   param_id[MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN] = '\0';
 
   for (uint16_t param_index = 0; param_index < param_detail::kBaseParamCount;
-      ++param_index) {
+       ++param_index) {
     if (std::strncmp(param_id.data(), param_detail::kParamTable[param_index].id,
                      MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN) == 0) {
       return FixedParamRef{param_index};

@@ -2,15 +2,17 @@
 
 #include <cstdint>
 
-#include "DShotCodec.hpp"
+#include "board.h"
 #include "stm32f4xx_hal.h"
-#include "system.hpp"
 
 extern "C" {
 TIM_HandleTypeDef htim1;
 DMA_HandleTypeDef hdma_tim1_up;
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);  // NOLINT
 }
+
+static void DShotDmaComplete(DMA_HandleTypeDef *hdma);
+static void DShotDmaError(DMA_HandleTypeDef *hdma);
 
 // ---------- local helpers ----------
 
@@ -24,6 +26,18 @@ static constexpr uint32_t kT1Den = 4u;  // 75%
 static constexpr uint32_t kT0Num = 3u;
 static constexpr uint32_t kT0Den = 8u;  // 37.5%
 
+static uint16_t DshotPeriodTicks(DShotMode mode) {
+  switch (mode) {
+    case DShotMode::kDshot600:
+      return 280u - 1u;
+    case DShotMode::kDshot300:
+      return 560u - 1u;
+    case DShotMode::kDshot150:
+      return 1120u - 1u;
+  }
+  return 280u - 1u;
+}
+
 // ---------- driver init ----------
 
 void DShotTim1::Init(const Config &config) {
@@ -31,28 +45,15 @@ void DShotTim1::Init(const Config &config) {
     ErrorHandler();
   }
   initialized_ = true;
-
-  uint32_t period = 0;
   // SystemClock is 168MHz (HSE=8, PLLM=8, PLLN=336, PLLP=2) -> SYSCLK=168MHz
   // TIM1 is on APB2 (84MHz), but if APB2 pre != 1, TIM1 clk = 2 * APB2 =
-  // 168MHz. We assume TIM1 CLK = 168 MHz. DShot600 = 600kHz -> 1.67us. 168e6 /
-  // 600e3 = 280 ticks. DShot300 = 300kHz -> 3.33us. 168e6 / 300e3 = 560 ticks.
-  // DShot150 = 150kHz -> 6.67us. 168e6 / 150e3 = 1120 ticks.
-
-  switch (config.mode) {
-    case DShotMode::DSHOT600:
-      period = 280 - 1;
-      break;
-    case DShotMode::DSHOT300:
-      period = 560 - 1;
-      break;
-    case DShotMode::DSHOT150:
-      period = 1120 - 1;
-      break;
-  }
+  // 168MHz. DShot600 = 280 ticks, DShot300 = 560, DShot150 = 1120.
+  const uint16_t period = DshotPeriodTicks(config.mode);
 
   DmaInit();
-  Tim1Init(static_cast<uint16_t>(period));
+  Tim1Init(period);
+  hdma_tim1_up.XferCpltCallback = DShotDmaComplete;
+  hdma_tim1_up.XferErrorCallback = DShotDmaError;
 
   TIM1->DCR = TIM_DMABASE_CCR1 | TIM_DMABURSTLENGTH_4TRANSFERS;
 
@@ -155,7 +156,9 @@ void DShotTim1::StartOutputsOnce() {
 
 bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
                              uint16_t total_bits) {
-  if (!interleaved_ccr || total_bits == 0) return false;
+  if (!initialized_ || !interleaved_ccr || total_bits == 0) {
+    return false;
+  }
 
   uint32_t primask = __get_PRIMASK();
   __disable_irq();
@@ -167,27 +170,27 @@ bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
   __set_PRIMASK(primask);
 
   const uint32_t count_words = static_cast<uint32_t>(total_bits) * kMotors;
-  StartTransfer(interleaved_ccr, count_words);
+  if (!StartTransfer(interleaved_ccr, count_words)) {
+    busy_ = false;
+    return false;
+  }
   return true;
 }
 
-volatile uint32_t g_dshot_dma_done = 0;
-
-void DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {
-  g_dshot_dma_done = 0;
+bool DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {
   if (HAL_DMA_Start_IT(&hdma_tim1_up, reinterpret_cast<uint32_t>(buf),
                        reinterpret_cast<uint32_t>(&TIM1->DMAR),
                        count_words) != HAL_OK) {
-    busy_ = false;
-    ErrorHandler();
-    return;
+    dma_start_fail_count_++;
+    return false;
   }
 
   __HAL_TIM_ENABLE_DMA(&htim1, TIM_DMA_UPDATE);
   TIM1->EGR = TIM_EGR_UG;
+  return true;
 }
 
-void DShotTim1::finishAndIdle() {
+void DShotTim1::FinishAndIdle() {
   __HAL_TIM_DISABLE_DMA(&htim1, TIM_DMA_UPDATE);
   (void)HAL_DMA_Abort(&hdma_tim1_up);  // safe even if already stopped // NOLINT
 
@@ -202,15 +205,14 @@ void DShotTim1::finishAndIdle() {
 
 // ---------- DMA callbacks ----------
 
-extern "C" void HAL_DMA_XferCpltCallback(DMA_HandleTypeDef *hdma) {  // NOLINT
+static void DShotDmaComplete(DMA_HandleTypeDef *hdma) {
   if (hdma == &hdma_tim1_up) {
-    g_dshot_dma_done = 1;
-    DShotTim1::getInstance().finishAndIdle();
+    DShotTim1::GetInstance().FinishAndIdle();
   }
 }
 
-extern "C" void HAL_DMA_XferErrorCallback(DMA_HandleTypeDef *hdma) {  // NOLINT
+static void DShotDmaError(DMA_HandleTypeDef *hdma) {
   if (hdma == &hdma_tim1_up) {
-    DShotTim1::getInstance().finishAndIdle();
+    DShotTim1::GetInstance().FinishAndIdle();
   }
 }

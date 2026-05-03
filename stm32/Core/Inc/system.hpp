@@ -7,6 +7,8 @@
 #include "crsf_link_service.hpp"
 #include "dshot_tim1.hpp"
 #include "ee.hpp"
+#include "esc_telemetry.hpp"
+#include "esc_service.hpp"
 #include "fc_link.hpp"
 #include "gpio.hpp"
 #include "led.hpp"
@@ -43,6 +45,8 @@ class System {
     // SECONDARY DRIVERS
     kSpi2,
     kDshot,
+    kEscTelemetry,
+    kEscService,
     kButton,
     kUart2,
     kM10,
@@ -70,6 +74,8 @@ class System {
   M10 &GetGps() { return M10::GetInstance(); }
   RcReceiver &GetRcReceiver() { return RcReceiver::GetInstance(); }
   CrsfLinkService &GetCrsfLinkService() { return crsf_link_service_; }
+  EscService &GetEscService() { return esc_service_; }
+  EscTelemetry &GetEscTelemetry() { return EscTelemetry::GetInstance(); }
   M10Service &ServiceGps() { return gps_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
 
@@ -85,6 +91,7 @@ class System {
   M10Service gps_service_;
   VehicleState vehicle_state_;
   CrsfLinkService crsf_link_service_;
+  EscService esc_service_;
 
   System();
   ~System() {}

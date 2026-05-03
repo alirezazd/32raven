@@ -31,6 +31,10 @@ ICM42688P_FIFO_BYTES = 2048
 ICM42688P_PACKET3_BYTES = 16
 FCLINK_TELEMETRY_RATE_MIN = 1
 FCLINK_TELEMETRY_RATE_MAX = 255
+BATTERY_ADC_RESOLUTION_BITS = 12
+BATTERY_ADC_MAX_RAW = (1 << BATTERY_ADC_RESOLUTION_BITS) - 1
+BATTERY_VOLTAGE_ADC_CHANNEL = 10
+BATTERY_CURRENT_ADC_CHANNEL = 11
 
 SPI_PRESCALER_CHOICES = {
     "STM32_IMU_SPI_PRESCALER_DIV2": "SpiPrescaler::kDiv2",
@@ -347,6 +351,14 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
                 "to be enabled"
             )
 
+    cell_empty_mv = _sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV")
+    cell_full_mv = _sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV")
+    if cell_empty_mv >= cell_full_mv:
+        raise ValueError(
+            "CONFIG_STM32_BATTERY_CELL_EMPTY_MV must be lower than "
+            "CONFIG_STM32_BATTERY_CELL_FULL_MV"
+        )
+
 
 def _cpp_bool(value: bool) -> str:
     return "true" if value else "false"
@@ -396,6 +408,10 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
         "max_watermark_records": _sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS"),
         "ee_spi1_prescaler": "SpiPrescaler::kDiv4",
         "rc_enabled_indices": enabled_rc_indices,
+        "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
+        "battery_adc_max_raw": BATTERY_ADC_MAX_RAW,
+        "battery_voltage_adc_channel": BATTERY_VOLTAGE_ADC_CHANNEL,
+        "battery_current_adc_channel": BATTERY_CURRENT_ADC_CHANNEL,
     }
 
 
@@ -566,6 +582,38 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
             "active_low": _sym_bool(kconf, "STM32_BUTTON_ACTIVE_LOW"),
             "debounce_ms": _sym_int(kconf, "STM32_BUTTON_DEBOUNCE_MS"),
             "long_press_ms": _sym_int(kconf, "STM32_BUTTON_LONG_PRESS_MS"),
+        },
+        "battery": {
+            "sample_period_ms": _sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS"),
+            "adc_reference_mv": _sym_int(kconf, "STM32_BATTERY_ADC_REFERENCE_MV"),
+            "oversample_count": _sym_int(
+                kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT"
+            ),
+            "filter_alpha_permille": _sym_int(
+                kconf, "STM32_BATTERY_FILTER_ALPHA_PERMILLE"
+            ),
+            "adc_timeout_us": _sym_int(kconf, "STM32_BATTERY_ADC_TIMEOUT_US"),
+            "voltage_multiplier_milli": _sym_int(
+                kconf, "STM32_BATTERY_VOLTAGE_MULTIPLIER_MILLI"
+            ),
+            "voltage_offset_mv": _sym_int(
+                kconf, "STM32_BATTERY_VOLTAGE_OFFSET_MV"
+            ),
+            "cell_count": _sym_int(kconf, "STM32_BATTERY_CELL_COUNT"),
+            "cell_empty_mv": _sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV"),
+            "cell_full_mv": _sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV"),
+            "current_scale_ma_per_v": _sym_int(
+                kconf, "STM32_BATTERY_CURRENT_SCALE_MA_PER_V"
+            ),
+            "current_offset_mv": _sym_int(
+                kconf, "STM32_BATTERY_CURRENT_OFFSET_MV"
+            ),
+            "current_deadband_ma": _sym_int(
+                kconf, "STM32_BATTERY_CURRENT_DEADBAND_MA"
+            ),
+            "initial_mah_drawn": _sym_int(
+                kconf, "STM32_BATTERY_INITIAL_MAH_DRAWN"
+            ),
         },
         "rc_receiver": {
             "enabled_channels": _enabled_rc_channels(kconf),

@@ -41,6 +41,8 @@ void System::Init(const SystemConfig &config) {
   InitComponent(Component::kLed);
   InitComponent(Component::kSpi2);
   InitComponent(Component::kDshot);
+  InitComponent(Component::kEscTelemetry);
+  InitComponent(Component::kEscService);
   InitComponent(Component::kButton);
   InitComponent(Component::kUart2);
   InitComponent(Component::kM10);
@@ -87,7 +89,14 @@ void System::InitComponent(Component c) {
       Spi2::GetInstance().Init(kSpi2Config);
       break;
     case Component::kDshot:
-      DShotTim1::init(kDshotTim1Default);
+      DShotTim1::GetInstance().Init(kDshotTim1Default);
+      break;
+    case Component::kEscTelemetry:
+      EscTelemetry::GetInstance().Init(kEscTelemetryConfig);
+      break;
+    case Component::kEscService:
+      esc_service_.Init(kEscServiceConfig, EscTelemetry::GetInstance(),
+                        vehicle_state_);
       break;
     case Component::kButton:
       Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
