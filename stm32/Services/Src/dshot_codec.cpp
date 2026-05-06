@@ -1,19 +1,19 @@
 #include "dshot_codec.hpp"
 
-#include "board.h"
 #include "dshot_tim1.hpp"
+#include "panic.hpp"
 
 void DShotCodec::Init(const Config &cfg) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32DshotCodecInvalidArg);
   }
 
   if (!DShotTim1::GetInstance().IsInitialized()) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32DshotCodecInvalidArg);
   }
 
   if (cfg.gap_bits > kMaxGapBits) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32DshotCodecInvalidArg);
   }
 
   cfg_ = cfg;

@@ -1,6 +1,7 @@
 #include "battery.hpp"
 
 #include "board.h"
+#include "panic.hpp"
 #include "stm32_limits.hpp"
 #include "stm32f4xx.h"
 
@@ -18,7 +19,7 @@ void ValidateAdcChannel(uint8_t channel) {
   if (channel <= 15u) {
     return;
   }
-  ErrorHandler();
+  Panic(ErrorCode::kStm32AdcInitFailed);
 }
 
 void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
@@ -34,7 +35,7 @@ void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
 
 uint8_t PinIndex(uint16_t pin) {
   if (pin == 0u || (pin & (pin - 1u)) != 0u) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32GpioConfigFailed);
   }
 
   for (uint8_t index = 0; index < 16u; ++index) {
@@ -43,7 +44,7 @@ uint8_t PinIndex(uint16_t pin) {
     }
   }
 
-  ErrorHandler();
+  Panic(ErrorCode::kStm32GpioConfigFailed);
   return 0u;
 }
 
@@ -82,7 +83,7 @@ float ClampFloat(float value, float low, float high) {
 
 void Battery::Init(const Config &cfg) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32AdcInitFailed);
   }
 
   if (cfg.sample_period_us == 0u || cfg.adc_reference_mv == 0u ||
@@ -93,7 +94,7 @@ void Battery::Init(const Config &cfg) {
       cfg.current_scale_ma_per_v == 0u || cfg.cell_count == 0u ||
       cfg.cell_empty_mv >= cfg.cell_full_mv ||
       cfg.voltage_adc_channel == cfg.current_adc_channel) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32AdcInitFailed);
   }
 
   cfg_ = cfg;
@@ -101,7 +102,7 @@ void Battery::Init(const Config &cfg) {
   ValidateAdcChannel(cfg_.current_adc_channel);
   if (cfg_.voltage_adc_channel != kEscVbaAdcChannel ||
       cfg_.current_adc_channel != kEscCurAdcChannel) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32AdcInitFailed);
   }
 
   mah_drawn_ = static_cast<float>(cfg_.initial_mah_drawn);
@@ -114,7 +115,7 @@ void Battery::Init(const Config &cfg) {
 
 void Battery::Poll(uint32_t now_us) {
   if (!initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32AdcInitFailed);
   }
 
   if (last_sample_us_ != 0u &&
@@ -135,7 +136,7 @@ void Battery::Poll(uint32_t now_us) {
 
 void Battery::InitAdc() {
   if (ESC_VBA_GPIO_PORT != GPIOC || ESC_CUR_GPIO_PORT != GPIOC) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32GpioConfigFailed);
   }
 
   EnableBatteryPeripheralClocks();

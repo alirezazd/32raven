@@ -1,5 +1,3 @@
-#include <cstdint>
-
 #include "ctx.hpp"
 #include "states.hpp"
 #include "system.hpp"
@@ -9,6 +7,7 @@ namespace {
 
 AppContext app{};
 StateMachine<AppContext> sm(app);
+IdleState idle;
 
 }  // namespace
 
@@ -25,7 +24,7 @@ extern "C" void ExpressMain(void) {
 int main(void) {
   System::GetInstance().Init(kSystemDefault);
   app.sm = &sm;
-  sm.Start(*app.idle);
+  sm.Start(idle);
   while (1) {
     app.sm->Step(static_cast<SmTick>(app.sys->Time().Micros()));
     __WFI();

@@ -3,6 +3,7 @@
 #include <cstring>  // for memcpy
 
 #include "gpio.hpp"
+#include "panic.hpp"
 #include "system.hpp"
 
 using namespace InvenSense_ICM20948;
@@ -41,7 +42,7 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
           ReadReg(0, static_cast<uint8_t>(Register::BANK_0::PWR_MGMT_1));
       if ((pwr & PWR_MGMT_1_BIT::DEVICE_RESET) == 0) break;
       if (System::GetInstance().Time().Micros() - start > 100000) {
-        ErrorHandler();
+        Panic(ErrorCode::kStm32Icm20948InitFailed);
         return;
       }
     }
@@ -70,7 +71,7 @@ void Icm20948::Init(GPIO &gpio, const Config &config) {
       }
 
       if (System::GetInstance().Time().Micros() - start > 100000) {
-        ErrorHandler();
+        Panic(ErrorCode::kStm32Icm20948InitFailed);
       }
     }
   }
@@ -239,7 +240,7 @@ void Icm20948::WriteReg(uint8_t bank, uint8_t reg, uint8_t val, bool verify,
 
     // Timeout check
     if (System::GetInstance().Time().Micros() - start > 100000) {
-      ErrorHandler();
+      Panic(ErrorCode::kStm32Icm20948InitFailed);
     }
   }
 }

@@ -1,7 +1,9 @@
 #!/bin/bash
 # Configure VSCode settings for 32Raven development.
 # Disables submodule detection (fixing perf issues with ESP-IDF's nested submodules),
-# sets up file watchers and search exclusions for vendored code.
+# sets up file watchers and search exclusions for vendored code, and points clangd
+# at the arm-none-eabi GCC driver so it can resolve the C++ stdlib (cstdint, etc.)
+# under the bare-metal cross-compiler.
 
 set -euo pipefail
 
@@ -22,7 +24,13 @@ cat > .vscode/settings.json <<'EOF'
     "**/third_party/esp-idf": true,
     "**/build": true,
     "**/.docker": true
-  }
+  },
+  "clangd.arguments": [
+    "--query-driver=/usr/bin/arm-none-eabi-*,/usr/local/bin/arm-none-eabi-*,/opt/**/arm-none-eabi-*,**/bin/arm-none-eabi-*",
+    "--background-index",
+    "--clang-tidy",
+    "--header-insertion=never"
+  ]
 }
 EOF
 

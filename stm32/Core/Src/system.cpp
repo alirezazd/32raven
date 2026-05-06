@@ -8,7 +8,6 @@
 #include "board.h"
 #include "led.hpp"
 #include "spi.hpp"
-#include "stm32f4xx.h"
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "user_config.hpp"
@@ -19,7 +18,7 @@ System::System() {
 
 void System::Init(const SystemConfig &config) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32SystemReinit);
   }
   initialized_ = true;
 
@@ -126,13 +125,13 @@ void System::ConfigureSystemClock(const SystemConfig &config) {
   /** Initializes the RCC Oscillators
    */
   if (HAL_RCC_OscConfig(&rcc_osc_init) != HAL_OK) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32RccOscConfigFailed);
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
    */
   if (HAL_RCC_ClockConfig(&rcc_clk_init, config.flashLatency) != HAL_OK) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32RccClockConfigFailed);
   }
 
   /** Enables the Clock Security System
@@ -140,10 +139,4 @@ void System::ConfigureSystemClock(const SystemConfig &config) {
   // HAL_RCC_EnableCSS(); TODO: Enable this when we have a backup power source
 }
 
-extern "C" void ErrorHandler(void) {
-  __disable_irq();
-  System::GetInstance().Led().Set(true);
-  while (1) {
-    __NOP();
-  }
-}
+extern "C" void ErrorHandler(void) { Panic(ErrorCode::kHalErrorHandler); }
