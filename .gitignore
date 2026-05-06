@@ -1,5 +1,7 @@
 # Build Artifacts
 build/
+.docker/
+.build-mode
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
