@@ -37,58 +37,84 @@ The project is built on a **"Bare-Metal First"** philosophy. Our goal is to elim
 
 ## Build Prerequisites
 
+The build can run in two modes — pick one. The same `make` targets work in either.
+
+### Mode A — Docker (recommended, zero host pollution)
+
+You only need a working Docker engine. Everything else (ARM GCC, CMake, Ninja, Python deps, ESP-IDF host prerequisites) lives inside the build image.
+
+* **Docker Engine** — install per the [official docs](https://docs.docker.com/engine/install/), then add your user to the `docker` group and re-login.
+
+VSCode users with the **Dev Containers** extension can open the repo directly in a container — `.devcontainer/devcontainer.json` reuses the same `Dockerfile` and pre-installs the C/C++, CMake, clangd, and Cortex-Debug extensions.
+
+> **Optional: VSCode performance with nested submodules.** If the Source Control panel feels slow scanning ESP-IDF's submodules, run `make setup-vscode` to apply recommended settings (`git.detectSubmodules: false`, file watcher exclusions, etc.). This is optional; the settings are **not committed** — you control what applies to your workspace.
+
+### Mode B — Host install
+
 * **CMake** (3.22+)
 * **ARM GCC toolchain** (`arm-none-eabi-*`) for STM32
-* **ESP-IDF tools** for the ESP32 target
-* **Python 3** for helper tools
+* **Python 3** with `kconfiglib` and `jinja2`
+* **ripgrep** + **clang-format** (for `make format-cpp`)
+* ESP-IDF host prereqs ([list](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32/get-started/linux-macos-setup.html#install-prerequisites)) for ESP32 builds
 
-> **Note:** The repo pins ESP-IDF as a submodule in `third_party/esp-idf` at `v5.5.3`.
-> Run `git submodule update --init --recursive` after cloning.
-> Run `make idf-install` before the first ESP32 build.
-> Optional local overrides (e.g. serial port, baud, alternate `IDF_PATH`) can still be set in `user_config.cmake`.
+> ESP-IDF itself is pinned as a submodule at `third_party/esp-idf` (v5.5.3). The toolchain it downloads goes to `~/.espressif` (host mode) or `.docker/home/.espressif` (Docker mode, gitignored).
 
 ---
 
 ## Quick Start
 
-### First-Time Setup
+### First-time setup (clone + submodules)
 
 ```bash
 git submodule update --init --recursive
+```
+
+### Pick a build mode
+
+```bash
+make enable-docker     # builds run in container; persists in .build-mode
+# — or —
+make disable-docker    # builds run on host (default)
+```
+
+The toggle is sticky across shells; flip it any time. One-shot override: `USE_DOCKER=0 make stm32`.
+
+### Install ESP-IDF tools (once, only needed for ESP32 builds)
+
+```bash
 make idf-install
 ```
 
-### Configuration
+In Docker mode this populates `.docker/home/.espressif`; in host mode, `~/.espressif`. Persisted across builds.
+
+### Configure
 
 ```bash
 make 32raven-menuconfig
 ```
 
-This opens the 32Raven config tree for both `ESP32` and `STM32` and updates `config/32raven.config`.
-Current generated consumers are on the STM32 side; the ESP32 section is part of the same project-wide menu tree.
+Opens the 32Raven config tree for ESP32 + STM32 and updates `config/32raven.config`.
 
 ### Build
 
 ```bash
-make all
+make all       # both targets
+make stm32     # STM32 only
+make esp32     # ESP32 only
 ```
 
-### Target-Specific Build
+### Targets
 
-```bash
-make stm32
-make esp32
-```
-
-### Build Targets
-
-| Target             | Command      |
-| ------------------ | ------------ |
+| Target             | Command                   |
+| ------------------ | ------------------------- |
 | **32Raven Config** | `make 32raven-menuconfig` |
-| **STM32 Only**     | `make stm32` |
-| **ESP32 Only**     | `make esp32` |
-| **Complete Stack** | `make all`   |
-| **Cleanup**        | `make clean` |
+| **STM32 Only**     | `make stm32`              |
+| **ESP32 Only**     | `make esp32`              |
+| **Complete Stack** | `make all`                |
+| **Enable Docker**  | `make enable-docker`      |
+| **Disable Docker** | `make disable-docker`     |
+| **Rebuild image**  | `make docker-image`       |
+| **Cleanup**        | `make clean`              |
 
 ---
 
@@ -98,8 +124,9 @@ make esp32
 
 ```bash
 make flash-esp32
-
 ```
+
+> In Docker mode, set `ESP_PORT="/dev/ttyUSB0"` (or your device path) in `user_config.cmake` so the USB tty is passed into the container via `--device`. Without it, idf.py auto-detect won't see any host devices.
 
 ### ESP32 (Wireless/OTA)
 

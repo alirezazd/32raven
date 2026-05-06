@@ -1,0 +1,29 @@
+{
+  "name": "32Raven",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "mounts": [
+    "source=${localWorkspaceFolder}/.docker/home,target=/home/builder,type=bind"
+  ],
+  "containerEnv": {
+    "IDF_TOOLS_PATH": "/home/builder/.espressif"
+  },
+  "runArgs": ["--network=host"],
+  "remoteUser": "builder",
+  "updateRemoteUserUID": true,
+  "postCreateCommand": "git submodule update --init --recursive --jobs $(($(nproc) - 1)) --depth 1 && make idf-install",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "llvm-vs-code-extensions.vscode-clangd",
+        "marus25.cortex-debug"
+      ]
+    }
+  }
+}
