@@ -1,6 +1,7 @@
 #include "I2C.hpp"
 
 #include "i2c.hpp"
+#include "panic.hpp"
 #include "system.hpp"
 
 // Define Global Legacy Handles for ISR/Extern compatibility
@@ -17,14 +18,14 @@ I2C<Inst>::~I2C() {}
 template <I2CInstance Inst>
 I2C_HandleTypeDef *I2C<Inst>::GetHandle() {
   if (Inst == I2CInstance::kI2C1) return &hi2c1;
-  ErrorHandler();
+  Panic(ErrorCode::kStm32I2cInitFailed);
   return nullptr;
 }
 
 template <I2CInstance Inst>
 void I2C<Inst>::Init(const Config &config) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32I2cInitFailed);
   }
   initialized_ = true;
 
@@ -45,7 +46,7 @@ void I2C<Inst>::Init(const Config &config) {
   p_handle->Init.NoStretchMode = config.noStretchMode;
 
   if (HAL_I2C_Init(p_handle) != HAL_OK) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32I2cInitFailed);
   }
 }
 

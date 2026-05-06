@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "board.h"
+#include "panic.hpp"
 #include "stm32f4xx_hal.h"
 
 extern "C" {
@@ -42,7 +42,7 @@ static uint16_t DshotPeriodTicks(DShotMode mode) {
 
 void DShotTim1::Init(const Config &config) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32DshotInitFailed);
   }
   initialized_ = true;
   // SystemClock is 168MHz (HSE=8, PLLM=8, PLLN=336, PLLP=2) -> SYSCLK=168MHz
@@ -99,18 +99,18 @@ void DShotTim1::Tim1Init(uint16_t period) {
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK) ErrorHandler();
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK) Panic(ErrorCode::kStm32TimInitFailed);
 
   clock_source_config.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim1, &clock_source_config) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
 
-  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) ErrorHandler();
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK) Panic(ErrorCode::kStm32TimInitFailed);
 
   master_config.MasterOutputTrigger = TIM_TRGO_RESET;
   master_config.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &master_config) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
 
   config_oc.OCMode = TIM_OCMODE_PWM1;
   config_oc.Pulse = 0;
@@ -121,13 +121,13 @@ void DShotTim1::Tim1Init(uint16_t period) {
   config_oc.OCNIdleState = TIM_OCNIDLESTATE_RESET;
 
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_1) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_2) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_3) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &config_oc, TIM_CHANNEL_4) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
 
   break_dead_time_config.OffStateRunMode = TIM_OSSR_DISABLE;
   break_dead_time_config.OffStateIDLEMode = TIM_OSSI_DISABLE;
@@ -138,7 +138,7 @@ void DShotTim1::Tim1Init(uint16_t period) {
   break_dead_time_config.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
 
   if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &break_dead_time_config) != HAL_OK)
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
 
   HAL_TIM_MspPostInit(&htim1);
 }

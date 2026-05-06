@@ -15,14 +15,12 @@
   "runArgs": ["--network=host"],
   "remoteUser": "builder",
   "updateRemoteUserUID": true,
-  "postCreateCommand": "git submodule update --init --recursive --jobs $(($(nproc) - 1)) --depth 1 && make idf-install",
+  "postCreateCommand": "for f in .devcontainer/skel/.[!.]*; do [ -e \"$HOME/$(basename \"$f\")\" ] || cp \"$f\" \"$HOME/\"; done && git submodule update --init --recursive --jobs $(($(nproc) - 1)) --depth 1 && make idf-install",
   "customizations": {
     "vscode": {
       "extensions": [
-        "ms-vscode.cpptools",
         "ms-vscode.cmake-tools",
-        "llvm-vs-code-extensions.vscode-clangd",
-        "marus25.cortex-debug"
+        "llvm-vs-code-extensions.vscode-clangd"
       ]
     }
   }

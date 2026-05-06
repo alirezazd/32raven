@@ -263,6 +263,43 @@ const char *GetMessage(ErrorCode code) {
       return "EEPROM schema mismatch";
     case ErrorCode::kRcReceiverInvalidConfig:
       return "RC receiver invalid config";
+
+    // STM32 init / HAL failures
+    case ErrorCode::kHalErrorHandler:
+      return "HAL Error_Handler (CubeMX MSP)";
+    case ErrorCode::kStm32SystemReinit:
+      return "STM32 System re-init";
+    case ErrorCode::kStm32RccOscConfigFailed:
+      return "STM32 RCC OscConfig failed";
+    case ErrorCode::kStm32RccClockConfigFailed:
+      return "STM32 RCC ClockConfig failed";
+    case ErrorCode::kStm32SpiInitFailed:
+      return "STM32 SPI init failed";
+    case ErrorCode::kStm32UartInitFailed:
+      return "STM32 UART init failed";
+    case ErrorCode::kStm32I2cInitFailed:
+      return "STM32 I2C init failed";
+    case ErrorCode::kStm32TimInitFailed:
+      return "STM32 TIM init failed";
+    case ErrorCode::kStm32DshotInitFailed:
+      return "STM32 DShot init failed";
+    case ErrorCode::kStm32AdcInitFailed:
+      return "STM32 ADC init failed";
+    case ErrorCode::kStm32DmaInitFailed:
+      return "STM32 DMA init failed";
+    case ErrorCode::kStm32GpioConfigFailed:
+      return "STM32 GPIO config failed";
+    case ErrorCode::kStm32EscTelemetryInitFailed:
+      return "STM32 ESC telemetry init failed";
+    case ErrorCode::kStm32EscServiceInitFailed:
+      return "STM32 ESC service init failed";
+    case ErrorCode::kStm32CrsfLinkInitFailed:
+      return "STM32 CRSF link init failed";
+    case ErrorCode::kStm32DshotCodecInvalidArg:
+      return "STM32 DShot codec invalid argument";
+    case ErrorCode::kStm32Icm20948InitFailed:
+      return "STM32 ICM20948 init failed";
+
     default:
       return "Unknown error";
   }

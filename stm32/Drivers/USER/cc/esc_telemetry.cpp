@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "board.h"
+#include "panic.hpp"
 #include "stm32f4xx.h"
 
 namespace {
@@ -48,14 +49,14 @@ uint8_t KissCrc8(const uint8_t *data, uint8_t len) {
 
 void EscTelemetry::Init(const Config &cfg) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32EscTelemetryInitFailed);
   }
   if (cfg.baud_rate == 0u || cfg.motor_pole_count < 2u ||
       cfg.response_timeout_us == 0u) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32EscTelemetryInitFailed);
   }
   if (ESC_TLM_GPIO_PORT != GPIOB || ESC_TLM_PIN != GPIO_PIN_11) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32GpioConfigFailed);
   }
 
   cfg_ = cfg;

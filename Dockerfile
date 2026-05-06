@@ -35,6 +35,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       clang-format \
       ca-certificates \
       bash \
+      bash-completion \
+      less \
+      nano \
+      vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user. Makefile-driven runs override UID/GID via `-u` (or

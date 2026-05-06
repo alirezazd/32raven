@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "panic.hpp"
 #include "stm32f4xx.h"
 #include "system.hpp"
 
@@ -157,7 +158,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
 
   UART_HandleTypeDef *handle = GetHandle();
   if (!handle) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32UartInitFailed);
     return;
   }
 
@@ -179,7 +180,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
   handle->Init.OverSampling = static_cast<uint32_t>(config.over_sampling);
 
   if (HAL_UART_Init(handle) != HAL_OK) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32UartInitFailed);
   }
 
   StartRxDma();
@@ -197,7 +198,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
   // Reconfigure baud rate and re-init peripheral
   handle->Init.BaudRate = baud_rate;
   if (HAL_UART_Init(handle) != HAL_OK) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32UartInitFailed);
   }
 
   // Restart DMA since HAL_UART_Init resets the peripheral state

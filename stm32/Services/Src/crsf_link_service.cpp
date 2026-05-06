@@ -2,8 +2,8 @@
 
 #include <cstring>
 
-#include "board.h"
 #include "fc_link.hpp"
+#include "panic.hpp"
 #include "rc_receiver.hpp"
 #include "stm32_config.hpp"
 #include "uart.hpp"
@@ -174,7 +174,7 @@ void CrsfLinkService::Init(const Config &cfg, Uart6 &uart,
                            VehicleState &vehicle_state, RcReceiver &rc_receiver,
                            FcLink &fc_link) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32CrsfLinkInitFailed);
   }
 
   cfg_ = cfg;

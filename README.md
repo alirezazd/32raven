@@ -45,9 +45,9 @@ You only need a working Docker engine. Everything else (ARM GCC, CMake, Ninja, P
 
 * **Docker Engine** — install per the [official docs](https://docs.docker.com/engine/install/), then add your user to the `docker` group and re-login.
 
-VSCode users with the **Dev Containers** extension can open the repo directly in a container — `.devcontainer/devcontainer.json` reuses the same `Dockerfile` and pre-installs the C/C++, CMake, clangd, and Cortex-Debug extensions.
+VSCode users with the **Dev Containers** extension can open the repo directly in a container — `.devcontainer/devcontainer.json` reuses the same `Dockerfile` and pre-installs the CMake, clangd, and Cortex-Debug extensions.
 
-> **Optional: VSCode performance with nested submodules.** If the Source Control panel feels slow scanning ESP-IDF's submodules, run `make setup-vscode` to apply recommended settings (`git.detectSubmodules: false`, file watcher exclusions, etc.). This is optional; the settings are **not committed** — you control what applies to your workspace.
+> **Optional: VSCode workspace settings.** Run `make setup-vscode` to apply recommended settings: submodule scan disabled (Source Control perf with ESP-IDF), file watcher / search exclusions for vendored code, and `clangd.arguments` so clangd queries the `arm-none-eabi` GCC driver for system headers (otherwise `<cstdint>` and friends won't resolve). This works in both Docker and host paths. Settings are **not committed** — you control what applies to your workspace.
 
 ### Mode B — Host install
 

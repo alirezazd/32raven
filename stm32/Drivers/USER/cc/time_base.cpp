@@ -1,6 +1,6 @@
 #include "time_base.hpp"
 
-#include "board.h"
+#include "panic.hpp"
 #include "stm32f4xx.h"
 
 // Global handle for HAL compatibility
@@ -18,7 +18,7 @@ TimeBase &TimeBase::GetInstance() {
 
 void TimeBase::Init(const Config &config) {
   if (initialized_) {
-    ErrorHandler();
+    Panic(ErrorCode::kStm32TimInitFailed);
   }
   initialized_ = true;
 

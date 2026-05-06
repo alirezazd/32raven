@@ -132,6 +132,25 @@ enum class ErrorCode : uint32_t {
   kEepromWriteFailed,
   kEepromSchemaMismatch,
   kRcReceiverInvalidConfig,
+
+  // ---- STM32 init / HAL failures --------------------------------------
+  kHalErrorHandler,        // Generic HAL Error_Handler trampoline (CubeMX MSP)
+  kStm32SystemReinit,      // System::Init() called twice
+  kStm32RccOscConfigFailed,
+  kStm32RccClockConfigFailed,
+  kStm32SpiInitFailed,
+  kStm32UartInitFailed,
+  kStm32I2cInitFailed,
+  kStm32TimInitFailed,
+  kStm32DshotInitFailed,
+  kStm32AdcInitFailed,
+  kStm32DmaInitFailed,
+  kStm32GpioConfigFailed,
+  kStm32EscTelemetryInitFailed,
+  kStm32EscServiceInitFailed,
+  kStm32CrsfLinkInitFailed,
+  kStm32DshotCodecInvalidArg,
+  kStm32Icm20948InitFailed,
 };
 
 const char *GetMessage(ErrorCode code);

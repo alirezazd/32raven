@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-#include "board.h"  // for USER_BTN_GPIO_PORT/Pin and ErrorHandler()
+#include "board.h"  // for USER_BTN_GPIO_PORT/Pin
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
