@@ -1,0 +1,241 @@
+{{ autogen_warning }}#pragma once
+
+#include "battery.hpp"
+#include "button.hpp"
+#include "crsf_link_service.hpp"
+#include "icm20948.hpp"
+#include "icm42688p.hpp"
+#include "m10.hpp"
+#include "rc_receiver.hpp"
+#include "spi.hpp"
+#include "stm32_limits.hpp"
+#include "uart.hpp"
+
+inline constexpr auto kFcLinkTelemetryRateHz = {{ fclink.telemetry_rate_hz }}u;
+inline constexpr auto kFcLinkTelemetryIntervalMs = 1000u / kFcLinkTelemetryRateHz;
+
+inline constexpr UartConfig kUart1Config = {
+    .baud_rate = {{ fclink.uart.baud_rate }},
+    .word_length = {{ fclink.uart.word_length }},
+    .stop_bits = {{ fclink.uart.stop_bits }},
+    .parity = {{ fclink.uart.parity }},
+    .mode = {{ fclink.uart.mode }},
+    .hw_flow_control = {{ fclink.uart.hw_flow_control }},
+    .over_sampling = {{ fclink.uart.over_sampling }},
+};
+
+inline constexpr UartConfig kUart2Config = {
+    .baud_rate = {{ m10.uart.baud_rate }},
+    .word_length = {{ m10.uart.word_length }},
+    .stop_bits = {{ m10.uart.stop_bits }},
+    .parity = {{ m10.uart.parity }},
+    .mode = {{ m10.uart.mode }},
+    .hw_flow_control = {{ m10.uart.hw_flow_control }},
+    .over_sampling = {{ m10.uart.over_sampling }},
+};
+
+inline constexpr UartConfig kUart6Config = {
+    .baud_rate = {{ rc_receiver.uart.baud_rate }},
+    .word_length = {{ rc_receiver.uart.word_length }},
+    .stop_bits = {{ rc_receiver.uart.stop_bits }},
+    .parity = {{ rc_receiver.uart.parity }},
+    .mode = {{ rc_receiver.uart.mode }},
+    .hw_flow_control = {{ rc_receiver.uart.hw_flow_control }},
+    .over_sampling = {{ rc_receiver.uart.over_sampling }},
+};
+
+inline constexpr SpiConfig kEeSpi1Config = {
+    .polarity = SpiPolarity::kLow,
+    .phase = SpiPhase::k1Edge,
+    .prescaler = stm32_limits::kEeSpi1Prescaler,
+    .bit_order = SpiBitOrder::kMsbFirst,
+};
+
+inline constexpr Icm42688p::Config kIcm42688pConfig = {
+    .spi_prescaler = {{ icm42688p.spi_prescaler }},
+    .external_clock = {
+        .enabled = {{ icm42688p.external_clock.enabled | cpp_bool }},
+        .frequency_hz = {{ icm42688p.external_clock.frequency_hz }},
+    },
+    .rates = {
+        .gyro = {{ icm42688p.rates.gyro }},
+        .accel = {{ icm42688p.rates.accel }},
+    },
+    .fs = {
+        .gyro = {{ icm42688p.fs.gyro }},
+        .accel = {{ icm42688p.fs.accel }},
+    },
+    .ui_filter = {
+        .gyro_bw = {{ icm42688p.ui_filter.gyro_bw }},
+        .accel_bw = {{ icm42688p.ui_filter.accel_bw }},
+        .gyro_cfg1 = {{ icm42688p.ui_filter.gyro_cfg1 }},
+        .accel_cfg1 = {{ icm42688p.ui_filter.accel_cfg1 }},
+    },
+    .notch = {
+        .freq_hz = {{ icm42688p.notch.freq_hz }},
+        .bw_idx = {{ icm42688p.notch.bw_idx }},
+        .enabled = {{ icm42688p.notch.enabled | cpp_bool }},
+    },
+    .gyro_aaf = {
+        .dis = {{ icm42688p.gyro_aaf.dis | cpp_bool }},
+        .delt = {{ icm42688p.gyro_aaf.delt }},
+        .delt_sqr = {{ icm42688p.gyro_aaf.delt_sqr }},
+        .bitshift = {{ icm42688p.gyro_aaf.bitshift }},
+    },
+    .accel_aaf = {
+        .dis = {{ icm42688p.accel_aaf.dis | cpp_bool }},
+        .delt = {{ icm42688p.accel_aaf.delt }},
+        .delt_sqr = {{ icm42688p.accel_aaf.delt_sqr }},
+        .bitshift = {{ icm42688p.accel_aaf.bitshift }},
+    },
+    .fifo = {
+        .watermark_records = {{ icm42688p.fifo.watermark_records }},
+        .hold_last = {{ icm42688p.fifo.hold_last | cpp_bool }},
+    },
+    .calibration = {
+        .gyro_duration_s = {{ icm42688p.calibration.gyro_duration_s }},
+        .gyro_timeout_s = {{ icm42688p.calibration.gyro_timeout_s }},
+        .gyro_still_threshold_raw = {{ icm42688p.calibration.gyro_still_threshold_raw }},
+    },
+    .recovery = {
+        .overrun_threshold = {{ icm42688p.recovery.overrun_threshold }},
+        .overrun_window_s = {{ icm42688p.recovery.overrun_window_s }},
+        .fault_led_period_ms = {{ icm42688p.recovery.fault_led_period_ms }},
+    },
+};
+
+inline constexpr SpiConfig kSpi2Config = {
+    .polarity = SpiPolarity::kHigh,
+    .phase = SpiPhase::k2Edge,
+    .prescaler = {{ icm42688p.spi_prescaler }},
+    .bit_order = SpiBitOrder::kMsbFirst,
+};
+
+inline constexpr Icm20948::Config kIcm20948Config = {
+    .dma_buf_size = {{ icm20948.dma_buf_size }},
+    .fifo_size = {{ icm20948.fifo_size }},
+    .accel = {
+        .range = {{ icm20948.accel.range }},
+        .dlpf_config = {{ icm20948.accel.dlpf_config }},
+        .sample_rate_div = {{ icm20948.accel.sample_rate_div }},
+    },
+    .gyro = {
+        .range = {{ icm20948.gyro.range }},
+        .dlpf_config = {{ icm20948.gyro.dlpf_config }},
+        .sample_rate_div = {{ icm20948.gyro.sample_rate_div }},
+    },
+    .mag_rate = {{ icm20948.mag_rate }},
+    .spi_prescaler = static_cast<uint8_t>({{ icm20948.spi_prescaler }}),
+};
+
+inline const Button::Config kButtonConfig = {
+    .pin = {.port = USER_BTN_GPIO_PORT, .number = USER_BTN_Pin},
+    .active_low = {{ button.active_low | cpp_bool }},
+    .debounce_ms = {{ button.debounce_ms }},
+    .long_press_ms = {{ button.long_press_ms }},
+};
+
+inline constexpr Battery::Config kBatteryConfig = {
+    .sample_period_us = {{ battery.sample_period_ms }}u * 1000u,
+    .adc_reference_mv = {{ battery.adc_reference_mv }},
+    .voltage_adc_channel = stm32_limits::kBatteryVoltageAdcChannel,
+    .current_adc_channel = stm32_limits::kBatteryCurrentAdcChannel,
+    .oversample_count = {{ battery.oversample_count }},
+    .filter_alpha_permille = {{ battery.filter_alpha_permille }},
+    .adc_timeout_us = {{ battery.adc_timeout_us }},
+    .voltage_multiplier_milli = {{ battery.voltage_multiplier_milli }},
+    .voltage_offset_mv = {{ battery.voltage_offset_mv }},
+    .current_scale_ma_per_v = {{ battery.current_scale_ma_per_v }},
+    .current_offset_mv = {{ battery.current_offset_mv }},
+    .current_deadband_ma = {{ battery.current_deadband_ma }},
+    .cell_count = {{ battery.cell_count }},
+    .cell_empty_mv = {{ battery.cell_empty_mv }},
+    .cell_full_mv = {{ battery.cell_full_mv }},
+    .initial_mah_drawn = {{ battery.initial_mah_drawn }},
+};
+
+inline constexpr RcReceiver::Config kRcReceiverConfig = {
+    .enabled_channels = {
+{% for enabled in rc_receiver.enabled_channels %}
+        {{ enabled | cpp_bool }}{{ "," if not loop.last }}
+{% endfor %}
+    },
+    .roll_channel = {{ rc_receiver.rc_map.roll }},
+    .pitch_channel = {{ rc_receiver.rc_map.pitch }},
+    .yaw_channel = {{ rc_receiver.rc_map.yaw }},
+    .throttle_channel = {{ rc_receiver.rc_map.throttle }},
+};
+
+inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
+    .max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
+    .gps_fresh_timeout_us =
+        {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u,
+    .heartbeat = {
+        .period_us = {{ rc_receiver.crsf.heartbeat.period_ms }}u * 1000u,
+        .start_delay_us =
+            {{ rc_receiver.crsf.heartbeat.start_delay_ms }}u * 1000u,
+        .max_silence_us = 0u,
+        .priority = {{ rc_receiver.crsf.heartbeat.priority }}u,
+        .send_on_change = false,
+    },
+    .gps = {
+        .period_us = {{ rc_receiver.crsf.gps.period_ms }}u * 1000u,
+        .start_delay_us = {{ rc_receiver.crsf.gps.start_delay_ms }}u * 1000u,
+        .max_silence_us =
+            {{ rc_receiver.crsf.gps.max_silence_ms }}u * 1000u,
+        .priority = {{ rc_receiver.crsf.gps.priority }}u,
+        .send_on_change = {{ rc_receiver.crsf.gps.send_on_change | cpp_bool }},
+    },
+    .battery = {
+        .period_us = {{ rc_receiver.crsf.battery.period_ms }}u * 1000u,
+        .start_delay_us =
+            {{ rc_receiver.crsf.battery.start_delay_ms }}u * 1000u,
+        .max_silence_us =
+            {{ rc_receiver.crsf.battery.max_silence_ms }}u * 1000u,
+        .priority = {{ rc_receiver.crsf.battery.priority }}u,
+        .send_on_change =
+            {{ rc_receiver.crsf.battery.send_on_change | cpp_bool }},
+    },
+};
+
+inline constexpr M10::Config kM10Config = {
+    .baud_rate = {{ m10.config.baud_rate }},
+    .uart1 = {
+        .enabled = {{ m10.config.uart1.enabled | cpp_bool }},
+        .stop_bits = {{ m10.config.uart1.stop_bits }},
+        .data_bits = {{ m10.config.uart1.data_bits }},
+        .parity = {{ m10.config.uart1.parity }},
+    },
+    .protocols = {
+        .outprot_ubx = {{ m10.config.protocols.outprot_ubx | cpp_bool }},
+        .outprot_nmea = {{ m10.config.protocols.outprot_nmea | cpp_bool }},
+    },
+    .messages = {
+        .nav_pvt = {{ m10.config.messages.nav_pvt | cpp_bool }},
+        .nav_dop = {{ m10.config.messages.nav_dop | cpp_bool }},
+        .nav_cov = {{ m10.config.messages.nav_cov | cpp_bool }},
+        .nav_eoe = {{ m10.config.messages.nav_eoe | cpp_bool }},
+    },
+    .nav = {
+        .rate_meas_ms = {{ m10.config.nav.rate_meas_ms }},
+        .dyn_model = {{ m10.config.nav.dyn_model }},
+    },
+    .gnss = {
+        .gps_enable = {{ m10.config.gnss.gps_enable | cpp_bool }},
+        .glo_enable = {{ m10.config.gnss.glo_enable | cpp_bool }},
+        .gal_enable = {{ m10.config.gnss.gal_enable | cpp_bool }},
+        .bds_enable = {{ m10.config.gnss.bds_enable | cpp_bool }},
+        .sbas_enable = {{ m10.config.gnss.sbas_enable | cpp_bool }},
+        .itfm_enable = {{ m10.config.gnss.itfm_enable | cpp_bool }},
+    },
+    .tp1 = {
+        .ena = {{ m10.config.tp1.ena | cpp_bool }},
+        .period = {{ m10.config.tp1.period }},
+        .len = {{ m10.config.tp1.len }},
+        .timegrid = {{ m10.config.tp1.timegrid }},
+        .sync_gnss = {{ m10.config.tp1.sync_gnss | cpp_bool }},
+        .align_to_tow = {{ m10.config.tp1.align_to_tow | cpp_bool }},
+        .pol_rising = {{ m10.config.tp1.pol_rising | cpp_bool }},
+    },
+    .ack_timeout_us = {{ m10.config.ack_timeout_us }},
+};

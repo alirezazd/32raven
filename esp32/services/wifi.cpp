@@ -1,0 +1,224 @@
+#include "wifi.hpp"
+
+#include "panic.hpp"
+
+extern "C" {
+#include "driver/gpio.h"  // IWYU pragma: keep
+#include "esp_err.h"
+#include "esp_event.h"
+#include "esp_log.h"
+}
+extern "C" {
+#include "esp_netif.h"
+#include "esp_wifi.h"
+#include "nvs_flash.h"
+}
+
+#include <string.h>
+
+static constexpr const char *kTag = "wifi";
+
+static inline void LogErr(const char *what, esp_err_t e) {
+  if (e != ESP_OK) ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
+}
+
+void WifiController::HandleWifiEvent(void *arg, esp_event_base_t event_base,
+                                     int32_t event_id, void *event_data) {
+  (void)event_data;
+  (void)event_base;
+  if (arg == nullptr) {
+    LogErr("WifiController::HandleWifiEvent", ESP_ERR_INVALID_ARG);
+    Panic(ErrorCode::kWifiEventLoopFailed);
+  }
+
+  auto *self = static_cast<WifiController *>(arg);
+  switch (event_id) {
+    case WIFI_EVENT_AP_STACONNECTED:
+      self->HandleApStaConnected();
+      break;
+    case WIFI_EVENT_AP_STADISCONNECTED:
+      self->HandleApStaDisconnected();
+      break;
+    default:
+      break;
+  }
+}
+
+void WifiController::Init(const Config &cfg) {
+  const char *ssid = cfg.ap.ssid != nullptr ? cfg.ap.ssid : "";
+  const char *password = cfg.ap.password != nullptr ? cfg.ap.password : "";
+  size_t ssid_len = strlen(ssid);
+  size_t password_len = strlen(password);
+  if (ssid_len == 0 || ssid_len > 32 || password_len > 63 ||
+      (password_len > 0 && password_len < 8) || cfg.ap.channel == 0 ||
+      cfg.ap.max_connections == 0 || cfg.ap.beacon_interval_tu < 100 ||
+      cfg.ap.beacon_interval_tu > 60000 ||
+      (cfg.ap.beacon_interval_tu % 100) != 0 ||
+      (cfg.pmf.required && !cfg.pmf.capable)) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
+  cfg_ = cfg;
+
+  // 1. NVS
+  esp_err_t e = nvs_flash_init();
+  if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    e = nvs_flash_erase();
+    LogErr("nvs_flash_erase", e);
+    e = nvs_flash_init();
+  }
+  LogErr("nvs_flash_init", e);
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiNvsInitFailed);
+  }
+
+  // 2. Netif (LwIP)
+  e = esp_netif_init();
+  LogErr("esp_netif_init", e);
+  if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+    Panic(ErrorCode::kWifiNetifInitFailed);
+  }
+
+  // 3. Event Loop
+  e = esp_event_loop_create_default();
+  if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+    LogErr("esp_event_loop_create_default", e);
+    Panic(ErrorCode::kWifiEventLoopFailed);
+  }
+
+  // 4. WiFi Init
+  wifi_init_config_t wcfg = WIFI_INIT_CONFIG_DEFAULT();
+  e = esp_wifi_init(&wcfg);
+  if (e == ESP_ERR_WIFI_INIT_STATE) {
+    // already init
+  } else if (e != ESP_OK) {
+    LogErr("esp_wifi_init", e);
+    Panic(ErrorCode::kWifiInitFailed);
+  }
+
+  // 5. Storage RAM
+  e = esp_wifi_set_storage(WIFI_STORAGE_RAM);
+  LogErr("esp_wifi_set_storage", e);
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiSetStorageFailed);
+  }
+  if (!event_handler_registered_) {
+    e = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED,
+                                   &WifiController::HandleWifiEvent, this);
+    LogErr("esp_event_handler_register(STACONNECTED)", e);
+    if (e != ESP_OK) {
+      Panic(ErrorCode::kWifiEventLoopFailed);
+    }
+
+    e = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STADISCONNECTED,
+                                   &WifiController::HandleWifiEvent, this);
+    LogErr("esp_event_handler_register(STADISCONNECTED)", e);
+    if (e != ESP_OK) {
+      Panic(ErrorCode::kWifiEventLoopFailed);
+    }
+
+    event_handler_registered_ = true;
+  }
+  associated_station_count_ = 0;
+  ESP_LOGI(kTag, "initialized");
+}
+
+void WifiController::StartAp() {
+  if (wifi_on_) return;
+  associated_station_count_ = 0;
+
+  // 1. Create AP Netif if needed
+  if (!ap_netif_) {
+    esp_netif_inherent_config_t inherent = ESP_NETIF_INHERENT_DEFAULT_WIFI_AP();
+    esp_netif_config_t ncfg = ESP_NETIF_DEFAULT_WIFI_AP();
+    ncfg.base = &inherent;
+    ap_netif_ = esp_netif_new(&ncfg);
+    if (!ap_netif_) {
+      ESP_LOGE(kTag, "esp_netif_new(AP) failed");
+      Panic(ErrorCode::kWifiNetifInitFailed);
+    }
+
+    // Attach AP netif to Wi-Fi
+    esp_err_t e = esp_netif_attach_wifi_ap(ap_netif_);
+    LogErr("esp_netif_attach_wifi_ap", e);
+    if (e != ESP_OK) {
+      Panic(ErrorCode::kWifiNetifInitFailed);
+    }
+
+    // Register default handlers
+    e = esp_wifi_set_default_wifi_ap_handlers();
+    if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
+      LogErr("esp_wifi_set_default_wifi_ap_handlers", e);
+      Panic(ErrorCode::kWifiEventLoopFailed);
+    }
+  }
+
+  // 2. Set Mode
+  esp_err_t e = esp_wifi_set_mode(WIFI_MODE_AP);
+  LogErr("esp_wifi_set_mode", e);
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
+
+  // 3. Config
+  wifi_config_t ap{};
+  const char *ssid = cfg_.ap.ssid != nullptr ? cfg_.ap.ssid : "";
+  const char *password = cfg_.ap.password != nullptr ? cfg_.ap.password : "";
+  strlcpy((char *)ap.ap.ssid, ssid, sizeof(ap.ap.ssid));
+  strlcpy((char *)ap.ap.password, password, sizeof(ap.ap.password));
+  ap.ap.ssid_len = strlen(ssid);
+  ap.ap.channel = cfg_.ap.channel;
+  ap.ap.max_connection = cfg_.ap.max_connections;
+  ap.ap.beacon_interval = cfg_.ap.beacon_interval_tu;
+  ap.ap.ssid_hidden = cfg_.ap.hidden ? 1 : 0;
+  ap.ap.authmode = (password[0] != '\0') ? WIFI_AUTH_WPA2_PSK : WIFI_AUTH_OPEN;
+  ap.ap.pmf_cfg.capable = cfg_.pmf.capable;
+  ap.ap.pmf_cfg.required = cfg_.pmf.required;
+
+  e = esp_wifi_set_config(WIFI_IF_AP, &ap);
+  LogErr("esp_wifi_set_config", e);
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
+
+  // 4. Start
+  e = esp_wifi_start();
+  LogErr("esp_wifi_start", e);
+  if (e != ESP_OK) {
+    Panic(ErrorCode::kWifiInitFailed);
+  }
+
+  wifi_on_ = true;
+  ESP_LOGI(kTag, "AP started SSID=%s", ssid);
+
+  // Apply the configured Wi-Fi driver power-save policy.
+  e = esp_wifi_set_ps(cfg_.power_save);
+  if (e != ESP_OK) {
+    ESP_LOGW(kTag, "esp_wifi_set_ps: %s", esp_err_to_name(e));
+  }
+}
+
+void WifiController::Stop() {
+  if (!wifi_on_) return;
+
+  esp_err_t e = esp_wifi_stop();
+  if (e != ESP_OK) ESP_LOGW(kTag, "esp_wifi_stop: %s", esp_err_to_name(e));
+
+  // No need to deinit, we usually keep driver alive
+  wifi_on_ = false;
+  associated_station_count_ = 0;
+  ESP_LOGI(kTag, "stopped");
+}
+
+void WifiController::HandleApStaConnected() {
+  const uint8_t previous_count = associated_station_count_.load();
+  if (previous_count < 255) {
+    associated_station_count_ = static_cast<uint8_t>(previous_count + 1u);
+  }
+}
+
+void WifiController::HandleApStaDisconnected() {
+  const uint8_t previous_count = associated_station_count_.load();
+  if (previous_count > 0) {
+    associated_station_count_ = static_cast<uint8_t>(previous_count - 1u);
+  }
+}

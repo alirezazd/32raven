@@ -1,0 +1,57 @@
+[stm32.imu.accel_calibration]
+type_name = "ImuAccelCalibration"
+tag = "IAC1"
+
+[[stm32.imu.accel_calibration.fields]]
+name = "offsets"
+type = "float"
+count = 3
+
+[[stm32.imu.accel_calibration.fields]]
+name = "gains"
+type = "float"
+count = 3
+
+[stm32.rc.calibration]
+type_name = "RcCalibration"
+tag = "RCC1"
+
+[[stm32.rc.calibration.fields]]
+name = "min_us"
+type = "uint16_t"
+count = 16
+
+[[stm32.rc.calibration.fields]]
+name = "max_us"
+type = "uint16_t"
+count = 16
+
+[[stm32.rc.calibration.fields]]
+name = "trim_us"
+type = "uint16_t"
+count = 16
+
+[[stm32.rc.calibration.fields]]
+name = "rev"
+type = "int8_t"
+count = 16
+
+[stm32.rc.map]
+type_name = "RcMap"
+tag = "RCM1"
+
+[[stm32.rc.map.fields]]
+name = "roll_channel"
+type = "uint8_t"
+
+[[stm32.rc.map.fields]]
+name = "pitch_channel"
+type = "uint8_t"
+
+[[stm32.rc.map.fields]]
+name = "yaw_channel"
+type = "uint8_t"
+
+[[stm32.rc.map.fields]]
+name = "throttle_channel"
+type = "uint8_t"
