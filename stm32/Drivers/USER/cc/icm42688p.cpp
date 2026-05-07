@@ -2,12 +2,13 @@
 
 #include <cmath>
 
-#include "board.hpp"
 #include "config_storage.hpp"
 #include "error_code.hpp"
 #include "gpio.hpp"
+#include "irq_priority.hpp"
 #include "panic.hpp"
 #include "spi.hpp"
+#include "stm32_config.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
 
@@ -74,8 +75,8 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
 
   // EXTI->PR = (1u << 10);
 
-  spi.EnableIrqs();  // SPI DMA interrupts
-  NVIC_SetPriority(board::kImuInt.exti_irqn, 3);
+  spi.EnableIrqs(irq_priority::kImuSpiDma);
+  NVIC_SetPriority(board::kImuInt.exti_irqn, irq_priority::kImuInt);
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 

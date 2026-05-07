@@ -311,30 +311,11 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim_base) {
 }
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  if (htim->Instance == TIM1) {
-    /* USER CODE BEGIN TIM1_MspPostInit 0 */
-
-    /* USER CODE END TIM1_MspPostInit 0 */
-
-    __HAL_RCC_GPIOE_CLK_ENABLE();
-    /**TIM1 GPIO Configuration
-    PE9     ------> TIM1_CH1
-    PE11     ------> TIM1_CH2
-    PE13     ------> TIM1_CH3
-    PE14     ------> TIM1_CH4
-    */
-    GPIO_InitStruct.Pin = GPIO_PIN_9 | GPIO_PIN_11 | GPIO_PIN_13 | GPIO_PIN_14;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    GPIO_InitStruct.Alternate = GPIO_AF1_TIM1;
-    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-    /* USER CODE BEGIN TIM1_MspPostInit 1 */
-
-    /* USER CODE END TIM1_MspPostInit 1 */
-  }
+  /* TIM1 channel pin setup (PEx, AF1) is done by GPIO::Init() via the
+   * generated `kDshotMotor[1-4]` entries in `kGpioDefault`. The pin map +
+   * Kconfig is the single source of truth; HAL_TIM_MspPostInit no longer
+   * duplicates the GPIO programming here. */
+  (void)htim;
 }
 /**
  * @brief TIM_Base MSP De-Initialization

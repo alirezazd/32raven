@@ -3,23 +3,23 @@
 #include <cstddef>
 #include <cstdint>
 
+// Compile-time bounds and buffer sizes consumed by ESP32 drivers.  Every
+// value here is either silicon/hardware-fixed or used as a non-type
+// template parameter (std::array<T, N>, RingBuffer<T, N>) somewhere in
+// the firmware, so they need to live as `constexpr` constants the
+// compiler can inline.  Runtime configuration (MAVLink identity, panic
+// task tuning, etc.) lives in esp32_config.hpp instead.
+
 namespace esp32_limits {
 
+// SSD1306 panel geometry.  Hardware-fixed by the chosen 72x40 display.
 inline constexpr std::size_t kDisplayPanelWidth = {{ display_panel.width }};
 inline constexpr std::size_t kDisplayPanelHeight = {{ display_panel.height }};
 inline constexpr std::size_t kDisplayPanelControllerWidth = {{ display_panel.controller_width }};
 inline constexpr std::size_t kDisplayPanelColumnOffset = {{ display_panel.column_offset }};
 
+// Compile-time queue / buffer sizes consumed as template parameters.
 inline constexpr std::size_t kFcLinkRxPacketQueueDepth = {{ fclink.rx_queue_depth }};
-
-inline constexpr std::uint32_t kMavlinkSysAutostart = {{ mavlink.sys_autostart }}u;
-inline constexpr std::uint32_t kMavlinkSystemStatusFreshMs = 3000u;
-inline constexpr const char *kMavlinkGitHashShort = "{{ mavlink.git_hash }}";
-inline constexpr const char *kMavlinkVersionString = "{{ mavlink.version_string }}";
-inline constexpr std::uint32_t kMavlinkFlightSwVersion = {{ mavlink.flight_sw_version_hex }};
-
-inline constexpr std::size_t kPanicTaskStackDepthWords = {{ panic.task_stack_depth_words }};
-inline constexpr std::uint32_t kPanicTaskPriority = {{ panic.task_priority }}u;
 
 inline constexpr std::size_t kProgrammerStagingBufferBytes = {{ programmer.staging_buffer_bytes }};
 inline constexpr std::size_t kProgrammerStm32BlockBytes = {{ programmer.stm32_block_bytes }};

@@ -6,13 +6,7 @@
 
 template <SpiInstance Inst>
 void Spi<Inst>::Init(const SpiConfig &config) {
-  /* DMA controller clock enable */
-  //__HAL_RCC_DMA2_CLK_ENABLE();
   EnableDmaClk();
-
-  /* DMA interrupt init (now called manually by user to set priority) */
-
-  // Bare Metal Init
   SPI_TypeDef *spi = Hw();
 
   // Enable Clock

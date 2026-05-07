@@ -4,11 +4,11 @@
 #include "dshot_tim1.hpp"
 #include "error_code.hpp"
 #include "gpio.hpp"
-#include "panic.hpp"
-// #include "i2c.hpp"
-#include "board_config.hpp"
+#include "irq_priority.hpp"
 #include "led.hpp"
+#include "panic.hpp"
 #include "spi.hpp"
+#include "stm32_config.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
 
@@ -16,7 +16,7 @@ System::System() {
   // Constructor does nothing now, explicit init() required.
 }
 
-void System::Init(const SystemConfig &config) {
+void System::Init(const System::Config &config) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kSystemReinit);
   }
@@ -24,9 +24,7 @@ void System::Init(const SystemConfig &config) {
 
   HAL_Init();
   ConfigureSystemClock(config);
-  // Express-lane bottom-half: below IMU EXTI/SPI DMA, above slow/background
-  // work.
-  NVIC_SetPriority(PendSV_IRQn, 4);
+  NVIC_SetPriority(PendSV_IRQn, irq_priority::kPendSv);
 
   InitComponent(Component::kTimeBase);
   InitComponent(Component::kGpio);
@@ -113,28 +111,39 @@ void System::InitComponent(Component c) {
   }
 }
 
-void System::ConfigureSystemClock(const SystemConfig &config) {
-  RCC_OscInitTypeDef rcc_osc_init = config.osc;
-  RCC_ClkInitTypeDef rcc_clk_init = config.clk;
+void System::ConfigureSystemClock(const System::Config &config) {
+  const bool use_hse = config.oscillator == system_clock::Oscillator::kHse;
 
-  /** Configure the main internal regulator output voltage
-   */
+  RCC_OscInitTypeDef osc{};
+  osc.OscillatorType =
+      use_hse ? RCC_OSCILLATORTYPE_HSE : RCC_OSCILLATORTYPE_HSI;
+  osc.HSEState = use_hse ? RCC_HSE_ON : RCC_HSE_OFF;
+  osc.HSIState = use_hse ? RCC_HSI_OFF : RCC_HSI_ON;
+  osc.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  osc.PLL.PLLState = RCC_PLL_ON;
+  osc.PLL.PLLSource = use_hse ? RCC_PLLSOURCE_HSE : RCC_PLLSOURCE_HSI;
+  osc.PLL.PLLM = config.pllm;
+  osc.PLL.PLLN = config.plln;
+  osc.PLL.PLLP = static_cast<uint32_t>(config.pllp);
+  osc.PLL.PLLQ = config.pllq;
+
+  RCC_ClkInitTypeDef clk{};
+  clk.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                  RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  clk.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  clk.AHBCLKDivider = static_cast<uint32_t>(config.ahb_divider);
+  clk.APB1CLKDivider = static_cast<uint32_t>(config.apb1_divider);
+  clk.APB2CLKDivider = static_cast<uint32_t>(config.apb2_divider);
+
   __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(config.voltage_scaling);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(
+      static_cast<uint32_t>(config.voltage_scale));
 
-  /** Initializes the RCC Oscillators
-   */
-  if (HAL_RCC_OscConfig(&rcc_osc_init) != HAL_OK) {
+  if (HAL_RCC_OscConfig(&osc) != HAL_OK) {
     Panic(ErrorCode::Stm32::kRccOscConfigFailed);
   }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-   */
-  if (HAL_RCC_ClockConfig(&rcc_clk_init, config.flash_latency) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&clk, config.flash_latency) != HAL_OK) {
     Panic(ErrorCode::Stm32::kRccClockConfigFailed);
   }
-
-  /** Enables the Clock Security System
-   */
   // HAL_RCC_EnableCSS(); TODO: Enable this when we have a backup power source
 }

@@ -1,7 +1,7 @@
 #include "states.hpp"
 
-#include "board_config.hpp"
 #include "error_code.hpp"
+#include "stm32_config.hpp"
 
 static constexpr uint32_t kLossPanicPerSec =
     Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u;  // 0.5%

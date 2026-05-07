@@ -51,14 +51,13 @@ set(STM32_LIMITS_HPP
 set(STM32_EE_SCHEMA_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/ee_schema.hpp")
 
-# Validate board.hpp + the freshly-generated stm32_config.hpp against ST's
-# silicon pin/AF data as part of header generation. Catches typo'd alternate
-# functions, pins not on the F407V package, same pin claimed twice, and
-# unreferenced/unknown board::k* names. Failure aborts the build — bad pin
-# maps brick boards silently otherwise.
+# Validate the freshly-generated stm32_config.hpp against ST's silicon pin /
+# AF data as part of header generation. Catches typo'd alternate functions,
+# pins not on the F407V package, same pin claimed twice, and unreferenced /
+# unknown board::k* names. Failure aborts the build — bad pin maps brick
+# boards silently otherwise.
 set(STM32_PIN_CHECKER
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_pinmap.py")
-set(STM32_BOARD_HPP "${CMAKE_CURRENT_SOURCE_DIR}/Core/Inc/board.hpp")
 set(ERROR_CODE_LINTER
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_error_codes.py")
 set(ERROR_CODE_HPP
@@ -90,7 +89,6 @@ add_custom_command(
             ${STM32_RUNTIME_CONFIG_TEMPLATE}
             ${STM32_LIMITS_TEMPLATE}
             ${STM32_PIN_CHECKER}
-            ${STM32_BOARD_HPP}
             ${ERROR_CODE_LINTER}
             ${ERROR_CODE_HPP}
     COMMENT "Generating + validating STM32 configuration headers"

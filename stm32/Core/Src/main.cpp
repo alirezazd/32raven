@@ -1,6 +1,6 @@
-#include "board_config.hpp"
 #include "ctx.hpp"
 #include "states.hpp"
+#include "stm32_config.hpp"
 #include "system.hpp"
 
 namespace {

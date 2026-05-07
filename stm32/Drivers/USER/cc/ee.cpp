@@ -3,9 +3,9 @@
 #include <algorithm>
 #include <cstring>
 
-#include "board.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
+#include "stm32_config.hpp"
 
 namespace {
 

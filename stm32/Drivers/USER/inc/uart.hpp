@@ -96,7 +96,7 @@ class Uart {
   Uart() = default;
   ~Uart() = default;
 
-  UART_HandleTypeDef *GetHandle();
+  USART_TypeDef *UartReg();
   bool initialized_ = false;
 
   RingBuffer<uint8_t, TxBufferSize> tx_buffer_;

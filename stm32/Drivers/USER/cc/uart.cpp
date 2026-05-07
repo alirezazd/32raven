@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "error_code.hpp"
+#include "irq_priority.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
 #include "system.hpp"
@@ -99,57 +100,83 @@ static inline bool UartTransmitDma(const uint8_t *buf, uint16_t len) {
   return true;
 }
 
-extern "C" {
-UART_HandleTypeDef huart1;
-UART_HandleTypeDef huart2;
-UART_HandleTypeDef huart6;
-DMA_HandleTypeDef hdma_usart1_rx;
-DMA_HandleTypeDef hdma_usart1_tx;
-DMA_HandleTypeDef hdma_usart2_rx;
-DMA_HandleTypeDef hdma_usart2_tx;
-DMA_HandleTypeDef hdma_usart6_rx;
-DMA_HandleTypeDef hdma_usart6_tx;
-}
+// HAL handle / DMA handle globals were previously emitted here for the
+// CubeMX-generated MSP to pick up via __HAL_LINKDMA. This driver no longer
+// calls HAL_UART_Init, so HAL_UART_MspInit is unreachable and gets
+// gc'd by --gc-sections together with all the handles it would have
+// referenced. Pin programming + DMA setup happen in kGpioDefault and in
+// StartRxDma() / UartTransmitDma() respectively.
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-UART_HandleTypeDef *
-Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::GetHandle() {
+USART_TypeDef *Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::UartReg() {
   if constexpr (Inst == UartInstance::kUart1) {
-    return &huart1;
+    return USART1;
   } else if constexpr (Inst == UartInstance::kUart2) {
-    return &huart2;
+    return USART2;
   } else {
     static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
-    return &huart6;
+    return USART6;
   }
 }
+
+namespace {
+
+uint32_t Apb1Hz() {
+  const uint32_t ppre1 = (RCC->CFGR & RCC_CFGR_PPRE1) >> RCC_CFGR_PPRE1_Pos;
+  const uint32_t div = ppre1 < 4u ? 1u : (1u << (ppre1 - 3u));
+  return SystemCoreClock / div;
+}
+
+uint32_t Apb2Hz() {
+  const uint32_t ppre2 = (RCC->CFGR & RCC_CFGR_PPRE2) >> RCC_CFGR_PPRE2_Pos;
+  const uint32_t div = ppre2 < 4u ? 1u : (1u << (ppre2 - 3u));
+  return SystemCoreClock / div;
+}
+
+// USARTDIV mantissa[15:4] | fraction[3:0] (or [2:0] when OVER8). The x100
+// scaling keeps the fractional part precise without floating point.
+uint32_t ComputeUartBrr(uint32_t pclk_hz, uint32_t baud_rate, bool over8) {
+  const uint32_t scale = over8 ? 2u : 4u;
+  const uint64_t div_x100 =
+      (static_cast<uint64_t>(pclk_hz) * 25u) / (scale * baud_rate);
+  const uint32_t mantissa = static_cast<uint32_t>(div_x100 / 100u);
+  const uint32_t frac_units = over8 ? 8u : 16u;
+  const uint32_t frac_x100 =
+      static_cast<uint32_t>(div_x100 - mantissa * 100u) * frac_units + 50u;
+  const uint32_t fraction = frac_x100 / 100u;
+  if (over8) {
+    return (mantissa << 4u) | ((fraction & 0xF8u) << 1u) | (fraction & 0x07u);
+  }
+  return (mantissa << 4u) | (fraction & 0x0Fu);
+}
+
+}  // namespace
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
     const UartConfig &config) {
   if constexpr (Inst == UartInstance::kUart1) {
-    __HAL_RCC_DMA2_CLK_ENABLE();
-    /* DMA2_Stream2_IRQn interrupt configuration */
-    NVIC_SetPriority(DMA2_Stream2_IRQn, 10);
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+    (void)RCC->AHB1ENR;
+    NVIC_SetPriority(DMA2_Stream2_IRQn, irq_priority::kUart1Dma);
     NVIC_EnableIRQ(DMA2_Stream2_IRQn);
-    /* DMA2_Stream7_IRQn interrupt configuration */
-    NVIC_SetPriority(DMA2_Stream7_IRQn, 10);
+    NVIC_SetPriority(DMA2_Stream7_IRQn, irq_priority::kUart1Dma);
     NVIC_EnableIRQ(DMA2_Stream7_IRQn);
   } else if constexpr (Inst == UartInstance::kUart2) {
-    __HAL_RCC_DMA1_CLK_ENABLE();
-    /* DMA1_Stream5_IRQn interrupt configuration */
-    NVIC_SetPriority(DMA1_Stream5_IRQn, 5);
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
+    (void)RCC->AHB1ENR;
+    NVIC_SetPriority(DMA1_Stream5_IRQn, irq_priority::kUart2Dma);
     NVIC_EnableIRQ(DMA1_Stream5_IRQn);
-    /* DMA1_Stream6_IRQn interrupt configuration */
-    NVIC_SetPriority(DMA1_Stream6_IRQn, 5);
+    NVIC_SetPriority(DMA1_Stream6_IRQn, irq_priority::kUart2Dma);
     NVIC_EnableIRQ(DMA1_Stream6_IRQn);
   } else if constexpr (Inst == UartInstance::kUart6) {
-    __HAL_RCC_DMA2_CLK_ENABLE();
-    NVIC_SetPriority(DMA2_Stream1_IRQn, 5);
+    RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
+    (void)RCC->AHB1ENR;
+    NVIC_SetPriority(DMA2_Stream1_IRQn, irq_priority::kUart6Dma);
     NVIC_EnableIRQ(DMA2_Stream1_IRQn);
-    NVIC_SetPriority(DMA2_Stream6_IRQn, 5);
+    NVIC_SetPriority(DMA2_Stream6_IRQn, irq_priority::kUart6Dma);
     NVIC_EnableIRQ(DMA2_Stream6_IRQn);
   }
   if (initialized_) {
@@ -157,32 +184,36 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
   }
   initialized_ = true;
 
-  UART_HandleTypeDef *handle = GetHandle();
-  if (!handle) {
-    Panic(ErrorCode::Stm32::kUartInitFailed);
-    return;
-  }
-
+  USART_TypeDef *uart = UartReg();
+  uint32_t pclk_hz = 0;
   if constexpr (Inst == UartInstance::kUart1) {
-    handle->Instance = USART1;
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+    (void)RCC->APB2ENR;
+    pclk_hz = Apb2Hz();
   } else if constexpr (Inst == UartInstance::kUart2) {
-    handle->Instance = USART2;
+    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
+    (void)RCC->APB1ENR;
+    pclk_hz = Apb1Hz();
   } else {
-    static_assert(Inst == UartInstance::kUart6, "Invalid Uart Instance");
-    handle->Instance = USART6;
+    RCC->APB2ENR |= RCC_APB2ENR_USART6EN;
+    (void)RCC->APB2ENR;
+    pclk_hz = Apb2Hz();
   }
 
-  handle->Init.BaudRate = config.baud_rate;
-  handle->Init.WordLength = static_cast<uint32_t>(config.word_length);
-  handle->Init.StopBits = static_cast<uint32_t>(config.stop_bits);
-  handle->Init.Parity = static_cast<uint32_t>(config.parity);
-  handle->Init.Mode = static_cast<uint32_t>(config.mode);
-  handle->Init.HwFlowCtl = static_cast<uint32_t>(config.hw_flow_control);
-  handle->Init.OverSampling = static_cast<uint32_t>(config.over_sampling);
-
-  if (HAL_UART_Init(handle) != HAL_OK) {
-    Panic(ErrorCode::Stm32::kUartInitFailed);
-  }
+  // Disable while reprogramming so writes to BRR / CR1-3 take effect cleanly.
+  uart->CR1 &= ~USART_CR1_UE;
+  // The HAL UART_* enum values are register bit patterns (e.g. UART_PARITY_EVEN
+  // == USART_CR1_PCE), so we OR them straight into CR1/CR2/CR3.
+  uart->CR1 = static_cast<uint32_t>(config.word_length) |
+              static_cast<uint32_t>(config.parity) |
+              static_cast<uint32_t>(config.over_sampling) |
+              static_cast<uint32_t>(config.mode);
+  uart->CR2 = static_cast<uint32_t>(config.stop_bits);
+  uart->CR3 = static_cast<uint32_t>(config.hw_flow_control);
+  const bool over8 =
+      static_cast<uint32_t>(config.over_sampling) == UART_OVERSAMPLING_8;
+  uart->BRR = ComputeUartBrr(pclk_hz, config.baud_rate, over8);
+  uart->CR1 |= USART_CR1_UE;
 
   StartRxDma();
 }
@@ -193,16 +224,23 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
     uint32_t baud_rate) {
   if (!initialized_) return;
 
-  UART_HandleTypeDef *handle = GetHandle();
-  if (!handle) return;
-
-  // Reconfigure baud rate and re-init peripheral
-  handle->Init.BaudRate = baud_rate;
-  if (HAL_UART_Init(handle) != HAL_OK) {
-    Panic(ErrorCode::Stm32::kUartInitFailed);
+  USART_TypeDef *uart = UartReg();
+  uint32_t pclk_hz = 0;
+  if constexpr (Inst == UartInstance::kUart1 ||
+                Inst == UartInstance::kUart6) {
+    pclk_hz = Apb2Hz();
+  } else {
+    pclk_hz = Apb1Hz();
   }
+  const bool over8 = (uart->CR1 & USART_CR1_OVER8) != 0u;
 
-  // Restart DMA since HAL_UART_Init resets the peripheral state
+  // Briefly drop UE to apply BRR atomically; framing config (CR1/2/3) is
+  // unchanged so we can leave the rest of CR1 alone.
+  const uint32_t cr1 = uart->CR1;
+  uart->CR1 = cr1 & ~USART_CR1_UE;
+  uart->BRR = ComputeUartBrr(pclk_hz, baud_rate, over8);
+  uart->CR1 = cr1;
+
   StartRxDma();
 }
 
@@ -265,8 +303,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
       last_dma_len_ = static_cast<uint16_t>(len);
     } else {
       // No data to send, so we can disable DMAT to save power/clean state
-      UART_HandleTypeDef *handle = GetHandle();
-      handle->Instance->CR3 &= ~USART_CR3_DMAT;
+      UartReg()->CR3 &= ~USART_CR3_DMAT;
       return;
     }
   }  // interrupts unmasked here
@@ -508,13 +545,13 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
 
   // Enable Global Interrupt
   if constexpr (Inst == UartInstance::kUart1) {
-    NVIC_SetPriority(USART1_IRQn, 10);
+    NVIC_SetPriority(USART1_IRQn, irq_priority::kUart1);
     NVIC_EnableIRQ(USART1_IRQn);
   } else if constexpr (Inst == UartInstance::kUart2) {
-    NVIC_SetPriority(USART2_IRQn, 5);
+    NVIC_SetPriority(USART2_IRQn, irq_priority::kUart2);
     NVIC_EnableIRQ(USART2_IRQn);
   } else {
-    NVIC_SetPriority(USART6_IRQn, 5);
+    NVIC_SetPriority(USART6_IRQn, irq_priority::kUart6);
     NVIC_EnableIRQ(USART6_IRQn);
   }
 }

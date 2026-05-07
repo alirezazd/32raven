@@ -354,13 +354,13 @@ config ESP32_PROGRAMMER_VERIFY_ESP32
 
 config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
         int "ESP32 verify chunk size (bytes)"
-        range 1 8192
+        range 1 32768
         default 1024
         depends on ESP32_PROGRAMMER_VERIFY_ESP32
         help
             Number of ESP32 OTA partition bytes hashed per verification step.
             Larger values complete verification faster while using more temporary
-            RAM during the verify stage.
+            RAM during the verify stage.  Must be <= the staging buffer size.
 
 config ESP32_PROGRAMMER_VERIFY_STM32
         bool "Verify STM32"
@@ -370,6 +370,18 @@ config ESP32_PROGRAMMER_VERIFY_STM32
             compare its hash before reporting success.
 
 endmenu
+
+config ESP32_PROGRAMMER_STAGING_BUFFER_BYTES
+    int "Staging buffer size (bytes)"
+    range 1024 32768
+    default 8192
+    help
+      In-flight buffer for firmware bytes received over the wire before they
+      get pushed into the STM32 ROM bootloader. Default 8192 = 32 STM32
+      blocks of 256 bytes; that's enough headroom for typical TCP burst
+      sizes without measurably stressing the ESP32-C3 heap.  Lower it on
+      memory-constrained variants or raise it if you see throughput drops
+      from buffer underruns.
 
 endmenu
 
@@ -404,6 +416,26 @@ config ESP32_TCP_SERVER_NONBLOCKING
     default y
     help
       Use non-blocking listening and client sockets.
+
+config ESP32_TCP_SERVER_EVENT_QUEUE_DEPTH
+    int "Event queue depth"
+    range 2 32
+    default 8
+    help
+      Number of async network events (accept / recv / disconnect / error)
+      the server's event loop can queue while it's busy processing the
+      previous one. Heuristic; raise it if you observe dropped events
+      under bursty load, lower it to save a few hundred bytes of static
+      buffer storage.
+
+config ESP32_TCP_SERVER_DOWNLOAD_BUFFER_BYTES
+    int "Download buffer size (bytes)"
+    range 1024 32768
+    default 4096
+    help
+      Static buffer used to stage outbound TCP traffic before it's pushed
+      onto the data socket. Heuristic; raise it on faster networks or to
+      smooth out larger writes, lower it when memory is tight.
 
 menu "Keepalive"
 
@@ -699,6 +731,51 @@ config ESP32_MAVLINK_IDENTITY_COMPID
       MAVLink component ID advertised by the primary MAVLink transport
       endpoint. The default value 1 matches MAV_COMP_ID_AUTOPILOT1.
 
+choice
+    prompt "PX4 airframe (SYS_AUTOSTART)"
+    default ESP32_MAVLINK_SYS_AUTOSTART_QUAD_X
+    help
+      The integer reported as MAV_PARAM SYS_AUTOSTART. PX4 / QGroundControl
+      look this up in the PX4 airframe registry to apply default mixer +
+      controller configuration. Choose the entry that matches your vehicle
+      class, or pick "Custom" and set the integer below to use an airframe
+      ID not in this curated list.
+
+      Full PX4 airframe reference:
+      https://docs.px4.io/main/en/airframes/airframe_reference.html
+
+config ESP32_MAVLINK_SYS_AUTOSTART_QUAD_X
+    bool "Generic Quadrotor X (4001)"
+config ESP32_MAVLINK_SYS_AUTOSTART_QUAD_PLUS
+    bool "Generic Quadrotor + (4002)"
+config ESP32_MAVLINK_SYS_AUTOSTART_HEXA_X
+    bool "Generic Hexarotor X (4011)"
+config ESP32_MAVLINK_SYS_AUTOSTART_HEXA_PLUS
+    bool "Generic Hexarotor + (4012)"
+config ESP32_MAVLINK_SYS_AUTOSTART_OCTO_X
+    bool "Generic Octorotor X (4013)"
+config ESP32_MAVLINK_SYS_AUTOSTART_PLANE
+    bool "Standard Plane (100)"
+config ESP32_MAVLINK_SYS_AUTOSTART_VTOL_STANDARD
+    bool "Generic Standard VTOL (13000)"
+config ESP32_MAVLINK_SYS_AUTOSTART_VTOL_TAILSITTER
+    bool "Generic Tailsitter VTOL (13003)"
+config ESP32_MAVLINK_SYS_AUTOSTART_ROVER
+    bool "Generic Rover (50000)"
+config ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM
+    bool "Custom (set integer below)"
+
+endchoice
+
+config ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM_VALUE
+    int "Custom airframe ID"
+    range 1 1000000
+    default 4001
+    depends on ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM
+    help
+      Override SYS_AUTOSTART with an arbitrary integer. Only used when the
+      choice above is set to "Custom".
+
 endmenu
 
 menu "Transmit"
@@ -888,7 +965,7 @@ endmenu
 
 menu "UART"
 
-menu "UART2 (M10 GPS)"
+menu "USART2 (M10 GPS)"
 
 choice
     prompt "TX pin"
@@ -916,7 +993,463 @@ endchoice
 
 endmenu
 
+menu "USART3 (ESC Telemetry RX)"
+
+# ESCs send back temperature / RPM / voltage / current on a single one-way
+# UART line. Default to PB11 — PC11 and PD9 are the other silicon-valid
+# choices for USART3_RX on the F407V package.
+
+choice
+    prompt "RX pin"
+    default STM32_ESC_TLM_RX_PIN_PB11
+
+config STM32_ESC_TLM_RX_PIN_PB11
+    bool "PB11 (AF7)"
+
+config STM32_ESC_TLM_RX_PIN_PC11
+    bool "PC11 (AF7)"
+
+config STM32_ESC_TLM_RX_PIN_PD9
+    bool "PD9 (AF7)"
+
+endchoice
+
 endmenu
+
+endmenu
+
+menu "Motors (TIM1 DShot)"
+
+# TIM1 has just two pin options per channel on the F407V package: PORTA or
+# PORTE, both AF1. Default to PE9/PE11/PE13/PE14 to match the current PCB
+# routing. Re-route to PA8/PA9/PA10/PA11 for variants that break out PORTA.
+
+menu "Motor 1 (TIM1_CH1)"
+
+choice
+    prompt "Pin"
+    default STM32_DSHOT_MOTOR1_PE9
+
+config STM32_DSHOT_MOTOR1_PA8
+    bool "PA8 (AF1)"
+
+config STM32_DSHOT_MOTOR1_PE9
+    bool "PE9 (AF1)"
+
+endchoice
+
+endmenu
+
+menu "Motor 2 (TIM1_CH2)"
+
+choice
+    prompt "Pin"
+    default STM32_DSHOT_MOTOR2_PE11
+
+config STM32_DSHOT_MOTOR2_PA9
+    bool "PA9 (AF1)"
+
+config STM32_DSHOT_MOTOR2_PE11
+    bool "PE11 (AF1)"
+
+endchoice
+
+endmenu
+
+menu "Motor 3 (TIM1_CH3)"
+
+choice
+    prompt "Pin"
+    default STM32_DSHOT_MOTOR3_PE13
+
+config STM32_DSHOT_MOTOR3_PA10
+    bool "PA10 (AF1)"
+
+config STM32_DSHOT_MOTOR3_PE13
+    bool "PE13 (AF1)"
+
+endchoice
+
+endmenu
+
+menu "Motor 4 (TIM1_CH4)"
+
+choice
+    prompt "Pin"
+    default STM32_DSHOT_MOTOR4_PE14
+
+config STM32_DSHOT_MOTOR4_PA11
+    bool "PA11 (AF1)"
+
+config STM32_DSHOT_MOTOR4_PE14
+    bool "PE14 (AF1)"
+
+endchoice
+
+endmenu
+
+endmenu
+
+menu "SPI"
+
+menu "SPI1 (EEPROM / external flash)"
+
+# SPI1 routes to either the PA5/6/7 group or the PB3/4/5 group on the F407V
+# package. Both groups are AF5. Pick the group that is broken out on your
+# PCB; the chip-select is plain GPIO and lives in board.hpp.
+
+choice
+    prompt "SCK pin"
+    default STM32_SPI1_SCK_PIN_PB3
+
+config STM32_SPI1_SCK_PIN_PA5
+    bool "PA5 (AF5)"
+
+config STM32_SPI1_SCK_PIN_PB3
+    bool "PB3 (AF5)"
+
+endchoice
+
+choice
+    prompt "MISO pin"
+    default STM32_SPI1_MISO_PIN_PB4
+
+config STM32_SPI1_MISO_PIN_PA6
+    bool "PA6 (AF5)"
+
+config STM32_SPI1_MISO_PIN_PB4
+    bool "PB4 (AF5)"
+
+endchoice
+
+choice
+    prompt "MOSI pin"
+    default STM32_SPI1_MOSI_PIN_PB5
+
+config STM32_SPI1_MOSI_PIN_PA7
+    bool "PA7 (AF5)"
+
+config STM32_SPI1_MOSI_PIN_PB5
+    bool "PB5 (AF5)"
+
+endchoice
+
+menu "Chip select (plain GPIO)"
+
+choice
+    prompt "Port"
+    default STM32_SPI1_CS_PORT_A
+
+config STM32_SPI1_CS_PORT_A
+    bool "GPIOA"
+config STM32_SPI1_CS_PORT_B
+    bool "GPIOB"
+config STM32_SPI1_CS_PORT_C
+    bool "GPIOC"
+config STM32_SPI1_CS_PORT_D
+    bool "GPIOD"
+config STM32_SPI1_CS_PORT_E
+    bool "GPIOE"
+
+endchoice
+
+config STM32_SPI1_CS_PIN
+    int "Pin (0-15)"
+    range 0 15
+    default 15
+
+endmenu
+
+endmenu
+
+menu "SPI2 (IMU)"
+
+# SPI2 SCK is PB10 or PB13; MISO is PB14 or PC2; MOSI is PB15 or PC3 — all
+# AF5. The IMU chip-select / EXTI line stay in board.hpp (plain GPIO).
+
+choice
+    prompt "SCK pin"
+    default STM32_SPI2_SCK_PIN_PB13
+
+config STM32_SPI2_SCK_PIN_PB10
+    bool "PB10 (AF5)"
+
+config STM32_SPI2_SCK_PIN_PB13
+    bool "PB13 (AF5)"
+
+endchoice
+
+choice
+    prompt "MISO pin"
+    default STM32_SPI2_MISO_PIN_PB14
+
+config STM32_SPI2_MISO_PIN_PB14
+    bool "PB14 (AF5)"
+
+config STM32_SPI2_MISO_PIN_PC2
+    bool "PC2 (AF5)"
+
+endchoice
+
+choice
+    prompt "MOSI pin"
+    default STM32_SPI2_MOSI_PIN_PB15
+
+config STM32_SPI2_MOSI_PIN_PB15
+    bool "PB15 (AF5)"
+
+config STM32_SPI2_MOSI_PIN_PC3
+    bool "PC3 (AF5)"
+
+endchoice
+
+menu "Chip select (plain GPIO)"
+
+choice
+    prompt "Port"
+    default STM32_SPI2_CS_PORT_A
+
+config STM32_SPI2_CS_PORT_A
+    bool "GPIOA"
+config STM32_SPI2_CS_PORT_B
+    bool "GPIOB"
+config STM32_SPI2_CS_PORT_C
+    bool "GPIOC"
+config STM32_SPI2_CS_PORT_D
+    bool "GPIOD"
+config STM32_SPI2_CS_PORT_E
+    bool "GPIOE"
+
+endchoice
+
+config STM32_SPI2_CS_PIN
+    int "Pin (0-15)"
+    range 0 15
+    default 4
+
+endmenu
+
+endmenu
+
+endmenu
+
+menu "IMU (ICM42688P)"
+
+# IMU data-ready interrupt: routed to an EXTI line. The NVIC IRQn is
+# silicon-derived from the pin number (EXTI0..4 individual; 5-9 share
+# EXTI9_5; 10-15 share EXTI15_10), so only port + pin need configuring.
+
+menu "INT (EXTI input)"
+
+choice
+    prompt "Port"
+    default STM32_IMU_INT_PORT_B
+
+config STM32_IMU_INT_PORT_A
+    bool "GPIOA"
+config STM32_IMU_INT_PORT_B
+    bool "GPIOB"
+config STM32_IMU_INT_PORT_C
+    bool "GPIOC"
+config STM32_IMU_INT_PORT_D
+    bool "GPIOD"
+config STM32_IMU_INT_PORT_E
+    bool "GPIOE"
+
+endchoice
+
+config STM32_IMU_INT_PIN
+    int "Pin (0-15)"
+    range 0 15
+    default 10
+
+endmenu
+
+endmenu
+
+menu "Battery sense (ADC1)"
+
+# Voltage and current sense are wired to ADC1 inputs. The (port, pin) ->
+# ADC channel mapping is silicon-fixed on the F407V package — only PA0-PA7,
+# PB0-PB1, PC0-PC5 are valid. The generator emits the matching channel
+# constant alongside the BoardPin entry.
+
+menu "Voltage"
+
+choice
+    prompt "Port"
+    default STM32_BATTERY_VOLTAGE_PORT_C
+
+config STM32_BATTERY_VOLTAGE_PORT_A
+    bool "GPIOA"
+config STM32_BATTERY_VOLTAGE_PORT_B
+    bool "GPIOB"
+config STM32_BATTERY_VOLTAGE_PORT_C
+    bool "GPIOC"
+
+endchoice
+
+config STM32_BATTERY_VOLTAGE_PIN
+    int "Pin (0-15)"
+    range 0 15
+    default 0
+
+endmenu
+
+menu "Current"
+
+choice
+    prompt "Port"
+    default STM32_BATTERY_CURRENT_PORT_C
+
+config STM32_BATTERY_CURRENT_PORT_A
+    bool "GPIOA"
+config STM32_BATTERY_CURRENT_PORT_B
+    bool "GPIOB"
+config STM32_BATTERY_CURRENT_PORT_C
+    bool "GPIOC"
+
+endchoice
+
+config STM32_BATTERY_CURRENT_PIN
+    int "Pin (0-15)"
+    range 0 15
+    default 1
+
+endmenu
+
+endmenu
+
+endmenu
+
+menu "System Clock"
+
+# Clock tree configuration consumed by System::Init(). Values are emitted
+# into board::kSystemDefault by the generator and translated to HAL bit
+# patterns inside system.cpp.
+#
+# Not every (PLLM, PLLN, PLLP, AHB/APB div, flash latency, voltage scale)
+# combination is valid — the build does NOT police cross-field constraints
+# (PLL VCO range, max bus frequencies, latency vs SYSCLK, voltage scale vs
+# target clock). Consult RM0090 §6 before changing defaults.
+
+choice
+    prompt "Oscillator source"
+    default STM32_SYSTEM_OSC_HSE
+
+config STM32_SYSTEM_OSC_HSE
+    bool "HSE (external crystal)"
+
+config STM32_SYSTEM_OSC_HSI
+    bool "HSI (16 MHz internal RC)"
+
+endchoice
+
+config STM32_SYSTEM_PLL_M
+    int "PLLM (input divider, 2..63)"
+    range 2 63
+    default 8
+
+config STM32_SYSTEM_PLL_N
+    int "PLLN (VCO multiplier, 50..432)"
+    range 50 432
+    default 336
+
+choice
+    prompt "PLLP (SYSCLK divider)"
+    default STM32_SYSTEM_PLL_P_DIV2
+
+config STM32_SYSTEM_PLL_P_DIV2
+    bool "/2"
+config STM32_SYSTEM_PLL_P_DIV4
+    bool "/4"
+config STM32_SYSTEM_PLL_P_DIV6
+    bool "/6"
+config STM32_SYSTEM_PLL_P_DIV8
+    bool "/8"
+
+endchoice
+
+config STM32_SYSTEM_PLL_Q
+    int "PLLQ (USB/SDIO divider, 2..15)"
+    range 2 15
+    default 4
+
+choice
+    prompt "AHB divider"
+    default STM32_SYSTEM_AHB_DIV1
+
+config STM32_SYSTEM_AHB_DIV1
+    bool "/1"
+config STM32_SYSTEM_AHB_DIV2
+    bool "/2"
+config STM32_SYSTEM_AHB_DIV4
+    bool "/4"
+config STM32_SYSTEM_AHB_DIV8
+    bool "/8"
+config STM32_SYSTEM_AHB_DIV16
+    bool "/16"
+config STM32_SYSTEM_AHB_DIV64
+    bool "/64"
+config STM32_SYSTEM_AHB_DIV128
+    bool "/128"
+config STM32_SYSTEM_AHB_DIV256
+    bool "/256"
+config STM32_SYSTEM_AHB_DIV512
+    bool "/512"
+
+endchoice
+
+choice
+    prompt "APB1 divider (max 42 MHz)"
+    default STM32_SYSTEM_APB1_DIV4
+
+config STM32_SYSTEM_APB1_DIV1
+    bool "/1"
+config STM32_SYSTEM_APB1_DIV2
+    bool "/2"
+config STM32_SYSTEM_APB1_DIV4
+    bool "/4"
+config STM32_SYSTEM_APB1_DIV8
+    bool "/8"
+config STM32_SYSTEM_APB1_DIV16
+    bool "/16"
+
+endchoice
+
+choice
+    prompt "APB2 divider (max 84 MHz)"
+    default STM32_SYSTEM_APB2_DIV2
+
+config STM32_SYSTEM_APB2_DIV1
+    bool "/1"
+config STM32_SYSTEM_APB2_DIV2
+    bool "/2"
+config STM32_SYSTEM_APB2_DIV4
+    bool "/4"
+config STM32_SYSTEM_APB2_DIV8
+    bool "/8"
+config STM32_SYSTEM_APB2_DIV16
+    bool "/16"
+
+endchoice
+
+config STM32_SYSTEM_FLASH_LATENCY
+    int "Flash latency (wait states, 0..7)"
+    range 0 7
+    default 5
+
+choice
+    prompt "Voltage regulator scale"
+    default STM32_SYSTEM_VOLTAGE_SCALE1
+
+config STM32_SYSTEM_VOLTAGE_SCALE1
+    bool "Scale 1 (up to 168 MHz)"
+
+config STM32_SYSTEM_VOLTAGE_SCALE2
+    bool "Scale 2 (up to 144 MHz)"
+
+endchoice
 
 endmenu
 
@@ -1165,6 +1698,47 @@ config STM32_BATTERY_INITIAL_MAH_DRAWN
 
 endmenu
 
+endmenu
+
+menu "Storage"
+menu "EEPROM (SPI1 flash)"
+
+choice
+    prompt "SPI prescaler"
+    default STM32_EE_SPI1_PRESCALER_DIV4
+    help
+      SPI1 bus prescaler used for STM32 communication with the external
+      flash chip backing EEPROM emulation. Lower divisors increase transfer
+      speed; higher divisors give more signal margin for long traces or
+      slower flash parts.
+
+config STM32_EE_SPI1_PRESCALER_DIV2
+    bool "div2"
+
+config STM32_EE_SPI1_PRESCALER_DIV4
+    bool "div4"
+
+config STM32_EE_SPI1_PRESCALER_DIV8
+    bool "div8"
+
+config STM32_EE_SPI1_PRESCALER_DIV16
+    bool "div16"
+
+config STM32_EE_SPI1_PRESCALER_DIV32
+    bool "div32"
+
+config STM32_EE_SPI1_PRESCALER_DIV64
+    bool "div64"
+
+config STM32_EE_SPI1_PRESCALER_DIV128
+    bool "div128"
+
+config STM32_EE_SPI1_PRESCALER_DIV256
+    bool "div256"
+
+endchoice
+
+endmenu
 endmenu
 
 menu "IMU"

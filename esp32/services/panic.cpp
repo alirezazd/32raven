@@ -3,7 +3,6 @@
 #include "driver/gpio.h"
 #include "error_code.hpp"
 #include "esp32_config.hpp"
-#include "esp32_limits.hpp"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
@@ -15,10 +14,10 @@ static constexpr const char *kTag = "panic";
 namespace {
 
 static constexpr uint32_t kPanicTaskStackWords =
-    static_cast<uint32_t>(esp32_limits::kPanicTaskStackDepthWords);
-static_assert(esp32_limits::kPanicTaskPriority < configMAX_PRIORITIES);
+    static_cast<uint32_t>(kPanicTaskStackDepthWords);
+static_assert(kPanicTaskPriority < configMAX_PRIORITIES);
 static constexpr UBaseType_t kPanicTaskPrio =
-    static_cast<UBaseType_t>(esp32_limits::kPanicTaskPriority);
+    static_cast<UBaseType_t>(kPanicTaskPriority);
 static StaticTask_t s_panic_task_buffer;
 static StackType_t s_panic_task_stack[kPanicTaskStackWords];
 static TaskHandle_t s_panic_task_handle = nullptr;

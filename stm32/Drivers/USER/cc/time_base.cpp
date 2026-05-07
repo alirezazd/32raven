@@ -1,12 +1,9 @@
 #include "time_base.hpp"
 
 #include "error_code.hpp"
+#include "irq_priority.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
-
-// Global handle for HAL compatibility
-TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim5;
 
 static volatile uint32_t g_tim5_tick_count = 0;
 
@@ -23,9 +20,6 @@ void TimeBase::Init(const Config &config) {
   }
   initialized_ = true;
 
-  htim2.Instance = TIM2;
-  htim2.State = HAL_TIM_STATE_READY;
-
   RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
   __DSB();
 
@@ -40,9 +34,6 @@ void TimeBase::Init(const Config &config) {
   TIM2->CR1 |= TIM_CR1_CEN;
 
   // TIM5: periodic scheduler tick (default 1kHz)
-  htim5.Instance = TIM5;
-  htim5.State = HAL_TIM_STATE_READY;
-
   RCC->APB1ENR |= RCC_APB1ENR_TIM5EN;
   __DSB();
 
@@ -57,7 +48,7 @@ void TimeBase::Init(const Config &config) {
   TIM5->DIER |= TIM_DIER_UIE;
   TIM5->SR = 0;
 
-  NVIC_SetPriority(TIM5_IRQn, 7);
+  NVIC_SetPriority(TIM5_IRQn, irq_priority::kTimeBaseTim5);
   NVIC_EnableIRQ(TIM5_IRQn);
 
   TIM5->EGR = TIM_EGR_UG;

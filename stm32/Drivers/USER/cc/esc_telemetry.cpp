@@ -2,8 +2,8 @@
 
 #include <cstring>
 
-#include "board.hpp"
 #include "error_code.hpp"
+#include "irq_priority.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
@@ -56,35 +56,23 @@ void EscTelemetry::Init(const Config &cfg) {
       cfg.response_timeout_us == 0u) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
-  if (board::kEscTlm.port != GPIOB || board::kEscTlm.pin != GPIO_PIN_11) {
-    Panic(ErrorCode::Stm32::kGpioConfigFailed);
-  }
-
   cfg_ = cfg;
   ConfigureUart();
   StartRxDma();
-  NVIC_SetPriority(USART3_IRQn, 5);
+  NVIC_SetPriority(USART3_IRQn, irq_priority::kEscTelemetry);
   NVIC_EnableIRQ(USART3_IRQn);
-  NVIC_SetPriority(DMA1_Stream1_IRQn, 5);
+  NVIC_SetPriority(DMA1_Stream1_IRQn, irq_priority::kEscTelemetry);
   NVIC_EnableIRQ(DMA1_Stream1_IRQn);
   initialized_ = true;
 }
 
 void EscTelemetry::ConfigureUart() {
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_DMA1EN;
+  // GPIO setup for kEscTlmRx (mode/speed/pull/AF) is done by GPIO::Init()
+  // via the kGpioDefault entry. Only the peripheral clock and USART3
+  // configuration remain here.
+  RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
   RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
   __DSB();
-
-  const uint32_t pin_pos = 11u;
-  board::kEscTlm.port->MODER &= ~(GPIO_MODER_MODER0 << (pin_pos * 2u));
-  board::kEscTlm.port->MODER |= GPIO_MODER_MODER0_1 << (pin_pos * 2u);
-  board::kEscTlm.port->OTYPER &= ~(1u << pin_pos);
-  board::kEscTlm.port->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR0 << (pin_pos * 2u));
-  board::kEscTlm.port->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR0 << (pin_pos * 2u);
-  board::kEscTlm.port->PUPDR &= ~(GPIO_PUPDR_PUPDR0 << (pin_pos * 2u));
-  board::kEscTlm.port->PUPDR |= GPIO_PUPDR_PUPDR0_0 << (pin_pos * 2u);
-  board::kEscTlm.port->AFR[1] &= ~(0xFu << ((pin_pos - 8u) * 4u));
-  board::kEscTlm.port->AFR[1] |= GPIO_AF7_USART3 << ((pin_pos - 8u) * 4u);
 
   USART3->CR1 &= ~USART_CR1_UE;
   USART3->CR1 = 0;
