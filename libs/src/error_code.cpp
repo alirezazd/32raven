@@ -10,18 +10,8 @@ const char *GetMessage(ErrorCode::Common code) {
       return "Unknown Error";
     case ErrorCode::Common::kUnknownCommand:
       return "Unknown Command Received in Command Handler";
-    case ErrorCode::Common::kSystemReinit:
-      return "System Re-init";
-    case ErrorCode::Common::kCommandInitFailed:
-      return "Command Init Failed";
     case ErrorCode::Common::kCommandInvalidPacket:
       return "Command Handler Invalid Packet";
-    case ErrorCode::Common::kCommandInvalidRcMapConfig:
-      return "Command Handler Invalid RC Map Config";
-    case ErrorCode::Common::kCommandInvalidRcCalibrationConfig:
-      return "Command Handler Invalid RC Calibration Config";
-    case ErrorCode::Common::kCommandInvalidGyroCalibrationIdConfig:
-      return "Command Handler Invalid Gyro Calibration ID Config";
     case ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig:
       return "FcLink Invalid Gyro Calibration ID Config";
     case ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig:
@@ -44,18 +34,12 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 SPI init failed";
     case ErrorCode::Stm32::kUartInitFailed:
       return "STM32 UART init failed";
-    case ErrorCode::Stm32::kI2cInitFailed:
-      return "STM32 I2C init failed";
     case ErrorCode::Stm32::kTimInitFailed:
       return "STM32 TIM init failed";
     case ErrorCode::Stm32::kDshotInitFailed:
       return "STM32 DShot init failed";
     case ErrorCode::Stm32::kAdcInitFailed:
       return "STM32 ADC init failed";
-    case ErrorCode::Stm32::kDmaInitFailed:
-      return "STM32 DMA init failed";
-    case ErrorCode::Stm32::kGpioInitFailed:
-      return "STM32 GPIO Init Failed";
     case ErrorCode::Stm32::kGpioConfigFailed:
       return "STM32 GPIO config failed";
     case ErrorCode::Stm32::kGpioReinit:
@@ -70,54 +54,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 CRSF link init failed";
     case ErrorCode::Stm32::kDshotCodecInvalidArg:
       return "STM32 DShot codec invalid argument";
-    case ErrorCode::Stm32::kFcLinkInitFailed:
-      return "FcLink Init Failed";
-    case ErrorCode::Stm32::kFcLinkRxQueueFull:
-      return "FcLink RX Queue Full";
-    case ErrorCode::Stm32::kFcLinkInvalidPacketMagic1:
-      return "FcLink Invalid Packet Magic Byte 1";
-    case ErrorCode::Stm32::kFcLinkInvalidPacketMagic2:
-      return "FcLink Invalid Packet Magic Byte 2";
-    case ErrorCode::Stm32::kFcLinkInvalidPacketLength:
-      return "FcLink Invalid Packet Length";
-    case ErrorCode::Stm32::kFcLinkInvalidPacketCrc:
-      return "FcLink Invalid Packet CRC";
-    case ErrorCode::Stm32::kFcLinkTxSerializeFailed:
-      return "FcLink TX Serialize Failed";
-    case ErrorCode::Stm32::kFcLinkHandshakeFailed:
-      return "FcLink Handshake Failed";
-    case ErrorCode::Stm32::kFcLinkRcMapRequestFailed:
-      return "FcLink RC Map Request Failed";
-    case ErrorCode::Stm32::kFcLinkInvalidRcMapConfig:
-      return "FcLink Invalid RC Map Config";
-    case ErrorCode::Stm32::kFcLinkRcCalibrationRequestFailed:
-      return "FcLink RC Calibration Request Failed";
-    case ErrorCode::Stm32::kFcLinkGyroCalibrationIdRequestFailed:
-      return "FcLink Gyro Calibration ID Request Failed";
-    case ErrorCode::Stm32::kFcLinkRcMapSetFailed:
-      return "FcLink RC Map Set Failed";
-    case ErrorCode::Stm32::kFcLinkRcCalibrationSetFailed:
-      return "FcLink RC Calibration Set Failed";
     case ErrorCode::Stm32::kGpsNotResponding:
       return "GPS Not Responding";
-    case ErrorCode::Stm32::kGpsConfigProtocolFailed:
-      return "GPS Protocol Config Failed";
-    case ErrorCode::Stm32::kGpsConfigNavPvtFailed:
-      return "GPS NavPvt Config Failed";
-    case ErrorCode::Stm32::kGpsConfigNavDopFailed:
-      return "GPS NavDop Config Failed";
-    case ErrorCode::Stm32::kGpsConfigNavCovFailed:
-      return "GPS NavCov Config Failed";
-    case ErrorCode::Stm32::kGpsConfigNavEoeFailed:
-      return "GPS NavEoe Config Failed";
-    case ErrorCode::Stm32::kGpsConfigRateFailed:
-      return "GPS Rate Config Failed";
-    case ErrorCode::Stm32::kGpsConfigDynModelFailed:
-      return "GPS DynModel Config Failed";
-    case ErrorCode::Stm32::kGpsConfigConstellationFailed:
-      return "GPS Constellation Config Failed";
-    case ErrorCode::Stm32::kGpsConfigItfmFailed:
-      return "GPS ITFM Config Failed";
     case ErrorCode::Stm32::kGpsConfigTimepulseFailed:
       return "GPS Timepulse Config Failed";
     case ErrorCode::Stm32::kGpsConfigTimepulseBufferError:
@@ -140,14 +78,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "GPS Verify Constellation Failed";
     case ErrorCode::Stm32::kGpsVerifyItfmFailed:
       return "GPS Verify ITFM Failed";
-    case ErrorCode::Stm32::kGpsVerifyTimepulseFailed:
-      return "GPS Verify Timepulse Failed";
     case ErrorCode::Stm32::kImuWhoAmIFail:
       return "IMU WhoAmI Failed";
-    case ErrorCode::Stm32::kImuFifoUnsupported:
-      return "IMU FIFO Unsupported";
-    case ErrorCode::Stm32::kImuFifoReadTooLarge:
-      return "IMU FIFO Read Too Large";
     case ErrorCode::Stm32::kImuOverrun:
       return "IMU Path Overrun";
     case ErrorCode::Stm32::kImuDroppedFrame:
@@ -160,8 +92,6 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "IMU Not Initialized";
     case ErrorCode::Stm32::kImuReinit:
       return "IMU re-init";
-    case ErrorCode::Stm32::kImuDmaBufferTooSmall:
-      return "IMU DMA buffer too small";
     case ErrorCode::Stm32::kImuInvalidSampleDetected:
       return "IMU invalid sample detected";
     case ErrorCode::Stm32::kImuCalibrationInvalidConfig:
@@ -180,8 +110,6 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "EEPROM emulation invalid config";
     case ErrorCode::Stm32::kEepromFormatFailed:
       return "EEPROM emulation format failed";
-    case ErrorCode::Stm32::kEepromNoValidSlot:
-      return "EEPROM emulation no valid slot";
     case ErrorCode::Stm32::kEepromWriteFailed:
       return "EEPROM emulation write failed";
     case ErrorCode::Stm32::kEepromSchemaMismatch:
@@ -200,8 +128,6 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "TCP Server Accept Failed";
     case ErrorCode::Esp32::kTcpServerError:
       return "TCP Server Error";
-    case ErrorCode::Esp32::kUdpServerInitFailed:
-      return "UDP Server Init Failed";
     case ErrorCode::Esp32::kUdpServerInvalidOverflowThreshold:
       return "UDP Server Invalid Overflow Threshold";
     case ErrorCode::Esp32::kUdpServerUploadOverflow:
@@ -220,12 +146,6 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "WiFi Set Storage Failed";
     case ErrorCode::Esp32::kMavlinkInitFailed:
       return "Mavlink Init Failed";
-    case ErrorCode::Esp32::kMavlinkTaskAlreadyRunning:
-      return "Mavlink Task Already Running";
-    case ErrorCode::Esp32::kMavlinkTaskStopOutsidePanic:
-      return "Mavlink Task Stop Called Outside Panic";
-    case ErrorCode::Esp32::kMavlinkStackOverflow:
-      return "Mavlink Stack Overflow";
     case ErrorCode::Esp32::kMavlinkPanicSendFailed:
       return "Mavlink Panic Status Send Failed";
     case ErrorCode::Esp32::kFcLinkInitFailed:
@@ -244,22 +164,14 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "FcLink TX Serialize Failed";
     case ErrorCode::Esp32::kFcLinkHandshakeFailed:
       return "FcLink Handshake Failed";
-    case ErrorCode::Esp32::kFcLinkRcMapRequestFailed:
-      return "FcLink RC Map Request Failed";
     case ErrorCode::Esp32::kFcLinkInvalidRcMapConfig:
       return "FcLink Invalid RC Map Config";
-    case ErrorCode::Esp32::kFcLinkRcCalibrationRequestFailed:
-      return "FcLink RC Calibration Request Failed";
-    case ErrorCode::Esp32::kFcLinkGyroCalibrationIdRequestFailed:
-      return "FcLink Gyro Calibration ID Request Failed";
     case ErrorCode::Esp32::kFcLinkRcMapSetFailed:
       return "FcLink RC Map Set Failed";
     case ErrorCode::Esp32::kFcLinkRcCalibrationSetFailed:
       return "FcLink RC Calibration Set Failed";
     case ErrorCode::Esp32::kLedTaskCreateFailed:
       return "LED Task Create Failed";
-    case ErrorCode::Esp32::kLedGpioConfigFailed:
-      return "LED GPIO Config Failed";
     case ErrorCode::Esp32::kLedTimerInitFailed:
       return "LED Timer Init Failed";
     case ErrorCode::Esp32::kLedChannelInitFailed:

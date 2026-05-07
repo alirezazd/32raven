@@ -57,75 +57,60 @@ set(STM32_EE_SCHEMA_HPP
 # unreferenced/unknown board::k* names. Failure aborts the build — bad pin
 # maps brick boards silently otherwise.
 set(STM32_PIN_CHECKER
-    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_pinmap.py")
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_pinmap.py")
 set(STM32_BOARD_HPP "${CMAKE_CURRENT_SOURCE_DIR}/Core/Inc/board.hpp")
+set(ERROR_CODE_LINTER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_error_codes.py")
+set(ERROR_CODE_HPP
+    "${CMAKE_CURRENT_SOURCE_DIR}/../libs/inc/error_code.hpp")
 
+# Conditional clang-format step — empty when the binary isn't on PATH so the
+# main custom_command stays single-form regardless. CMake skips empty COMMAND
+# entries cleanly.
+set(_FMT_CONFIG_CMD)
+set(_FMT_EE_CMD)
 if(CLANG_FORMAT_EXECUTABLE)
-    add_custom_command(
-        OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
-        COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
-                --kconfig ${STM32_KCONFIG}
-                --config ${STM32_MASTER_CONFIG}
-                --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
-                --limits-out ${STM32_LIMITS_HPP}
-        COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
-                ${STM32_RUNTIME_CONFIG_HPP}
-                ${STM32_LIMITS_HPP}
-        COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
-        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
-                ${STM32_CONFIG_GENERATOR}
-                ${STM32_RUNTIME_CONFIG_TEMPLATE}
-                ${STM32_LIMITS_TEMPLATE}
-                ${STM32_PIN_CHECKER}
-                ${STM32_BOARD_HPP}
-        COMMENT "Generating + validating STM32 configuration headers"
-        VERBATIM)
-else()
-    add_custom_command(
-        OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
-        COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
-                --kconfig ${STM32_KCONFIG}
-                --config ${STM32_MASTER_CONFIG}
-                --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
-                --limits-out ${STM32_LIMITS_HPP}
-        COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
-        DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
-                ${STM32_CONFIG_GENERATOR}
-                ${STM32_RUNTIME_CONFIG_TEMPLATE}
-                ${STM32_LIMITS_TEMPLATE}
-                ${STM32_PIN_CHECKER}
-                ${STM32_BOARD_HPP}
-        COMMENT "Generating + validating STM32 configuration headers"
-        VERBATIM)
+    set(_FMT_CONFIG_CMD COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
+                        ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP})
+    set(_FMT_EE_CMD COMMAND ${CLANG_FORMAT_EXECUTABLE} -i ${STM32_EE_SCHEMA_HPP})
 endif()
+
+add_custom_command(
+    OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
+    COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
+            --kconfig ${STM32_KCONFIG}
+            --config ${STM32_MASTER_CONFIG}
+            --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
+            --limits-out ${STM32_LIMITS_HPP}
+    ${_FMT_CONFIG_CMD}
+    COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
+    COMMAND ${Python3_EXECUTABLE} ${ERROR_CODE_LINTER}
+    DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
+            ${STM32_CONFIG_GENERATOR}
+            ${STM32_RUNTIME_CONFIG_TEMPLATE}
+            ${STM32_LIMITS_TEMPLATE}
+            ${STM32_PIN_CHECKER}
+            ${STM32_BOARD_HPP}
+            ${ERROR_CODE_LINTER}
+            ${ERROR_CODE_HPP}
+    COMMENT "Generating + validating STM32 configuration headers"
+    VERBATIM)
 
 add_custom_target(generate_stm32_config
                   DEPENDS ${STM32_RUNTIME_CONFIG_HPP}
                           ${STM32_LIMITS_HPP})
 add_dependencies(${CMAKE_PROJECT_NAME} generate_stm32_config)
 
-if(CLANG_FORMAT_EXECUTABLE)
-    add_custom_command(
-        OUTPUT ${STM32_EE_SCHEMA_HPP}
-        COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
-                --config ${STM32_EE_CONFIG}
-                --out ${STM32_EE_SCHEMA_HPP}
-        COMMAND ${CLANG_FORMAT_EXECUTABLE} -i ${STM32_EE_SCHEMA_HPP}
-        DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
-                ${STM32_EE_SCHEMA_TEMPLATE}
-        COMMENT "Generating EEPROM schema header"
-        VERBATIM)
-else()
-    add_custom_command(
-        OUTPUT ${STM32_EE_SCHEMA_HPP}
-        COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
-                --config ${STM32_EE_CONFIG}
-                --out ${STM32_EE_SCHEMA_HPP}
-        DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
-                ${STM32_EE_SCHEMA_TEMPLATE}
-        COMMENT "Generating EEPROM schema header"
-        VERBATIM)
-endif()
+add_custom_command(
+    OUTPUT ${STM32_EE_SCHEMA_HPP}
+    COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
+            --config ${STM32_EE_CONFIG}
+            --out ${STM32_EE_SCHEMA_HPP}
+    ${_FMT_EE_CMD}
+    DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
+            ${STM32_EE_SCHEMA_TEMPLATE}
+    COMMENT "Generating EEPROM schema header"
+    VERBATIM)
 
 add_custom_target(generate_ee_schema DEPENDS ${STM32_EE_SCHEMA_HPP})
 add_dependencies(${CMAKE_PROJECT_NAME} generate_ee_schema)

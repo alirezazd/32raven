@@ -30,4 +30,4 @@ PY
 ## Used by
 
 - [scripts/pin_constraints.py](../../scripts/pin_constraints.py) — Python query API over this data.
-- [scripts/check_pinmap.py](../../scripts/check_pinmap.py) — validates [stm32/Core/Inc/board.hpp](../../stm32/Core/Inc/board.hpp).
+- [scripts/lint/check_pinmap.py](../../scripts/lint/check_pinmap.py) — validates [stm32/Core/Inc/board.hpp](../../stm32/Core/Inc/board.hpp).
