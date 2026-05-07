@@ -9,7 +9,7 @@ class Button {
  public:
   struct Config {
     struct Pin {
-      GPIO_TypeDef* port;
+      GPIO_TypeDef *port;
       uint16_t number;  // GPIO_PIN_x bitmask
     } pin;
     bool active_low;         // for your schematic: false
@@ -17,7 +17,7 @@ class Button {
     uint32_t long_press_ms;  // e.g. 500
   };
 
-  static Button& GetInstance() {
+  static Button &GetInstance() {
     static Button instance;
     return instance;
   }
@@ -32,18 +32,18 @@ class Button {
 
  private:
   friend class System;
-  void Init(GPIO& gpio, const Config& cfg);
+  void Init(GPIO &gpio, const Config &cfg);
 
   Button() = default;
   ~Button() = default;
-  Button(const Button&) = delete;
-  Button& operator=(const Button&) = delete;
+  Button(const Button &) = delete;
+  Button &operator=(const Button &) = delete;
 
   bool ReadRawPressed() const;
 
   // Config
-  GPIO* gpio_ = nullptr;
-  GPIO_TypeDef* port_ = nullptr;
+  GPIO *gpio_ = nullptr;
+  GPIO_TypeDef *port_ = nullptr;
   uint16_t pin_ = 0;
   bool active_low_ = false;
   uint32_t debounce_ms_ = 50;

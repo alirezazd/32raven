@@ -157,7 +157,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   auto &prog = ctx.sys->Programmer();
 
   if (prog.Error()) {
-    const ErrorCode programmer_error = prog.LastErrorCode();
+    const uint32_t programmer_error = prog.LastErrorCode();
     tcp.StopDownload();
     prog.Abort(now);
     ESP_LOGE(kTag, "Prog Error -> Panic");
@@ -188,7 +188,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
       if (ev->id == TcpServer::EventId::kAbort) {
         ctx.sm->ReqTransition(*ctx.serving_state);
       } else {
-        Panic(ErrorCode::kTcpServerError);
+        Panic(ErrorCode::Esp32::kTcpServerError);
       }
       return;
     }
@@ -225,7 +225,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
       ESP_LOGE(kTag, "Programmer timed out -> Panic");
       tcp.StopDownload();
       prog.Abort(now);
-      Panic(ErrorCode::kProgrammerTimedOut);
+      Panic(ErrorCode::Esp32::kProgrammerTimedOut);
     }
   }
 }

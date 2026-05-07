@@ -2,6 +2,7 @@
 #include <cstdint>
 
 #include "error_code.hpp"
+
 extern "C" {
 #include "driver/ledc.h"
 #include "hal/gpio_types.h"  // IWYU pragma: keep
@@ -35,10 +36,10 @@ class Buzzer {
     Startup startup{};
   };
 
-  ErrorCode Start(uint32_t freq_hz);
-  ErrorCode SetFrequency(uint32_t freq_hz);
-  ErrorCode SetDutyCycle(float duty_cycle);
-  ErrorCode Stop();
+  void Start(uint32_t freq_hz);
+  void SetFrequency(uint32_t freq_hz);
+  void SetDutyCycle(float duty_cycle);
+  void Stop();
 
   bool IsRunning() const { return running_; }
   uint32_t GetFrequencyHz() const { return freq_hz_; }

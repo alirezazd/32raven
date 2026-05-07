@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "error_code.hpp"
 #include "message.hpp"
 #include "panic.hpp"
 
@@ -107,19 +108,19 @@ ee_schema::ImuAccelCalibration ConfigStorage::LoadOrInitImuAccelCalibration(
     EE &ee) {
   ee_schema::ImuAccelCalibration cal{};
   if (!ee.ReadObject(cal, ee_schema::layout::kImuAccelCalibrationOffset)) {
-    Panic(ErrorCode::kEepromInvalidConfig);
+    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
   }
 
   if (IsErased(&cal, sizeof(cal))) {
     cal = MakeDefaultImuAccelCalibration();
     if (!ee.WriteObject(cal, ee_schema::layout::kImuAccelCalibrationOffset)) {
-      Panic(ErrorCode::kEepromWriteFailed);
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
     }
     return cal;
   }
 
   if (!ee_schema::ImuAccelCalibration::IsExactSchema(cal)) {
-    Panic(ErrorCode::kEepromSchemaMismatch);
+    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
   }
 
   return cal;
@@ -136,20 +137,20 @@ bool ConfigStorage::SaveImuAccelCalibration(
 ee_schema::RcCalibration ConfigStorage::LoadOrInitRcCalibration(EE &ee) {
   ee_schema::RcCalibration cal{};
   if (!ee.ReadObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
-    Panic(ErrorCode::kEepromInvalidConfig);
+    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
   }
 
   if (IsErased(&cal, sizeof(cal))) {
     cal = MakeDefaultRcCalibration();
     if (!ee.WriteObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
-      Panic(ErrorCode::kEepromWriteFailed);
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
     }
     return cal;
   }
 
   if (!ee_schema::RcCalibration::IsExactSchema(cal)) {
     if (!IsLegacyRcCalibrationV1(cal)) {
-      Panic(ErrorCode::kEepromSchemaMismatch);
+      Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
     }
 
     LegacyRcCalibrationV1 legacy{};
@@ -162,7 +163,7 @@ ee_schema::RcCalibration ConfigStorage::LoadOrInitRcCalibration(EE &ee) {
           (uint16_t)((legacy.min_us[i] + legacy.max_us[i]) / 2u);
     }
     if (!ee.WriteObject(migrated, ee_schema::layout::kRcCalibrationOffset)) {
-      Panic(ErrorCode::kEepromWriteFailed);
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
     }
     return migrated;
   }
@@ -170,7 +171,7 @@ ee_schema::RcCalibration ConfigStorage::LoadOrInitRcCalibration(EE &ee) {
   if (!IsRcCalibrationValid(cal)) {
     cal = MakeDefaultRcCalibration();
     if (!ee.WriteObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
-      Panic(ErrorCode::kEepromWriteFailed);
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
     }
   }
 
@@ -190,30 +191,30 @@ bool ConfigStorage::SaveRcCalibration(EE &ee,
 ee_schema::RcMap ConfigStorage::LoadOrInitRcMap(
     EE &ee, const ee_schema::RcMap &default_map) {
   if (!IsRcMapValid(default_map)) {
-    Panic(ErrorCode::kRcReceiverInvalidConfig);
+    Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
 
   ee_schema::RcMap map{};
   if (!ee.ReadObject(map, ee_schema::layout::kRcMapOffset)) {
-    Panic(ErrorCode::kEepromInvalidConfig);
+    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
   }
 
   if (IsErased(&map, sizeof(map))) {
     map = MakeDefaultRcMap(default_map);
     if (!ee.WriteObject(map, ee_schema::layout::kRcMapOffset)) {
-      Panic(ErrorCode::kEepromWriteFailed);
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
     }
     return map;
   }
 
   if (!ee_schema::RcMap::IsExactSchema(map)) {
-    Panic(ErrorCode::kEepromSchemaMismatch);
+    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
   }
 
   if (!IsRcMapValid(map)) {
     map = MakeDefaultRcMap(default_map);
     if (!ee.WriteObject(map, ee_schema::layout::kRcMapOffset)) {
-      Panic(ErrorCode::kEepromWriteFailed);
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
     }
   }
 

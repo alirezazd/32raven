@@ -1,6 +1,6 @@
 #include "led.hpp"
 
-void LED::Init(GPIO& gpio, const Config& cfg) {
+void LED::Init(GPIO &gpio, const Config &cfg) {
   gpio_ = &gpio;
   port_ = cfg.pin.port;
   pin_ = cfg.pin.number;

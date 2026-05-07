@@ -4,6 +4,7 @@
 
 #include "driver/gpio.h"  // IWYU pragma: keep
 #include "driver/ledc.h"
+#include "error_code.hpp"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 #include "panic.hpp"
@@ -35,7 +36,7 @@ void LED::Init(const Config &cfg) {
   timer_conf.freq_hz = kLedcFreq;
   timer_conf.clk_cfg = LEDC_AUTO_CLK;
   if (ledc_timer_config(&timer_conf) != ESP_OK) {
-    Panic(ErrorCode::kLedTimerInitFailed);
+    Panic(ErrorCode::Esp32::kLedTimerInitFailed);
   }
 
   // Configure LEDC Channel
@@ -48,11 +49,11 @@ void LED::Init(const Config &cfg) {
   channel_conf.duty = 0;  // Start off
   channel_conf.hpoint = 0;
   if (ledc_channel_config(&channel_conf) != ESP_OK) {
-    Panic(ErrorCode::kLedChannelInitFailed);
+    Panic(ErrorCode::Esp32::kLedChannelInitFailed);
   }
 
   if (ledc_fade_func_install(0) != ESP_OK) {
-    Panic(ErrorCode::kLedFadeInstallFailed);
+    Panic(ErrorCode::Esp32::kLedFadeInstallFailed);
   }
 
   // Start OFF deterministically
@@ -61,7 +62,7 @@ void LED::Init(const Config &cfg) {
   task_handle_ = xTaskCreateStatic(TaskEntry, "led_task", kTaskStackBytes, this,
                                    1, task_stack, &task_buffer);
   if (task_handle_ == nullptr) {
-    Panic(ErrorCode::kLedTaskCreateFailed);
+    Panic(ErrorCode::Esp32::kLedTaskCreateFailed);
   }
 }
 

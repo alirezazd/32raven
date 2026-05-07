@@ -1,5 +1,6 @@
 #include "time_base.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
@@ -18,7 +19,7 @@ TimeBase &TimeBase::GetInstance() {
 
 void TimeBase::Init(const Config &config) {
   if (initialized_) {
-    Panic(ErrorCode::kStm32TimInitFailed);
+    Panic(ErrorCode::Stm32::kTimInitFailed);
   }
   initialized_ = true;
 

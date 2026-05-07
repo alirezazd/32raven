@@ -1,5 +1,7 @@
 #include "gpio.hpp"
 
+#include "error_code.hpp"
+
 inline void EnablePortClock(GPIO_TypeDef *port) {
   if (port == GPIOA)
     __HAL_RCC_GPIOA_CLK_ENABLE();
@@ -18,7 +20,7 @@ inline void EnablePortClock(GPIO_TypeDef *port) {
   else if (port == GPIOH)
     __HAL_RCC_GPIOH_CLK_ENABLE();
   else {
-    Panic(ErrorCode::kGpioInvalidPort);
+    Panic(ErrorCode::Stm32::kGpioInvalidPort);
   }
 }
 
@@ -28,7 +30,7 @@ inline bool IsOutputMode(uint32_t mode) {
 
 void GPIO::Init(const PinConfig *pins, size_t pin_count) {
   if (initialized_) {
-    Panic(ErrorCode::kGpioReinit);
+    Panic(ErrorCode::Stm32::kGpioReinit);
   }
   initialized_ = true;
   for (size_t i = 0; i < pin_count; i++) {

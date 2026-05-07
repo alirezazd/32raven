@@ -1,5 +1,6 @@
 #include "wifi.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 
 extern "C" {
@@ -28,7 +29,7 @@ void WifiController::HandleWifiEvent(void *arg, esp_event_base_t event_base,
   (void)event_base;
   if (arg == nullptr) {
     LogErr("WifiController::HandleWifiEvent", ESP_ERR_INVALID_ARG);
-    Panic(ErrorCode::kWifiEventLoopFailed);
+    Panic(ErrorCode::Esp32::kWifiEventLoopFailed);
   }
 
   auto *self = static_cast<WifiController *>(arg);
@@ -55,7 +56,7 @@ void WifiController::Init(const Config &cfg) {
       cfg.ap.beacon_interval_tu > 60000 ||
       (cfg.ap.beacon_interval_tu % 100) != 0 ||
       (cfg.pmf.required && !cfg.pmf.capable)) {
-    Panic(ErrorCode::kWifiInitFailed);
+    Panic(ErrorCode::Esp32::kWifiInitFailed);
   }
   cfg_ = cfg;
 
@@ -68,21 +69,21 @@ void WifiController::Init(const Config &cfg) {
   }
   LogErr("nvs_flash_init", e);
   if (e != ESP_OK) {
-    Panic(ErrorCode::kWifiNvsInitFailed);
+    Panic(ErrorCode::Esp32::kWifiNvsInitFailed);
   }
 
   // 2. Netif (LwIP)
   e = esp_netif_init();
   LogErr("esp_netif_init", e);
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
-    Panic(ErrorCode::kWifiNetifInitFailed);
+    Panic(ErrorCode::Esp32::kWifiNetifInitFailed);
   }
 
   // 3. Event Loop
   e = esp_event_loop_create_default();
   if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
     LogErr("esp_event_loop_create_default", e);
-    Panic(ErrorCode::kWifiEventLoopFailed);
+    Panic(ErrorCode::Esp32::kWifiEventLoopFailed);
   }
 
   // 4. WiFi Init
@@ -92,28 +93,28 @@ void WifiController::Init(const Config &cfg) {
     // already init
   } else if (e != ESP_OK) {
     LogErr("esp_wifi_init", e);
-    Panic(ErrorCode::kWifiInitFailed);
+    Panic(ErrorCode::Esp32::kWifiInitFailed);
   }
 
   // 5. Storage RAM
   e = esp_wifi_set_storage(WIFI_STORAGE_RAM);
   LogErr("esp_wifi_set_storage", e);
   if (e != ESP_OK) {
-    Panic(ErrorCode::kWifiSetStorageFailed);
+    Panic(ErrorCode::Esp32::kWifiSetStorageFailed);
   }
   if (!event_handler_registered_) {
     e = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STACONNECTED,
                                    &WifiController::HandleWifiEvent, this);
     LogErr("esp_event_handler_register(STACONNECTED)", e);
     if (e != ESP_OK) {
-      Panic(ErrorCode::kWifiEventLoopFailed);
+      Panic(ErrorCode::Esp32::kWifiEventLoopFailed);
     }
 
     e = esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_AP_STADISCONNECTED,
                                    &WifiController::HandleWifiEvent, this);
     LogErr("esp_event_handler_register(STADISCONNECTED)", e);
     if (e != ESP_OK) {
-      Panic(ErrorCode::kWifiEventLoopFailed);
+      Panic(ErrorCode::Esp32::kWifiEventLoopFailed);
     }
 
     event_handler_registered_ = true;
@@ -134,21 +135,21 @@ void WifiController::StartAp() {
     ap_netif_ = esp_netif_new(&ncfg);
     if (!ap_netif_) {
       ESP_LOGE(kTag, "esp_netif_new(AP) failed");
-      Panic(ErrorCode::kWifiNetifInitFailed);
+      Panic(ErrorCode::Esp32::kWifiNetifInitFailed);
     }
 
     // Attach AP netif to Wi-Fi
     esp_err_t e = esp_netif_attach_wifi_ap(ap_netif_);
     LogErr("esp_netif_attach_wifi_ap", e);
     if (e != ESP_OK) {
-      Panic(ErrorCode::kWifiNetifInitFailed);
+      Panic(ErrorCode::Esp32::kWifiNetifInitFailed);
     }
 
     // Register default handlers
     e = esp_wifi_set_default_wifi_ap_handlers();
     if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) {
       LogErr("esp_wifi_set_default_wifi_ap_handlers", e);
-      Panic(ErrorCode::kWifiEventLoopFailed);
+      Panic(ErrorCode::Esp32::kWifiEventLoopFailed);
     }
   }
 
@@ -156,7 +157,7 @@ void WifiController::StartAp() {
   esp_err_t e = esp_wifi_set_mode(WIFI_MODE_AP);
   LogErr("esp_wifi_set_mode", e);
   if (e != ESP_OK) {
-    Panic(ErrorCode::kWifiInitFailed);
+    Panic(ErrorCode::Esp32::kWifiInitFailed);
   }
 
   // 3. Config
@@ -177,14 +178,14 @@ void WifiController::StartAp() {
   e = esp_wifi_set_config(WIFI_IF_AP, &ap);
   LogErr("esp_wifi_set_config", e);
   if (e != ESP_OK) {
-    Panic(ErrorCode::kWifiInitFailed);
+    Panic(ErrorCode::Esp32::kWifiInitFailed);
   }
 
   // 4. Start
   e = esp_wifi_start();
   LogErr("esp_wifi_start", e);
   if (e != ESP_OK) {
-    Panic(ErrorCode::kWifiInitFailed);
+    Panic(ErrorCode::Esp32::kWifiInitFailed);
   }
 
   wifi_on_ = true;

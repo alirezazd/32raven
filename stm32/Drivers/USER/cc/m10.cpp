@@ -3,6 +3,7 @@
 #include <cstring>
 #include <type_traits>
 
+#include "error_code.hpp"
 #include "m10_reg.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -35,7 +36,7 @@ void M10::WaitForReady() {
     time.DelayMicros(MILLIS_TO_MICROS(50));
   }
 
-  Panic(ErrorCode::kGpsNotResponding);
+  Panic(ErrorCode::Stm32::kGpsNotResponding);
 }
 
 template bool M10::SendCfgValSet<uint8_t>(uint32_t, uint8_t, uint8_t);
@@ -53,61 +54,61 @@ template bool M10::WaitForValget<uint32_t>(uint32_t, uint32_t);
 void M10::ApplyConfig(uint8_t layer) {
   if (!SendCfgValSet(kKeyUart1Baudrate, ToBaudRateValue(config_.baud_rate),
                      layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1StopBits,
                      static_cast<uint8_t>(config_.uart1.stop_bits), layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1DataBits,
                      static_cast<uint8_t>(config_.uart1.data_bits), layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1Parity,
                      static_cast<uint8_t>(config_.uart1.parity), layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1InprotUbx, static_cast<uint8_t>(true), layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1OutprotUbx,
                      static_cast<uint8_t>(config_.protocols.outprot_ubx),
                      layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyUart1OutprotNmea,
                      static_cast<uint8_t>(config_.protocols.outprot_nmea),
                      layer))
-    Panic(ErrorCode::kGpsVerifyProtocolFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   if (!SendCfgValSet(kKeyMsgoutNavPvtUart1,
                      static_cast<uint8_t>(config_.messages.nav_pvt), layer))
-    Panic(ErrorCode::kGpsVerifyNavPvtFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyNavPvtFailed);
   if (!SendCfgValSet(kKeyMsgoutNavDopUart1,
                      static_cast<uint8_t>(config_.messages.nav_dop), layer))
-    Panic(ErrorCode::kGpsVerifyNavDopFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyNavDopFailed);
   if (!SendCfgValSet(kKeyMsgoutNavCovUart1,
                      static_cast<uint8_t>(config_.messages.nav_cov), layer))
-    Panic(ErrorCode::kGpsVerifyNavCovFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyNavCovFailed);
   if (!SendCfgValSet(kKeyMsgoutNavEoeUart1,
                      static_cast<uint8_t>(config_.messages.nav_eoe), layer))
-    Panic(ErrorCode::kGpsVerifyNavEoeFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyNavEoeFailed);
   if (!SendCfgValSet(kKeyCfgRateMeasMs, config_.nav.rate_meas_ms, layer))
-    Panic(ErrorCode::kGpsVerifyRateFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyRateFailed);
   if (!SendCfgValSet(kKeyCfgDynModel,
                      static_cast<uint8_t>(config_.nav.dyn_model), layer))
-    Panic(ErrorCode::kGpsVerifyDynModelFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyDynModelFailed);
   if (!SendCfgValSet(kKeyGpsEnable,
                      static_cast<uint8_t>(config_.gnss.gps_enable), layer))
-    Panic(ErrorCode::kGpsVerifyConstellationFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
   if (!SendCfgValSet(kKeyGloEnable,
                      static_cast<uint8_t>(config_.gnss.glo_enable), layer))
-    Panic(ErrorCode::kGpsVerifyConstellationFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
   if (!SendCfgValSet(kKeyGalEnable,
                      static_cast<uint8_t>(config_.gnss.gal_enable), layer))
-    Panic(ErrorCode::kGpsVerifyConstellationFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
   if (!SendCfgValSet(kKeyBdsEnable,
                      static_cast<uint8_t>(config_.gnss.bds_enable), layer))
-    Panic(ErrorCode::kGpsVerifyConstellationFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
   if (!SendCfgValSet(kKeySbasEnable,
                      static_cast<uint8_t>(config_.gnss.sbas_enable), layer))
-    Panic(ErrorCode::kGpsVerifyConstellationFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
   if (!SendCfgValSet(kKeyItfmEnable,
                      static_cast<uint8_t>(config_.gnss.itfm_enable), layer))
-    Panic(ErrorCode::kGpsVerifyItfmFailed);
+    Panic(ErrorCode::Stm32::kGpsVerifyItfmFailed);
 
   constexpr uint16_t payload_len =
       (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1);
@@ -155,7 +156,7 @@ void M10::ApplyConfig(uint8_t layer) {
   write_key_u1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
 
   if (idx != 10 + payload_len) {
-    Panic(ErrorCode::kGpsConfigTimepulseBufferError);
+    Panic(ErrorCode::Stm32::kGpsConfigTimepulseBufferError);
   }
 
   uint8_t ck_a = 0;
@@ -166,17 +167,17 @@ void M10::ApplyConfig(uint8_t layer) {
 
   Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
-    Panic(ErrorCode::kGpsConfigTimepulseFailed);
+    Panic(ErrorCode::Stm32::kGpsConfigTimepulseFailed);
   }
 
   if (config_.uart1.enabled) {
     if (!SendCfgValSet(kKeyUart1Enabled, static_cast<uint8_t>(true), layer)) {
-      Panic(ErrorCode::kGpsVerifyProtocolFailed);
+      Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
     }
   } else {
     SendCfgValSetRaw<uint8_t>(kKeyUart1Enabled, 0, layer);
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
-      Panic(ErrorCode::kGpsVerifyProtocolFailed);
+      Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
     }
   }
 }

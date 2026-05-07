@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "config_storage.hpp"
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "vehicle_state.hpp"
 
@@ -57,11 +58,11 @@ uint16_t ScaleSegment(uint16_t raw_us, uint16_t in_min_us, uint16_t in_max_us,
 
 void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
   if (initialized_) {
-    Panic(ErrorCode::kEepromReinit);
+    Panic(ErrorCode::Stm32::kEepromReinit);
   }
 
   if (!IsConfigValid(cfg)) {
-    Panic(ErrorCode::kRcReceiverInvalidConfig);
+    Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
 
   cfg_ = cfg;
@@ -75,7 +76,7 @@ void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
   if (IsConfigValid(candidate)) {
     cfg_ = candidate;
   } else if (!ConfigStorage::SaveRcMap(ee, MakeRcMapBlob(cfg_))) {
-    Panic(ErrorCode::kEepromWriteFailed);
+    Panic(ErrorCode::Stm32::kEepromWriteFailed);
   }
   raw_ = RawData{};
   current_ = RcData{};

@@ -1,6 +1,7 @@
 #include "panic.hpp"
 
 #include "driver/gpio.h"
+#include "error_code.hpp"
 #include "esp32_config.hpp"
 #include "esp32_limits.hpp"
 #include "esp_log.h"
@@ -22,13 +23,13 @@ static StaticTask_t s_panic_task_buffer;
 static StackType_t s_panic_task_stack[kPanicTaskStackWords];
 static TaskHandle_t s_panic_task_handle = nullptr;
 
-[[noreturn]] void RunPanicLoop(ErrorCode code);
+[[noreturn]] void RunPanicLoop(uint32_t code);
 
 void PanicTask(void *) {
   while (true) {
-    uint32_t notified_code = static_cast<uint32_t>(ErrorCode::kUnknown);
+    uint32_t notified_code = static_cast<uint32_t>(ErrorCode::Common::kUnknown);
     (void)xTaskNotifyWait(0, UINT32_MAX, &notified_code, portMAX_DELAY);
-    RunPanicLoop(static_cast<ErrorCode>(notified_code));
+    RunPanicLoop(notified_code);
   }
 }
 
@@ -42,51 +43,59 @@ void EnsurePanicTaskStarted() {
       s_panic_task_stack, &s_panic_task_buffer, 0);
 }
 
-bool SupportsDfuRecovery(ErrorCode code) {
+// constexpr helper — `case Raw(ErrorCode::Esp32::kFoo):` is shorter than
+// `case static_cast<uint32_t>(ErrorCode::Esp32::kFoo):` and lets us mix
+// domains in one switch.
+template <typename E>
+constexpr uint32_t Raw(E code) {
+  return static_cast<uint32_t>(code);
+}
+
+bool SupportsDfuRecovery(uint32_t code) {
   switch (code) {
-    case ErrorCode::kUnknown:
-    case ErrorCode::kButtonGpioConfigFailed:
-    case ErrorCode::kWifiNvsInitFailed:
-    case ErrorCode::kWifiNetifInitFailed:
-    case ErrorCode::kWifiEventLoopFailed:
-    case ErrorCode::kWifiInitFailed:
-    case ErrorCode::kWifiSetStorageFailed:
-    case ErrorCode::kI2cParamConfigFailed:
-    case ErrorCode::kI2cInitFailed:
-    case ErrorCode::kI2cInvalidArg:
-    case ErrorCode::kI2cOperationFailed:
-    case ErrorCode::kUartParamConfigFailed:
-    case ErrorCode::kUartSetPinFailed:
-    case ErrorCode::kUartDriverInstallFailed:
-    case ErrorCode::kUartInvalidNumber:
-    case ErrorCode::kUartNotInitialized:
-    case ErrorCode::kUartInvalidArg:
-    case ErrorCode::kUartOperationFailed:
-    case ErrorCode::kProgrammerUartNull:
-    case ErrorCode::kProgrammerHandshakeFailed:
-    case ErrorCode::kProgrammerBufferOverflow:
-    case ErrorCode::kProgrammerEraseFailed:
-    case ErrorCode::kProgrammerWriteFailed:
-    case ErrorCode::kProgrammerReadFailed:
-    case ErrorCode::kProgrammerVerifyFailed:
-    case ErrorCode::kProgrammerOtaPartitionNotFound:
-    case ErrorCode::kProgrammerOtaBeginFailed:
-    case ErrorCode::kProgrammerOtaWriteFailed:
-    case ErrorCode::kProgrammerOtaEndFailed:
-    case ErrorCode::kProgrammerOtaSetBootFailed:
-    case ErrorCode::kProgrammerTimedOut:
-    case ErrorCode::kDisplayPanelInitFailed:
-    case ErrorCode::kUiInitFailed:
-    case ErrorCode::kTcpServerStartFailed:
-    case ErrorCode::kTcpServerAcceptFailed:
-    case ErrorCode::kTcpServerError:
+    case Raw(ErrorCode::Common::kUnknown):
+    case Raw(ErrorCode::Esp32::kButtonGpioConfigFailed):
+    case Raw(ErrorCode::Esp32::kWifiNvsInitFailed):
+    case Raw(ErrorCode::Esp32::kWifiNetifInitFailed):
+    case Raw(ErrorCode::Esp32::kWifiEventLoopFailed):
+    case Raw(ErrorCode::Esp32::kWifiInitFailed):
+    case Raw(ErrorCode::Esp32::kWifiSetStorageFailed):
+    case Raw(ErrorCode::Esp32::kI2cParamConfigFailed):
+    case Raw(ErrorCode::Esp32::kI2cInitFailed):
+    case Raw(ErrorCode::Esp32::kI2cInvalidArg):
+    case Raw(ErrorCode::Esp32::kI2cOperationFailed):
+    case Raw(ErrorCode::Esp32::kUartParamConfigFailed):
+    case Raw(ErrorCode::Esp32::kUartSetPinFailed):
+    case Raw(ErrorCode::Esp32::kUartDriverInstallFailed):
+    case Raw(ErrorCode::Esp32::kUartInvalidNumber):
+    case Raw(ErrorCode::Esp32::kUartNotInitialized):
+    case Raw(ErrorCode::Esp32::kUartInvalidArg):
+    case Raw(ErrorCode::Esp32::kUartOperationFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerUartNull):
+    case Raw(ErrorCode::Esp32::kProgrammerHandshakeFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerBufferOverflow):
+    case Raw(ErrorCode::Esp32::kProgrammerEraseFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerWriteFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerReadFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerVerifyFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerOtaPartitionNotFound):
+    case Raw(ErrorCode::Esp32::kProgrammerOtaBeginFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerOtaWriteFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerOtaEndFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerOtaSetBootFailed):
+    case Raw(ErrorCode::Esp32::kProgrammerTimedOut):
+    case Raw(ErrorCode::Esp32::kDisplayPanelInitFailed):
+    case Raw(ErrorCode::Esp32::kUiInitFailed):
+    case Raw(ErrorCode::Esp32::kTcpServerStartFailed):
+    case Raw(ErrorCode::Esp32::kTcpServerAcceptFailed):
+    case Raw(ErrorCode::Esp32::kTcpServerError):
       return false;
     default:
       return true;
   }
 }
 
-void ShowPanicUi(ErrorCode code, bool recoverable) {
+void ShowPanicUi(uint32_t code, bool recoverable) {
   Sys().Ui().SetErrorCode(code);
   Sys().Ui().SetErrorRecoverable(recoverable);
   Sys().Ui().SetAppState(Ui::AppState::kHardError);
@@ -94,7 +103,7 @@ void ShowPanicUi(ErrorCode code, bool recoverable) {
   Sys().Ui().NotifyUserActivity();
 }
 
-ErrorCode EnterRecoveryDfuMode() {
+uint32_t EnterRecoveryDfuMode() {
   System &sys = Sys();
   sys.Button().FlushEvents();
   sys.Ui().SetAppState(Ui::AppState::kDfu);
@@ -103,13 +112,13 @@ ErrorCode EnterRecoveryDfuMode() {
   sys.Tcp().DisableBridge();
 
   if (!sys.Wifi().IsOn()) {
-    return ErrorCode::kWifiInitFailed;
+    return Raw(ErrorCode::Esp32::kWifiInitFailed);
   }
   if (!sys.Tcp().Running()) {
-    return ErrorCode::kTcpServerStartFailed;
+    return Raw(ErrorCode::Esp32::kTcpServerStartFailed);
   }
 
-  return ErrorCode::kOk;
+  return Raw(ErrorCode::Common::kOk);
 }
 
 void EnterRecoveryProgramMode(SmTick now, SmTick *last_activity,
@@ -131,7 +140,7 @@ class RecoverySession {
  public:
   explicit RecoverySession(System &sys);
 
-  ErrorCode RunUntilFailure();
+  uint32_t RunUntilFailure();
 
  private:
   enum class Mode : uint8_t {
@@ -143,13 +152,13 @@ class RecoverySession {
   void EnterProgramMode(SmTick now);
   void StepDfuMode(SmTick now);
   void StepProgramMode(SmTick now);
-  void Exit(ErrorCode code, bool stop_network);
+  void Exit(uint32_t code, bool stop_network);
 
   System &sys_;
   TcpServer &tcp_;
   Programmer &prog_;
   Mode mode_ = Mode::kDfu;
-  ErrorCode result_ = ErrorCode::kOk;
+  uint32_t result_ = Raw(ErrorCode::Common::kOk);
   bool exit_ = false;
   SmTick last_activity_ = 0;
   uint32_t last_written_ = 0;
@@ -159,8 +168,8 @@ RecoverySession::RecoverySession(System &sys)
     : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
 
 bool RecoverySession::EnterDfuMode(SmTick now, bool stop_network_on_error) {
-  const ErrorCode recovery_error = EnterRecoveryDfuMode();
-  if (recovery_error != ErrorCode::kOk) {
+  const uint32_t recovery_error = EnterRecoveryDfuMode();
+  if (recovery_error != Raw(ErrorCode::Common::kOk)) {
     Exit(recovery_error, stop_network_on_error);
     return false;
   }
@@ -215,7 +224,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
   prog_.Poll(now);
 
   if (prog_.Error()) {
-    const ErrorCode programmer_error = prog_.LastErrorCode();
+    const uint32_t programmer_error = prog_.LastErrorCode();
     tcp_.StopDownload();
     prog_.Abort(now);
     Exit(programmer_error, true);
@@ -295,11 +304,11 @@ void RecoverySession::StepProgramMode(SmTick now) {
 
   if (!prog_.Done() && (now - last_activity_) > 3000) {
     prog_.Abort(now);
-    Exit(ErrorCode::kProgrammerTimedOut, true);
+    Exit(Raw(ErrorCode::Esp32::kProgrammerTimedOut), true);
   }
 }
 
-void RecoverySession::Exit(ErrorCode code, bool stop_network) {
+void RecoverySession::Exit(uint32_t code, bool stop_network) {
   if (stop_network) {
     sys_.StopNetwork();
   }
@@ -307,7 +316,7 @@ void RecoverySession::Exit(ErrorCode code, bool stop_network) {
   exit_ = true;
 }
 
-ErrorCode RecoverySession::RunUntilFailure() {
+uint32_t RecoverySession::RunUntilFailure() {
   if (!EnterDfuMode(sys_.Timebase().NowMs(), false)) {
     return result_;
   }
@@ -334,13 +343,13 @@ ErrorCode RecoverySession::RunUntilFailure() {
   }
 }
 
-ErrorCode RunRecoverableLoop() {
+uint32_t RunRecoverableLoop() {
   System &sys = Sys();
   RecoverySession recovery(sys);
   return recovery.RunUntilFailure();
 }
 
-[[noreturn]] void RunPanicLoop(ErrorCode code) {
+[[noreturn]] void RunPanicLoop(uint32_t code) {
   Sys().Halt();
   bool recoverable = SupportsDfuRecovery(code);
   const char *msg = GetMessage(code);
@@ -377,14 +386,13 @@ ErrorCode RunRecoverableLoop() {
 
 }  // namespace
 
-[[noreturn]] void Panic(ErrorCode code) {
+[[noreturn]] void PanicImpl(uint32_t code) {
   EnsurePanicTaskStarted();
   Sys().Halt();
 
   if (s_panic_task_handle != nullptr &&
       s_panic_task_handle != xTaskGetCurrentTaskHandle()) {
-    (void)xTaskNotify(s_panic_task_handle, static_cast<uint32_t>(code),
-                      eSetValueWithOverwrite);
+    (void)xTaskNotify(s_panic_task_handle, code, eSetValueWithOverwrite);
     vTaskSuspend(nullptr);
     while (true) {
       vTaskDelay(portMAX_DELAY);

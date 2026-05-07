@@ -1,5 +1,4 @@
 #pragma once
-
 #include <cstdint>
 
 #include "error_code.hpp"

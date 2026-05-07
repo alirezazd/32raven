@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "error_code.hpp"
 #include "message.hpp"
 #include "stm32f4xx.h"
 
@@ -18,7 +19,7 @@ static inline uint32_t Tim2UsNow() { return TIM2->CNT; }  // assumes 1 MHz tick
 
 // Wait until (cond) is true, but bail out after timeout_us.
 // If TIM2 is not running, falls back to a bounded spin count.
-static bool WaitCondTimeout(volatile uint32_t* reg, uint32_t mask,
+static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
                             bool want_set, uint32_t timeout_us) {
   if (Tim2Running()) {
     const uint32_t start_time = Tim2UsNow();
@@ -65,7 +66,7 @@ static void ToggleLed() {
 }
 
 // Raw UART1 transmit (blocking, but bounded)
-static void UartSend(const uint8_t* data, size_t len) {
+static void UartSend(const uint8_t *data, size_t len) {
   // Ensure USART1 clock enabled
   RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
 
@@ -94,7 +95,7 @@ static void UartSend(const uint8_t* data, size_t len) {
 }
 
 // Send Epistole panic message with error code
-static void SendPanicMessage(ErrorCode error_code) {
+static void SendPanicMessage(uint32_t error_code) {
   // Create PanicMsg
   message::PanicMsg panic_msg = {};
   panic_msg.error_code = error_code;
@@ -102,7 +103,7 @@ static void SendPanicMessage(ErrorCode error_code) {
   // Serialize Epistole message
   auto pkt_buf = message::MakePacketBuffer(panic_msg);
   size_t pkt_len = message::Serialize(
-      message::MsgId::kPanic, (const uint8_t*)&panic_msg,
+      message::MsgId::kPanic, (const uint8_t *)&panic_msg,
       message::PayloadLength<message::PanicMsg>(), pkt_buf.data());
 
   // Guard: if Serialize returns something bogus, do not overrun UART loop
@@ -114,7 +115,7 @@ static void SendPanicMessage(ErrorCode error_code) {
   UartSend(pkt_buf.data(), pkt_len);
 }
 
-void Panic(ErrorCode code) {
+void PanicImpl(uint32_t code) {
   // Disable interrupts to prevent further corruption
   __disable_irq();
 
@@ -124,4 +125,11 @@ void Panic(ErrorCode code) {
     ToggleLed();
     DelayMs(40);
   }
+}
+
+// HAL bridge: CubeMX-generated MSP code (`stm32f4xx_hal_msp.c`) calls
+// `ErrorHandler()` (declared in `Core/Inc/stm32f4xx_it.h`). Forward to the
+// typed Panic so HAL failures land in the same panic loop as everything else.
+extern "C" void ErrorHandler(void) {
+  Panic(ErrorCode::Stm32::kHalErrorHandler);
 }

@@ -85,30 +85,28 @@ class Mavlink {
   void UpdateConfigCache(const T &cfg, uint32_t now_ms) {
     if constexpr (std::is_same_v<T, message::RcMapConfigMsg>) {
       if (!message::IsRcMapConfigValid(cfg)) {
-        Panic(ErrorCode::kFcLinkInvalidRcMapConfig);
+        Panic(ErrorCode::Esp32::kFcLinkInvalidRcMapConfig);
       }
       UpdateCache(rc_map_config_, cfg, now_ms);
       rc_map_request_ = {};
       const T *desired = rc_map_apply_.Desired();
-      if (desired != nullptr &&
-          std::memcmp(desired, &cfg, sizeof(T)) == 0) {
+      if (desired != nullptr && std::memcmp(desired, &cfg, sizeof(T)) == 0) {
         rc_map_apply_.Reset();
       }
     } else if constexpr (std::is_same_v<T, message::RcCalibrationConfigMsg>) {
       if (!message::IsRcCalibrationConfigValid(cfg)) {
-        Panic(ErrorCode::kFcLinkInvalidRcCalibrationConfig);
+        Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
       }
       UpdateCache(rc_calibration_config_, cfg, now_ms);
       rc_calibration_request_ = {};
       const T *desired = rc_calibration_apply_.Desired();
-      if (desired != nullptr &&
-          std::memcmp(desired, &cfg, sizeof(T)) == 0) {
+      if (desired != nullptr && std::memcmp(desired, &cfg, sizeof(T)) == 0) {
         rc_calibration_apply_.Reset();
       }
     } else if constexpr (std::is_same_v<T,
                                         message::GyroCalibrationIdConfigMsg>) {
       if (!message::IsGyroCalibrationIdConfigValid(cfg)) {
-        Panic(ErrorCode::kFcLinkInvalidGyroCalibrationIdConfig);
+        Panic(ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig);
       }
       UpdateCache(gyro_calibration_id_config_, cfg, now_ms);
       gyro_calibration_id_request_ = {};
@@ -116,7 +114,7 @@ class Mavlink {
       static_assert(sizeof(T) == 0, "unsupported MAVLink config cache type");
     }
   }
-  void ReportPanic(PanicSource source, ErrorCode error_code);
+  void ReportPanic(PanicSource source, uint32_t error_code);
   uint32_t GetUdpRxPacketCount() const;
   uint32_t GetUdpTxPacketCount() const;
   std::optional<LatestRcChannelsData> GetLatestRcChannelsData() const;
@@ -352,8 +350,10 @@ class Mavlink {
   std::optional<EncodedParam> TryEncodeRcCalibrationParam(
       const RcCalibrationParamRef &param) const;
   ParamSetResult TrySetParam(const ParamRef &param, float param_value);
-  ParamSetResult TrySetFixedParam(const FixedParamRef &param, float param_value);
-  ParamSetResult TrySetRcMapParam(const FixedParamRef &param, float param_value);
+  ParamSetResult TrySetFixedParam(const FixedParamRef &param,
+                                  float param_value);
+  ParamSetResult TrySetRcMapParam(const FixedParamRef &param,
+                                  float param_value);
   ParamSetResult TrySetRcCalibrationParam(const RcCalibrationParamRef &param,
                                           float param_value);
   std::optional<TxFrameState> StartParamValueFrame(const ParamRef &param,
@@ -410,11 +410,10 @@ class Mavlink {
   std::optional<TxFrameState> StartAttitudeFrame(const Config::Tx &cfg_tx);
   std::optional<TxFrameState> StartGlobalPositionIntFrame(
       const Config::Tx &cfg_tx);
-  std::optional<TxFrameState> StartBatteryStatusFrame(
-      const Config::Tx &cfg_tx);
+  std::optional<TxFrameState> StartBatteryStatusFrame(const Config::Tx &cfg_tx);
   std::optional<TxFrameState> StartEscStatusFrame(const Config::Tx &cfg_tx);
 
   // Pick next stream to send when idle (hb has priority)
-  std::optional<TxFrameState> StartNextScheduledFrame(
-      const Config::Tx &cfg_tx, uint32_t now_ms);
+  std::optional<TxFrameState> StartNextScheduledFrame(const Config::Tx &cfg_tx,
+                                                      uint32_t now_ms);
 };

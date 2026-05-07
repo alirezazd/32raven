@@ -42,7 +42,7 @@ void UdpServer::ResetShaperState() {
 void UdpServer::Init(const Config &cfg) {
   cfg_ = cfg;
   if (cfg_.overflow_threshold == 0) {
-    Panic(ErrorCode::kUdpServerInvalidOverflowThreshold);
+    Panic(ErrorCode::Esp32::kUdpServerInvalidOverflowThreshold);
   }
   upload_cap_enabled_ = cfg_.upload_cap_kbits > 0;
   upload_cap_bytes_per_s_ =
@@ -174,7 +174,7 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
              static_cast<unsigned>(upload_overflow_count_));
     Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
     if (upload_overflow_count_ >= cfg_.overflow_threshold) {
-      Panic(ErrorCode::kUdpServerUploadOverflow);
+      Panic(ErrorCode::Esp32::kUdpServerUploadOverflow);
     }
   };
 
@@ -305,7 +305,7 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
              static_cast<unsigned>(download_overflow_count_));
     Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
     if (download_overflow_count_ >= cfg_.overflow_threshold) {
-      Panic(ErrorCode::kUdpServerDownloadOverflow);
+      Panic(ErrorCode::Esp32::kUdpServerDownloadOverflow);
     }
   };
 

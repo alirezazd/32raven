@@ -1,17 +1,18 @@
 #include "esc_service.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 
 void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
                       VehicleState &vehicle_state) {
   if (initialized_) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   if (cfg.idle_period_us == 0u || cfg.command_period_us == 0u ||
       cfg.command_repeat_count == 0u || cfg.telemetry_request_period_us == 0u) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   cfg_ = cfg;
@@ -23,7 +24,7 @@ void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
 
 void EscService::Poll(uint32_t now_us) {
   if (!initialized_) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   if (telemetry_ != nullptr) {
@@ -64,7 +65,7 @@ void EscService::Poll(uint32_t now_us) {
 
 void EscService::SetArmed(bool armed) {
   if (!initialized_) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   command_ = PendingCommand{};
@@ -81,7 +82,7 @@ bool EscService::WriteMotors(const DShotCodec::MotorValues &motor) {
 bool EscService::WriteMotors(const DShotCodec::MotorValues &motor,
                              uint32_t now_us) {
   if (!initialized_) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   if (!armed_ || command_.active) {
@@ -102,7 +103,7 @@ bool EscService::StopAll() {
 
 bool EscService::StopAll(uint32_t now_us) {
   if (!initialized_) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   const DShotCodec::MotorValues stop = {
@@ -116,7 +117,7 @@ bool EscService::StopAll(uint32_t now_us) {
 
 bool EscService::QueueCommand(uint16_t command, bool telemetry) {
   if (!initialized_) {
-    Panic(ErrorCode::kStm32EscServiceInitFailed);
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   if (armed_ || command > DShotCodec::kCommandMax) {
@@ -170,9 +171,8 @@ bool EscService::WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
 
   if (telemetry_motor < DShotCodec::kMotorCount) {
     telemetry_->ExpectMotor(telemetry_motor, now_us);
-    next_telemetry_motor_ =
-        static_cast<uint8_t>((next_telemetry_motor_ + 1u) %
-                             DShotCodec::kMotorCount);
+    next_telemetry_motor_ = static_cast<uint8_t>((next_telemetry_motor_ + 1u) %
+                                                 DShotCodec::kMotorCount);
     last_telemetry_request_us_ = now_us;
   }
 

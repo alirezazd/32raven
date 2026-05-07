@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 
@@ -62,7 +63,7 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
   ctx_.sm = &sm_;
 
   if (!ctx_.uart) {
-    Panic(ErrorCode::kProgrammerUartNull);
+    Panic(ErrorCode::Esp32::kProgrammerUartNull);
   }
   ctx_.restore_baud_rate = ctx_.uart->GetConfig().line.baud_rate;
 
@@ -78,7 +79,7 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
 
   // Start in idle
   ctx_.ready = false;
-  ctx_.err = ErrorCode::kOk;
+  ctx_.err = static_cast<uint32_t>(ErrorCode::Common::kOk);
   ctx_.total_size = 0;
   ctx_.written = 0;
   ctx_.head = ctx_.tail = 0;
@@ -580,7 +581,7 @@ void Programmer::Start(uint32_t total_size) {
   ctx_.verify_offset = 0;
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
-  ctx_.err = ErrorCode::kOk;
+  ctx_.err = static_cast<uint32_t>(ErrorCode::Common::kOk);
   ctx_.ready = false;
   ctx_.ota_handle = 0;
   ctx_.ota_part = nullptr;
@@ -605,7 +606,7 @@ void Programmer::Abort(SmTick now) {
 
   ctx_.head = ctx_.tail = 0;
   ctx_.overflow = false;
-  ctx_.err = ErrorCode::kOk;
+  ctx_.err = static_cast<uint32_t>(ErrorCode::Common::kOk);
   ctx_.ready = false;
   ctx_.total_size = 0;
   ctx_.written = 0;
@@ -653,8 +654,12 @@ bool Programmer::Error() const {
   return (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Error") == 0);
 }
 
-ErrorCode Programmer::LastErrorCode() const {
-  return (ctx_.err == ErrorCode::kOk) ? ErrorCode::kUnknown : ctx_.err;
+uint32_t Programmer::LastErrorCode() const {
+  const uint32_t err = static_cast<uint32_t>(ctx_.err);
+  if (err == static_cast<uint32_t>(ErrorCode::Common::kOk)) {
+    return static_cast<uint32_t>(ErrorCode::Common::kUnknown);
+  }
+  return err;
 }
 
 bool Programmer::IsVerifying() const {
@@ -765,7 +770,8 @@ bool Programmer::BeginEsp32Ota(Ctx &c) {
   c.ota_part = esp_ota_get_next_update_partition(NULL);
   if (!c.ota_part) {
     ESP_LOGE(kTag, "OTA partition not found!");
-    c.err = ErrorCode::kProgrammerOtaPartitionNotFound;
+    c.err = static_cast<uint32_t>(
+        ErrorCode::Esp32::kProgrammerOtaPartitionNotFound);
     sm_.Start(StError_);
     return false;
   }
@@ -773,7 +779,7 @@ bool Programmer::BeginEsp32Ota(Ctx &c) {
   const esp_err_t err = esp_ota_begin(c.ota_part, c.total_size, &c.ota_handle);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_begin failed: %s", esp_err_to_name(err));
-    c.err = ErrorCode::kProgrammerOtaBeginFailed;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaBeginFailed);
     sm_.Start(StError_);
     return false;
   }
@@ -790,7 +796,7 @@ bool Programmer::WriteEsp32Chunk(Ctx &c, const uint8_t *data, size_t len) {
   const esp_err_t err = esp_ota_write(c.ota_handle, data, len);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_write failed: %s", esp_err_to_name(err));
-    c.err = ErrorCode::kProgrammerOtaWriteFailed;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaWriteFailed);
     return false;
   }
   return true;
@@ -798,7 +804,7 @@ bool Programmer::WriteEsp32Chunk(Ctx &c, const uint8_t *data, size_t len) {
 
 bool Programmer::BeginStm32Session(Ctx &c) {
   if (!EnterStm32Bootloader()) {
-    c.err = ErrorCode::kProgrammerHandshakeFailed;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerHandshakeFailed);
     c.ready = false;
     sm_.Start(StError_);
     return false;
@@ -814,7 +820,7 @@ bool Programmer::BeginStm32Session(Ctx &c) {
 
   if (!EraseStm32Sectors()) {
     ESP_LOGE(kTag, "Failed to erase STM32 sectors!");
-    c.err = ErrorCode::kProgrammerEraseFailed;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerEraseFailed);
     c.ready = false;
     sm_.Start(StError_);
     return false;
@@ -827,7 +833,7 @@ bool Programmer::FinalizeEsp32Ota(Ctx &c) {
   esp_err_t err = esp_ota_end(c.ota_handle);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_end failed: %s", esp_err_to_name(err));
-    c.err = ErrorCode::kProgrammerOtaEndFailed;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaEndFailed);
     if (c.sm && c.st_error) {
       c.sm->ReqTransition(*c.st_error);
     }
@@ -842,7 +848,8 @@ bool Programmer::ActivateEsp32Ota(Ctx &c) {
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_set_boot_partition failed: %s",
              esp_err_to_name(err));
-    c.err = ErrorCode::kProgrammerOtaSetBootFailed;
+    c.err =
+        static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaSetBootFailed);
     if (c.sm && c.st_error) {
       c.sm->ReqTransition(*c.st_error);
     }
@@ -873,7 +880,7 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
 
   // If buffer overflow happened, error out
   if (c.overflow) {
-    c.err = ErrorCode::kProgrammerBufferOverflow;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerBufferOverflow);
     // Transition to error is handled by the SM check?
     // Actually, we need to request it. Since we can't easily request from here
     // without the parent SM pointer passed down or stored in Ctx differently
@@ -906,9 +913,10 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
     }
 
     if (!Programmer::GetInstance().WriteTargetChunk(c, block, needed)) {
-      c.err = (c.target == Target::kEsp32)
-                  ? ErrorCode::kProgrammerOtaWriteFailed
-                  : ErrorCode::kProgrammerWriteFailed;
+      c.err = static_cast<uint32_t>(
+          (c.target == Target::kEsp32)
+              ? ErrorCode::Esp32::kProgrammerOtaWriteFailed
+              : ErrorCode::Esp32::kProgrammerWriteFailed);
       if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
       return;
     }
@@ -966,7 +974,7 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
     }
 
     if (!Programmer::GetInstance().ReadTargetVerifyChunk(c, c.buf, &chunk)) {
-      c.err = ErrorCode::kProgrammerReadFailed;
+      c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerReadFailed);
       if (c.sm && c.st_error) {
         c.sm->ReqTransition(*c.st_error);
       }
@@ -991,7 +999,7 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
   // Compare
   if (std::memcmp(c.computed_hash, read_hash, 32) != 0) {
     ESP_LOGE(kTag, "Verification Failed! CRCs do not match.");
-    c.err = ErrorCode::kProgrammerVerifyFailed;
+    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerVerifyFailed);
     if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
   } else {
     ESP_LOGI(kTag, "Verification Successful. Hash matches.");

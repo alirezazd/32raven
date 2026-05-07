@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 
@@ -49,22 +50,22 @@ void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
   cfg_ = cfg;
   buzzer_ = buzzer;
   if (buzzer_ == nullptr) {
-    Panic(ErrorCode::kTonePlayerInitFailed);
+    Panic(ErrorCode::Esp32::kTonePlayerInitFailed);
   }
 
   playback_volume_ = cfg_.volume;
-  (void)buzzer_->SetDutyCycle(DutyCycleForVolume(playback_volume_));
-  (void)buzzer_->Stop();
+  buzzer_->SetDutyCycle(DutyCycleForVolume(playback_volume_));
+  buzzer_->Stop();
   request_queue_ =
       xQueueCreateStatic(kPendingRequestQueueDepth, sizeof(PendingRequest),
                          request_queue_storage, &request_queue_buffer);
   if (request_queue_ == nullptr) {
-    Panic(ErrorCode::kTonePlayerInitFailed);
+    Panic(ErrorCode::Esp32::kTonePlayerInitFailed);
   }
   task_handle_ = xTaskCreateStatic(TaskEntry, "tone_player", kTaskStackBytes,
                                    this, 1, task_stack, &task_buffer);
   if (task_handle_ == nullptr) {
-    Panic(ErrorCode::kTonePlayerInitFailed);
+    Panic(ErrorCode::Esp32::kTonePlayerInitFailed);
   }
   ESP_LOGI(kTag, "initialized");
 }
@@ -108,7 +109,7 @@ void TonePlayer::Task() {
         score_ = nullptr;
         cursor_ = nullptr;
         next_change_ms_ = 0;
-        (void)buzzer_->Stop();
+        buzzer_->Stop();
         continue;
       }
 
@@ -120,7 +121,7 @@ void TonePlayer::Task() {
           score_ = nullptr;
           cursor_ = nullptr;
           next_change_ms_ = 0;
-          (void)buzzer_->Stop();
+          buzzer_->Stop();
         } else {
           StartEvent(event, now);
         }
@@ -134,7 +135,7 @@ void TonePlayer::Task() {
         score_ = nullptr;
         cursor_ = nullptr;
         next_change_ms_ = 0;
-        (void)buzzer_->Stop();
+        buzzer_->Stop();
       }
       continue;
     }
@@ -154,7 +155,7 @@ void TonePlayer::Task() {
       score_ = nullptr;
       cursor_ = nullptr;
       next_change_ms_ = 0;
-      (void)buzzer_->Stop();
+      buzzer_->Stop();
       continue;
     }
 
@@ -170,7 +171,7 @@ void TonePlayer::Task() {
       score_ = nullptr;
       cursor_ = nullptr;
       next_change_ms_ = 0;
-      (void)buzzer_->Stop();
+      buzzer_->Stop();
       continue;
     }
 
@@ -314,10 +315,10 @@ TonePlayer::NoteEvent TonePlayer::ParseNextNote() {
 
 void TonePlayer::StartEvent(const NoteEvent &event, TimeMs now) {
   if (event.freq_hz == 0) {
-    (void)buzzer_->Stop();
+    buzzer_->Stop();
   } else {
-    (void)buzzer_->SetDutyCycle(DutyCycleForVolume(playback_volume_));
-    (void)buzzer_->Start(event.freq_hz);
+    buzzer_->SetDutyCycle(DutyCycleForVolume(playback_volume_));
+    buzzer_->Start(event.freq_hz);
   }
   next_change_ms_ = TimeAfter(now, event.duration_ms);
 }

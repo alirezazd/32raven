@@ -1,5 +1,6 @@
 #include "i2c.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 
 namespace {
@@ -19,7 +20,7 @@ template <I2cInstance Inst>
 void I2c<Inst>::Init(const I2cConfig &cfg) {
   if (cfg.pins.sda_gpio == GPIO_NUM_NC || cfg.pins.scl_gpio == GPIO_NUM_NC ||
       cfg.bus.transfer_timeout_ms == 0) {
-    Panic(ErrorCode::kI2cParamConfigFailed);
+    Panic(ErrorCode::Esp32::kI2cParamConfigFailed);
   }
 
   cfg_ = cfg;
@@ -38,14 +39,14 @@ void I2c<Inst>::Init(const I2cConfig &cfg) {
   bus_cfg.flags.allow_pd = 0;
 
   if (i2c_new_master_bus(&bus_cfg, &bus_) != ESP_OK) {
-    Panic(ErrorCode::kI2cInitFailed);
+    Panic(ErrorCode::Esp32::kI2cInitFailed);
   }
 }
 
 template <I2cInstance Inst>
 i2c_master_dev_handle_t I2c<Inst>::AddDevice(const I2cDeviceConfig &cfg) {
   if (cfg.address > 0x7F || cfg.timing.clock_hz == 0) {
-    Panic(ErrorCode::kI2cParamConfigFailed);
+    Panic(ErrorCode::Esp32::kI2cParamConfigFailed);
   }
 
   i2c_device_config_t dev_cfg{};
@@ -57,7 +58,7 @@ i2c_master_dev_handle_t I2c<Inst>::AddDevice(const I2cDeviceConfig &cfg) {
 
   i2c_master_dev_handle_t handle = nullptr;
   if (i2c_master_bus_add_device(bus_, &dev_cfg, &handle) != ESP_OK) {
-    Panic(ErrorCode::kI2cInitFailed);
+    Panic(ErrorCode::Esp32::kI2cInitFailed);
   }
   return handle;
 }
@@ -65,7 +66,7 @@ i2c_master_dev_handle_t I2c<Inst>::AddDevice(const I2cDeviceConfig &cfg) {
 template <I2cInstance Inst>
 bool I2c<Inst>::Probe(uint16_t address) const {
   if (address > 0x7F) {
-    Panic(ErrorCode::kI2cInvalidArg);
+    Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
   return i2c_master_probe(bus_, address,
@@ -77,13 +78,13 @@ template <I2cInstance Inst>
 void I2c<Inst>::Transmit(i2c_master_dev_handle_t device, const uint8_t *data,
                          size_t size) const {
   if (data == nullptr || size == 0) {
-    Panic(ErrorCode::kI2cInvalidArg);
+    Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
   if (i2c_master_transmit(device, data, size,
                           static_cast<int>(cfg_.bus.transfer_timeout_ms)) !=
       ESP_OK) {
-    Panic(ErrorCode::kI2cOperationFailed);
+    Panic(ErrorCode::Esp32::kI2cOperationFailed);
   }
 }
 
@@ -93,13 +94,13 @@ void I2c<Inst>::MultiBufferTransmit(
     i2c_master_transmit_multi_buffer_info_t *buffers,
     size_t buffer_count) const {
   if (buffers == nullptr || buffer_count == 0) {
-    Panic(ErrorCode::kI2cInvalidArg);
+    Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
   if (i2c_master_multi_buffer_transmit(
           device, buffers, buffer_count,
           static_cast<int>(cfg_.bus.transfer_timeout_ms)) != ESP_OK) {
-    Panic(ErrorCode::kI2cOperationFailed);
+    Panic(ErrorCode::Esp32::kI2cOperationFailed);
   }
 }
 
@@ -109,13 +110,13 @@ void I2c<Inst>::TransmitReceive(i2c_master_dev_handle_t device,
                                 uint8_t *read_buffer, size_t read_size) const {
   if (write_buffer == nullptr || write_size == 0 || read_buffer == nullptr ||
       read_size == 0) {
-    Panic(ErrorCode::kI2cInvalidArg);
+    Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
   if (i2c_master_transmit_receive(
           device, write_buffer, write_size, read_buffer, read_size,
           static_cast<int>(cfg_.bus.transfer_timeout_ms)) != ESP_OK) {
-    Panic(ErrorCode::kI2cOperationFailed);
+    Panic(ErrorCode::Esp32::kI2cOperationFailed);
   }
 }
 

@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "ctx.hpp"
+#include "error_code.hpp"
 #include "message.hpp"
 #include "panic.hpp"
 #include "rc_receiver.hpp"
@@ -36,7 +37,7 @@ static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
   const message::RcMapConfigMsg rc_map =
       ctx.sys->GetRcReceiver().GetRcMapConfig();
   if (!message::IsRcMapConfigValid(rc_map)) {
-    Panic(ErrorCode::kRcReceiverInvalidConfig);
+    Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
   ctx.sys->GetFcLink().SendRcMapConfig(rc_map);
 }
@@ -58,7 +59,7 @@ static void OnReqRcCalibration(AppContext &ctx, const message::Packet &pkt) {
   memcpy(rc_cal.trim_us, cal.trim_us, sizeof(rc_cal.trim_us));
   memcpy(rc_cal.rev, cal.rev, sizeof(rc_cal.rev));
   if (!message::IsRcCalibrationConfigValid(rc_cal)) {
-    Panic(ErrorCode::kFcLinkInvalidRcCalibrationConfig);
+    Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
   }
   ctx.sys->GetFcLink().SendRcCalibrationConfig(rc_cal);
 }
@@ -92,7 +93,7 @@ static void OnSetRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
   const message::RcMapConfigMsg rc_map =
       ctx.sys->GetRcReceiver().GetRcMapConfig();
   if (!message::IsRcMapConfigValid(rc_map)) {
-    Panic(ErrorCode::kRcReceiverInvalidConfig);
+    Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
   ctx.sys->GetFcLink().SendRcMapConfig(rc_map);
 }
@@ -111,7 +112,7 @@ static void OnSetRcCalibration(AppContext &ctx, const message::Packet &pkt) {
   const message::RcCalibrationConfigMsg rc_cal =
       GetRcCalibrationConfigMsg(ctx.sys->GetRcReceiver());
   if (!message::IsRcCalibrationConfigValid(rc_cal)) {
-    Panic(ErrorCode::kFcLinkInvalidRcCalibrationConfig);
+    Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
   }
   ctx.sys->GetFcLink().SendRcCalibrationConfig(rc_cal);
 }
@@ -127,7 +128,7 @@ static void OnReqGyroCalibrationId(AppContext &ctx,
       .cal_gyro0_id = ctx.sys->GetImu42688p().GetDeviceId(),
   };
   if (!message::IsGyroCalibrationIdConfigValid(cfg)) {
-    Panic(ErrorCode::kFcLinkInvalidGyroCalibrationIdConfig);
+    Panic(ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig);
   }
   ctx.sys->GetFcLink().SendGyroCalibrationIdConfig(cfg);
 }
