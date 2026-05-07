@@ -8,7 +8,7 @@
 # Managed keys:
 #   - git submodule scan disabled (Source Control perf with ESP-IDF)
 #   - file watcher / search exclusions for vendored code and build dirs
-#   - clangd.arguments: --query-driver for arm-none-eabi GCC, indexing, tidy
+#   - clangd.arguments: --query-driver for arm-none-eabi + riscv32-esp-elf GCC, indexing, tidy
 #   - editor.formatOnSave + per-language clangd formatter for c/cpp/h/hpp
 #
 # Run again any time the managed list changes; your edits stay.
@@ -38,7 +38,7 @@ MANAGED = {
         "**/.docker": True,
     },
     "clangd.arguments": [
-        "--query-driver=/usr/bin/arm-none-eabi-*,/usr/local/bin/arm-none-eabi-*,/opt/**/arm-none-eabi-*,**/bin/arm-none-eabi-*",
+        "--query-driver=/usr/bin/arm-none-eabi-*,/usr/local/bin/arm-none-eabi-*,/opt/**/arm-none-eabi-*,**/bin/arm-none-eabi-*,**/bin/riscv32-esp-elf-*",
         "--background-index",
         "--clang-tidy",
         "--header-insertion=never",

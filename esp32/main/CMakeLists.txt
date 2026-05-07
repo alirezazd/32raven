@@ -15,6 +15,7 @@ set(ESP32_CONFIG_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_esp32_config.py")
 set(ESP32_FIRMWARE_VERSION_TOOL
     "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/generate_firmware_ver.py")
+set(ESP32_FIRMWARE_VERSION_FILE "${CMAKE_CURRENT_SOURCE_DIR}/../../VERSION")
 set(ESP32_CONFIG_TEMPLATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/templates/esp32_config.hpp.j2")
 set(ESP32_LIMITS_TEMPLATE
@@ -57,7 +58,6 @@ idf_component_register(
     "../services/panic.cpp"
     "../../third_party/Adafruit-GFX-Library/Adafruit_GFX.cpp"
     "../../libs/src/error_code.cpp"
-    "../../libs/inc/error_code.hpp"
 
     INCLUDE_DIRS
     "."
@@ -87,6 +87,7 @@ if(CLANG_FORMAT_EXECUTABLE)
         DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
         ${ESP32_CONFIG_GENERATOR}
         ${ESP32_FIRMWARE_VERSION_TOOL}
+        ${ESP32_FIRMWARE_VERSION_FILE}
         ${ESP32_CONFIG_TEMPLATE}
         ${ESP32_LIMITS_TEMPLATE}
         COMMENT "Generating ESP32 configuration headers"
@@ -102,6 +103,7 @@ else()
         DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
         ${ESP32_CONFIG_GENERATOR}
         ${ESP32_FIRMWARE_VERSION_TOOL}
+        ${ESP32_FIRMWARE_VERSION_FILE}
         ${ESP32_CONFIG_TEMPLATE}
         ${ESP32_LIMITS_TEMPLATE}
         COMMENT "Generating ESP32 configuration headers"
