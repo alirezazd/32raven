@@ -7,7 +7,7 @@
 
 #include "../../third_party/mavlink/standard/mavlink_msg_autopilot_version.h"
 #include "error_code.hpp"
-#include "esp32_limits.hpp"
+#include "esp32_config.hpp"
 #include "esp_log.h"
 #include "mavlink.hpp"
 #include "panic.hpp"
@@ -212,10 +212,10 @@ Mavlink::TxFrameState Mavlink::StartAutopilotVersionFrame(
   static constexpr uint8_t kZeroUid2[18] = {};
 
   mavlink_message_t m{};
-  mavlink_msg_autopilot_version_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, capabilities,
-      esp32_limits::kMavlinkFlightSwVersion, 0, 0, 0, kZeroHash, kZeroHash,
-      kZeroHash, 0, 0, 0, kZeroUid2);
+  mavlink_msg_autopilot_version_pack(cfg_.identity.sysid, cfg_.identity.compid,
+                                     &m, capabilities, kMavlinkFlightSwVersion,
+                                     0, 0, 0, kZeroHash, kZeroHash, kZeroHash,
+                                     0, 0, 0, kZeroUid2);
 
   TxFrameState frame{};
   frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
@@ -336,7 +336,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   if (system_status_.have_data) {
     const message::SystemStatusMsg &status = system_status_.value;
     const bool fresh = (uint32_t)(now_ms - system_status_.update_ms) <=
-                       esp32_limits::kMavlinkSystemStatusFreshMs;
+                       kMavlinkSystemStatusFreshMs;
     const bool loop_alive =
         (status.flags & message::kSystemStatusFlagLoopAlive) != 0u;
     const bool system_error =

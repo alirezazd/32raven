@@ -1,6 +1,5 @@
 #include "battery.hpp"
 
-#include "board.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32_limits.hpp"
@@ -11,17 +10,6 @@ namespace {
 constexpr float kMilli = 1000.0f;
 constexpr float kMicrosecondsPerMahAtOneAmp = 3600000.0f;
 constexpr uint32_t kAdcSampleTime480Cycles = 7u;
-constexpr uint8_t kEscVbaAdcChannel = 10u;
-constexpr uint8_t kEscCurAdcChannel = 11u;
-constexpr uint32_t kGpioModeMask = 0x3u;
-constexpr uint32_t kGpioAnalogMode = 0x3u;
-
-void ValidateAdcChannel(uint8_t channel) {
-  if (channel <= 15u) {
-    return;
-  }
-  Panic(ErrorCode::Stm32::kAdcInitFailed);
-}
 
 void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
   const uint32_t shift = static_cast<uint32_t>(channel % 10u) * 3u;
@@ -32,36 +20,6 @@ void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
     ADC1->SMPR1 &= ~(0x7u << shift);
     ADC1->SMPR1 |= sample_time << shift;
   }
-}
-
-uint8_t PinIndex(uint16_t pin) {
-  if (pin == 0u || (pin & (pin - 1u)) != 0u) {
-    Panic(ErrorCode::Stm32::kGpioConfigFailed);
-  }
-
-  for (uint8_t index = 0; index < 16u; ++index) {
-    if ((pin & (1u << index)) != 0u) {
-      return index;
-    }
-  }
-
-  Panic(ErrorCode::Stm32::kGpioConfigFailed);
-  return 0u;
-}
-
-void ConfigureAnalogPin(GPIO_TypeDef *port, uint16_t pin) {
-  const uint32_t shift = static_cast<uint32_t>(PinIndex(pin)) * 2u;
-  port->MODER =
-      (port->MODER & ~(kGpioModeMask << shift)) | (kGpioAnalogMode << shift);
-  port->PUPDR &= ~(kGpioModeMask << shift);
-}
-
-void EnableBatteryPeripheralClocks() {
-  RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
-  (void)RCC->AHB1ENR;
-
-  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
-  (void)RCC->APB2ENR;
 }
 
 bool WaitForEoc(uint16_t timeout_us) {
@@ -97,12 +55,6 @@ void Battery::Init(const Config &cfg) {
   }
 
   cfg_ = cfg;
-  ValidateAdcChannel(cfg_.voltage_adc_channel);
-  ValidateAdcChannel(cfg_.current_adc_channel);
-  if (cfg_.voltage_adc_channel != kEscVbaAdcChannel ||
-      cfg_.current_adc_channel != kEscCurAdcChannel) {
-    Panic(ErrorCode::Stm32::kAdcInitFailed);
-  }
 
   mah_drawn_ = static_cast<float>(cfg_.initial_mah_drawn);
   data_ = {};
@@ -133,13 +85,10 @@ void Battery::Poll(uint32_t now_us) {
 }
 
 void Battery::InitAdc() {
-  if (board::kEscVba.port != GPIOC || board::kEscCur.port != GPIOC) {
-    Panic(ErrorCode::Stm32::kGpioConfigFailed);
-  }
-
-  EnableBatteryPeripheralClocks();
-  ConfigureAnalogPin(board::kEscVba.port, board::kEscVba.pin);
-  ConfigureAnalogPin(board::kEscCur.port, board::kEscCur.pin);
+  // GPIO mode + port clocks for kEscVba/kEscCur are programmed by GPIO::Init()
+  // via kGpioDefault. Only the ADC1 clock + peripheral programming live here.
+  RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
+  (void)RCC->APB2ENR;
 
   ADC->CCR &= ~ADC_CCR_ADCPRE;
   ADC->CCR |= ADC_CCR_ADCPRE_0;  // PCLK2 / 4 = 21 MHz on this clock tree.

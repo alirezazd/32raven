@@ -1,34 +1,76 @@
 {{ autogen_warning }}#pragma once
 
+#include <array>
+
 #include "battery.hpp"
-#include "board.hpp"
 #include "button.hpp"
 #include "crsf_link_service.hpp"
 #include "dshot_tim1.hpp"
 #include "esc_service.hpp"
 #include "esc_telemetry.hpp"
+#include "gpio.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
 #include "m10.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "stm32_limits.hpp"
+#include "stm32f4xx_hal.h"
 #include "time_base.hpp"
 #include "uart.hpp"
 
 // ---- Pin map (from menuconfig + ST silicon data) ------------------------
-// Re-opens the `board` namespace declared in stm32/Core/Inc/board.hpp. Each
-// entry below is a Kconfig-tunable pin assignment; the (pin, AF) combo was
-// validated against ST's open-pin-data at generation time, so invalid picks
-// can't reach this header. Emitted before any consumer (kButtonConfig,
-// kLedConfig, kGpioDefault) so the constants are visible at point of use.
+// Single source of truth for this PCB's pin assignments. Each entry below
+// is a Kconfig-tunable pin; the (pin, AF) / (pin, ADC channel) / EXTI IRQn
+// combo was validated against ST's open-pin-data at generation time, so
+// invalid picks can't reach this header. Emitted before any consumer
+// (kButtonConfig, kLedConfig, kGpioDefault) so the constants are visible
+// at point of use.
 namespace board {
+
+struct BoardPin {
+  GPIO_TypeDef *port;
+  uint16_t pin;
+  uint8_t af;           // alternate function (0 = plain GPIO / analog)
+  IRQn_Type exti_irqn;  // EXTI IRQ for input pins (NonMaskableInt_IRQn = none)
+};
+
 {% for p in pinmap %}
 inline const BoardPin {{ p.name }} = {
-    {{ p.port }}, {{ p.pin }}, {{ p.af }}, NonMaskableInt_IRQn,
+    {{ p.port }}, {{ p.pin }}, {{ p.af }}, {{ p.irqn }},
 };
+{% if p.adc_const %}
+inline constexpr uint8_t {{ p.adc_const }} = {{ p.adc_channel }}u;
+{% endif %}
 {% endfor %}
 }  // namespace board
+
+#include "system.hpp"
+
+inline constexpr System::Config kSystemDefault = {
+    .oscillator = {{ system_clock.oscillator }},
+    .pllm = {{ system_clock.pllm }},
+    .plln = {{ system_clock.plln }},
+    .pllp = {{ system_clock.pllp }},
+    .pllq = {{ system_clock.pllq }},
+    .ahb_divider = {{ system_clock.ahb_divider }},
+    .apb1_divider = {{ system_clock.apb1_divider }},
+    .apb2_divider = {{ system_clock.apb2_divider }},
+    .flash_latency = {{ system_clock.flash_latency }},
+    .voltage_scale = {{ system_clock.voltage_scale }},
+};
+
+// GPIO programming for every pin in the pin map. Mode / pull / speed /
+// active_low follow from the entry's role in PINMAP_ENTRIES; there is no
+// hand-wired override layer. Consumed by GPIO::Init() at bring-up.
+inline const std::array kGpioDefault = {
+{% for p in pinmap %}
+    GPIO::PinConfig{board::{{ p.name }}.port,
+                    {board::{{ p.name }}.pin, {{ p.gpio_mode }}, {{ p.gpio_pull }},
+                     {{ p.gpio_speed }}, board::{{ p.name }}.af},
+                    {{ p.gpio_active_low }}},
+{% endfor %}
+};
 
 inline constexpr auto kFcLinkTelemetryRateHz = {{ fclink.telemetry_rate_hz }}u;
 inline constexpr auto kFcLinkTelemetryIntervalMs = 1000u / kFcLinkTelemetryRateHz;
@@ -66,7 +108,7 @@ inline constexpr UartConfig kUart6Config = {
 inline constexpr SpiConfig kEeSpi1Config = {
     .polarity = SpiPolarity::kLow,
     .phase = SpiPhase::k1Edge,
-    .prescaler = stm32_limits::kEeSpi1Prescaler,
+    .prescaler = {{ ee.spi1_prescaler }},
     .bit_order = SpiBitOrder::kMsbFirst,
 };
 
@@ -140,8 +182,8 @@ inline const Button::Config kButtonConfig = {
 inline constexpr Battery::Config kBatteryConfig = {
     .sample_period_us = {{ battery.sample_period_ms }}u * 1000u,
     .adc_reference_mv = {{ battery.adc_reference_mv }},
-    .voltage_adc_channel = stm32_limits::kBatteryVoltageAdcChannel,
-    .current_adc_channel = stm32_limits::kBatteryCurrentAdcChannel,
+    .voltage_adc_channel = board::kEscVbaAdcChannel,
+    .current_adc_channel = board::kEscCurAdcChannel,
     .oversample_count = {{ battery.oversample_count }},
     .filter_alpha_permille = {{ battery.filter_alpha_permille }},
     .adc_timeout_us = {{ battery.adc_timeout_us }},

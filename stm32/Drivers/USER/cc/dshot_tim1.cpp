@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "error_code.hpp"
+#include "irq_priority.hpp"
 #include "panic.hpp"
 #include "stm32f4xx_hal.h"
 
@@ -82,7 +83,7 @@ void DShotTim1::DmaInit() {
 
   /* DMA interrupt init */
   /* DMA2_Stream5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, 6, 0);
+  HAL_NVIC_SetPriority(DMA2_Stream5_IRQn, irq_priority::kDshotTim1Dma, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream5_IRQn);
 }
 

@@ -46,9 +46,7 @@ class Spi {
   void SetPrescaler(SpiPrescaler rate);
   template <SpiInstance I = Inst,
             typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
-  void EnableIrqs(uint32_t priority = 2) {
-    EnableIrqsImpl(priority);
-  }
+  void EnableIrqs(uint32_t priority) { EnableIrqsImpl(priority); }
 
   bool IsInitialized() const { return initialized_; }
 

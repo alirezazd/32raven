@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "error_code.hpp"
+#include "esp32_config.hpp"
 #include "esp_log.h"
 #include "mavlink.hpp"
 #include "panic.hpp"
@@ -19,8 +20,6 @@ namespace {
 constexpr const char *kTag = "mavlink";
 constexpr uint16_t kFcConfigRequestAttempts = 100;
 constexpr uint16_t kFcConfigRequestRetryPeriodMs = 50;
-constexpr std::size_t kMavParamIdCStringLen =
-    MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN + 1u;
 
 namespace param_detail {
 
@@ -474,7 +473,7 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeFixedParam(
       encoded.value = 0.0f;
       return encoded;
     case param_detail::ParamKey::kSysAutostart:
-      encoded.value = static_cast<float>(esp32_limits::kMavlinkSysAutostart);
+      encoded.value = static_cast<float>(kMavlinkSysAutostart);
       return encoded;
     case param_detail::ParamKey::kRcChanCnt:
       encoded.value = static_cast<float>(message::kRcCalibrationChannelCount);

@@ -63,8 +63,6 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern DMA_HandleTypeDef hdma_usart6_rx;
 extern DMA_HandleTypeDef hdma_usart6_tx;
-extern TIM_HandleTypeDef htim2;
-extern TIM_HandleTypeDef htim5;
 extern void Uart1DmaTxComplete(void);
 extern void Icm42688pOnIrq(void);
 extern void Uart2DmaTxComplete(void);

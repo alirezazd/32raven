@@ -1,5 +1,8 @@
 {{ autogen_warning }}#pragma once
 
+#include <cstddef>
+#include <cstdint>
+
 #include "button.hpp"
 #include "buzzer.hpp"
 #include "fc_link.hpp"
@@ -211,3 +214,20 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                 },
         },
 };
+
+// MAVLink runtime identity / timing.  `kMavlinkSysAutostart` is the
+// `MAV_AUTOPILOT_GENERIC_*` value reported in HEARTBEAT (PX4 frame class,
+// 4001 == "mission-style autostart").  `kMavlinkSystemStatusFreshMs` is
+// how long a SYS_STATUS sample is considered current before we drop the
+// telemetry fields that depend on it.
+inline constexpr std::uint32_t kMavlinkSysAutostart = {{ mavlink.sys_autostart }}u;
+inline constexpr std::uint32_t kMavlinkSystemStatusFreshMs =
+    {{ mavlink.system_status_fresh_ms }}u;
+inline constexpr const char *kMavlinkGitHashShort = "{{ mavlink.git_hash }}";
+inline constexpr const char *kMavlinkVersionString = "{{ mavlink.version_string }}";
+inline constexpr std::uint32_t kMavlinkFlightSwVersion = {{ mavlink.flight_sw_version_hex }};
+
+// Panic background task (FreeRTOS).  Stack depth and priority are
+// independent of MCU silicon; tune them as the panic handler grows.
+inline constexpr std::size_t kPanicTaskStackDepthWords = {{ panic.task_stack_depth_words }};
+inline constexpr std::uint32_t kPanicTaskPriority = {{ panic.task_priority }}u;

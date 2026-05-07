@@ -8,12 +8,14 @@
 
 namespace stm32_limits {
 
+// Silicon / hardware-fixed constants. None of these are board-tunable;
+// they reflect physical limits of the STM32F407 (ADC width, IMU FIFO
+// capacity) or compile-time array sizes derived from menuconfig
+// selections (the enabled-RC-channel set).
+
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
-inline constexpr SpiPrescaler kEeSpi1Prescaler = {{ ee_spi1_prescaler }};
 inline constexpr uint8_t kBatteryAdcResolutionBits = {{ battery_adc_resolution_bits }};
 inline constexpr uint16_t kBatteryAdcMaxRaw = {{ battery_adc_max_raw }};
-inline constexpr uint8_t kBatteryVoltageAdcChannel = {{ battery_voltage_adc_channel }};
-inline constexpr uint8_t kBatteryCurrentAdcChannel = {{ battery_current_adc_channel }};
 inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};
 inline constexpr std::array<uint8_t, kRcEnabledChannelCount> kRcEnabledChannelIndices = {
 {% for channel_index in rc_enabled_indices %}

@@ -32,16 +32,12 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 RCC ClockConfig failed";
     case ErrorCode::Stm32::kSpiInitFailed:
       return "STM32 SPI init failed";
-    case ErrorCode::Stm32::kUartInitFailed:
-      return "STM32 UART init failed";
     case ErrorCode::Stm32::kTimInitFailed:
       return "STM32 TIM init failed";
     case ErrorCode::Stm32::kDshotInitFailed:
       return "STM32 DShot init failed";
     case ErrorCode::Stm32::kAdcInitFailed:
       return "STM32 ADC init failed";
-    case ErrorCode::Stm32::kGpioConfigFailed:
-      return "STM32 GPIO config failed";
     case ErrorCode::Stm32::kGpioReinit:
       return "GPIO Driver Re-init";
     case ErrorCode::Stm32::kGpioInvalidPort:
