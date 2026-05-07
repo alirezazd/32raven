@@ -2,7 +2,7 @@
 
 #include "gpio.hpp"
 
-void Button::Init(GPIO& gpio, const Config& cfg) {
+void Button::Init(GPIO &gpio, const Config &cfg) {
   gpio_ = &gpio;
 
   port_ = cfg.pin.port;

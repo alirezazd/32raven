@@ -1,4 +1,5 @@
 #pragma once
+#include "error_code.hpp"
 #include "mbedtls/sha256.h"  // IWYU pragma: keep
 #include "uart.hpp"
 
@@ -12,7 +13,6 @@ extern "C" {
 #include <cstdint>
 #include <cstring>
 
-#include "error_code.hpp"
 #include "esp32_limits.hpp"
 #include "state_machine.hpp"
 
@@ -61,7 +61,7 @@ class Programmer {
   bool Ready() const;  // handshake done, ready to accept bytes
   bool Done() const;
   bool Error() const;
-  ErrorCode LastErrorCode() const;
+  uint32_t LastErrorCode() const;
   bool IsVerifying() const;
   uint32_t Total() const;
   uint32_t Written() const;
@@ -94,7 +94,7 @@ class Programmer {
     size_t tail = 0;
     bool overflow = false;
 
-    ErrorCode err = ErrorCode::kOk;
+    uint32_t err = static_cast<uint32_t>(ErrorCode::Common::kOk);
 
     // transitions
     IState<Ctx> *st_idle = nullptr;

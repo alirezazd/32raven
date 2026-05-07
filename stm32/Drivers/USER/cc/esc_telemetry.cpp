@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "board.hpp"
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
@@ -49,14 +50,14 @@ uint8_t KissCrc8(const uint8_t *data, uint8_t len) {
 
 void EscTelemetry::Init(const Config &cfg) {
   if (initialized_) {
-    Panic(ErrorCode::kStm32EscTelemetryInitFailed);
+    Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
   if (cfg.baud_rate == 0u || cfg.motor_pole_count < 2u ||
       cfg.response_timeout_us == 0u) {
-    Panic(ErrorCode::kStm32EscTelemetryInitFailed);
+    Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
   if (board::kEscTlm.port != GPIOB || board::kEscTlm.pin != GPIO_PIN_11) {
-    Panic(ErrorCode::kStm32GpioConfigFailed);
+    Panic(ErrorCode::Stm32::kGpioConfigFailed);
   }
 
   cfg_ = cfg;
@@ -93,9 +94,7 @@ void EscTelemetry::ConfigureUart() {
   const uint32_t pclk1_hz = SystemCoreClock / Apb1PrescalerDivisor();
   USART3->BRR = UsartBrr(pclk1_hz, cfg_.baud_rate);
   USART3->CR3 = USART_CR3_DMAR | USART_CR3_EIE;
-  USART3->CR1 = USART_CR1_RE | USART_CR1_IDLEIE | USART_CR1_PEIE |
-                USART_CR1_UE;
-
+  USART3->CR1 = USART_CR1_RE | USART_CR1_IDLEIE | USART_CR1_PEIE | USART_CR1_UE;
 }
 
 void EscTelemetry::StartRxDma() {
@@ -289,12 +288,9 @@ void EscTelemetryOnRxHalfCplt(void) {
   EscTelemetry::GetInstance().OnRxHalfCplt();
 }
 
-void EscTelemetryOnRxCplt(void) {
-  EscTelemetry::GetInstance().OnRxCplt();
-}
+void EscTelemetryOnRxCplt(void) { EscTelemetry::GetInstance().OnRxCplt(); }
 
 void EscTelemetryRxDmaError(uint32_t isr_flags) {
   EscTelemetry::GetInstance().HandleRxDmaError(isr_flags);
 }
-
 }

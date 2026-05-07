@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "boot_widget.hpp"
+#include "error_code.hpp"
 #include "error_widget.hpp"
 #include "main_ui_widget.hpp"
 #include "panic.hpp"
@@ -228,7 +229,7 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
 
   cfg_ = cfg;
   if (panel == nullptr || cfg_.fps_cap == 0) {
-    Panic(ErrorCode::kUiInitFailed);
+    Panic(ErrorCode::Esp32::kUiInitFailed);
   }
 
   panel_ = panel;
@@ -249,7 +250,7 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
     task_handle_ = xTaskCreateStatic(TaskEntry, "display", kTaskStackDepthWords,
                                      this, 1, task_stack, &task_buffer);
     if (task_handle_ == nullptr) {
-      Panic(ErrorCode::kUiInitFailed);
+      Panic(ErrorCode::Esp32::kUiInitFailed);
     }
   }
 
@@ -284,7 +285,7 @@ void Ui::SetAppState(AppState state) {
   WakeTask();
 }
 
-void Ui::SetErrorCode(ErrorCode code) {
+void Ui::SetErrorCode(uint32_t code) {
   taskENTER_CRITICAL(&g_ui_lock);
   error_code_ = code;
   taskEXIT_CRITICAL(&g_ui_lock);
@@ -305,9 +306,9 @@ Ui::AppState Ui::CurrentAppState() const {
   return state;
 }
 
-ErrorCode Ui::CurrentErrorCode() const {
+uint32_t Ui::CurrentErrorCode() const {
   taskENTER_CRITICAL(&g_ui_lock);
-  const ErrorCode code = error_code_;
+  const uint32_t code = error_code_;
   taskEXIT_CRITICAL(&g_ui_lock);
   return code;
 }
@@ -660,9 +661,7 @@ void Ui::DisplayOff() {
 
 bool Ui::IsScreenOn() const { return display_on_; }
 
-bool Ui::IsTransitionActive() const {
-  return transition_active_;
-}
+bool Ui::IsTransitionActive() const { return transition_active_; }
 
 void Ui::StopTransition() {
   transition_active_ = false;

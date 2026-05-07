@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "error_code.hpp"
 #include "panic.hpp"
 
 extern "C" {
@@ -27,7 +28,7 @@ void Ssd1306Panel::Init(const Config &cfg, I2cDisplay *i2c) {
     return;
   }
   if (i2c == nullptr || cfg_.i2c.address > 0x7F || cfg_.i2c.scl_speed_hz == 0) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   i2c_ = i2c;
@@ -45,7 +46,7 @@ void Ssd1306Panel::Init(const Config &cfg, I2cDisplay *i2c) {
   }
   if (!found) {
     ESP_LOGE(kTag, "display probe failed addr=0x%02X", cfg_.i2c.address);
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   dev_ = i2c_->AddDevice(I2cDeviceConfig{
@@ -76,10 +77,10 @@ void Ssd1306Panel::Init(const Config &cfg, I2cDisplay *i2c) {
 
 void Ssd1306Panel::SendCommands(const uint8_t *commands, size_t count) {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
   if (commands == nullptr || count == 0 || count > 31) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   uint8_t buffer[32]{};
@@ -90,7 +91,7 @@ void Ssd1306Panel::SendCommands(const uint8_t *commands, size_t count) {
 
 void Ssd1306Panel::SetPageAddress(uint8_t page, uint8_t column) {
   if (page >= kPageCount || column >= kControllerWidth) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   const uint8_t commands[3] = {
@@ -103,10 +104,10 @@ void Ssd1306Panel::SetPageAddress(uint8_t page, uint8_t column) {
 
 void Ssd1306Panel::Flush(const uint8_t *framebuffer, size_t size) {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
   if (framebuffer == nullptr || size != kFramebufferSize) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   uint8_t buffer[1 + kControllerWidth]{};
@@ -124,16 +125,16 @@ void Ssd1306Panel::Flush(const uint8_t *framebuffer, size_t size) {
 void Ssd1306Panel::FlushPageRange(uint8_t page, const uint8_t *page_data,
                                   size_t x_begin, size_t count) {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
   if (page >= kPageCount || page_data == nullptr || count == 0 ||
       x_begin >= kWidth || (x_begin + count) > kWidth) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   const size_t start_column = kColumnOffset + x_begin;
   if ((start_column + count) > kControllerWidth) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   uint8_t buffer[1 + kWidth]{};
@@ -145,7 +146,7 @@ void Ssd1306Panel::FlushPageRange(uint8_t page, const uint8_t *page_data,
 
 void Ssd1306Panel::SetFadeOut(uint8_t interval) {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   const uint8_t commands[2] = {
@@ -157,7 +158,7 @@ void Ssd1306Panel::SetFadeOut(uint8_t interval) {
 
 void Ssd1306Panel::DisableFadeOut() {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   const uint8_t commands[2] = {
@@ -169,7 +170,7 @@ void Ssd1306Panel::DisableFadeOut() {
 
 void Ssd1306Panel::DisplayOn() {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   const uint8_t commands[1] = {0xAF};
@@ -178,7 +179,7 @@ void Ssd1306Panel::DisplayOn() {
 
 void Ssd1306Panel::DisplayOff() {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::kDisplayPanelInitFailed);
+    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
   const uint8_t commands[1] = {0xAE};

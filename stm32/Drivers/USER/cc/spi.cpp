@@ -1,5 +1,6 @@
 #include "spi.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 
@@ -162,7 +163,7 @@ void Spi<Inst>::Read(uint8_t *rx, size_t len) {
 template <SpiInstance Inst>
 void Spi<Inst>::SetPrescaler(SpiPrescaler rate) {
   if (busy_) {
-    Panic(ErrorCode::kStm32SpiInitFailed);
+    Panic(ErrorCode::Stm32::kSpiInitFailed);
     return;
   }
   SPI_TypeDef *spi = Hw();

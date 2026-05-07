@@ -4,6 +4,7 @@
 #include <type_traits>
 
 #include "ctx.hpp"
+#include "error_code.hpp"
 #include "mavlink.hpp"
 #include "message.hpp"
 #include "panic.hpp"
@@ -37,7 +38,7 @@ const T &PayloadAs(const message::Packet &pkt) {
 
 [[noreturn]] static void PanicUnknownCommand(uint8_t id) {
   ESP_LOGE(kTag, "Unknown Command ID: 0x%02X (%u)", (unsigned)id, (unsigned)id);
-  Panic(ErrorCode::kUnknownCommand);
+  Panic(ErrorCode::Common::kUnknownCommand);
 }
 
 static void OnLog(AppContext &, const message::Packet &pkt) {
@@ -57,15 +58,14 @@ static void OnUnknown(AppContext &, const message::Packet &pkt) {
 }
 
 static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
-  const ErrorCode error_code = PayloadAs<message::PanicMsg>(pkt).error_code;
+  const uint32_t error_code = PayloadAs<message::PanicMsg>(pkt).error_code;
 
   // In DFU mode, we ignore the panic to allow for flashing/debugging
   if (ctx.sm->CurrentState() == ctx.dfu_state) {
     static int64_t last_log_us = 0;
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_log_us >= 5000000) {
-      ctx.sys->Mavlink().ReportPanic(Mavlink::PanicSource::kStm32,
-                                     error_code);
+      ctx.sys->Mavlink().ReportPanic(Mavlink::PanicSource::kStm32, error_code);
       ESP_LOGE(kTag, "STM32 Panic (Ignored in DFU): Code 0x%08lX: %s",
                static_cast<unsigned long>(error_code), GetMessage(error_code));
       last_log_us = now_us;
@@ -87,7 +87,7 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
     ESP_LOGW(kTag, "Rejected invalid packet id=0x%02X len=%u",
              (unsigned)pkt.header.id, (unsigned)pkt.header.len);
-    Panic(ErrorCode::kCommandInvalidPacket);
+    Panic(ErrorCode::Common::kCommandInvalidPacket);
   }
 
   const uint32_t now_ms = ctx.sys->Timebase().NowMs();
@@ -96,8 +96,8 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
     case message::MsgId::kPong:
       break;
     case message::MsgId::kGpsData:
-      ctx.sys->Mavlink().UpdateTelemetryCache(
-          PayloadAs<message::GpsData>(pkt), now_ms);
+      ctx.sys->Mavlink().UpdateTelemetryCache(PayloadAs<message::GpsData>(pkt),
+                                              now_ms);
       break;
     case message::MsgId::kLog:
       OnLog(ctx, pkt);

@@ -1,6 +1,7 @@
 #pragma once
 
-#include "error_code.hpp"
+#include <cstdint>
+
 #include "ui.hpp"
 
 extern "C" {
@@ -16,18 +17,18 @@ class ErrorWidget : public IWidget {
 
   const char *Name() const override { return "error"; }
 
-  void SetErrorCode(ErrorCode code);
+  void SetErrorCode(uint32_t code);
   void SetRecoverable(bool recoverable);
   void OnEnter(WidgetContext &ctx) override;
   void OnStep(WidgetContext &ctx, TimeMs now) override;
 
  private:
-  ErrorCode CurrentErrorCode() const;
+  uint32_t CurrentErrorCode() const;
   bool CurrentRecoverable() const;
   void Render(WidgetContext &ctx, TimeMs now);
 
   mutable portMUX_TYPE lock_ = portMUX_INITIALIZER_UNLOCKED;
-  ErrorCode error_code_ = ErrorCode::kUnknown;
+  uint32_t error_code_ = 0;
   bool recoverable_ = false;
 
   ErrorWidget() = default;

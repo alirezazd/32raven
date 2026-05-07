@@ -49,11 +49,11 @@ bool BufferIsErased(const uint8_t *data, size_t len) {
 
 void EE::Init(GPIO &gpio, Spi1 &spi) {
   if (initialized_) {
-    Panic(ErrorCode::kEepromReinit);
+    Panic(ErrorCode::Stm32::kEepromReinit);
   }
 
   if (!spi.IsInitialized()) {
-    Panic(ErrorCode::kEepromInvalidConfig);
+    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
   }
 
   gpio_ = &gpio;
@@ -64,10 +64,10 @@ void EE::Init(GPIO &gpio, Spi1 &spi) {
   uint8_t jedec_id[3] = {};
   if (!ReadJedecId(jedec_id) || jedec_id[0] != kJedecManufacturerWinbond ||
       jedec_id[2] != kJedecCapacity16Mbit) {
-    Panic(ErrorCode::kEepromDeviceNotFound);
+    Panic(ErrorCode::Stm32::kEepromDeviceNotFound);
   }
   if (!EnsureWritable()) {
-    Panic(ErrorCode::kEepromWriteFailed);
+    Panic(ErrorCode::Stm32::kEepromWriteFailed);
   }
 
   initialized_ = true;
@@ -89,12 +89,12 @@ void EE::Init(GPIO &gpio, Spi1 &spi) {
 
 void EE::Format() {
   if (!initialized_) {
-    Panic(ErrorCode::kEepromNotInitialized);
+    Panic(ErrorCode::Stm32::kEepromNotInitialized);
   }
 
   for (uint32_t address = 0u; address < kFlashSize; address += kSectorSize) {
     if (!EraseSector(address)) {
-      Panic(ErrorCode::kEepromFormatFailed);
+      Panic(ErrorCode::Stm32::kEepromFormatFailed);
     }
   }
 

@@ -4,6 +4,7 @@
 
 #include "board.hpp"
 #include "config_storage.hpp"
+#include "error_code.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
 #include "spi.hpp"
@@ -14,7 +15,7 @@ using namespace Icm42688pReg;
 
 void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   if (device_id_ != 0u) {
-    Panic(ErrorCode::kImuReinit);
+    Panic(ErrorCode::Stm32::kImuReinit);
   }
 
   ValidateConfig(cfg);
@@ -87,7 +88,7 @@ bool Icm42688p::SaveAccelCalibration() {
 
 uint32_t Icm42688p::GetDeviceId() const {
   if (device_id_ == 0u) {
-    Panic(ErrorCode::kImuNotInitialized);
+    Panic(ErrorCode::Stm32::kImuNotInitialized);
   }
 
   return device_id_;
@@ -96,32 +97,32 @@ uint32_t Icm42688p::GetDeviceId() const {
 void Icm42688p::ValidateConfig(const Config &cfg) {
   if (cfg.fifo.watermark_records == 0 ||
       cfg.fifo.watermark_records > kMaxWatermarkRecords) {
-    Panic(ErrorCode::kInvalidFifoWatermarkRecords);
+    Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
   }
 
   if (cfg.rates.gyro != cfg.rates.accel) {
-    Panic(ErrorCode::kImuOdrMismatch);
+    Panic(ErrorCode::Stm32::kImuOdrMismatch);
   }
 
   if (cfg.external_clock.enabled &&
       (cfg.external_clock.frequency_hz < kExternalClockMinHz ||
        cfg.external_clock.frequency_hz > kExternalClockMaxHz)) {
-    Panic(ErrorCode::kImuInvalidOdr);
+    Panic(ErrorCode::Stm32::kImuInvalidOdr);
   }
 
   if (Icm42688pReg::OdrHz(cfg.rates.gyro) == 0 ||
       Icm42688pReg::OdrHz(cfg.rates.accel) == 0) {
-    Panic(ErrorCode::kImuInvalidOdr);
+    Panic(ErrorCode::Stm32::kImuInvalidOdr);
   }
 
   if (cfg.calibration.gyro_duration_s == 0 ||
       cfg.calibration.gyro_timeout_s == 0) {
-    Panic(ErrorCode::kImuCalibrationInvalidConfig);
+    Panic(ErrorCode::Stm32::kImuCalibrationInvalidConfig);
   }
 
   if (cfg.recovery.overrun_threshold == 0 ||
       cfg.recovery.overrun_window_s == 0) {
-    Panic(ErrorCode::kImuOverrun);
+    Panic(ErrorCode::Stm32::kImuOverrun);
   }
 }
 
@@ -352,7 +353,7 @@ void Icm42688p::HandleOverrunFault() {
   last_overrun_fault_us_ = now_us;
 
   if (overrun_window_count_ >= recovery_cfg_.overrun_threshold) {
-    Panic(ErrorCode::kImuOverrun);
+    Panic(ErrorCode::Stm32::kImuOverrun);
   }
 }
 
@@ -457,7 +458,7 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
     if (out.accel[0] == kInvalid16 || out.accel[1] == kInvalid16 ||
         out.accel[2] == kInvalid16 || out.gyro[0] == kInvalid16 ||
         out.gyro[1] == kInvalid16 || out.gyro[2] == kInvalid16) {
-      Panic(ErrorCode::kImuInvalidSampleDetected);
+      Panic(ErrorCode::Stm32::kImuInvalidSampleDetected);
       return false;
     }
   }
@@ -577,7 +578,7 @@ void Icm42688p::CalibrateGyro() {
         }
         if (static_cast<uint32_t>(max_g[axis] - min_g[axis]) >
             still_threshold_raw) {
-          Panic(ErrorCode::kImuCalibrationMotionDetected);
+          Panic(ErrorCode::Stm32::kImuCalibrationMotionDetected);
         }
         sum[axis] += s.gyro[axis];
       }
@@ -666,7 +667,7 @@ void Icm42688p::CheckWhoAmI() {
     time.DelayMicros(MILLIS_TO_MICROS(10));
   }
 
-  Panic(ErrorCode::kImuWhoAmIFail);
+  Panic(ErrorCode::Stm32::kImuWhoAmIFail);
 }
 
 void Icm42688p::SoftReset() {

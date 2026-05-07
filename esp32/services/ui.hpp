@@ -119,7 +119,7 @@ class Ui {
   void Init(const Config &cfg, Ssd1306Panel *panel);
   void LoadWidget(IWidget *widget);
   void SetAppState(AppState state);
-  void SetErrorCode(ErrorCode code);
+  void SetErrorCode(uint32_t code);
   void SetErrorRecoverable(bool recoverable);
 
   DisplayRenderer &Renderer() { return renderer_; }
@@ -152,7 +152,7 @@ class Ui {
   void WakeTask() const;
   void ServiceTransition(TimeMs now);
   AppState CurrentAppState() const;
-  ErrorCode CurrentErrorCode() const;
+  uint32_t CurrentErrorCode() const;
   bool CurrentErrorRecoverable() const;
   uint8_t CurrentInactivityTimeoutSeconds() const;
   MainScreen DeriveMainScreen(AppState state) const;
@@ -189,7 +189,7 @@ class Ui {
   IWidget *pending_widget_ = nullptr;
   void *task_handle_ = nullptr;  // TaskHandle_t
   AppState app_state_ = AppState::kBooting;
-  ErrorCode error_code_ = ErrorCode::kUnknown;
+  uint32_t error_code_ = static_cast<uint32_t>(ErrorCode::Common::kUnknown);
   bool error_recoverable_ = false;
   MainScreen main_screen_ = MainScreen::kBooting;
   TimeMs next_step_ms_ = 0;

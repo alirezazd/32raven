@@ -109,7 +109,7 @@ void Mavlink::NotifyGcsIssue(const char *text, uint8_t severity) {
   Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
 }
 
-void Mavlink::ReportPanic(PanicSource source, ErrorCode error_code) {
+void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
   const char *source_name = "ESP32";
   if (source == PanicSource::kStm32) {
     source_name = "STM32";
@@ -118,16 +118,15 @@ void Mavlink::ReportPanic(PanicSource source, ErrorCode error_code) {
   StatusText status{};
   status.severity = MAV_SEVERITY_CRITICAL;
   std::snprintf(status.text, sizeof(status.text), "%s PANIC: 0x%lX %s",
-                source_name,
-                static_cast<unsigned long>(static_cast<uint32_t>(error_code)),
+                source_name, static_cast<unsigned long>(error_code),
                 GetMessage(error_code));
 
   const bool have_transport =
       udp_ != nullptr && Sys().Wifi().HasAssociatedStations();
-  if (!SendStatusTextFrameNow(status, false) &&
-      have_transport &&
-      error_code != ErrorCode::kMavlinkPanicSendFailed) {
-    Panic(ErrorCode::kMavlinkPanicSendFailed);
+  if (!SendStatusTextFrameNow(status, false) && have_transport &&
+      error_code !=
+          static_cast<uint32_t>(ErrorCode::Esp32::kMavlinkPanicSendFailed)) {
+    Panic(ErrorCode::Esp32::kMavlinkPanicSendFailed);
   }
 }
 
@@ -341,7 +340,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
     const bool loop_alive =
         (status.flags & message::kSystemStatusFlagLoopAlive) != 0u;
     const bool system_error =
-        status.error_code != ErrorCode::kOk ||
+        status.error_code != static_cast<uint32_t>(ErrorCode::Common::kOk) ||
         status.boot_state == message::kSystemBootStateError;
     const bool vehicle_armed =
         vehicle_status_.have_data &&

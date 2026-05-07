@@ -5,8 +5,6 @@
 #include <cstdint>
 #include <cstring>
 
-#include "error_code.hpp"
-
 namespace message {
 
 // ===================================
@@ -155,7 +153,7 @@ inline constexpr uint32_t kSystemSensorFlagEsc = 1u << 4;
 struct SystemStatusMsg {
   uint32_t uptime_ms;
   uint32_t loop_counter;
-  ErrorCode error_code;
+  uint32_t error_code;
   uint32_t sensor_present_flags;
   uint32_t sensor_health_flags;
   uint16_t batt_voltage;
@@ -180,7 +178,7 @@ struct VehicleStatusMsg {
 } __attribute__((packed));
 
 struct PanicMsg {
-  ErrorCode error_code;  // Error code
+  uint32_t error_code;
 } __attribute__((packed));
 
 inline constexpr uint8_t kEscTelemetryMotorCount = 4u;

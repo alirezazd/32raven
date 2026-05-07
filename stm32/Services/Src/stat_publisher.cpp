@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "ctx.hpp"
+#include "error_code.hpp"
 #include "icm42688p.hpp"
 #include "message.hpp"
 #include "system.hpp"
@@ -91,7 +92,7 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   message::SystemStatusMsg msg{};
   msg.uptime_ms = now_us / 1000u;
   msg.loop_counter = loop_counter;
-  msg.error_code = ErrorCode::kOk;
+  msg.error_code = static_cast<uint32_t>(ErrorCode::Common::kOk);
   msg.sensor_present_flags = sensors_present;
   msg.sensor_health_flags = sensors_health;
   msg.batt_voltage = BatteryVoltageMv(battery);

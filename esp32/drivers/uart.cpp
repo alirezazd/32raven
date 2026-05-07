@@ -1,5 +1,6 @@
 #include "uart.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 
 extern "C" {
@@ -40,7 +41,7 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
       cfg.line.baud_rate == 0 ||
       cfg.buffers.rx_bytes < UartConfig::kMinBufferSize ||
       cfg.buffers.tx_bytes < UartConfig::kMinBufferSize) {
-    Panic(ErrorCode::kUartParamConfigFailed);
+    Panic(ErrorCode::Esp32::kUartParamConfigFailed);
   }
 
   cfg_ = cfg;
@@ -55,21 +56,22 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
   ucfg.rx_flow_ctrl_thresh = 0;
 
   if (uart_param_config(port, &ucfg) != ESP_OK) {
-    Panic(ErrorCode::kUartParamConfigFailed);
+    Panic(ErrorCode::Esp32::kUartParamConfigFailed);
   }
   if (uart_set_pin(port, cfg_.pins.tx_gpio, cfg_.pins.rx_gpio,
                    UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
-    Panic(ErrorCode::kUartSetPinFailed);
+    Panic(ErrorCode::Esp32::kUartSetPinFailed);
   }
   if (uart_driver_install(port, cfg_.buffers.rx_bytes, cfg_.buffers.tx_bytes, 0,
                           nullptr, 0) != ESP_OK) {
-    Panic(ErrorCode::kUartDriverInstallFailed);
+    Panic(ErrorCode::Esp32::kUartDriverInstallFailed);
   }
 
   if (uart_flush_input(port) != ESP_OK) {
-    Panic(ErrorCode::kUartFlushFailed);  // This is rare but can happen if the
-                                         // driver is in a bad state, so we
-                                         // treat it as fatal
+    Panic(
+        ErrorCode::Esp32::kUartFlushFailed);  // This is rare but can happen if
+                                              // the driver is in a bad state,
+                                              // so we treat it as fatal
   }
 }
 
@@ -79,14 +81,14 @@ int Uart<Inst>::Write(const uint8_t *data, size_t size) {
     return 0;
   }
   if (!data) {
-    Panic(ErrorCode::kUartInvalidArg);
+    Panic(ErrorCode::Esp32::kUartInvalidArg);
   }
 
   constexpr uart_port_t port = ToPort<Inst>();
   const int num_bytes_written =
       uart_write_bytes(port, (const char *)data, (uint32_t)size);
   if (num_bytes_written < 0) {
-    Panic(ErrorCode::kUartOperationFailed);
+    Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
   return num_bytes_written;
 }
@@ -97,7 +99,7 @@ int Uart<Inst>::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
     return 0;
   }
   if (!data) {
-    Panic(ErrorCode::kUartInvalidArg);
+    Panic(ErrorCode::Esp32::kUartInvalidArg);
   }
 
   constexpr uart_port_t port = ToPort<Inst>();
@@ -105,7 +107,7 @@ int Uart<Inst>::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
   const int num_bytes_read =
       uart_read_bytes(port, data, (uint32_t)size, timeout_ticks);
   if (num_bytes_read < 0) {
-    Panic(ErrorCode::kUartOperationFailed);
+    Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
   return num_bytes_read;
 }
@@ -115,7 +117,7 @@ size_t Uart<Inst>::BufferedRxBytes() const {
   constexpr uart_port_t port = ToPort<Inst>();
   size_t buffered_bytes = 0;
   if (uart_get_buffered_data_len(port, &buffered_bytes) != ESP_OK) {
-    Panic(ErrorCode::kUartOperationFailed);
+    Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
   return buffered_bytes;
 }
@@ -123,7 +125,7 @@ size_t Uart<Inst>::BufferedRxBytes() const {
 template <UartInstance Inst>
 void Uart<Inst>::Flush() {
   if (uart_flush_input(ToPort<Inst>()) != ESP_OK) {
-    Panic(ErrorCode::kUartFlushFailed);
+    Panic(ErrorCode::Esp32::kUartFlushFailed);
   }
 }
 
@@ -131,17 +133,17 @@ template <UartInstance Inst>
 void Uart<Inst>::DrainTx(uint32_t timeout_ms) {
   constexpr uart_port_t port = ToPort<Inst>();
   if (uart_wait_tx_done(port, pdMS_TO_TICKS(timeout_ms)) != ESP_OK) {
-    Panic(ErrorCode::kUartOperationFailed);
+    Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
 }
 
 template <UartInstance Inst>
 void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
   if (cfg_.line.baud_rate == 0) {
-    Panic(ErrorCode::kUartNotInitialized);
+    Panic(ErrorCode::Esp32::kUartNotInitialized);
   }
   if (baud_rate == 0) {
-    Panic(ErrorCode::kUartInvalidArg);
+    Panic(ErrorCode::Esp32::kUartInvalidArg);
   }
 
   cfg_.line.baud_rate = baud_rate;
@@ -156,7 +158,7 @@ void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
   ucfg.rx_flow_ctrl_thresh = 0;
 
   if (uart_param_config(port, &ucfg) != ESP_OK) {
-    Panic(ErrorCode::kUartOperationFailed);
+    Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
 }
 

@@ -1,5 +1,6 @@
 #include "button.hpp"
 
+#include "error_code.hpp"
 #include "panic.hpp"
 
 extern "C" {
@@ -26,7 +27,7 @@ void Button::Init(const Config &cfg) {
       cfg.input.pullup ? GPIO_PULLUP_ENABLE : GPIO_PULLUP_DISABLE;
 
   if (gpio_config(&io_conf) != ESP_OK) {
-    Panic(ErrorCode::kButtonGpioConfigFailed);
+    Panic(ErrorCode::Esp32::kButtonGpioConfigFailed);
   }
 
   const TimeMs now_ms = Timebase::GetInstance().NowMs();

@@ -58,7 +58,7 @@ void DrawConstructionRibbon(DisplayRenderer &renderer, int16_t top,
 
 }  // namespace
 
-void ErrorWidget::SetErrorCode(ErrorCode code) {
+void ErrorWidget::SetErrorCode(uint32_t code) {
   taskENTER_CRITICAL(&lock_);
   error_code_ = code;
   taskEXIT_CRITICAL(&lock_);
@@ -70,9 +70,9 @@ void ErrorWidget::SetRecoverable(bool recoverable) {
   taskEXIT_CRITICAL(&lock_);
 }
 
-ErrorCode ErrorWidget::CurrentErrorCode() const {
+uint32_t ErrorWidget::CurrentErrorCode() const {
   taskENTER_CRITICAL(&lock_);
-  const ErrorCode code = error_code_;
+  const uint32_t code = error_code_;
   taskEXIT_CRITICAL(&lock_);
   return code;
 }
@@ -96,7 +96,7 @@ void ErrorWidget::Render(WidgetContext &ctx, TimeMs now) {
   }
 
   DisplayRenderer &renderer = *ctx.renderer;
-  const ErrorCode error_code = CurrentErrorCode();
+  const uint32_t error_code = CurrentErrorCode();
   const char *error_message = GetMessage(error_code);
   const bool recoverable = CurrentRecoverable();
 

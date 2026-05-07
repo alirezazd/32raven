@@ -1,6 +1,7 @@
 #include "battery.hpp"
 
 #include "board.hpp"
+#include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32_limits.hpp"
 #include "stm32f4xx.h"
@@ -19,7 +20,7 @@ void ValidateAdcChannel(uint8_t channel) {
   if (channel <= 15u) {
     return;
   }
-  Panic(ErrorCode::kStm32AdcInitFailed);
+  Panic(ErrorCode::Stm32::kAdcInitFailed);
 }
 
 void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
@@ -35,7 +36,7 @@ void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
 
 uint8_t PinIndex(uint16_t pin) {
   if (pin == 0u || (pin & (pin - 1u)) != 0u) {
-    Panic(ErrorCode::kStm32GpioConfigFailed);
+    Panic(ErrorCode::Stm32::kGpioConfigFailed);
   }
 
   for (uint8_t index = 0; index < 16u; ++index) {
@@ -44,7 +45,7 @@ uint8_t PinIndex(uint16_t pin) {
     }
   }
 
-  Panic(ErrorCode::kStm32GpioConfigFailed);
+  Panic(ErrorCode::Stm32::kGpioConfigFailed);
   return 0u;
 }
 
@@ -83,18 +84,16 @@ float ClampFloat(float value, float low, float high) {
 
 void Battery::Init(const Config &cfg) {
   if (initialized_) {
-    Panic(ErrorCode::kStm32AdcInitFailed);
+    Panic(ErrorCode::Stm32::kAdcInitFailed);
   }
 
   if (cfg.sample_period_us == 0u || cfg.adc_reference_mv == 0u ||
       cfg.oversample_count == 0u || cfg.filter_alpha_permille == 0u ||
-      cfg.filter_alpha_permille > 1000u ||
-      cfg.adc_timeout_us == 0u ||
-      cfg.voltage_multiplier_milli == 0u ||
-      cfg.current_scale_ma_per_v == 0u || cfg.cell_count == 0u ||
-      cfg.cell_empty_mv >= cfg.cell_full_mv ||
+      cfg.filter_alpha_permille > 1000u || cfg.adc_timeout_us == 0u ||
+      cfg.voltage_multiplier_milli == 0u || cfg.current_scale_ma_per_v == 0u ||
+      cfg.cell_count == 0u || cfg.cell_empty_mv >= cfg.cell_full_mv ||
       cfg.voltage_adc_channel == cfg.current_adc_channel) {
-    Panic(ErrorCode::kStm32AdcInitFailed);
+    Panic(ErrorCode::Stm32::kAdcInitFailed);
   }
 
   cfg_ = cfg;
@@ -102,7 +101,7 @@ void Battery::Init(const Config &cfg) {
   ValidateAdcChannel(cfg_.current_adc_channel);
   if (cfg_.voltage_adc_channel != kEscVbaAdcChannel ||
       cfg_.current_adc_channel != kEscCurAdcChannel) {
-    Panic(ErrorCode::kStm32AdcInitFailed);
+    Panic(ErrorCode::Stm32::kAdcInitFailed);
   }
 
   mah_drawn_ = static_cast<float>(cfg_.initial_mah_drawn);
@@ -115,12 +114,11 @@ void Battery::Init(const Config &cfg) {
 
 void Battery::Poll(uint32_t now_us) {
   if (!initialized_) {
-    Panic(ErrorCode::kStm32AdcInitFailed);
+    Panic(ErrorCode::Stm32::kAdcInitFailed);
   }
 
   if (last_sample_us_ != 0u &&
-      static_cast<uint32_t>(now_us - last_sample_us_) <
-          cfg_.sample_period_us) {
+      static_cast<uint32_t>(now_us - last_sample_us_) < cfg_.sample_period_us) {
     return;
   }
 
@@ -136,7 +134,7 @@ void Battery::Poll(uint32_t now_us) {
 
 void Battery::InitAdc() {
   if (board::kEscVba.port != GPIOC || board::kEscCur.port != GPIOC) {
-    Panic(ErrorCode::kStm32GpioConfigFailed);
+    Panic(ErrorCode::Stm32::kGpioConfigFailed);
   }
 
   EnableBatteryPeripheralClocks();
@@ -221,18 +219,15 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
     filtered_current_a_ = measured_current_a;
     filter_valid_ = true;
   } else {
-    const float alpha =
-        static_cast<float>(cfg_.filter_alpha_permille) / kMilli;
+    const float alpha = static_cast<float>(cfg_.filter_alpha_permille) / kMilli;
     filtered_voltage_v_ += alpha * (measured_voltage_v - filtered_voltage_v_);
     filtered_current_a_ += alpha * (measured_current_a - filtered_current_a_);
   }
 
   if (last_integrator_us_ != 0u && filtered_current_a_ > 0.0f) {
-    const uint32_t dt_us =
-        static_cast<uint32_t>(now_us - last_integrator_us_);
-    mah_drawn_ +=
-        (filtered_current_a_ * static_cast<float>(dt_us)) /
-        kMicrosecondsPerMahAtOneAmp;
+    const uint32_t dt_us = static_cast<uint32_t>(now_us - last_integrator_us_);
+    mah_drawn_ += (filtered_current_a_ * static_cast<float>(dt_us)) /
+                  kMicrosecondsPerMahAtOneAmp;
   }
   last_integrator_us_ = now_us;
 
@@ -245,9 +240,8 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
 uint8_t Battery::EstimatePercentage(float voltage_v) const {
   const float cell_voltage_mv =
       (voltage_v * kMilli) / static_cast<float>(cfg_.cell_count);
-  const float pct =
-      ((cell_voltage_mv - cfg_.cell_empty_mv) * 100.0f) /
-      static_cast<float>(cfg_.cell_full_mv - cfg_.cell_empty_mv);
+  const float pct = ((cell_voltage_mv - cfg_.cell_empty_mv) * 100.0f) /
+                    static_cast<float>(cfg_.cell_full_mv - cfg_.cell_empty_mv);
 
   return static_cast<uint8_t>(ClampFloat(pct, 0.0f, 100.0f));
 }

@@ -1,5 +1,6 @@
 #include "mavlink.hpp"
 
+#include "error_code.hpp"
 #include "esp_log.h"
 #include "panic.hpp"
 #include "system.hpp"
@@ -17,11 +18,11 @@ Mavlink &Mavlink::GetInstance() {
 // Lifecycle and top-level poll entry points.
 void Mavlink::Init(const Config &cfg, UdpServer *udp) {
   if (udp == nullptr) {
-    Panic(ErrorCode::kMavlinkInitFailed);
+    Panic(ErrorCode::Esp32::kMavlinkInitFailed);
   }
   if (cfg.identity.sysid == 0 || cfg.tx.periods.hb_ms == 0 ||
       cfg.tx.schedule.hb_deadline_ms == 0) {
-    Panic(ErrorCode::kMavlinkInitFailed);
+    Panic(ErrorCode::Esp32::kMavlinkInitFailed);
   }
 
   cfg_ = cfg;
@@ -70,8 +71,8 @@ uint32_t Mavlink::GetUdpTxPacketCount() const {
   return udp_tx_packet_count_.load(std::memory_order_relaxed);
 }
 
-std::optional<Mavlink::LatestRcChannelsData>
-Mavlink::GetLatestRcChannelsData() const {
+std::optional<Mavlink::LatestRcChannelsData> Mavlink::GetLatestRcChannelsData()
+    const {
   if (!rc_channels_.have_data) {
     return std::nullopt;
   }

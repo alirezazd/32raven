@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "error_code.hpp"
 #include "esp_log.h"
 #include "mavlink.hpp"
 #include "panic.hpp"
@@ -865,10 +866,10 @@ void Mavlink::ServicePendingParamApplies(uint32_t now_ms) {
           PreparePendingParamApply(rc_calibration_apply_, now_ms);
 
   if (std::holds_alternative<PendingApplyFailed>(rc_map_action)) {
-    Panic(ErrorCode::kFcLinkRcMapSetFailed);
+    Panic(ErrorCode::Esp32::kFcLinkRcMapSetFailed);
   }
   if (std::holds_alternative<PendingApplyFailed>(rc_calibration_action)) {
-    Panic(ErrorCode::kFcLinkRcCalibrationSetFailed);
+    Panic(ErrorCode::Esp32::kFcLinkRcCalibrationSetFailed);
   }
 
   if (const auto *send = std::get_if<PendingApplySend<message::RcMapConfigMsg>>(

@@ -54,8 +54,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
         QueueCommandAck(static_cast<uint16_t>(cmd.command),
                         MAV_RESULT_UNSUPPORTED, source_system,
                         source_component);
-        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
-                                "rx-type");
+        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command), "rx-type");
       }
       break;
     }
