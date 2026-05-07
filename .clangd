@@ -17,3 +17,19 @@ If:
   PathMatch: (^|.*/)(libs/).*
 CompileFlags:
   CompilationDatabase: build/Ninja/stm32
+---
+# Silence clang-tidy + style/lint noise on STM32 C / .h files.
+# These are mostly CubeMX-generated (HAL conf, MSP, IT, system_*) and follow
+# ST naming conventions that don't match our C++ style. Keep real compile
+# errors visible; suppress only the noisy diagnostic IDs.
+If:
+  PathMatch: (^|.*/)stm32/.*\.(c|h)$
+Diagnostics:
+  ClangTidy:
+    Remove: ["*"]
+  Suppress:
+    - "-Wunused-variable"
+    - "-Wunused-parameter"
+    - "-Wunused-function"
+    - "-Wmissing-prototypes"
+    - "readability-identifier-naming"

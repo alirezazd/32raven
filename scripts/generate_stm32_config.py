@@ -274,6 +274,12 @@ ACCEL_FS_CHOICES = {
     "STM32_IMU_ACCEL_FS_2G": "Icm42688pReg::AccelFs::k2g",
 }
 
+DSHOT_TIM1_MODE_CHOICES = {
+    "STM32_DSHOT_TIM1_MODE_150": "DShotMode::kDshot150",
+    "STM32_DSHOT_TIM1_MODE_300": "DShotMode::kDshot300",
+    "STM32_DSHOT_TIM1_MODE_600": "DShotMode::kDshot600",
+}
+
 
 def _sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
     sym = kconf.syms.get(name)
@@ -284,6 +290,13 @@ def _sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
 
 def _sym_int(kconf: kconfiglib.Kconfig, name: str) -> int:
     return int(_sym(kconf, name).str_value)
+
+
+def _sym_hex_literal(kconf: kconfiglib.Kconfig, name: str) -> str:
+    raw = _sym(kconf, name).str_value
+    if not raw:
+        raise ValueError(f"Kconfig hex symbol '{name}' has no value")
+    return raw if raw.lower().startswith("0x") else f"0x{raw}"
 
 
 def _sym_bool(kconf: kconfiglib.Kconfig, name: str) -> bool:
@@ -418,6 +431,51 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
 def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
+        "led": {
+            "active_low": _sym_bool(kconf, "STM32_LED_ACTIVE_LOW"),
+        },
+        "dshot_tim1": {
+            "mode": _choice_value(kconf, DSHOT_TIM1_MODE_CHOICES),
+        },
+        "timebase": {
+            "tim2": {
+                "prescaler": _sym_int(kconf, "STM32_TIMEBASE_TIM2_PRESCALER"),
+                "period": _sym_hex_literal(kconf, "STM32_TIMEBASE_TIM2_PERIOD"),
+            },
+            "tim5": {
+                "prescaler": _sym_int(kconf, "STM32_TIMEBASE_TIM5_PRESCALER"),
+                "period": _sym_int(kconf, "STM32_TIMEBASE_TIM5_PERIOD"),
+                "autoreload_preload": _sym_bool(
+                    kconf, "STM32_TIMEBASE_TIM5_AUTORELOAD_PRELOAD"
+                ),
+            },
+        },
+        "esc_telemetry": {
+            "baud_rate": _sym_int(kconf, "STM32_ESC_TELEMETRY_BAUD_RATE"),
+            "motor_pole_count": _sym_int(
+                kconf, "STM32_ESC_TELEMETRY_MOTOR_POLE_COUNT"
+            ),
+            "response_timeout_us": _sym_int(
+                kconf, "STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US"
+            ),
+        },
+        "esc_service": {
+            "dshot_gap_bits": _sym_int(
+                kconf, "STM32_ESC_SERVICE_DSHOT_GAP_BITS"
+            ),
+            "idle_period_us": _sym_int(
+                kconf, "STM32_ESC_SERVICE_IDLE_PERIOD_US"
+            ),
+            "command_period_us": _sym_int(
+                kconf, "STM32_ESC_SERVICE_COMMAND_PERIOD_US"
+            ),
+            "telemetry_request_period_us": _sym_int(
+                kconf, "STM32_ESC_SERVICE_TELEMETRY_REQUEST_PERIOD_US"
+            ),
+            "command_repeat_count": _sym_int(
+                kconf, "STM32_ESC_SERVICE_COMMAND_REPEAT_COUNT"
+            ),
+        },
         "fclink": {
             "telemetry_rate_hz": _sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ"),
             "uart": {

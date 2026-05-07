@@ -30,21 +30,21 @@ struct BasepriGuard {
 // USART2_TX -> DMA1_Stream6 Channel 4
 // USART6_TX -> DMA2_Stream6 Channel 5
 
-static inline void DmaDisableAndWait(DMA_Stream_TypeDef *s) {
+static inline void DmaDisableAndWait(DMA_Stream_TypeDef* s) {
   s->CR &= ~DMA_SxCR_EN;
   while (s->CR & DMA_SxCR_EN) {
   }
 }
 
 template <UartInstance Inst>
-static inline bool UartTransmitDma(const uint8_t *buf, uint16_t len) {
+static inline bool UartTransmitDma(const uint8_t* buf, uint16_t len) {
   if (!buf || len == 0) {
     return false;
   }
 
-  USART_TypeDef *uart = nullptr;
-  DMA_Stream_TypeDef *s = nullptr;
-  DMA_TypeDef *dma = nullptr;
+  USART_TypeDef* uart = nullptr;
+  DMA_Stream_TypeDef* s = nullptr;
+  DMA_TypeDef* dma = nullptr;
   uint32_t clear_flags = 0;
 
   if constexpr (Inst == UartInstance::kUart1) {
@@ -112,7 +112,7 @@ DMA_HandleTypeDef hdma_usart6_tx;
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-UART_HandleTypeDef *
+UART_HandleTypeDef*
 Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::GetHandle() {
   if constexpr (Inst == UartInstance::kUart1) {
     return &huart1;
@@ -127,7 +127,7 @@ Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::GetHandle() {
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
-    const UartConfig &config) {
+    const UartConfig& config) {
   if constexpr (Inst == UartInstance::kUart1) {
     __HAL_RCC_DMA2_CLK_ENABLE();
     /* DMA2_Stream2_IRQn interrupt configuration */
@@ -156,7 +156,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
   }
   initialized_ = true;
 
-  UART_HandleTypeDef *handle = GetHandle();
+  UART_HandleTypeDef* handle = GetHandle();
   if (!handle) {
     Panic(ErrorCode::kStm32UartInitFailed);
     return;
@@ -192,7 +192,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
     uint32_t baud_rate) {
   if (!initialized_) return;
 
-  UART_HandleTypeDef *handle = GetHandle();
+  UART_HandleTypeDef* handle = GetHandle();
   if (!handle) return;
 
   // Reconfigure baud rate and re-init peripheral
@@ -207,13 +207,13 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const char *str) {
-  Send((const uint8_t *)str, strlen(str));
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const char* str) {
+  Send((const uint8_t*)str, strlen(str));
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t* data,
                                                            size_t len) {
   for (size_t i = 0; i < len; i++) {
     // Non-blocking: drop if full
@@ -234,7 +234,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-bool Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Read(uint8_t &out) {
+bool Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Read(uint8_t& out) {
   return rx_ring_.Pop(out);
 }
 
@@ -247,7 +247,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushRx() {
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
-  const uint8_t *ptr = nullptr;
+  const uint8_t* ptr = nullptr;
   size_t len = 0;
 
   {
@@ -264,7 +264,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
       last_dma_len_ = static_cast<uint16_t>(len);
     } else {
       // No data to send, so we can disable DMAT to save power/clean state
-      UART_HandleTypeDef *handle = GetHandle();
+      UART_HandleTypeDef* handle = GetHandle();
       handle->Instance->CR3 &= ~USART_CR3_DMAT;
       return;
     }
@@ -304,9 +304,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
   // 3. Re-configure NDTR/M0AR/PAR
   // 4. Re-enable Stream
 
-  USART_TypeDef *uart = nullptr;
-  DMA_Stream_TypeDef *s = nullptr;
-  DMA_TypeDef *dma = nullptr;
+  USART_TypeDef* uart = nullptr;
+  DMA_Stream_TypeDef* s = nullptr;
+  DMA_TypeDef* dma = nullptr;
   uint32_t clear_flags = 0;
 
   if constexpr (Inst == UartInstance::kUart1) {
@@ -409,9 +409,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleDmaError(
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
-  USART_TypeDef *uart = nullptr;
-  DMA_Stream_TypeDef *s = nullptr;
-  DMA_TypeDef *dma = nullptr;
+  USART_TypeDef* uart = nullptr;
+  DMA_Stream_TypeDef* s = nullptr;
+  DMA_TypeDef* dma = nullptr;
   uint32_t clear_flags = 0;
 
   if constexpr (Inst == UartInstance::kUart1) {
@@ -521,7 +521,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::OnUartInterrupt() {
-  USART_TypeDef *uart = nullptr;
+  USART_TypeDef* uart = nullptr;
   if constexpr (Inst == UartInstance::kUart1) {
     uart = USART1;
   } else if constexpr (Inst == UartInstance::kUart2) {
@@ -571,7 +571,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::OnRxCplt() {
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::DrainRx() {
-  DMA_Stream_TypeDef *s = nullptr;
+  DMA_Stream_TypeDef* s = nullptr;
   if constexpr (Inst == UartInstance::kUart1) {
     s = DMA2_Stream2;
   } else if constexpr (Inst == UartInstance::kUart2) {

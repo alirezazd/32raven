@@ -2,9 +2,6 @@
 
 #include <cstdint>
 
-#include "board.h"
-#include "icm20948_reg.hpp"
-
 class GPIO;
 
 class Icm20948 {
@@ -32,7 +29,7 @@ class Icm20948 {
     static constexpr float kGyroScale = 0.01745329f / 16.4f;
   };
 
-  static Icm20948 &GetInstance() {
+  static Icm20948& GetInstance() {
     static Icm20948 instance;
     return instance;
   }
@@ -47,10 +44,10 @@ class Icm20948 {
   Icm20948() = default;
   ~Icm20948() = default;
 
-  Icm20948(const Icm20948 &) = delete;
-  Icm20948 &operator=(const Icm20948 &) = delete;
+  Icm20948(const Icm20948&) = delete;
+  Icm20948& operator=(const Icm20948&) = delete;
 
-  void Init(GPIO &gpio, const Config &config);
+  void Init(GPIO& gpio, const Config& config);
   void SelectRegisterBank(uint8_t bank);
   void WriteReg(uint8_t bank, uint8_t reg, uint8_t val, bool verify = false,
                 uint8_t verify_mask = 0xFF);
@@ -64,7 +61,7 @@ class Icm20948 {
   void ConfigureGyro();
 
   Config config_;
-  GPIO *gpio_ = nullptr;
+  GPIO* gpio_ = nullptr;
   volatile uint8_t last_bank_ = 0;
   volatile uint32_t last_drdy_time_ = 0;
   volatile uint32_t missed_drdy_count_ = 0;
@@ -75,5 +72,5 @@ class Icm20948 {
   uint8_t dma_tx_buf_[kDmaBufSize];
   uint8_t dma_rx_buf_[kDmaBufSize];
 
-  static void OnDmaComplete(void *user, bool ok);
+  static void OnDmaComplete(void* user, bool ok);
 };

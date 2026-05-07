@@ -2675,4 +2675,145 @@ config STM32_RC_MAP_THROTTLE
 
 endmenu
 endmenu
+
+menu "LED"
+
+config STM32_LED_ACTIVE_LOW
+    bool "LED active low"
+    default y
+    help
+      Treat a low GPIO level as LED-on for the on-board user LED. The LED
+      pin itself is fixed by the board map and is not user-tunable.
+
+endmenu
+
+menu "DShot TIM1"
+
+choice
+    prompt "DShot mode"
+    default STM32_DSHOT_TIM1_MODE_300
+    help
+      DShot signaling rate for the TIM1-driven motor outputs.
+
+config STM32_DSHOT_TIM1_MODE_150
+    bool "DShot150"
+
+config STM32_DSHOT_TIM1_MODE_300
+    bool "DShot300"
+
+config STM32_DSHOT_TIM1_MODE_600
+    bool "DShot600"
+
+endchoice
+
+endmenu
+
+menu "Time Base"
+
+config STM32_TIMEBASE_TIM2_PRESCALER
+    int "TIM2 prescaler"
+    range 0 65535
+    default 83
+    help
+      TIM2 prescaler value. With APB1 timer clock = 84 MHz, a value of 83
+      yields a 1 MHz tick (one microsecond per count).
+
+config STM32_TIMEBASE_TIM2_PERIOD
+    hex "TIM2 period"
+    default 0xFFFFFFFF
+    help
+      TIM2 auto-reload period. The default 0xFFFFFFFF gives a free-running
+      32-bit microsecond counter.
+
+config STM32_TIMEBASE_TIM5_PRESCALER
+    int "TIM5 prescaler"
+    range 0 65535
+    default 85
+    help
+      TIM5 prescaler value used by the periodic scheduler tick.
+
+config STM32_TIMEBASE_TIM5_PERIOD
+    int "TIM5 period"
+    range 0 4294967295
+    default 999
+    help
+      TIM5 auto-reload period used by the periodic scheduler tick.
+      Default of 999 with the default prescaler yields a 1 kHz tick.
+
+config STM32_TIMEBASE_TIM5_AUTORELOAD_PRELOAD
+    bool "TIM5 auto-reload preload"
+    default y
+    help
+      Buffer TIM5 ARR writes through the preload register so updates take
+      effect at the next update event rather than immediately.
+
+endmenu
+
+menu "ESC Telemetry"
+
+config STM32_ESC_TELEMETRY_BAUD_RATE
+    int "Telemetry UART baud rate"
+    range 9600 2000000
+    default 115200
+    help
+      Baud rate for the ESC KISS telemetry UART link.
+
+config STM32_ESC_TELEMETRY_MOTOR_POLE_COUNT
+    int "Motor pole count"
+    range 2 64
+    default 14
+    help
+      Number of magnetic poles on each motor. Used to convert eRPM telemetry
+      into mechanical RPM.
+
+config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
+    int "Response timeout (us)"
+    range 100 100000
+    default 2500
+    help
+      Maximum time to wait for an ESC telemetry frame after requesting one
+      before giving up and moving on.
+
+endmenu
+
+menu "ESC Service"
+
+config STM32_ESC_SERVICE_DSHOT_GAP_BITS
+    int "DShot inter-frame gap bits"
+    range 0 64
+    default 2
+    help
+      Number of idle bit times inserted between DShot frames.
+
+config STM32_ESC_SERVICE_IDLE_PERIOD_US
+    int "Idle frame period (us)"
+    range 100 1000000
+    default 1000
+    help
+      Period for sending idle (zero-throttle) DShot frames when disarmed.
+
+config STM32_ESC_SERVICE_COMMAND_PERIOD_US
+    int "Command repeat period (us)"
+    range 100 1000000
+    default 2000
+    help
+      Period at which queued DShot commands are re-sent until satisfied.
+
+config STM32_ESC_SERVICE_TELEMETRY_REQUEST_PERIOD_US
+    int "Telemetry request period (us)"
+    range 100 1000000
+    default 4000
+    help
+      Period at which the service requests telemetry from each motor in turn.
+
+config STM32_ESC_SERVICE_COMMAND_REPEAT_COUNT
+    int "Command repeat count"
+    range 1 64
+    default 10
+    help
+      Number of times each queued DShot command is retransmitted to ensure
+      reliable delivery to the ESC.
+
+endmenu
+
 endmenu
