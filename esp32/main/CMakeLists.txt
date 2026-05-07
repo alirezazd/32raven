@@ -73,42 +73,31 @@ idf_component_register(
 
 )
 
+# Conditional clang-format step — empty when the binary isn't on PATH so the
+# main custom_command stays single-form regardless. CMake skips empty COMMAND
+# entries cleanly.
+set(_FMT_CMD)
 if(CLANG_FORMAT_EXECUTABLE)
-    add_custom_command(
-        OUTPUT ${ESP32_RUNTIME_CONFIG_HPP} ${ESP32_LIMITS_HPP}
-        COMMAND ${ESP32_CONFIG_PYTHON3_EXECUTABLE} ${ESP32_CONFIG_GENERATOR}
-        --kconfig ${ESP32_KCONFIG}
-        --config ${ESP32_MASTER_CONFIG}
-        --runtime-out ${ESP32_RUNTIME_CONFIG_HPP}
-        --limits-out ${ESP32_LIMITS_HPP}
-        COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
-        ${ESP32_RUNTIME_CONFIG_HPP}
-        ${ESP32_LIMITS_HPP}
-        DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
-        ${ESP32_CONFIG_GENERATOR}
-        ${ESP32_FIRMWARE_VERSION_TOOL}
-        ${ESP32_FIRMWARE_VERSION_FILE}
-        ${ESP32_CONFIG_TEMPLATE}
-        ${ESP32_LIMITS_TEMPLATE}
-        COMMENT "Generating ESP32 configuration headers"
-        VERBATIM)
-else()
-    add_custom_command(
-        OUTPUT ${ESP32_RUNTIME_CONFIG_HPP} ${ESP32_LIMITS_HPP}
-        COMMAND ${ESP32_CONFIG_PYTHON3_EXECUTABLE} ${ESP32_CONFIG_GENERATOR}
-        --kconfig ${ESP32_KCONFIG}
-        --config ${ESP32_MASTER_CONFIG}
-        --runtime-out ${ESP32_RUNTIME_CONFIG_HPP}
-        --limits-out ${ESP32_LIMITS_HPP}
-        DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
-        ${ESP32_CONFIG_GENERATOR}
-        ${ESP32_FIRMWARE_VERSION_TOOL}
-        ${ESP32_FIRMWARE_VERSION_FILE}
-        ${ESP32_CONFIG_TEMPLATE}
-        ${ESP32_LIMITS_TEMPLATE}
-        COMMENT "Generating ESP32 configuration headers"
-        VERBATIM)
+    set(_FMT_CMD COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
+                 ${ESP32_RUNTIME_CONFIG_HPP} ${ESP32_LIMITS_HPP})
 endif()
+
+add_custom_command(
+    OUTPUT ${ESP32_RUNTIME_CONFIG_HPP} ${ESP32_LIMITS_HPP}
+    COMMAND ${ESP32_CONFIG_PYTHON3_EXECUTABLE} ${ESP32_CONFIG_GENERATOR}
+            --kconfig ${ESP32_KCONFIG}
+            --config ${ESP32_MASTER_CONFIG}
+            --runtime-out ${ESP32_RUNTIME_CONFIG_HPP}
+            --limits-out ${ESP32_LIMITS_HPP}
+    ${_FMT_CMD}
+    DEPENDS ${ESP32_KCONFIG} ${ESP32_MASTER_CONFIG}
+            ${ESP32_CONFIG_GENERATOR}
+            ${ESP32_FIRMWARE_VERSION_TOOL}
+            ${ESP32_FIRMWARE_VERSION_FILE}
+            ${ESP32_CONFIG_TEMPLATE}
+            ${ESP32_LIMITS_TEMPLATE}
+    COMMENT "Generating ESP32 configuration headers"
+    VERBATIM)
 
 add_custom_target(generate_esp32_config
     DEPENDS ${ESP32_RUNTIME_CONFIG_HPP}

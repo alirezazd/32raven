@@ -140,4 +140,4 @@ The STM32 binary is uploaded over WiFi to the ESP32, which forwards it to the ST
 - **Generator:** the top-level build uses `GEN` (default `Ninja`). Override per-invocation: `make configure GEN="Unix Makefiles"`.
 - **Output:** build outputs are generator-specific — `build/Ninja/stm32/`, `build/Ninja/esp32/`.
 - **Toolchains:** when switching generators or toolchains, run `make clean` first to drop stale CMake cache.
-- **Verifying a change:** `make stm32` and `make esp32` are independent; touch shared code under `libs/` and run both. The STM32 build also runs `scripts/check_pinmap.py` against ST's silicon data — typo'd pin or AF aborts the build.
+- **Verifying a change:** `make stm32` and `make esp32` are independent; touch shared code under `libs/` and run both. The STM32 build also runs `scripts/lint/check_pinmap.py` against ST's silicon data — typo'd pin or AF aborts the build.

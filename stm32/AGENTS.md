@@ -33,7 +33,7 @@ Use these instructions when writing or modifying STM32 drivers in this repositor
 ## Pin Map (board.hpp)
 
 - The single source of truth for this PCB's pin assignments is `stm32/Core/Inc/board.hpp`. Drivers consume entries via `board::k<Name>` rather than reading globals from peripheral drivers.
-- Each `BoardPin` bundles `port + pin + AF + EXTI IRQ`. Every entry is validated against ST's silicon constraint data on every build by `scripts/check_pinmap.py`, which is invoked as the third `COMMAND` of the `add_custom_command` that produces `stm32_config.hpp` — there is no standalone target. The vendored data lives at `third_party/stm32_open_pin_data/` (subset of ST's open-pin-data repo for the F407 + F417 GPIO IP version).
+- Each `BoardPin` bundles `port + pin + AF + EXTI IRQ`. Every entry is validated against ST's silicon constraint data on every build by `scripts/lint/check_pinmap.py`, which is invoked as the third `COMMAND` of the `add_custom_command` that produces `stm32_config.hpp` — there is no standalone target. The vendored data lives at `third_party/stm32_open_pin_data/` (subset of ST's open-pin-data repo for the F407 + F417 GPIO IP version).
 - The validator catches typo'd alternate functions (e.g. `GPIO_AF7_SPI2` doesn't exist), pins outside the F407V package, the same physical pin claimed by two `BoardPin` entries, and unreferenced/unknown `board::k*` names. Build aborts on any error — bad pin maps brick boards silently.
 - **Adding a new peripheral pin:**
   1. Pick the signal you need (e.g. `CAN1_TX`). Run `python3 -c "from scripts.pin_constraints import PinConstraints as P; print(P.load_default().pins_for_signal('CAN1_TX'))"` from the repo root to see the valid pin/AF combos for the F407V package.
