@@ -2,14 +2,15 @@
 
 #include "button.hpp"
 #include "dshot_tim1.hpp"
+#include "error_code.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
 // #include "i2c.hpp"
+#include "board_config.hpp"
 #include "led.hpp"
 #include "spi.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-#include "user_config.hpp"
 
 System::System() {
   // Constructor does nothing now, explicit init() required.
@@ -17,7 +18,7 @@ System::System() {
 
 void System::Init(const SystemConfig &config) {
   if (initialized_) {
-    Panic(ErrorCode::kStm32SystemReinit);
+    Panic(ErrorCode::Stm32::kSystemReinit);
   }
   initialized_ = true;
 
@@ -119,23 +120,21 @@ void System::ConfigureSystemClock(const SystemConfig &config) {
   /** Configure the main internal regulator output voltage
    */
   __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(config.voltageScaling);
+  __HAL_PWR_VOLTAGESCALING_CONFIG(config.voltage_scaling);
 
   /** Initializes the RCC Oscillators
    */
   if (HAL_RCC_OscConfig(&rcc_osc_init) != HAL_OK) {
-    Panic(ErrorCode::kStm32RccOscConfigFailed);
+    Panic(ErrorCode::Stm32::kRccOscConfigFailed);
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
    */
-  if (HAL_RCC_ClockConfig(&rcc_clk_init, config.flashLatency) != HAL_OK) {
-    Panic(ErrorCode::kStm32RccClockConfigFailed);
+  if (HAL_RCC_ClockConfig(&rcc_clk_init, config.flash_latency) != HAL_OK) {
+    Panic(ErrorCode::Stm32::kRccClockConfigFailed);
   }
 
   /** Enables the Clock Security System
    */
   // HAL_RCC_EnableCSS(); TODO: Enable this when we have a backup power source
 }
-
-extern "C" void ErrorHandler(void) { Panic(ErrorCode::kHalErrorHandler); }

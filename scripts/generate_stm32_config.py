@@ -11,8 +11,14 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import sys
+from dataclasses import dataclass
 
 import kconfiglib
+
+# Sibling module — pin_constraints.py lives next to this script.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from pin_constraints import PinConstraints  # noqa: E402
 try:
     from jinja2 import Environment, FileSystemLoader, StrictUndefined
 except ImportError as exc:
@@ -45,17 +51,6 @@ SPI_PRESCALER_CHOICES = {
     "STM32_IMU_SPI_PRESCALER_DIV64": "SpiPrescaler::kDiv64",
     "STM32_IMU_SPI_PRESCALER_DIV128": "SpiPrescaler::kDiv128",
     "STM32_IMU_SPI_PRESCALER_DIV256": "SpiPrescaler::kDiv256",
-}
-
-ICM20948_SPI_PRESCALER_CHOICES = {
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV2": "SpiPrescaler::kDiv2",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV4": "SpiPrescaler::kDiv4",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV8": "SpiPrescaler::kDiv8",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV16": "SpiPrescaler::kDiv16",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV32": "SpiPrescaler::kDiv32",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV64": "SpiPrescaler::kDiv64",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV128": "SpiPrescaler::kDiv128",
-    "STM32_IMU_ICM20948_SPI_PRESCALER_DIV256": "SpiPrescaler::kDiv256",
 }
 
 M10_BAUD_RATE_CHOICES = {
@@ -281,6 +276,76 @@ DSHOT_TIM1_MODE_CHOICES = {
 }
 
 
+@dataclass(frozen=True)
+class _SignalPin:
+    """Peripheral pin constrained by the silicon AF table.
+
+    `choice_options` maps each Kconfig boolean (the choice arm) to the pin
+    name it represents. The signal lookup yields the AF macro automatically.
+    """
+    board_const: str
+    signal: str
+    choice_options: dict[str, str]
+
+
+@dataclass(frozen=True)
+class _GpioPin:
+    """Plain GPIO pin (no alternate function).
+
+    Any package-available (port, pin) combo is allowed. Selection is split
+    into a port choice and a pin-number int so the surface stays small —
+    listing all 80 valid pins as a flat choice would be unusable.
+    """
+    board_const: str
+    port_options: dict[str, str]   # {"STM32_USER_LED_PORT_A": "A", ...}
+    pin_int_symbol: str             # e.g. "STM32_USER_LED_PIN"
+
+
+# Registry of pin-map peripherals. Adding a new entry here + Kconfig choice/
+# int symbol(s) + (optionally) a kGpioDefault wiring is the recipe for a new
+# tunable pin.
+PINMAP_ENTRIES: tuple = (
+    _SignalPin(
+        board_const="kUart2Tx",
+        signal="USART2_TX",
+        choice_options={
+            "STM32_UART2_TX_PIN_PA2": "PA2",
+            "STM32_UART2_TX_PIN_PD5": "PD5",
+        },
+    ),
+    _SignalPin(
+        board_const="kUart2Rx",
+        signal="USART2_RX",
+        choice_options={
+            "STM32_UART2_RX_PIN_PA3": "PA3",
+            "STM32_UART2_RX_PIN_PD6": "PD6",
+        },
+    ),
+    _GpioPin(
+        board_const="kUserLed",
+        port_options={
+            "STM32_USER_LED_PORT_A": "A",
+            "STM32_USER_LED_PORT_B": "B",
+            "STM32_USER_LED_PORT_C": "C",
+            "STM32_USER_LED_PORT_D": "D",
+            "STM32_USER_LED_PORT_E": "E",
+        },
+        pin_int_symbol="STM32_USER_LED_PIN",
+    ),
+    _GpioPin(
+        board_const="kUserBtn",
+        port_options={
+            "STM32_USER_BTN_PORT_A": "A",
+            "STM32_USER_BTN_PORT_B": "B",
+            "STM32_USER_BTN_PORT_C": "C",
+            "STM32_USER_BTN_PORT_D": "D",
+            "STM32_USER_BTN_PORT_E": "E",
+        },
+        pin_int_symbol="STM32_USER_BTN_PIN",
+    ),
+)
+
+
 def _sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
     sym = kconf.syms.get(name)
     if sym is None:
@@ -329,6 +394,52 @@ def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
 
 def _imu_fifo_capacity_records() -> int:
     return ICM42688P_FIFO_BYTES // ICM42688P_PACKET3_BYTES
+
+
+def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, str]]:
+    """Resolve every PINMAP_ENTRIES item against Kconfig and pin_constraints.
+
+    Two flavors are handled:
+      * `_SignalPin` — choice picks a (pin, signal) pair; the AF macro comes
+        from the silicon table. Invalid combos abort generation.
+      * `_GpioPin`   — port choice + pin-number int; AF is 0 (plain GPIO).
+        Validation: the (port, pin) must exist on the package.
+    """
+    db = PinConstraints.load_default()
+    rendered: list[dict[str, str]] = []
+    for entry in PINMAP_ENTRIES:
+        if isinstance(entry, _SignalPin):
+            pin_name = _choice_value(kconf, entry.choice_options)  # "PA2"
+            port_letter = pin_name[1]
+            pin_num = int(pin_name[2:])
+            af = db.af_for(pin_name, entry.signal)
+            if af is None:
+                valid = [p.pin for p in db.pins_for_signal(entry.signal)]
+                raise ValueError(
+                    f"pinmap {entry.board_const}: ({pin_name}, {entry.signal}) "
+                    f"is not a valid AF combo per ST data. Valid pins for "
+                    f"{entry.signal}: {valid}"
+                )
+        elif isinstance(entry, _GpioPin):
+            port_letter = _choice_value(kconf, entry.port_options)  # "A"
+            pin_num = _sym_int(kconf, entry.pin_int_symbol)
+            pin_name = f"P{port_letter}{pin_num}"
+            if not db.is_valid_pin(pin_name):
+                raise ValueError(
+                    f"pinmap {entry.board_const}: pin {pin_name} does not "
+                    f"exist on the STM32F407V package"
+                )
+            af = "0"  # plain GPIO
+        else:
+            raise TypeError(f"unknown PINMAP_ENTRIES entry type: {type(entry)}")
+
+        rendered.append({
+            "name": entry.board_const,
+            "port": f"GPIO{port_letter}",
+            "pin": f"GPIO_PIN_{pin_num}",
+            "af": af,
+        })
+    return rendered
 
 
 def _validate(kconf: kconfiglib.Kconfig) -> None:
@@ -431,6 +542,7 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
 def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
+        "pinmap": _pinmap_context(kconf),
         "led": {
             "active_low": _sym_bool(kconf, "STM32_LED_ACTIVE_LOW"),
         },
@@ -611,30 +723,6 @@ def _runtime_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[st
                     kconf, "STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS"
                 ),
             },
-        },
-        "icm20948": {
-            "dma_buf_size": _sym_int(kconf, "STM32_IMU_ICM20948_DMA_BUF_SIZE"),
-            "fifo_size": _sym_int(kconf, "STM32_IMU_ICM20948_FIFO_SIZE"),
-            "accel": {
-                "range": _sym(kconf, "STM32_IMU_ICM20948_ACCEL_RANGE").str_value,
-                "dlpf_config": _sym(
-                    kconf, "STM32_IMU_ICM20948_ACCEL_DLPF_CONFIG"
-                ).str_value,
-                "sample_rate_div": _sym_int(
-                    kconf, "STM32_IMU_ICM20948_ACCEL_SAMPLE_RATE_DIV"
-                ),
-            },
-            "gyro": {
-                "range": _sym(kconf, "STM32_IMU_ICM20948_GYRO_RANGE").str_value,
-                "dlpf_config": _sym(
-                    kconf, "STM32_IMU_ICM20948_GYRO_DLPF_CONFIG"
-                ).str_value,
-                "sample_rate_div": _sym_int(
-                    kconf, "STM32_IMU_ICM20948_GYRO_SAMPLE_RATE_DIV"
-                ),
-            },
-            "mag_rate": _sym(kconf, "STM32_IMU_ICM20948_MAG_RATE").str_value,
-            "spi_prescaler": _choice_value(kconf, ICM20948_SPI_PRESCALER_CHOICES),
         },
         "button": {
             "active_low": _sym_bool(kconf, "STM32_BUTTON_ACTIVE_LOW"),

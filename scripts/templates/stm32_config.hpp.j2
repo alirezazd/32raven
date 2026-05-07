@@ -7,7 +7,6 @@
 #include "dshot_tim1.hpp"
 #include "esc_service.hpp"
 #include "esc_telemetry.hpp"
-#include "icm20948.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
 #include "m10.hpp"
@@ -16,6 +15,20 @@
 #include "stm32_limits.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
+
+// ---- Pin map (from menuconfig + ST silicon data) ------------------------
+// Re-opens the `board` namespace declared in stm32/Core/Inc/board.hpp. Each
+// entry below is a Kconfig-tunable pin assignment; the (pin, AF) combo was
+// validated against ST's open-pin-data at generation time, so invalid picks
+// can't reach this header. Emitted before any consumer (kButtonConfig,
+// kLedConfig, kGpioDefault) so the constants are visible at point of use.
+namespace board {
+{% for p in pinmap %}
+inline const BoardPin {{ p.name }} = {
+    {{ p.port }}, {{ p.pin }}, {{ p.af }}, NonMaskableInt_IRQn,
+};
+{% endfor %}
+}  // namespace board
 
 inline constexpr auto kFcLinkTelemetryRateHz = {{ fclink.telemetry_rate_hz }}u;
 inline constexpr auto kFcLinkTelemetryIntervalMs = 1000u / kFcLinkTelemetryRateHz;
@@ -115,23 +128,6 @@ inline constexpr SpiConfig kSpi2Config = {
     .phase = SpiPhase::k2Edge,
     .prescaler = {{ icm42688p.spi_prescaler }},
     .bit_order = SpiBitOrder::kMsbFirst,
-};
-
-inline constexpr Icm20948::Config kIcm20948Config = {
-    .dma_buf_size = {{ icm20948.dma_buf_size }},
-    .fifo_size = {{ icm20948.fifo_size }},
-    .accel = {
-        .range = {{ icm20948.accel.range }},
-        .dlpf_config = {{ icm20948.accel.dlpf_config }},
-        .sample_rate_div = {{ icm20948.accel.sample_rate_div }},
-    },
-    .gyro = {
-        .range = {{ icm20948.gyro.range }},
-        .dlpf_config = {{ icm20948.gyro.dlpf_config }},
-        .sample_rate_div = {{ icm20948.gyro.sample_rate_div }},
-    },
-    .mag_rate = {{ icm20948.mag_rate }},
-    .spi_prescaler = static_cast<uint8_t>({{ icm20948.spi_prescaler }}),
 };
 
 inline const Button::Config kButtonConfig = {

@@ -1,12 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
 
-#
-# This file is generated only once,
-# and is not re-generated if converter is called multiple times.
-#
-# User is free to modify the file as much as necessary
-#
-
 # Setup compiler settings
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -58,6 +51,15 @@ set(STM32_LIMITS_HPP
 set(STM32_EE_SCHEMA_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/ee_schema.hpp")
 
+# Validate board.hpp + the freshly-generated stm32_config.hpp against ST's
+# silicon pin/AF data as part of header generation. Catches typo'd alternate
+# functions, pins not on the F407V package, same pin claimed twice, and
+# unreferenced/unknown board::k* names. Failure aborts the build — bad pin
+# maps brick boards silently otherwise.
+set(STM32_PIN_CHECKER
+    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/check_pinmap.py")
+set(STM32_BOARD_HPP "${CMAKE_CURRENT_SOURCE_DIR}/Core/Inc/board.hpp")
+
 if(CLANG_FORMAT_EXECUTABLE)
     add_custom_command(
         OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
@@ -69,11 +71,14 @@ if(CLANG_FORMAT_EXECUTABLE)
         COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
                 ${STM32_RUNTIME_CONFIG_HPP}
                 ${STM32_LIMITS_HPP}
+        COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
         DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
                 ${STM32_CONFIG_GENERATOR}
                 ${STM32_RUNTIME_CONFIG_TEMPLATE}
                 ${STM32_LIMITS_TEMPLATE}
-        COMMENT "Generating STM32 configuration headers"
+                ${STM32_PIN_CHECKER}
+                ${STM32_BOARD_HPP}
+        COMMENT "Generating + validating STM32 configuration headers"
         VERBATIM)
 else()
     add_custom_command(
@@ -83,11 +88,14 @@ else()
                 --config ${STM32_MASTER_CONFIG}
                 --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
                 --limits-out ${STM32_LIMITS_HPP}
+        COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
         DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
                 ${STM32_CONFIG_GENERATOR}
                 ${STM32_RUNTIME_CONFIG_TEMPLATE}
                 ${STM32_LIMITS_TEMPLATE}
-        COMMENT "Generating STM32 configuration headers"
+                ${STM32_PIN_CHECKER}
+                ${STM32_BOARD_HPP}
+        COMMENT "Generating + validating STM32 configuration headers"
         VERBATIM)
 endif()
 
@@ -125,14 +133,8 @@ add_dependencies(${CMAKE_PROJECT_NAME} generate_ee_schema)
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
-# Link directories setup
-target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined library search paths
-)
-
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user sources here
     Core/Src/stm32f4xx_hal_msp.c
     Core/Src/stm32f4xx_it.c
     Core/Src/syscalls.c
@@ -174,16 +176,10 @@ add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined include paths
     Drivers/USER/inc
     Core/Inc
     Services/Inc
     ../libs/inc
-)
-
-# Add project symbols (macros)
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # Add user defined symbols
 )
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
@@ -203,9 +199,4 @@ target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
 # Remove wrong libob.a library dependency when using cpp files
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 
-# Add linked libraries
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    stm32cubemx
-
-    # Add user defined libraries
-)
+target_link_libraries(${CMAKE_PROJECT_NAME} stm32cubemx)
