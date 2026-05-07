@@ -6,13 +6,21 @@ import argparse
 import pathlib
 import re
 import subprocess
+from dataclasses import dataclass
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
+VERSION_PATH = REPO_ROOT / "VERSION"
 
 DEFAULT_VERSION_REF = "HEAD"
-VERSION_RE = re.compile(r"\bv(\d+)\.(\d+)(?:\.x)?\s+Stable\b")
+VERSION_RE = re.compile(r"\bv?(\d+)\.(\d+)(?:\.(?:x|\d+))?(?:\s+Stable)?\b")
+
+
+@dataclass(frozen=True)
+class VersionSource:
+    path: str
+    content: str
 
 
 def _git(*args: str) -> str:
@@ -38,23 +46,36 @@ def _resolve_commit(ref: str) -> str:
     return _git("rev-parse", "--verify", f"{ref}^{{commit}}")
 
 
-def _read_version_source(ref: str, ref_commit: str) -> str:
+def _read_file_at_ref(path: str, ref: str, ref_commit: str) -> str | None:
     head_commit = _resolve_commit("HEAD")
     if ref == DEFAULT_VERSION_REF and ref_commit == head_commit:
+        local_path = REPO_ROOT / path
         try:
-            return README_PATH.read_text(encoding="utf-8")
-        except OSError as exc:
-            raise SystemExit("README.md is required to resolve the firmware version") from exc
+            return local_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
 
-    return _git("show", f"{ref_commit}:README.md")
+    try:
+        return _git("show", f"{ref_commit}:{path}")
+    except SystemExit:
+        return None
+
+
+def _read_version_source(ref: str, ref_commit: str) -> VersionSource:
+    for path in (VERSION_PATH.name, README_PATH.name):
+        content = _read_file_at_ref(path, ref, ref_commit)
+        if content is not None:
+            return VersionSource(path=path, content=content)
+
+    raise SystemExit("VERSION or README.md is required to resolve the firmware version")
 
 
 def _parse_firmware_version_base(version_source: str) -> tuple[int, int]:
     match = VERSION_RE.search(version_source)
     if not match:
         raise SystemExit(
-            "unable to find firmware version in README.md; expected "
-            "'vMAJOR.MINOR.x Stable'"
+            "unable to find firmware version; expected MAJOR.MINOR in VERSION "
+            "or legacy 'vMAJOR.MINOR.x Stable' in README.md"
         )
 
     parts = tuple(int(match.group(index), 10) for index in range(1, 3))
@@ -64,11 +85,13 @@ def _parse_firmware_version_base(version_source: str) -> tuple[int, int]:
     return parts
 
 
-def _base_start_commit(ref_commit: str, version_base: tuple[int, int]) -> str | None:
-    commits = _git("log", "--format=%H", "--reverse", ref_commit, "--", "README.md")
+def _base_start_commit(
+    ref_commit: str, version_base: tuple[int, int], source_path: str
+) -> str | None:
+    commits = _git("log", "--format=%H", "--reverse", ref_commit, "--", source_path)
     for commit in commits.splitlines():
         try:
-            source = _git("show", f"{commit}:README.md")
+            source = _git("show", f"{commit}:{source_path}")
         except SystemExit:
             continue
         try:
@@ -79,8 +102,10 @@ def _base_start_commit(ref_commit: str, version_base: tuple[int, int]) -> str | 
     return None
 
 
-def _auto_patch_version(ref_commit: str, version_base: tuple[int, int]) -> int:
-    base_commit = _base_start_commit(ref_commit, version_base)
+def _auto_patch_version(
+    ref_commit: str, version_base: tuple[int, int], source_path: str
+) -> int:
+    base_commit = _base_start_commit(ref_commit, version_base, source_path)
     if base_commit is None:
         patch = 1
     else:
@@ -88,18 +113,19 @@ def _auto_patch_version(ref_commit: str, version_base: tuple[int, int]) -> int:
 
     if patch > 0xFF:
         raise SystemExit(
-            "auto firmware patch version exceeds one byte; bump the README major/minor version"
+            "auto firmware patch version exceeds one byte; bump the firmware "
+            f"major/minor version in {source_path}"
         )
     return patch
 
 
 def resolve_firmware_version(version_ref: str = DEFAULT_VERSION_REF) -> str:
     ref_commit = _resolve_commit(version_ref)
-    version_base = _parse_firmware_version_base(
-        _read_version_source(version_ref, ref_commit)
-    )
+    source = _read_version_source(version_ref, ref_commit)
+    version_base = _parse_firmware_version_base(source.content)
     major, minor = version_base
-    return f"{major}.{minor}.{_auto_patch_version(ref_commit, version_base)}"
+    patch = _auto_patch_version(ref_commit, version_base, source.path)
+    return f"{major}.{minor}.{patch}"
 
 
 def main() -> int:

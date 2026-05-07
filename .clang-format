@@ -1,1 +1,10 @@
 BasedOnStyle: Google
+
+# Pin pointer/reference alignment so different clang-format versions (system
+# binary used by `make format-cpp` vs the one embedded in clangd / VSCode)
+# don't disagree. With Google's default `DerivePointerAlignment: true` the
+# tool guesses from the file, and the heuristic differs between versions —
+# producing format-then-save churn.
+DerivePointerAlignment: false
+PointerAlignment: Right
+ReferenceAlignment: Pointer

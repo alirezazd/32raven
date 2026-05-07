@@ -17,18 +17,6 @@ if(DEFINED ENV{IDF_PATH} AND NOT "$ENV{IDF_PATH}" STREQUAL "")
   set(IDF_PATH "$ENV{IDF_PATH}" CACHE PATH "Path to esp-idf" FORCE)
 endif()
 
-add_compile_options(
-    -Wall
-    -Wextra
-    -Wshadow
-    -Wconversion
-    -Wsign-conversion
-    -Wdouble-promotion
-    -Wformat=2
-    -Wundef
-    -Werror=return-type
-)
-
 set(STM32_TOOLCHAIN_FILE "" CACHE FILEPATH "STM32 toolchain file (gcc-arm-none-eabi.cmake)")
 
 if(STM32_TOOLCHAIN_FILE AND EXISTS "${STM32_TOOLCHAIN_FILE}")
@@ -43,31 +31,6 @@ endif()
 set(_CFG_ARG "")
 if(CMAKE_CONFIGURATION_TYPES)
   set(_CFG_ARG --config $<CONFIG>)
-endif()
-
-# -----------------------------------------------------------------------------
-# STM32 target
-# -----------------------------------------------------------------------------
-add_custom_target(stm32_build_only
-  COMMAND ${CMAKE_COMMAND} -E echo "Building STM32 firmware"
-  COMMAND ${CMAKE_COMMAND}
-          -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32
-          -B ${CMAKE_CURRENT_BINARY_DIR}/stm32
-          -G "${CMAKE_GENERATOR}"
-          -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${_STM32_TC}
-          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32 ${_CFG_ARG}
-  VERBATIM
-)
-
-if(NOT _STM32_TC)
-  add_custom_command(TARGET stm32_build_only PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "ERROR: STM32 toolchain file not found."
-    COMMAND ${CMAKE_COMMAND} -E echo "Expected: ${CMAKE_CURRENT_SOURCE_DIR}/stm32/cmake/gcc-arm-none-eabi.cmake"
-    COMMAND ${CMAKE_COMMAND} -E echo "Or pass: -DSTM32_TOOLCHAIN_FILE=/path/to/gcc-arm-none-eabi.cmake"
-    COMMAND ${CMAKE_COMMAND} -E false
-  )
 endif()
 
 # -----------------------------------------------------------------------------
@@ -149,36 +112,10 @@ add_custom_command(
 
 add_custom_target(forbidden_check_esp32 DEPENDS "${FORBIDDEN_CHECK_ESP32_STAMP}")
 add_custom_target(forbidden_check_stm32 DEPENDS "${FORBIDDEN_CHECK_STM32_STAMP}")
-add_custom_target(forbidden_check
-  DEPENDS
-    forbidden_check_esp32
-    forbidden_check_stm32
-)
 
 # -----------------------------------------------------------------------------
-# ESP32 target
+# STM32 target
 # -----------------------------------------------------------------------------
-add_custom_target(esp32_build_only
-  COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware"
-  COMMAND bash -lc
-    "set -euo pipefail; \
-     if [ -z '${IDF_PATH}' ]; then \
-       echo 'IDF_PATH is empty.'; \
-       exit 1; \
-     fi; \
-     if [ ! -f '${IDF_PATH}/export.sh' ]; then \
-       echo \"ESP-IDF not found at '${IDF_PATH}'\"; \
-       echo 'Run: git submodule update --init --recursive third_party/esp-idf'; \
-       echo 'Then: make idf-install'; \
-       exit 1; \
-     fi; \
-     . '${IDF_PATH}/export.sh'; \
-     idf.py -C '${CMAKE_CURRENT_SOURCE_DIR}/esp32' \
-            -B '${CMAKE_CURRENT_BINARY_DIR}/esp32' \
-            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON build"
-  VERBATIM
-)
-
 add_custom_target(stm32
   DEPENDS forbidden_check_stm32
   COMMAND ${CMAKE_COMMAND} -E echo "Building STM32 firmware"
