@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-#include "board.h"
+#include "board.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
@@ -55,7 +55,7 @@ void EscTelemetry::Init(const Config &cfg) {
       cfg.response_timeout_us == 0u) {
     Panic(ErrorCode::kStm32EscTelemetryInitFailed);
   }
-  if (ESC_TLM_GPIO_PORT != GPIOB || ESC_TLM_PIN != GPIO_PIN_11) {
+  if (board::kEscTlm.port != GPIOB || board::kEscTlm.pin != GPIO_PIN_11) {
     Panic(ErrorCode::kStm32GpioConfigFailed);
   }
 
@@ -75,15 +75,15 @@ void EscTelemetry::ConfigureUart() {
   __DSB();
 
   const uint32_t pin_pos = 11u;
-  ESC_TLM_GPIO_PORT->MODER &= ~(GPIO_MODER_MODER0 << (pin_pos * 2u));
-  ESC_TLM_GPIO_PORT->MODER |= GPIO_MODER_MODER0_1 << (pin_pos * 2u);
-  ESC_TLM_GPIO_PORT->OTYPER &= ~(1u << pin_pos);
-  ESC_TLM_GPIO_PORT->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR0 << (pin_pos * 2u));
-  ESC_TLM_GPIO_PORT->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR0 << (pin_pos * 2u);
-  ESC_TLM_GPIO_PORT->PUPDR &= ~(GPIO_PUPDR_PUPDR0 << (pin_pos * 2u));
-  ESC_TLM_GPIO_PORT->PUPDR |= GPIO_PUPDR_PUPDR0_0 << (pin_pos * 2u);
-  ESC_TLM_GPIO_PORT->AFR[1] &= ~(0xFu << ((pin_pos - 8u) * 4u));
-  ESC_TLM_GPIO_PORT->AFR[1] |= GPIO_AF7_USART3 << ((pin_pos - 8u) * 4u);
+  board::kEscTlm.port->MODER &= ~(GPIO_MODER_MODER0 << (pin_pos * 2u));
+  board::kEscTlm.port->MODER |= GPIO_MODER_MODER0_1 << (pin_pos * 2u);
+  board::kEscTlm.port->OTYPER &= ~(1u << pin_pos);
+  board::kEscTlm.port->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR0 << (pin_pos * 2u));
+  board::kEscTlm.port->OSPEEDR |= GPIO_OSPEEDER_OSPEEDR0 << (pin_pos * 2u);
+  board::kEscTlm.port->PUPDR &= ~(GPIO_PUPDR_PUPDR0 << (pin_pos * 2u));
+  board::kEscTlm.port->PUPDR |= GPIO_PUPDR_PUPDR0_0 << (pin_pos * 2u);
+  board::kEscTlm.port->AFR[1] &= ~(0xFu << ((pin_pos - 8u) * 4u));
+  board::kEscTlm.port->AFR[1] |= GPIO_AF7_USART3 << ((pin_pos - 8u) * 4u);
 
   USART3->CR1 &= ~USART_CR1_UE;
   USART3->CR1 = 0;

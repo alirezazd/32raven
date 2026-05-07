@@ -1,7 +1,5 @@
 #include "gpio.hpp"
 
-#include "board.h"
-
 inline void EnablePortClock(GPIO_TypeDef *port) {
   if (port == GPIOA)
     __HAL_RCC_GPIOA_CLK_ENABLE();

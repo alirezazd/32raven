@@ -2,6 +2,7 @@
 
 #include <cstring>  // for memcpy
 
+#include "board.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -169,13 +170,13 @@ void Icm20948::OnDrdyIrq(uint32_t timestamp) {
   // Ensure kDmaBufSize is large enough (header says 32, so 23 is fine).
 
   // CS Low
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, false);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, false);
 
   // Start DMA
   bool started = spi.StartTxRxDma(dma_tx_buf_, dma_rx_buf_, kBurstSize,
                                   OnDmaComplete, this);
   if (!started) {
-    gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, true);
+    gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
     missed_drdy_count_++;
     return;
   }
@@ -184,7 +185,7 @@ void Icm20948::OnDrdyIrq(uint32_t timestamp) {
 void Icm20948::OnDmaComplete(void *user, bool ok) {
   Icm20948 *self = static_cast<Icm20948 *>(user);
   // CS High
-  self->gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, true);
+  self->gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 
   if (ok) {
     // TODO: Parse data
@@ -197,10 +198,10 @@ void Icm20948::WriteRegRaw(uint8_t reg, uint8_t val) {
   uint8_t tx[2] = {static_cast<uint8_t>(reg & 0x7F), val};
 
   // CS Low
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, false);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, false);
   spi.Write(tx, 2);
   // CS High
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, true);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 }
 
 uint8_t Icm20948::ReadRegRaw(uint8_t reg) {
@@ -209,10 +210,10 @@ uint8_t Icm20948::ReadRegRaw(uint8_t reg) {
   uint8_t rx[2] = {0, 0};
 
   // CS Low
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, false);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, false);
   spi.TxRx(tx, rx, 2);
   // CS High
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, true);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 
   return rx[1];
 }

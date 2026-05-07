@@ -1,14 +1,20 @@
 {{ autogen_warning }}#pragma once
 
 #include "battery.hpp"
+#include "board.hpp"
 #include "button.hpp"
 #include "crsf_link_service.hpp"
+#include "dshot_tim1.hpp"
+#include "esc_service.hpp"
+#include "esc_telemetry.hpp"
 #include "icm20948.hpp"
 #include "icm42688p.hpp"
+#include "led.hpp"
 #include "m10.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "stm32_limits.hpp"
+#include "time_base.hpp"
 #include "uart.hpp"
 
 inline constexpr auto kFcLinkTelemetryRateHz = {{ fclink.telemetry_rate_hz }}u;
@@ -129,7 +135,7 @@ inline constexpr Icm20948::Config kIcm20948Config = {
 };
 
 inline const Button::Config kButtonConfig = {
-    .pin = {.port = USER_BTN_GPIO_PORT, .number = USER_BTN_Pin},
+    .pin = {.port = board::kUserBtn.port, .number = board::kUserBtn.pin},
     .active_low = {{ button.active_low | cpp_bool }},
     .debounce_ms = {{ button.debounce_ms }},
     .long_press_ms = {{ button.long_press_ms }},
@@ -238,4 +244,41 @@ inline constexpr M10::Config kM10Config = {
         .pol_rising = {{ m10.config.tp1.pol_rising | cpp_bool }},
     },
     .ack_timeout_us = {{ m10.config.ack_timeout_us }},
+};
+
+inline const LED::Config kLedConfig = {
+    .pin = {.port = board::kUserLed.port, .number = board::kUserLed.pin},
+    .active_low = {{ led.active_low | cpp_bool }},
+};
+
+inline constexpr DShotTim1::Config kDshotTim1Config = {
+    .mode = {{ dshot_tim1.mode }},
+};
+
+inline constexpr TimeBaseConfig kTimeBaseConfig = {
+    .tim2 = {
+        .prescaler = {{ timebase.tim2.prescaler }},
+        .period = {{ timebase.tim2.period }},
+    },
+    .tim5 = {
+        .prescaler = {{ timebase.tim5.prescaler }},
+        .period = {{ timebase.tim5.period }},
+        .autoreload_preload = {{ timebase.tim5.autoreload_preload | cpp_bool }},
+    },
+};
+
+inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
+    .baud_rate = {{ esc_telemetry.baud_rate }},
+    .motor_pole_count = {{ esc_telemetry.motor_pole_count }},
+    .response_timeout_us = {{ esc_telemetry.response_timeout_us }},
+};
+
+inline constexpr EscService::Config kEscServiceConfig = {
+    .dshot = {
+        .gap_bits = {{ esc_service.dshot_gap_bits }},
+    },
+    .idle_period_us = {{ esc_service.idle_period_us }},
+    .command_period_us = {{ esc_service.command_period_us }},
+    .telemetry_request_period_us = {{ esc_service.telemetry_request_period_us }},
+    .command_repeat_count = {{ esc_service.command_repeat_count }},
 };

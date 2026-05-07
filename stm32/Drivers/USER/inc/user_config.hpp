@@ -1,24 +1,13 @@
 #pragma once
 
-#include "board.h"
+#include "board.hpp"
 #include "stm32f4xx_hal.h"
 // Drivers
 #include <array>
 
-#include "battery.hpp"
-#include "button.hpp"
-#include "dshot_codec.hpp"
-#include "dshot_tim1.hpp"
-#include "esc_telemetry.hpp"
-#include "esc_service.hpp"
 #include "gpio.hpp"
-#include "i2c.hpp"
-#include "icm42688p.hpp"
-#include "led.hpp"
 #include "stm32_config.hpp"
 #include "stm32f4xx_hal_gpio.h"
-#include "time_base.hpp"
-#include "uart.hpp"
 
 // System Configuration Struct
 struct SystemConfig {
@@ -29,119 +18,74 @@ struct SystemConfig {
 };
 
 // Default Configuration values
+// 168 MHz from 8 MHz HSE (PLLM=8, PLLN=336, PLLP=2). APB1=42 MHz, APB2=84 MHz.
 constexpr SystemConfig kSystemDefault = {
-    // RCC_OscInitTypeDef
-    {RCC_OSCILLATORTYPE_HSE,  // OscillatorType
-     RCC_HSE_ON,              // HSEState
-     0,                       // LSEState (unused)
-     0,                       // HSIState (unused)
-     0,                       // HSICalibrationValue (unused)
-     0,                       // LSIState (unused)
-     {
-         // PLL
-         RCC_PLL_ON,         // PLLState
-         RCC_PLLSOURCE_HSE,  // PLLSource
-         8,                  // PLLM
-         336,                // PLLN
-         RCC_PLLP_DIV2,      // PLLP
-         4                   // PLLQ
-     }},
-    // RCC_ClkInitTypeDef
-    {
-        RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 |
-            RCC_CLOCKTYPE_PCLK2,  // ClockType
-        RCC_SYSCLKSOURCE_PLLCLK,  // SYSCLKSource
-        RCC_SYSCLK_DIV1,          // AHBCLKDivider
-        RCC_HCLK_DIV4,            // APB1CLKDivider
-        RCC_HCLK_DIV2             // APB2CLKDivider
-    },
-    FLASH_LATENCY_5,              // flashLatency
-    PWR_REGULATOR_VOLTAGE_SCALE1  // voltageScaling
-};
-
-constexpr I2CConfig kI2cDefault = {400000,
-                                   I2C_DUTYCYCLE_2,
-                                   0,
-                                   I2C_ADDRESSINGMODE_7BIT,
-                                   I2C_DUALADDRESS_DISABLE,
-                                   0,
-                                   I2C_GENERALCALL_DISABLE,
-                                   I2C_NOSTRETCH_DISABLE};
-
-constexpr TimeBaseConfig kTimeBaseDefault = {
-    .tim2 =
+    .osc =
         {
-            // 1MHz tick
-            .prescaler = 83,       // Prescaler
-            .period = 0xFFFFFFFF,  // Period
+            .OscillatorType = RCC_OSCILLATORTYPE_HSE,
+            .HSEState = RCC_HSE_ON,
+            .LSEState = 0,
+            .HSIState = 0,
+            .HSICalibrationValue = 0,
+            .LSIState = 0,
+            .PLL =
+                {
+                    .PLLState = RCC_PLL_ON,
+                    .PLLSource = RCC_PLLSOURCE_HSE,
+                    .PLLM = 8,
+                    .PLLN = 336,
+                    .PLLP = RCC_PLLP_DIV2,
+                    .PLLQ = 4,
+                },
         },
-    .tim5 = {
-        // 1kHz tick
-        .prescaler = 85,            // TIM5 Prescaler
-        .period = 999,              // TIM5 Period
-        .autoreload_preload = true  // TIM5 AutoReloadPreload
-    }};
+    .clk =
+        {
+            .ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                         RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2,
+            .SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK,
+            .AHBCLKDivider = RCC_SYSCLK_DIV1,
+            .APB1CLKDivider = RCC_HCLK_DIV4,
+            .APB2CLKDivider = RCC_HCLK_DIV2,
+        },
+    .flashLatency = FLASH_LATENCY_5,
+    .voltageScaling = PWR_REGULATOR_VOLTAGE_SCALE1,
+};
 
 const std::array kGpioDefault = {
-    GPIO::PinConfig{USER_LED_GPIO_PORT,
-                    {USER_LED_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+    GPIO::PinConfig{board::kUserLed.port,
+                    {board::kUserLed.pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_LOW, 0},
                     true},  // LED Active Low
-    GPIO::PinConfig{
-        USER_BTN_GPIO_PORT,
-        {USER_BTN_Pin, GPIO_MODE_INPUT, GPIO_PULLDOWN, GPIO_SPEED_FREQ_LOW, 0},
-        false},  // Button Active High
-    GPIO::PinConfig{GPIOB,
-                    {GPIO_PIN_10, GPIO_MODE_IT_RISING, GPIO_NOPULL,
-                     GPIO_SPEED_FREQ_VERY_HIGH, 0},
+    GPIO::PinConfig{board::kUserBtn.port,
+                    {board::kUserBtn.pin, GPIO_MODE_INPUT, GPIO_PULLDOWN,
+                     GPIO_SPEED_FREQ_LOW, 0},
+                    false},  // Button Active High
+    GPIO::PinConfig{board::kImuInt.port,
+                    {board::kImuInt.pin, GPIO_MODE_IT_RISING, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kImuInt.af},
                     false},  // IMU INT
-    GPIO::PinConfig{GPIOB,
-                    {GPIO_PIN_13, GPIO_MODE_AF_PP, GPIO_NOPULL,
-                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI2},
+    GPIO::PinConfig{board::kSpi2Sck.port,
+                    {board::kSpi2Sck.pin, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kSpi2Sck.af},
                     false},  // IMU SPI2 SCK (AF)
-    GPIO::PinConfig{GPIOB,
-                    {GPIO_PIN_14 | GPIO_PIN_15, GPIO_MODE_AF_PP, GPIO_NOPULL,
-                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI2},
+    GPIO::PinConfig{board::kSpi2MisoMosi.port,
+                    {board::kSpi2MisoMosi.pin, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kSpi2MisoMosi.af},
                     false},  // IMU SPI2 MISO/MOSI (AF)
-    GPIO::PinConfig{SPI2_CS_GPIO_Port,
-                    {SPI2_CS_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
-                     GPIO_SPEED_FREQ_VERY_HIGH, 0},
+    GPIO::PinConfig{board::kSpi2Cs.port,
+                    {board::kSpi2Cs.pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kSpi2Cs.af},
                     true},  // IMU SPI2 CS Active Low
-    GPIO::PinConfig{GPIOB,
-                    {GPIO_PIN_3, GPIO_MODE_AF_PP, GPIO_NOPULL,
-                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1},
+    GPIO::PinConfig{board::kSpi1Sck.port,
+                    {board::kSpi1Sck.pin, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kSpi1Sck.af},
                     false},  // EEPROM SPI1 SCK (AF)
-    GPIO::PinConfig{GPIOB,
-                    {GPIO_PIN_4 | GPIO_PIN_5, GPIO_MODE_AF_PP, GPIO_NOPULL,
-                     GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF5_SPI1},
+    GPIO::PinConfig{board::kSpi1MisoMosi.port,
+                    {board::kSpi1MisoMosi.pin, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kSpi1MisoMosi.af},
                     false},  // EEPROM SPI1 MISO/MOSI (AF)
-    GPIO::PinConfig{SPI1_CS_GPIO_Port,
-                    {SPI1_CS_Pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
+    GPIO::PinConfig{board::kSpi1Cs.port,
+                    {board::kSpi1Cs.pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_VERY_HIGH, 0},
                     true}  // Flash SPI1 CS Active Low
-};
-
-const LED::Config kLedDefault = {
-    .pin = {.port = USER_LED_GPIO_PORT, .number = USER_LED_Pin},
-    .active_low = true};
-
-constexpr DShotTim1::Config kDshotTim1Default = {
-    DShotMode::kDshot300,  // mode
-};
-
-inline constexpr EscService::Config kEscServiceConfig = {
-    .dshot =
-        {
-            .gap_bits = 2,
-        },
-    .idle_period_us = 1000,
-    .command_period_us = 2000,
-    .telemetry_request_period_us = 4000,
-    .command_repeat_count = 10,
-};
-
-inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
-    .baud_rate = 115200,
-    .motor_pole_count = 14,
-    .response_timeout_us = 2500,
 };

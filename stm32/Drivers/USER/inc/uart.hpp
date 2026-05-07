@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "board.h"
 #include "ring_buffer.hpp"
+#include "stm32f4xx_hal.h"
 
 enum class UartInstance { kUart1, kUart2, kUart6 };
 
@@ -61,14 +61,14 @@ template <UartInstance Inst, size_t TxBufferSize = kUartTxBufSize,
           size_t RxRingSize = kUartRxRingSize>
 class Uart {
  public:
-  static Uart &GetInstance() {
+  static Uart& GetInstance() {
     static Uart instance;
     return instance;
   }
 
-  void Send(const char *str);
-  void Send(const uint8_t *data, size_t len);
-  bool Read(uint8_t &out);
+  void Send(const char* str);
+  void Send(const uint8_t* data, size_t len);
+  bool Read(uint8_t& out);
   void FlushRx();
   void SetBaudRate(uint32_t baud_rate);
   size_t TxFree() const {
@@ -91,12 +91,12 @@ class Uart {
 
  private:
   friend class System;
-  void Init(const UartConfig &config);
+  void Init(const UartConfig& config);
 
   Uart() = default;
   ~Uart() = default;
 
-  UART_HandleTypeDef *GetHandle();
+  UART_HandleTypeDef* GetHandle();
   bool initialized_ = false;
 
   RingBuffer<uint8_t, TxBufferSize> tx_buffer_;

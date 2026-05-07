@@ -1,6 +1,6 @@
 #include "battery.hpp"
 
-#include "board.h"
+#include "board.hpp"
 #include "panic.hpp"
 #include "stm32_limits.hpp"
 #include "stm32f4xx.h"
@@ -135,13 +135,13 @@ void Battery::Poll(uint32_t now_us) {
 }
 
 void Battery::InitAdc() {
-  if (ESC_VBA_GPIO_PORT != GPIOC || ESC_CUR_GPIO_PORT != GPIOC) {
+  if (board::kEscVba.port != GPIOC || board::kEscCur.port != GPIOC) {
     Panic(ErrorCode::kStm32GpioConfigFailed);
   }
 
   EnableBatteryPeripheralClocks();
-  ConfigureAnalogPin(ESC_VBA_GPIO_PORT, ESC_VBA_PIN);
-  ConfigureAnalogPin(ESC_CUR_GPIO_PORT, ESC_CUR_PIN);
+  ConfigureAnalogPin(board::kEscVba.port, board::kEscVba.pin);
+  ConfigureAnalogPin(board::kEscCur.port, board::kEscCur.pin);
 
   ADC->CCR &= ~ADC_CCR_ADCPRE;
   ADC->CCR |= ADC_CCR_ADCPRE_0;  // PCLK2 / 4 = 21 MHz on this clock tree.

@@ -2,7 +2,7 @@
 
 #include <cmath>
 
-#include "board.h"
+#include "board.hpp"
 #include "config_storage.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
@@ -74,8 +74,8 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   // EXTI->PR = (1u << 10);
 
   spi.EnableIrqs();  // SPI DMA interrupts
-  NVIC_SetPriority(IMU_INT_EXTI_IRQn, 3);
-  NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
+  NVIC_SetPriority(board::kImuInt.exti_irqn, 3);
+  NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 
 bool Icm42688p::SaveAccelCalibration() {
@@ -601,8 +601,8 @@ void Icm42688p::CalibrateGyro() {
     offset_lsb[axis] = static_cast<int16_t>(code);
   }
 
-  NVIC_DisableIRQ(IMU_INT_EXTI_IRQn);
-  NVIC_ClearPendingIRQ(IMU_INT_EXTI_IRQn);
+  NVIC_DisableIRQ(board::kImuInt.exti_irqn);
+  NVIC_ClearPendingIRQ(board::kImuInt.exti_irqn);
   while (inflight_.load(std::memory_order_acquire)) {
   }
 
@@ -627,7 +627,7 @@ void Icm42688p::CalibrateGyro() {
   time.DelayMicros(MILLIS_TO_MICROS(50));
   WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadReg(REG_INT_STATUS);
-  NVIC_EnableIRQ(IMU_INT_EXTI_IRQn);
+  NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 
 void Icm42688p::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
@@ -873,8 +873,8 @@ uint8_t Icm42688p::ReadReg(uint8_t reg) {
   return rx[1];
 }
 void Icm42688p::CsLow() {
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, false);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, false);
 }
 void Icm42688p::CsHigh() {
-  gpio_->WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, true);
+  gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 }

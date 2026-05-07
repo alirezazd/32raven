@@ -5,7 +5,6 @@
 #include "gpio.hpp"
 #include "panic.hpp"
 // #include "i2c.hpp"
-#include "board.h"
 #include "led.hpp"
 #include "spi.hpp"
 #include "time_base.hpp"
@@ -51,7 +50,7 @@ void System::Init(const SystemConfig &config) {
 void System::InitComponent(Component c) {
   switch (c) {
     case Component::kTimeBase:
-      System::GetInstance().Time().Init(kTimeBaseDefault);
+      System::GetInstance().Time().Init(kTimeBaseConfig);
       break;
     case Component::kGpio:
       GPIO::GetInstance().Init(kGpioDefault);
@@ -78,7 +77,7 @@ void System::InitComponent(Component c) {
                               FcLink::GetInstance());
       break;
     case Component::kLed:
-      LED::GetInstance().Init(GPIO::GetInstance(), kLedDefault);
+      LED::GetInstance().Init(GPIO::GetInstance(), kLedConfig);
       LED::GetInstance().Set(true);
       break;
     case Component::kUart1:
@@ -88,7 +87,7 @@ void System::InitComponent(Component c) {
       Spi2::GetInstance().Init(kSpi2Config);
       break;
     case Component::kDshot:
-      DShotTim1::GetInstance().Init(kDshotTim1Default);
+      DShotTim1::GetInstance().Init(kDshotTim1Config);
       break;
     case Component::kEscTelemetry:
       EscTelemetry::GetInstance().Init(kEscTelemetryConfig);

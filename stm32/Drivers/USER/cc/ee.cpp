@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
-#include "board.h"
+#include "board.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 
@@ -765,9 +765,9 @@ bool EE::CheckRange(size_t len, size_t offset) const {
 }
 
 void EE::CsLow() const {
-  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, false);
+  gpio_->WritePin(board::kSpi1Cs.port, board::kSpi1Cs.pin, false);
 }
 
 void EE::CsHigh() const {
-  gpio_->WritePin(SPI1_CS_GPIO_Port, SPI1_CS_Pin, true);
+  gpio_->WritePin(board::kSpi1Cs.port, board::kSpi1Cs.pin, true);
 }
