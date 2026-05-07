@@ -1,6 +1,7 @@
 #include "states.hpp"
 
-#include "user_config.hpp"
+#include "board_config.hpp"
+#include "error_code.hpp"
 
 static constexpr uint32_t kLossPanicPerSec =
     Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u;  // 0.5%
@@ -247,7 +248,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     if (high_loss_consec == kLossPanicConsecutiveSec ||
         (high_loss_consec > kLossPanicConsecutiveSec &&
          high_loss_consec % 5 == 0)) {
-      // Panic(ErrorCode::kImuDroppedFrame);
+      // Panic(ErrorCode::Stm32::kImuDroppedFrame);
     }
 
     if (kEnableEspLogs && kEnableImuDebugLog) {

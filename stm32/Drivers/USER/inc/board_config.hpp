@@ -13,8 +13,8 @@
 struct SystemConfig {
   RCC_OscInitTypeDef osc;
   RCC_ClkInitTypeDef clk;
-  uint32_t flashLatency;
-  uint32_t voltageScaling;
+  uint32_t flash_latency;
+  uint32_t voltage_scaling;
 };
 
 // Default Configuration values
@@ -47,11 +47,11 @@ constexpr SystemConfig kSystemDefault = {
             .APB1CLKDivider = RCC_HCLK_DIV4,
             .APB2CLKDivider = RCC_HCLK_DIV2,
         },
-    .flashLatency = FLASH_LATENCY_5,
-    .voltageScaling = PWR_REGULATOR_VOLTAGE_SCALE1,
+    .flash_latency = FLASH_LATENCY_5,
+    .voltage_scaling = PWR_REGULATOR_VOLTAGE_SCALE1,
 };
 
-const std::array kGpioDefault = {
+inline const std::array kGpioDefault = {
     GPIO::PinConfig{board::kUserLed.port,
                     {board::kUserLed.pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_LOW, 0},
@@ -87,5 +87,13 @@ const std::array kGpioDefault = {
     GPIO::PinConfig{board::kSpi1Cs.port,
                     {board::kSpi1Cs.pin, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL,
                      GPIO_SPEED_FREQ_VERY_HIGH, 0},
-                    true}  // Flash SPI1 CS Active Low
+                    true},  // Flash SPI1 CS Active Low
+    GPIO::PinConfig{board::kUart2Tx.port,
+                    {board::kUart2Tx.pin, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kUart2Tx.af},
+                    false},  // M10 GPS UART2 TX (AF)
+    GPIO::PinConfig{board::kUart2Rx.port,
+                    {board::kUart2Rx.pin, GPIO_MODE_AF_PP, GPIO_NOPULL,
+                     GPIO_SPEED_FREQ_VERY_HIGH, board::kUart2Rx.af},
+                    false}  // M10 GPS UART2 RX (AF)
 };
