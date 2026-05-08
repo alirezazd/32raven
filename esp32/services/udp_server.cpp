@@ -28,6 +28,10 @@ void UdpServer::ClearPeer() {
   peer_port_ = 0;
 }
 
+bool UdpServer::IsReady() const {
+  return Sys().Wifi().HasAssociatedStations();
+}
+
 void UdpServer::ResetShaperState() {
   upload_tokens_bytes_ = 0;
   upload_last_refill_us_ = 0;

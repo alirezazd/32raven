@@ -20,6 +20,8 @@ void System::Init() {
   InitComponent(Component::kWifi);
   InitComponent(Component::kTcpServer);
   InitComponent(Component::kUdpServer);
+  InitComponent(Component::kUsbCdcServer);
+  InitComponent(Component::kTelemUart);
   InitComponent(Component::kFcLinkUart);
   InitComponent(Component::kProgrammer);
   InitComponent(Component::kFcLink);
@@ -75,6 +77,14 @@ void System::InitComponent(Component c) {
       Udp().Init(kUdpServerConfig);
       ESP_LOGI(kTag, "UDP Server initialized");
       break;
+    case Component::kUsbCdcServer:
+      UsbCdc().Init(kUsbCdcServerConfig);
+      ESP_LOGI(kTag, "USB CDC server initialized");
+      break;
+    case Component::kTelemUart:
+      TelemUart().Init(kTelemUartConfig);
+      ESP_LOGI(kTag, "Telem UART initialized");
+      break;
     case Component::kFcLinkUart:
       FcLinkUart().Init(kFcLinkUartConfig);
       ESP_LOGI(kTag, "FcLink Uart initialized");
@@ -88,7 +98,7 @@ void System::InitComponent(Component c) {
       ESP_LOGI(kTag, "FcLink service initialized");
       break;
     case Component::kMavlink:
-      Mavlink().Init(kMavlinkConfig, &Udp());
+      Mavlink().Init(kMavlinkConfig, &Telem());
       ESP_LOGI(kTag, "Mavlink service initialized");
       break;
     case Component::kCommandHandler:

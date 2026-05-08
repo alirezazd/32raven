@@ -15,10 +15,10 @@ template <UartInstance Inst>
 constexpr uart_port_t ToPort() {
   if constexpr (Inst == UartInstance::kFcLink) {
     return UART_NUM_0;
-  } else if constexpr (Inst == UartInstance::kRcRx) {
+  } else if constexpr (Inst == UartInstance::kTelem) {
     return UART_NUM_1;
   } else {
-    static_assert(Inst == UartInstance::kFcLink || Inst == UartInstance::kRcRx,
+    static_assert(Inst == UartInstance::kFcLink || Inst == UartInstance::kTelem,
                   "Invalid Uart instance");
   }
 }
@@ -163,4 +163,4 @@ void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
 }
 
 template class Uart<UartInstance::kFcLink>;
-template class Uart<UartInstance::kRcRx>;
+template class Uart<UartInstance::kTelem>;

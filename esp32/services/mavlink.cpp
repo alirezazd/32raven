@@ -16,8 +16,8 @@ Mavlink &Mavlink::GetInstance() {
 }
 
 // Lifecycle and top-level poll entry points.
-void Mavlink::Init(const Config &cfg, UdpServer *udp) {
-  if (udp == nullptr) {
+void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport) {
+  if (transport == nullptr) {
     Panic(ErrorCode::Esp32::kMavlinkInitFailed);
   }
   if (cfg.identity.sysid == 0 || cfg.tx.periods.hb_ms == 0 ||
@@ -27,12 +27,25 @@ void Mavlink::Init(const Config &cfg, UdpServer *udp) {
 
   cfg_ = cfg;
 
-  // `udp_` is a required dependency after initialization; service code assumes
-  // this assignment succeeded and does not re-check for null on every tick.
-  udp_ = udp;
+  // `transport_` is a required dependency after initialization; service code
+  // assumes this assignment succeeded and does not re-check for null on every
+  // tick. Selected at boot in system.cpp (see kEsp32MavlinkTransportUsbCdc).
+  transport_ = transport;
   ResetParamState();
   SetTelemetryLink(false);
-  ESP_LOGI(kTag, "Initialized (MAVLink UDP transport)");
+  ESP_LOGI(kTag, "Initialized (MAVLink transport service)");
+}
+
+void Mavlink::SetTransport(IMavlinkTransport *transport) {
+  if (transport == nullptr) {
+    Panic(ErrorCode::Esp32::kMavlinkInitFailed);
+  }
+  if (transport_ != nullptr && transport_ != transport) {
+    transport_->ClearPeer();
+  }
+  tx_frame_.len = 0;
+  tx_frame_.is_hb = false;
+  transport_ = transport;
 }
 
 void Mavlink::Poll(uint32_t now_ms) {
@@ -60,7 +73,7 @@ void Mavlink::SetTelemetryLink(bool enabled) {
   InitTxSchedule(cfg_.tx, 0);
   rc_map_apply_.Reset();
   rc_calibration_apply_.Reset();
-  udp_->ClearPeer();
+  transport_->ClearPeer();
 }
 
 uint32_t Mavlink::GetUdpRxPacketCount() const {

@@ -16,6 +16,7 @@
 #include "udp_server.hpp"
 #include "ui.hpp"
 #include "uart.hpp"
+#include "usb_cdc_server.hpp"
 #include "wifi.hpp"
 
 struct PinMap {
@@ -26,6 +27,8 @@ struct PinMap {
   gpio_num_t ssd1306_panel_i2c_scl;
   gpio_num_t fclink_uart_tx;
   gpio_num_t fclink_uart_rx;
+  gpio_num_t telem_uart_tx;
+  gpio_num_t telem_uart_rx;
   gpio_num_t programmer_boot0;
   gpio_num_t programmer_nrst;
 };
@@ -38,6 +41,8 @@ inline constexpr PinMap kPinMap = {
     .ssd1306_panel_i2c_scl = static_cast<gpio_num_t>({{ pin_map.ssd1306_panel_i2c_scl }}),
     .fclink_uart_tx = static_cast<gpio_num_t>({{ pin_map.fclink_uart_tx }}),
     .fclink_uart_rx = static_cast<gpio_num_t>({{ pin_map.fclink_uart_rx }}),
+    .telem_uart_tx = static_cast<gpio_num_t>({{ pin_map.telem_uart_tx }}),
+    .telem_uart_rx = static_cast<gpio_num_t>({{ pin_map.telem_uart_rx }}),
     .programmer_boot0 = static_cast<gpio_num_t>({{ pin_map.programmer_boot0 }}),
     .programmer_nrst = static_cast<gpio_num_t>({{ pin_map.programmer_nrst }}),
 };
@@ -127,6 +132,29 @@ inline constexpr UdpServer::Config kUdpServerConfig = {
     .upload_cap_kbits = {{ udp_server.upload_cap_kbits }},
     .download_cap_kbits = {{ udp_server.download_cap_kbits }},
     .overflow_threshold = {{ udp_server.overflow_threshold }},
+};
+
+inline constexpr UsbCdcServer::Config kUsbCdcServerConfig = {
+    .rx_buffer_bytes = {{ usb_cdc_server.rx_buffer_bytes }},
+    .tx_buffer_bytes = {{ usb_cdc_server.tx_buffer_bytes }},
+};
+
+inline constexpr UartConfig kTelemUartConfig = {
+    .pins =
+        {
+            .tx_gpio = kPinMap.telem_uart_tx,
+            .rx_gpio = kPinMap.telem_uart_rx,
+        },
+    .line =
+        {
+            .baud_rate = {{ telem_uart.baud_rate }},
+            .parity = UartParity::kNone,
+        },
+    .buffers =
+        {
+            .rx_bytes = {{ telem_uart.rx_buf }},
+            .tx_bytes = {{ telem_uart.tx_buf }},
+        },
 };
 
 inline constexpr UartConfig kFcLinkUartConfig = {

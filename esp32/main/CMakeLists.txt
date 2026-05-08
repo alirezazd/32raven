@@ -55,6 +55,8 @@ idf_component_register(
     "../services/mavlink_param.cpp"
     "../services/mavlink_tx.cpp"
     "../services/udp_server.cpp"
+    "../services/usb_cdc_server.cpp"
+    "../services/telem_uart_server.cpp"
     "../services/panic.cpp"
     "../../third_party/Adafruit-GFX-Library/Adafruit_GFX.cpp"
     "../../libs/src/error_code.cpp"

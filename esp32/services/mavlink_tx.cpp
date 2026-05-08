@@ -121,8 +121,7 @@ void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
                 source_name, static_cast<unsigned long>(error_code),
                 GetMessage(error_code));
 
-  const bool have_transport =
-      udp_ != nullptr && Sys().Wifi().HasAssociatedStations();
+  const bool have_transport = transport_ != nullptr && transport_->IsReady();
   if (!SendStatusTextFrameNow(status, false) && have_transport &&
       error_code !=
           static_cast<uint32_t>(ErrorCode::Esp32::kMavlinkPanicSendFailed)) {
@@ -132,8 +131,8 @@ void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
 
 bool Mavlink::SendStatusTextFrameNow(const StatusText &status,
                                      bool require_link_enabled) {
-  if (udp_ == nullptr || (require_link_enabled && !link_enabled_) ||
-      !Sys().Wifi().HasAssociatedStations()) {
+  if (transport_ == nullptr || (require_link_enabled && !link_enabled_) ||
+      !transport_->IsReady()) {
     return false;
   }
 
@@ -142,7 +141,7 @@ bool Mavlink::SendStatusTextFrameNow(const StatusText &status,
     return false;
   }
 
-  const int sent = udp_->Send(frame.buf, frame.len);
+  const int sent = transport_->Send(frame.buf, frame.len);
   if (sent > 0) {
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
     return true;
@@ -284,10 +283,10 @@ void Mavlink::ServiceTx(uint32_t now_ms) {
   }
   next_tx_poll_ms_ = now_ms + tx_poll_period_ms;
 
-  if (!Sys().Wifi().HasAssociatedStations()) {
-    // Drop the remembered UDP peer as soon as the AP has no stations so TX
-    // does not keep targeting a stale address across reconnects.
-    udp_->ClearPeer();
+  if (!transport_->IsReady()) {
+    // Drop any remembered peer state as soon as the transport reports not
+    // ready so TX does not keep targeting a stale endpoint across reconnects.
+    transport_->ClearPeer();
   }
   if (!link_enabled_) {
     return;
@@ -690,7 +689,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
 }
 
 void Mavlink::ServiceUdpTx(uint32_t now_ms) {
-  if (!Sys().Wifi().HasAssociatedStations()) {
+  if (!transport_->IsReady()) {
     return;
   }
 
@@ -698,7 +697,7 @@ void Mavlink::ServiceUdpTx(uint32_t now_ms) {
     return;
   }
 
-  const int sent = udp_->Send(tx_frame_.buf, tx_frame_.len);
+  const int sent = transport_->Send(tx_frame_.buf, tx_frame_.len);
   if (sent > 0) {
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
   }

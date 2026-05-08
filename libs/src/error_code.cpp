@@ -130,6 +130,8 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "UDP Server Upload Overflow";
     case ErrorCode::Esp32::kUdpServerDownloadOverflow:
       return "UDP Server Download Overflow";
+    case ErrorCode::Esp32::kUsbCdcStartFailed:
+      return "USB CDC Start Failed";
     case ErrorCode::Esp32::kWifiNvsInitFailed:
       return "WiFi NVS Init Failed";
     case ErrorCode::Esp32::kWifiNetifInitFailed:

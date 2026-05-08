@@ -5,7 +5,7 @@
 
 #include "hal/gpio_types.h"
 
-enum class UartInstance : uint8_t { kFcLink, kRcRx };
+enum class UartInstance : uint8_t { kFcLink, kTelem };
 
 enum class UartParity : uint8_t {
   kNone = 0,
@@ -62,4 +62,4 @@ class Uart {
 };
 
 using UartFcLink = Uart<UartInstance::kFcLink>;
-using UartRcRx = Uart<UartInstance::kRcRx>;
+using UartTelem = Uart<UartInstance::kTelem>;

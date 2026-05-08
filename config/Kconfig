@@ -100,6 +100,28 @@ config ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM
 
 endmenu
 
+menu "Telem"
+
+config ESP32_PINMAP_TELEM_UART_TX_GPIO_NUM
+    int "TX GPIO number"
+    range 0 21
+    default 20
+    help
+      ESP32-C3 GPIO wired to the telem UART transmit pin (FC -> radio).
+      Valid GPIOs are 0-21; avoid strapping pins (2, 8, 9), the SPI flash
+      pins (12-17), and USB D+/D- (18, 19) on modules using internal flash
+      and native USB.
+
+config ESP32_PINMAP_TELEM_UART_RX_GPIO_NUM
+    int "RX GPIO number"
+    range 0 21
+    default 21
+    help
+      ESP32-C3 GPIO wired to the telem UART receive pin (radio -> FC).
+      Same pin restrictions as the TX line above.
+
+endmenu
+
 endmenu
 
 menu "Programmer"
@@ -509,6 +531,29 @@ endmenu
 
 endmenu
 
+menu "USB CDC Server"
+
+config ESP32_USB_CDC_SERVER_RX_BUFFER_BYTES
+    int "RX buffer size (bytes)"
+    range 256 8192
+    default 1024
+    help
+      ESP-IDF USB Serial/JTAG driver inbound FIFO depth. Sized to hold a
+      few in-flight MAVLink frames; raise it if the host is pushing
+      high-rate streams (e.g. parameter dumps, mission uploads) and you
+      see RX drops in `usb_serial_jtag_read_bytes`.
+
+config ESP32_USB_CDC_SERVER_TX_BUFFER_BYTES
+    int "TX buffer size (bytes)"
+    range 256 8192
+    default 1024
+    help
+      ESP-IDF USB Serial/JTAG driver outbound FIFO depth. Bytes queue here
+      until a host reads them; sustained outbound rate is capped by USB
+      Full-Speed throughput, not by this buffer.
+
+endmenu
+
 menu "Wifi"
 
 menu "Access Point"
@@ -709,6 +754,57 @@ config ESP32_FCLINK_RX_QUEUE_DEPTH
 
       FcLink uses the project ring buffer here rather than a FreeRTOS queue.
       Larger values absorb bigger bursts but increase static memory use.
+
+endmenu
+
+menu "Telem UART"
+
+choice
+    prompt "UART baud rate"
+    default ESP32_TELEM_UART_BAUD_57600
+    help
+      Baud rate of the MAVLink telem UART. SiK firmware defaults to 57600;
+      raise to 115200 for short-range hops with newer firmware. Must match
+      the modem's air-side configuration.
+
+config ESP32_TELEM_UART_BAUD_9600
+    bool "9600"
+
+config ESP32_TELEM_UART_BAUD_19200
+    bool "19200"
+
+config ESP32_TELEM_UART_BAUD_38400
+    bool "38400"
+
+config ESP32_TELEM_UART_BAUD_57600
+    bool "57600"
+
+config ESP32_TELEM_UART_BAUD_115200
+    bool "115200"
+
+config ESP32_TELEM_UART_BAUD_230400
+    bool "230400"
+
+config ESP32_TELEM_UART_BAUD_460800
+    bool "460800"
+
+endchoice
+
+config ESP32_TELEM_UART_RX_BUFFER_SIZE
+    int "RX buffer size (bytes)"
+    range 256 16384
+    default 1024
+    help
+      UART driver RX ring-buffer size for the telem port. SiK telemetry
+      sustains ~2-3 KB/s, so 1 KiB absorbs typical bursts comfortably.
+
+config ESP32_TELEM_UART_TX_BUFFER_SIZE
+    int "TX buffer size (bytes)"
+    range 256 16384
+    default 1024
+    help
+      UART driver TX ring-buffer size for the telem port. Bytes queue here
+      until the radio modem drains them at air rate.
 
 endmenu
 

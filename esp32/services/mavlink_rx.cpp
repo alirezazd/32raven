@@ -5,20 +5,22 @@
 #include "system.hpp"
 
 void Mavlink::ServiceUdpRx() {
-  // Parse at most one full MAVLink packet per poll so RX work stays bounded and
-  // cannot monopolize the state-machine task under sustained traffic.
+  // Drain whatever the transport has buffered this tick. Bounded so a flooding
+  // host cannot starve the rest of the state-machine loop.
+  static constexpr int kMaxDrainIterations = 16;
   std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> rx_buf{};
-  const int received = udp_->Receive(rx_buf.data(), rx_buf.size());
-  if (received <= 0) {
-    return;
-  }
-
   mavlink_message_t msg{};
-  for (int i = 0; i < received; ++i) {
-    // Parse byte stream into complete MAVLink messages and dispatch each one.
-    if (mavlink_parse_char(MAVLINK_COMM_2, rx_buf[i], &msg, nullptr)) {
-      udp_rx_packet_count_.fetch_add(1, std::memory_order_relaxed);
-      HandleMessage(msg);
+
+  for (int iter = 0; iter < kMaxDrainIterations; ++iter) {
+    const int received = transport_->Receive(rx_buf.data(), rx_buf.size());
+    if (received <= 0) {
+      return;
+    }
+    for (int i = 0; i < received; ++i) {
+      if (mavlink_parse_char(MAVLINK_COMM_2, rx_buf[i], &msg, nullptr)) {
+        udp_rx_packet_count_.fetch_add(1, std::memory_order_relaxed);
+        HandleMessage(msg);
+      }
     }
   }
 }

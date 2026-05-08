@@ -4,13 +4,14 @@
 #include <cstdint>
 
 #include "esp32_limits.hpp"
+#include "mavlink_transport.hpp"
 #include "ring_buffer.hpp"
 
 extern "C" {
 #include "esp_err.h"
 }
 
-class UdpServer {
+class UdpServer : public IMavlinkTransport {
  public:
   struct Config {
     uint16_t port = 14550;
@@ -26,10 +27,11 @@ class UdpServer {
 
   esp_err_t Start();
   void Stop();
-  void ClearPeer();
+  void ClearPeer() override;
 
-  int Receive(uint8_t *dst, size_t max_len);
-  int Send(const uint8_t *data, size_t len);
+  int Receive(uint8_t *dst, size_t max_len) override;
+  int Send(const uint8_t *data, size_t len) override;
+  bool IsReady() const override;
 
  private:
   friend class System;

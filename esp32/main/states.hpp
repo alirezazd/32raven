@@ -19,6 +19,14 @@ class MavlinkWifiState : public IState<AppContext> {
   void OnStep(AppContext &ctx, SmTick now) override;
 };
 
+class MavlinkUsbState : public IState<AppContext> {
+ public:
+  const char *Name() const override { return "MavlinkUsb"; }
+
+  void OnEnter(AppContext &ctx) override;
+  void OnStep(AppContext &ctx, SmTick now) override;
+};
+
 class DfuState : public IState<AppContext> {
  public:
   const char *Name() const override { return "Dfu"; }

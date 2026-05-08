@@ -80,6 +80,7 @@ enum class Esp32 : uint32_t {
   kUdpServerInvalidOverflowThreshold,
   kUdpServerUploadOverflow,
   kUdpServerDownloadOverflow,
+  kUsbCdcStartFailed,
   // WiFi
   kWifiNvsInitFailed,
   kWifiNetifInitFailed,
