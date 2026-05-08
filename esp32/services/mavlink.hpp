@@ -11,10 +11,10 @@
 #include <variant>
 
 #include "error_code.hpp"
+#include "mavlink_transport.hpp"
 #include "message.hpp"  // for message::GpsData
 #include "panic.hpp"
 #include "ring_buffer.hpp"
-#include "udp_server.hpp"
 
 class Mavlink {
  public:
@@ -59,7 +59,15 @@ class Mavlink {
 
   static Mavlink &GetInstance();
 
-  void Init(const Config &cfg, UdpServer *udp);
+  void Init(const Config &cfg, IMavlinkTransport *transport);
+
+  // Swap the underlying physical link without re-initializing the MAVLink
+  // service. Used by MavlinkWifiState / MavlinkUsbState / ServingState to
+  // route TX/RX through the transport that matches the current SM state.
+  // Safe to call from the SM task; clears in-flight TX and drops any
+  // remembered peer on the previous transport so a stale UDP address is
+  // not carried into a serial swap.
+  void SetTransport(IMavlinkTransport *transport);
 
   // Main task: services incoming MAVLink control traffic, pending FC-link side
   // effects, and rate-limited outbound MAVLink frames.
@@ -287,7 +295,7 @@ class Mavlink {
   Mavlink(const Mavlink &) = delete;
   Mavlink &operator=(const Mavlink &) = delete;
 
-  UdpServer *udp_ = nullptr;
+  IMavlinkTransport *transport_ = nullptr;
   Config cfg_{};
 
   std::array<uint16_t, 64> unhandled_logged_msgids_{};

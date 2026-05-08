@@ -341,6 +341,11 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
       return Sys().Wifi().HasAssociatedStations()
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
+    case AppState::kMavlinkUsb:
+      // TODO: Placeholder: re-uses the WiFi MAVLink screen until a USB-specific
+      // widget lands. The text path is the same; only the underlying
+      // transport differs.
+      return MainScreen::kMavlinkWifiDisconnected;
     case AppState::kProgram:
       if (Sys().Programmer().IsVerifying()) {
         return MainScreen::kVerifying;

@@ -15,11 +15,13 @@ extern "C" {
 #include "programmer.hpp"
 #include "ssd1306_panel.hpp"
 #include "tcp_server.hpp"
+#include "telem_uart_server.hpp"
 #include "timebase.hpp"
 #include "tone_player.hpp"
 #include "uart.hpp"
 #include "udp_server.hpp"
 #include "ui.hpp"
+#include "usb_cdc_server.hpp"
 #include "wifi.hpp"
 
 class System {
@@ -41,6 +43,8 @@ class System {
     kWifi,
     kTcpServer,
     kUdpServer,
+    kUsbCdcServer,
+    kTelemUart,
     kFcLinkUart,
     kProgrammer,
     kMavlink,
@@ -60,10 +64,13 @@ class System {
   ::WifiController &Wifi() { return ::WifiController::GetInstance(); }
   ::TcpServer &Tcp() { return ::TcpServer::GetInstance(); }
   ::UdpServer &Udp() { return ::UdpServer::GetInstance(); }
+  ::UsbCdcServer &UsbCdc() { return ::UsbCdcServer::GetInstance(); }
+  ::TelemUartServer &Telem() { return ::TelemUartServer::GetInstance(); }
   ::Mavlink &Mavlink() { return ::Mavlink::GetInstance(); }
   ::FcLink &FcLink() { return ::FcLink::GetInstance(); }
   ::CommandHandler &CommandHandler() { return ::CommandHandler::GetInstance(); }
   ::UartFcLink &FcLinkUart() { return ::UartFcLink::GetInstance(); }
+  ::UartTelem &TelemUart() { return ::UartTelem::GetInstance(); }
   ::Programmer &Programmer() { return ::Programmer::GetInstance(); }
   void Init();
   void StopNetwork();

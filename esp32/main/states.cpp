@@ -21,7 +21,11 @@ static constexpr const char *kTag = "ESP32-SM";
 void ServingState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
   ctx.sys->Ui().SetAppState(Ui::AppState::kServing);
-  ctx.sys->Mavlink().SetTelemetryLink(false);
+  // Telem UART is the always-on default link — a SiK radio (or any
+  // transparent serial peer) starts seeing heartbeats the moment it's
+  // plugged in, with no user action required.
+  ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
+  ctx.sys->Mavlink().SetTelemetryLink(true);
   // The STM32 keeps streaming FC link packets while DFU/program modes are not
   // polling them, so resume in a fresh resync state instead of parsing stale
   // buffered bytes as fatal corruption.
@@ -50,12 +54,14 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
     ctx.sys->CommandHandler().Dispatch(ctx, *packet);
   }
+  ctx.sys->Mavlink().Poll(now);
 }
 
 // MavlinkWifi State
 void MavlinkWifiState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering MavlinkWifi");
   ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkWifi);
+  ctx.sys->Mavlink().SetTransport(&ctx.sys->Udp());
   ctx.sys->Mavlink().SetTelemetryLink(true);
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().StartAp();
@@ -76,8 +82,46 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
     }
   }
   if (button.ConsumeLongPress()) {
-    ESP_LOGI(kTag, "MavlinkWifi -> Dfu (long press)");
-    ctx.sm->ReqTransition(*ctx.dfu_state);
+    ESP_LOGI(kTag, "MavlinkWifi -> MavlinkUsb (long press)");
+    ctx.sm->ReqTransition(*ctx.mavlink_usb_state);
+    return;
+  }
+  ctx.sys->FcLink().Poll();
+  while (auto packet = ctx.sys->FcLink().PopPacket()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
+  }
+  ctx.sys->Mavlink().Poll(now);
+}
+
+// MavlinkUsb State
+void MavlinkUsbState::OnEnter(AppContext &ctx) {
+  ESP_LOGI(kTag, "entering MavlinkUsb");
+  // For now the UI re-uses the WiFi screen — the widget reads the active
+  // transport from the Mavlink service to render the right text.
+  ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkUsb);
+  ctx.sys->Mavlink().SetTransport(&ctx.sys->UsbCdc());
+  ctx.sys->Mavlink().SetTelemetryLink(true);
+  // No AP / UDP socket needed for USB CDC; tear them down so a previously
+  // associated WiFi peer doesn't keep consuming radio.
+  ctx.sys->StopNetwork();
+}
+
+void MavlinkUsbState::OnStep(AppContext &ctx, SmTick now) {
+  auto &button = ctx.sys->Button();
+  button.Poll();
+
+  if (button.ConsumePress()) {
+    const bool screen_on = ctx.sys->Ui().IsScreenOn();
+    ctx.sys->Ui().NotifyUserActivity();
+    if (screen_on) {
+      ESP_LOGI(kTag, "MavlinkUsb -> Serving (press)");
+      ctx.sm->ReqTransition(*ctx.serving_state);
+      return;
+    }
+  }
+  if (button.ConsumeLongPress()) {
+    ESP_LOGI(kTag, "MavlinkUsb -> MavlinkWifi (long press)");
+    ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
     return;
   }
   ctx.sys->FcLink().Poll();

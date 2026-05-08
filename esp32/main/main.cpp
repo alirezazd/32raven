@@ -12,6 +12,7 @@ namespace {
 AppContext MakeAppContext() {
   static ServingState serving;
   static MavlinkWifiState mavlink_wifi;
+  static MavlinkUsbState mavlink_usb;
   static DfuState dfu;
   static ProgramState program;
 
@@ -19,6 +20,7 @@ AppContext MakeAppContext() {
   ctx.sys = &Sys();
   ctx.serving_state = &serving;
   ctx.mavlink_wifi_state = &mavlink_wifi;
+  ctx.mavlink_usb_state = &mavlink_usb;
   ctx.dfu_state = &dfu;
   ctx.program_state = &program;
   return ctx;

@@ -85,6 +85,7 @@ class Ui {
     kServing,
     kDfu,
     kMavlinkWifi,
+    kMavlinkUsb,
     kProgram,
     kHardError,
   };

@@ -169,6 +169,16 @@ FCLINK_UART_PARITY_CHOICES = {
     "ESP32_FCLINK_UART_PARITY_ODD": "UartParity::kOdd",
 }
 
+TELEM_UART_BAUD_RATE_CHOICES = {
+    "ESP32_TELEM_UART_BAUD_9600": "9600",
+    "ESP32_TELEM_UART_BAUD_19200": "19200",
+    "ESP32_TELEM_UART_BAUD_38400": "38400",
+    "ESP32_TELEM_UART_BAUD_57600": "57600",
+    "ESP32_TELEM_UART_BAUD_115200": "115200",
+    "ESP32_TELEM_UART_BAUD_230400": "230400",
+    "ESP32_TELEM_UART_BAUD_460800": "460800",
+}
+
 WIFI_POWER_SAVE_CHOICES = {
     "ESP32_WIFI_POWER_SAVE_NONE": "WIFI_PS_NONE",
     "ESP32_WIFI_POWER_SAVE_MIN_MODEM": "WIFI_PS_MIN_MODEM",
@@ -441,6 +451,8 @@ def _pin_map_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         ),
         "fclink_uart_tx": sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM"),
         "fclink_uart_rx": sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM"),
+        "telem_uart_tx": sym_int(kconf, "ESP32_PINMAP_TELEM_UART_TX_GPIO_NUM"),
+        "telem_uart_rx": sym_int(kconf, "ESP32_PINMAP_TELEM_UART_RX_GPIO_NUM"),
         "programmer_boot0": sym_int(kconf, "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM"),
         "programmer_nrst": sym_int(kconf, "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM"),
     }
@@ -511,12 +523,31 @@ def _udp_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _usb_cdc_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "rx_buffer_bytes": sym_int(
+            kconf, "ESP32_USB_CDC_SERVER_RX_BUFFER_BYTES"
+        ),
+        "tx_buffer_bytes": sym_int(
+            kconf, "ESP32_USB_CDC_SERVER_TX_BUFFER_BYTES"
+        ),
+    }
+
+
 def _fclink_uart_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "baud_rate": choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES),
         "parity": choice_value(kconf, FCLINK_UART_PARITY_CHOICES),
         "rx_buf": sym_int(kconf, "ESP32_FCLINK_UART_RX_BUFFER_SIZE"),
         "tx_buf": sym_int(kconf, "ESP32_FCLINK_UART_TX_BUFFER_SIZE"),
+    }
+
+
+def _telem_uart_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "baud_rate": choice_value(kconf, TELEM_UART_BAUD_RATE_CHOICES),
+        "rx_buf": sym_int(kconf, "ESP32_TELEM_UART_RX_BUFFER_SIZE"),
+        "tx_buf": sym_int(kconf, "ESP32_TELEM_UART_TX_BUFFER_SIZE"),
     }
 
 
@@ -639,7 +670,9 @@ def _runtime_context(
         "tone_player": {"volume": sym_int(kconf, "ESP32_TONE_PLAYER_VOLUME")},
         "tcp_server": _tcp_server_context(kconf),
         "udp_server": _udp_server_context(kconf),
+        "usb_cdc_server": _usb_cdc_server_context(kconf),
         "fclink_uart": _fclink_uart_context(kconf),
+        "telem_uart": _telem_uart_context(kconf),
         "fclink": _fclink_context(kconf),
         "programmer": _programmer_context(kconf),
         "wifi": _wifi_context(kconf),
