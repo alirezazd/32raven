@@ -1,0 +1,27 @@
+name: Notify SIL on push
+
+# Fires a repository_dispatch into 32Raven-SIL whenever a commit lands on
+# master, so the SIL repo's "Firmware Bump" workflow can open a PR that
+# bumps its firmware/ submodule pin to this SHA.
+#
+# Requires repo secret SIL_DISPATCH_TOKEN: a PAT with `Contents: write`
+# + `Pull requests: write` on alirezazd/32Raven-SIL.
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Dispatch firmware-pushed to SIL
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.SIL_DISPATCH_TOKEN }}
+          repository: alirezazd/32Raven-SIL
+          event-type: firmware-pushed
+          client-payload: '{"sha":"${{ github.sha }}","ref":"${{ github.ref }}","actor":"${{ github.actor }}"}'

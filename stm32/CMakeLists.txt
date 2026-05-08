@@ -166,7 +166,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
-    -fno-rtti
+    $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
     -fno-exceptions
     -ffunction-sections
     -fdata-sections

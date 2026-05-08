@@ -255,7 +255,6 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef *hspi) {
  * @retval None
  */
 void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim_base) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
   if (htim_base->Instance == TIM1) {
     /* USER CODE BEGIN TIM1_MspInit 0 */
 
