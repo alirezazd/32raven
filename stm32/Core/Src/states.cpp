@@ -173,7 +173,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   // 1. Poll Telemetry Link (UART1 <-> ESP32)
   {
     uint32_t t0 = micros();
-    ctx.sys->GetFcLink().Poll(32, 32);
+    ctx.sys->GetFcLink().Poll();
     uint32_t dt = micros() - t0;
     if (dt > g_prof_link_us) g_prof_link_us = dt;
   }

@@ -15,7 +15,16 @@ class FcLink {
   }
 
   void Init(AppContext *ctx);
-  void Poll(size_t rx_budget = 128, size_t tx_budget = 64);
+
+  // Minimum RX byte budget per Poll call that guarantees draining at
+  // least one max-sized packet. Smaller budgets stall the state machine
+  // — multi-Poll-fragment frames work in light traffic but pile up
+  // unprocessed when frames arrive faster than (rx_budget / frame_size)
+  // Polls per second.
+  static constexpr size_t kMinRxByteBudget =
+      message::kMaxPayload + message::kPacketOverhead;
+
+  void Poll(size_t rx_budget = kMinRxByteBudget, size_t tx_budget = 64);
 
   // Sending Logic
   bool Send(const message::Packet &pkt);

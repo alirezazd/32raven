@@ -40,6 +40,10 @@ enum class MsgId : uint8_t {
   kVehicleStatus = 0x13,
   kPanic = 0x14,
   kEscTelemetry = 0x15,
+  kPrivilegedArm = 0x16,  // SIL/test: directly toggle EscService + Mixer arm
+                          // state. Bypasses any arming state machine. Same
+                          // privilege level as kReboot/kBootload — gated only
+                          // by FCLink access (which is implicitly trusted).
 
   // System
   kReboot = 0xC0,    // 192
@@ -181,6 +185,10 @@ struct PanicMsg {
   uint32_t error_code;
 } __attribute__((packed));
 
+struct PrivilegedArmMsg {
+  uint8_t armed;  // 0 = disarm, non-zero = arm
+} __attribute__((packed));
+
 inline constexpr uint8_t kEscTelemetryMotorCount = 4u;
 
 struct EscTelemetryMsg {
@@ -238,6 +246,7 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kVehicleStatus:
     case MsgId::kPanic:
     case MsgId::kEscTelemetry:
+    case MsgId::kPrivilegedArm:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
@@ -281,6 +290,8 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<PanicMsg>();
     case MsgId::kEscTelemetry:
       return len == PayloadLength<EscTelemetryMsg>();
+    case MsgId::kPrivilegedArm:
+      return len == PayloadLength<PrivilegedArmMsg>();
     case MsgId::kLog:
       return len <= kMaxLogTextPayload;
     default:
