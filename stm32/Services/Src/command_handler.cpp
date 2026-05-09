@@ -143,6 +143,22 @@ static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->GetFcLink().SendLog("CRSF RX bind requested");
 }
 
+// Privileged: directly toggle ESC + Mixer arm state. Bypasses any future
+// arming state machine. Same trust model as kReboot/kBootload — gated only
+// by FCLink access (implicit). Used by SIL test fixtures so the mixer
+// produces non-zero outputs without needing physical RC stick gestures.
+static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kPrivilegedArm,
+                                     pkt.header.len)) {
+    return;
+  }
+  const auto *req =
+      reinterpret_cast<const message::PrivilegedArmMsg *>(pkt.payload);
+  const bool armed = req->armed != 0u;
+  ctx.sys->GetEscService().SetArmed(armed);
+  ctx.sys->GetMixer().SetArmed(armed);
+}
+
 static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPing, OnPing},
     {message::MsgId::kReqRcMap, OnReqRcMap},
@@ -152,6 +168,7 @@ static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kReqGyroCalibrationId, OnReqGyroCalibrationId},
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
     {message::MsgId::kRcChannels, OnRcChannels},
+    {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
 };
 
 static const Epistole::Dispatcher<AppContext> kDispatcher(
