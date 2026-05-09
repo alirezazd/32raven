@@ -53,6 +53,15 @@ class RcReceiver {
 
   bool SaveCalibration();
 
+  // Calibrated CRSF channel µs → normalized body-axis input [-1, +1].
+  // 1500 µs = neutral. Saturates at ±1. Returns 0 if `us == 0` (RC not yet
+  // seen — neutral is the safe default).
+  static float NormalizedAxis(uint16_t us);
+
+  // Throttle: [1000, 2000] µs → [0, 1]. 1000 = idle, 2000 = full.
+  // Returns 0 if `us == 0`. Saturates to [0, 1].
+  static float NormalizedThrottle(uint16_t us);
+
  private:
   friend class System;
 

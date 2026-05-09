@@ -37,6 +37,16 @@ class EscService {
   void SetArmed(bool armed);
   bool WriteMotors(const DShotCodec::MotorValues &motor);
   bool WriteMotors(const DShotCodec::MotorValues &motor, uint32_t now_us);
+
+  // Convenience overloads taking normalized thrust [0, 1] per motor — the
+  // currency mixers / controllers speak. Internally calls ThrustToDshot per
+  // motor and dispatches to WriteMotors(MotorValues, ...).
+  bool WriteMotorsThrust(const std::array<float, 4> &thrust);
+  bool WriteMotorsThrust(const std::array<float, 4> &thrust, uint32_t now_us);
+
+  // Map normalized thrust [0, 1] → DShot wire units. 0 → kMotorStop (motor
+  // off). >0 → linearly into [kThrottleMin, kThrottleMax]. Saturates.
+  static uint16_t ThrustToDshot(float thrust);
   bool StopAll();
   bool QueueCommand(uint16_t command, bool telemetry = false);
 

@@ -44,6 +44,7 @@ void System::Init(const System::Config &config) {
   InitComponent(Component::kUart2);
   InitComponent(Component::kM10);
   InitComponent(Component::kIcm42688p);
+  InitComponent(Component::kMultirotorMixer);
 }
 
 void System::InitComponent(Component c) {
@@ -107,6 +108,11 @@ void System::InitComponent(Component c) {
     case Component::kIcm42688p:
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi2::GetInstance(),
                                     EE::GetInstance(), kIcm42688pConfig);
+      break;
+    case Component::kMultirotorMixer:
+      // TODO: migrate to Kconfig (kMultirotorMixerConfig in stm32_config.hpp)
+      // once we have a second tunable. For v1 only `idle` exists; hardcoded.
+      mixer_.Init({.idle = 0.05f});
       break;
   }
 }

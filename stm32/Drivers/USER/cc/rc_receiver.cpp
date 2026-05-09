@@ -56,6 +56,20 @@ uint16_t ScaleSegment(uint16_t raw_us, uint16_t in_min_us, uint16_t in_max_us,
 
 }  // namespace
 
+float RcReceiver::NormalizedAxis(uint16_t us) {
+  if (us == 0u) return 0.0f;
+  const float v = (static_cast<float>(us) - kCalibratedTrimUs) /
+                  static_cast<float>(kCalibratedTrimUs - kCalibratedMinUs);
+  return v < -1.0f ? -1.0f : (v > 1.0f ? 1.0f : v);
+}
+
+float RcReceiver::NormalizedThrottle(uint16_t us) {
+  if (us == 0u) return 0.0f;
+  const float v = (static_cast<float>(us) - kCalibratedMinUs) /
+                  static_cast<float>(kCalibratedMaxUs - kCalibratedMinUs);
+  return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+}
+
 void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEepromReinit);

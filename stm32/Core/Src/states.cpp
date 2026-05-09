@@ -1,6 +1,7 @@
 #include "states.hpp"
 
 #include "error_code.hpp"
+#include "multirotor_mixer.hpp"
 #include "stm32_config.hpp"
 
 static constexpr uint32_t kLossPanicPerSec =
@@ -108,7 +109,28 @@ void IdleState::OnFastTick(AppContext &ctx,
     }
   }
 
-  // 3. Controller / Mixer / DShot (future)
+  // 3. Controller / Mixer / DShot (v1: RC passthrough, no rate controller).
+  //
+  // The mixer is initialized in System::Init but its `armed` flag is false
+  // by default — Mix() returns all zeros in that case, which maps to DShot
+  // kMotorStop. Motors stay safe until an arming sequence (TODO) flips it.
+  // ESC layer separately enforces SetArmed semantics; defense in depth.
+  //
+  // RC source: VehicleState (last update from RcReceiver, via CRSF).
+  // No tx_online check yet — disarmed mixer + disarmed ESC means worst case
+  // is "harmlessly compute zeros from stale RC." Add tx_online gating when
+  // we add an arming sequence.
+  {
+    const RcData &rc = ctx.sys->GetVehicleState().GetRc();
+    const multirotor_mixer::Inputs in{
+        .roll_torque = RcReceiver::NormalizedAxis(rc.roll_us),
+        .pitch_torque = RcReceiver::NormalizedAxis(rc.pitch_us),
+        .yaw_torque = RcReceiver::NormalizedAxis(rc.yaw_us),
+        .thrust = RcReceiver::NormalizedThrottle(rc.throttle_us),
+    };
+    (void)ctx.sys->GetEscService().WriteMotorsThrust(
+        ctx.sys->GetMixer().Mix(in), ctx.sys->Time().Micros());
+  }
 
   uint32_t t1 = ctx.sys->Time().Micros();
 

@@ -112,6 +112,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "EEPROM schema mismatch";
     case ErrorCode::Stm32::kRcReceiverInvalidConfig:
       return "RC receiver invalid config";
+    case ErrorCode::Stm32::kMixerInvalidConfig:
+      return "Mixer invalid config";
   }
   return "Unknown error";
 }

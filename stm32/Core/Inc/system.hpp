@@ -13,6 +13,7 @@
 #include "led.hpp"
 #include "m10.hpp"
 #include "m10_service.hpp"
+#include "multirotor_mixer.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "stat_publisher.hpp"
@@ -118,7 +119,8 @@ class System {
     kButton,
     kUart2,
     kM10,
-    kIcm42688p
+    kIcm42688p,
+    kMultirotorMixer
   };
 
   void Init(const Config &config);
@@ -146,6 +148,7 @@ class System {
   EscTelemetry &GetEscTelemetry() { return EscTelemetry::GetInstance(); }
   M10Service &ServiceGps() { return gps_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
+  multirotor_mixer::Mixer &GetMixer() { return mixer_; }
 
   VehicleState &GetVehicleState() { return vehicle_state_; }
   FcLink &GetFcLink() { return FcLink::GetInstance(); }
@@ -160,6 +163,7 @@ class System {
   VehicleState vehicle_state_;
   CrsfLinkService crsf_link_service_;
   EscService esc_service_;
+  multirotor_mixer::Mixer mixer_;
 
   System();
   ~System() {}
