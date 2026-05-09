@@ -13,6 +13,11 @@ on:
       - master
   workflow_dispatch:
 
+# Force JS actions onto Node.js 24 so peter-evans/* (still shipping Node 20)
+# don't trip the runner's deprecation warning.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   notify:
     runs-on: ubuntu-latest
