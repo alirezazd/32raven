@@ -1,22 +1,17 @@
 name: Notify SIL on push
 
-# Fires a repository_dispatch into 32Raven-SIL whenever a commit lands on
-# master, so the SIL repo's "Firmware Bump" workflow can open a PR that
-# bumps its firmware/ submodule pin to this SHA.
+# Fires a repository_dispatch into 32Raven-SIL on every commit to master, so
+# its Firmware Bump workflow opens a PR pinning to this SHA.
 #
 # Requires repo secret SIL_DISPATCH_TOKEN: a PAT with `Contents: write`
 # + `Pull requests: write` on alirezazd/32Raven-SIL.
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
   workflow_dispatch:
 
-# Force JS actions onto Node.js 24 so peter-evans/* (still shipping Node 20)
-# don't trip the runner's deprecation warning.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+permissions: {}
 
 jobs:
   notify:
@@ -24,9 +19,11 @@ jobs:
     timeout-minutes: 2
     steps:
       - name: Dispatch firmware-pushed to SIL
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.SIL_DISPATCH_TOKEN }}
-          repository: alirezazd/32Raven-SIL
-          event-type: firmware-pushed
-          client-payload: '{"sha":"${{ github.sha }}","ref":"${{ github.ref }}","actor":"${{ github.actor }}"}'
+        env:
+          GH_TOKEN: ${{ secrets.SIL_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/alirezazd/32Raven-SIL/dispatches \
+            -f event_type=firmware-pushed \
+            -f client_payload[sha]="${{ github.sha }}" \
+            -f client_payload[ref]="${{ github.ref }}" \
+            -f client_payload[actor]="${{ github.actor }}"
