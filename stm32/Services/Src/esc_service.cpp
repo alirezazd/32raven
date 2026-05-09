@@ -4,6 +4,28 @@
 #include "panic.hpp"
 #include "system.hpp"
 
+uint16_t EscService::ThrustToDshot(float thrust) {
+  if (thrust <= 0.0f) return DShotCodec::kMotorStop;
+  if (thrust >= 1.0f) return DShotCodec::kThrottleMax;
+  const float scaled =
+      static_cast<float>(DShotCodec::kThrottleMin) +
+      thrust * static_cast<float>(DShotCodec::kThrottleMax -
+                                  DShotCodec::kThrottleMin);
+  return static_cast<uint16_t>(scaled);
+}
+
+bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust) {
+  return WriteMotors({ThrustToDshot(thrust[0]), ThrustToDshot(thrust[1]),
+                      ThrustToDshot(thrust[2]), ThrustToDshot(thrust[3])});
+}
+
+bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust,
+                                   uint32_t now_us) {
+  return WriteMotors({ThrustToDshot(thrust[0]), ThrustToDshot(thrust[1]),
+                      ThrustToDshot(thrust[2]), ThrustToDshot(thrust[3])},
+                     now_us);
+}
+
 void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
                       VehicleState &vehicle_state) {
   if (initialized_) {

@@ -70,6 +70,7 @@ enum class Stm32 : uint32_t {
   kEepromSchemaMismatch,
   // Misc
   kRcReceiverInvalidConfig,
+  kMixerInvalidConfig,
 };
 
 enum class Esp32 : uint32_t {
