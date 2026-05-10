@@ -3,8 +3,6 @@
 
 #include <cstdint>
 
-#include "stm32f4xx_hal.h"
-
 #define SECONDS_TO_MICROS(s) ((s) * 1000000u)
 #define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
 
