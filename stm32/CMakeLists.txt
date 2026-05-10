@@ -163,6 +163,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/inc
     Core/Inc
     Services/Inc
+    lib
     ../libs/inc
 )
 
