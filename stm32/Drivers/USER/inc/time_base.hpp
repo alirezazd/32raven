@@ -6,6 +6,8 @@
 #define SECONDS_TO_MICROS(s) ((s) * 1000000u)
 #define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
 
+namespace bench { struct TimeBaseSil; }  // SIL bench friend marker
+
 struct TimeBaseConfig {
   struct Tim2 {
     uint32_t prescaler;  // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz
@@ -33,6 +35,7 @@ class TimeBase {
 
  private:
   friend class System;
+  friend struct ::bench::TimeBaseSil;
   void Init(const Config &config);
 
   static TimeBase &GetInstance();

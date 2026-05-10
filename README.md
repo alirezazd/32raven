@@ -15,6 +15,10 @@
 - **`libs/` — shared contract.** Wire-protocol structs, error codes, dual-target utilities.
 - **`third_party/` — pinned vendor code.** ESP-IDF, MAVLink, ST open-pin-data, Adafruit GFX.
 
+### Companion repo
+
+[**32Raven-SIL**](https://github.com/alirezazd/32Raven-SIL) — host-build Software-In-The-Loop bench. The unmodified STM32 firmware is recompiled for x86 and run against a virtual-time scheduler with register-level peripheral models. Used for regression testing, fidelity benchmarks, and (eventually) bench-side PID tuning. The few `friend struct ::bench::*Sil` declarations in the firmware drivers exist for this — zero runtime cost on the real STM32 build.
+
 ## Design Principles
 
 - **Deterministic by default.** No exceptions, no RTTI, no dynamic allocation in hot paths. Static stacks for FreeRTOS tasks. Pin alignment validated against ST silicon data at build time.

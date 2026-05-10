@@ -6,6 +6,10 @@
 #include "ring_buffer.hpp"
 #include "stm32f4xx_hal.h"
 
+namespace bench {
+struct UartSilAccess;  // SIL bench friend marker
+}  // namespace bench
+
 enum class UartInstance { kUart1, kUart2, kUart6 };
 
 enum class UartWordLength : uint32_t {
@@ -91,6 +95,7 @@ class Uart {
 
  private:
   friend class System;
+  friend struct ::bench::UartSilAccess;
   void Init(const UartConfig &config);
 
   Uart() = default;
