@@ -11,6 +11,10 @@
 
 class VehicleState;
 
+namespace bench {
+struct RcReceiverSil;  // SIL bench friend marker
+}  // namespace bench
+
 class RcReceiver {
  public:
   struct Config {
@@ -64,6 +68,7 @@ class RcReceiver {
 
  private:
   friend class System;
+  friend struct ::bench::RcReceiverSil;
 
   void Init(const Config &cfg, EE &ee, VehicleState &vehicle_state);
   uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us, uint16_t trim_us,

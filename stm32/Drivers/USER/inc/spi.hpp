@@ -6,6 +6,10 @@
 
 #include "stm32f4xx.h"
 
+namespace bench {
+struct SpiSilAccess;  // SIL bench friend marker
+}  // namespace bench
+
 enum class SpiInstance { kSpi1, kSpi2 };
 
 enum class SpiPrescaler : uint8_t {
@@ -81,6 +85,7 @@ class Spi {
 
  private:
   friend class System;
+  friend struct ::bench::SpiSilAccess;
   void Init(const SpiConfig &config);
 
   Spi() = default;

@@ -5,6 +5,10 @@
 #include "panic.hpp"
 #include "stm32f4xx_hal.h"
 
+namespace bench {
+struct GpioSil;  // SIL bench friend marker
+}  // namespace bench
+
 class GPIO {
  public:
   struct PinConfig {
@@ -18,6 +22,7 @@ class GPIO {
 
  private:
   friend class System;
+  friend struct ::bench::GpioSil;
   template <size_t N>
   void Init(const std::array<PinConfig, N> &pins) {
     Init(pins.data(), N);
