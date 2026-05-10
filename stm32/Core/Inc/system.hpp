@@ -1,5 +1,6 @@
 #pragma once
 
+#include "attitude_estimator.hpp"
 #include "battery.hpp"
 #include "button.hpp"
 #include "command_handler.hpp"
@@ -120,7 +121,8 @@ class System {
     kUart2,
     kM10,
     kIcm42688p,
-    kMultirotorMixer
+    kMultirotorMixer,
+    kAttitudeEstimator
   };
 
   void Init(const Config &config);
@@ -149,6 +151,9 @@ class System {
   M10Service &ServiceGps() { return gps_service_; }
   Icm42688p &GetImu42688p() { return Icm42688p::GetInstance(); }
   multirotor_mixer::Mixer &GetMixer() { return mixer_; }
+  attitude_estimator::AttitudeEstimator &GetAttitudeEstimator() {
+    return attitude_estimator_;
+  }
 
   VehicleState &GetVehicleState() { return vehicle_state_; }
   FcLink &GetFcLink() { return FcLink::GetInstance(); }
@@ -164,6 +169,7 @@ class System {
   CrsfLinkService crsf_link_service_;
   EscService esc_service_;
   multirotor_mixer::Mixer mixer_;
+  attitude_estimator::AttitudeEstimator attitude_estimator_;
 
   System();
   ~System() {}

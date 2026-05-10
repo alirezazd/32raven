@@ -3,6 +3,8 @@
 #include <array>
 #include <cstdint>
 
+#include "math/quaternion.hpp"
+#include "math/vec3.hpp"
 #include "stm32_limits.hpp"
 
 // ---------------------------------------------------------
@@ -75,6 +77,12 @@ struct EscTelemetryData {
   uint32_t uart_error_count = 0;
 };
 
+struct ImuState {
+  uint64_t timestamp_us = 0;
+  math::Vec3 gyro_body_rad_s{};
+  math::Quaternion attitude_world_to_body = math::Identity();
+};
+
 struct RcData {
   uint32_t timestamp_us = 0;
   std::array<uint16_t, stm32_limits::kRcEnabledChannelCount> channels{};
@@ -106,6 +114,7 @@ class VehicleState {
     rc_ = data;
     rc_.updated = true;
   }
+  void UpdateImu(const ImuState &data) { imu_ = data; }
 
   // --- READERS (Called by Logic/Consumers) ---
 
@@ -114,6 +123,7 @@ class VehicleState {
   const BatteryData &GetBattery() const { return bat_; }
   const EscTelemetryData &GetEscTelemetry() const { return esc_; }
   const RcData &GetRc() const { return rc_; }
+  const ImuState &GetImu() const { return imu_; }
 
   // Polling access for Telemetry/Log (Low Frequency)
   // Returns true if new data was available since last pop
@@ -140,4 +150,5 @@ class VehicleState {
   BatteryData bat_{};
   EscTelemetryData esc_{};
   RcData rc_{};
+  ImuState imu_{};
 };

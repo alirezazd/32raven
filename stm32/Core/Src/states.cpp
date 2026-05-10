@@ -109,6 +109,12 @@ void IdleState::OnFastTick(AppContext &ctx,
     }
   }
 
+  // Aggregate the 8-sample IMU burst → (averaged ω, integrated
+  // attitude) → VehicleState. Phase A: simple gyro integration in
+  // AttitudeEstimator. Phase C: same call, MEKF behind it.
+  ctx.sys->GetVehicleState().UpdateImu(
+      ctx.sys->GetAttitudeEstimator().Process(batch));
+
   // 3. Controller / Mixer / DShot (v1: RC passthrough, no rate controller).
   //
   // The mixer is initialized in System::Init but its `armed` flag is false

@@ -7,10 +7,9 @@
 uint16_t EscService::ThrustToDshot(float thrust) {
   if (thrust <= 0.0f) return DShotCodec::kMotorStop;
   if (thrust >= 1.0f) return DShotCodec::kThrottleMax;
-  const float scaled =
-      static_cast<float>(DShotCodec::kThrottleMin) +
-      thrust * static_cast<float>(DShotCodec::kThrottleMax -
-                                  DShotCodec::kThrottleMin);
+  const float scaled = static_cast<float>(DShotCodec::kThrottleMin) +
+                       thrust * static_cast<float>(DShotCodec::kThrottleMax -
+                                                   DShotCodec::kThrottleMin);
   return static_cast<uint16_t>(scaled);
 }
 

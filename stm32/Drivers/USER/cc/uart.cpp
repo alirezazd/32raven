@@ -226,8 +226,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
 
   USART_TypeDef *uart = UartReg();
   uint32_t pclk_hz = 0;
-  if constexpr (Inst == UartInstance::kUart1 ||
-                Inst == UartInstance::kUart6) {
+  if constexpr (Inst == UartInstance::kUart1 || Inst == UartInstance::kUart6) {
     pclk_hz = Apb2Hz();
   } else {
     pclk_hz = Apb1Hz();
