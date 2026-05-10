@@ -38,10 +38,11 @@ using MotorThrust = std::array<float, 4>;
 // Inputs consumed by the mixer. Body-frame, normalized — quaternion choice
 // upstream does not affect this struct.
 struct Inputs {
-  float roll_torque;   // [-1, +1]   moment around body X (right wing down = +)
-  float pitch_torque;  // [-1, +1]               around body Y (nose up      = +)
-  float yaw_torque;    // [-1, +1]               around body Z (nose right   = +)
-  float thrust;        // [ 0, +1]   collective along body -Z
+  float roll_torque;  // [-1, +1]   moment around body X (right wing down = +)
+  float
+      pitch_torque;  // [-1, +1]               around body Y (nose up      = +)
+  float yaw_torque;  // [-1, +1]               around body Z (nose right   = +)
+  float thrust;      // [ 0, +1]   collective along body -Z
 };
 
 // QuadX mix matrix. Rows = motors (M1..M4), cols = (roll, pitch, yaw).

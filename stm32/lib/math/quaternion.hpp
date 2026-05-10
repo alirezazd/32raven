@@ -88,16 +88,19 @@ inline Vec3 Rotate(const Quaternion &q, const Vec3 &v) {
 // Sub-loops that need higher accuracy (IMU pre-integration across 8 kHz
 // samples) can call this repeatedly with smaller dt.
 inline Quaternion IntegrateBodyRate(const Quaternion &q, const Vec3 &omega_b,
-                                     float dt_s) {
+                                    float dt_s) {
   const float half_dt = 0.5f * dt_s;
   const Quaternion dq_dt{
       -half_dt * (q.x * omega_b.x + q.y * omega_b.y + q.z * omega_b.z),
-       half_dt * (q.w * omega_b.x + q.y * omega_b.z - q.z * omega_b.y),
-       half_dt * (q.w * omega_b.y - q.x * omega_b.z + q.z * omega_b.x),
-       half_dt * (q.w * omega_b.z + q.x * omega_b.y - q.y * omega_b.x),
+      half_dt * (q.w * omega_b.x + q.y * omega_b.z - q.z * omega_b.y),
+      half_dt * (q.w * omega_b.y - q.x * omega_b.z + q.z * omega_b.x),
+      half_dt * (q.w * omega_b.z + q.x * omega_b.y - q.y * omega_b.x),
   };
   return Normalize(Quaternion{
-      q.w + dq_dt.w, q.x + dq_dt.x, q.y + dq_dt.y, q.z + dq_dt.z,
+      q.w + dq_dt.w,
+      q.x + dq_dt.x,
+      q.y + dq_dt.y,
+      q.z + dq_dt.z,
   });
 }
 
@@ -117,7 +120,7 @@ inline Quaternion IntegrateBodyRate(const Quaternion &q, const Vec3 &omega_b,
 // to convert quaternion attitude error into an ω_sp vector (in rad/s)
 // for the rate controller.
 inline Vec3 ErrorRotationVector(const Quaternion &q_setpoint,
-                                 const Quaternion &q_measured) {
+                                const Quaternion &q_measured) {
   const Quaternion q_err = Compose(q_setpoint, Conjugate(q_measured));
   // Short-path: if scalar part is negative, q_err and -q_err describe
   // the same rotation but the latter has smaller |vec| → use it.
@@ -134,7 +137,7 @@ inline Quaternion FromAxisAngle(const Vec3 &axis_unit, float angle_rad) {
   const float half = 0.5f * angle_rad;
   const float s = std::sin(half);
   return Quaternion{std::cos(half), axis_unit.x * s, axis_unit.y * s,
-                     axis_unit.z * s};
+                    axis_unit.z * s};
 }
 
 }  // namespace math

@@ -45,6 +45,7 @@ void System::Init(const System::Config &config) {
   InitComponent(Component::kM10);
   InitComponent(Component::kIcm42688p);
   InitComponent(Component::kMultirotorMixer);
+  InitComponent(Component::kAttitudeEstimator);
 }
 
 void System::InitComponent(Component c) {
@@ -114,6 +115,9 @@ void System::InitComponent(Component c) {
       // once we have a second tunable. For v1 only `idle` exists; hardcoded.
       mixer_.Init({.idle = 0.05f});
       break;
+    case Component::kAttitudeEstimator:
+      attitude_estimator_.Init({});
+      break;
   }
 }
 
@@ -142,8 +146,7 @@ void System::ConfigureSystemClock(const System::Config &config) {
   clk.APB2CLKDivider = static_cast<uint32_t>(config.apb2_divider);
 
   __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(
-      static_cast<uint32_t>(config.voltage_scale));
+  __HAL_PWR_VOLTAGESCALING_CONFIG(static_cast<uint32_t>(config.voltage_scale));
 
   if (HAL_RCC_OscConfig(&osc) != HAL_OK) {
     Panic(ErrorCode::Stm32::kRccOscConfigFailed);

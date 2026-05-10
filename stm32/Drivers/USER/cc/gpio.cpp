@@ -54,9 +54,9 @@ bool IsOutputMode(uint32_t mode) {
 
 // Decode the HAL-encoded GPIO_MODE_* macro into its component fields.
 struct ModeBits {
-  uint32_t base;     // 0..3 — GPIO MODER value (input/output/AF/analog)
-  uint32_t output;   // 0=PP, 1=OD
-  bool exti;         // true for IT_*/EVT_* modes
+  uint32_t base;    // 0..3 — GPIO MODER value (input/output/AF/analog)
+  uint32_t output;  // 0=PP, 1=OD
+  bool exti;        // true for IT_*/EVT_* modes
   bool rising;
   bool falling;
 };
@@ -82,9 +82,8 @@ void ProgramPin(GPIO_TypeDef *port, uint8_t pin_index,
     EnableSyscfgClock();
     const uint32_t cr_idx = pin_index / 4u;
     const uint32_t cr_shift = static_cast<uint32_t>(pin_index % 4u) * 4u;
-    SYSCFG->EXTICR[cr_idx] =
-        (SYSCFG->EXTICR[cr_idx] & ~(0xFu << cr_shift)) |
-        (ExtiPortSource(port) << cr_shift);
+    SYSCFG->EXTICR[cr_idx] = (SYSCFG->EXTICR[cr_idx] & ~(0xFu << cr_shift)) |
+                             (ExtiPortSource(port) << cr_shift);
 
     const uint32_t pin_mask = 1u << pin_index;
     if (mb.rising) {
@@ -111,10 +110,9 @@ void ProgramPin(GPIO_TypeDef *port, uint8_t pin_index,
 
   if (mb.base == 0x1u || mb.base == 0x2u) {  // OUTPUT or AF
     const uint32_t shift1 = pin_index;
-    port->OTYPER =
-        (port->OTYPER & ~(0x1u << shift1)) | (mb.output << shift1);
-    port->OSPEEDR = (port->OSPEEDR & ~(0x3u << shift2)) |
-                    ((init.Speed & 0x3u) << shift2);
+    port->OTYPER = (port->OTYPER & ~(0x1u << shift1)) | (mb.output << shift1);
+    port->OSPEEDR =
+        (port->OSPEEDR & ~(0x3u << shift2)) | ((init.Speed & 0x3u) << shift2);
   }
 
   port->PUPDR =

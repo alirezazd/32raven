@@ -150,6 +150,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/command_handler.cpp
     Services/Src/panic.cpp
     Services/Src/multirotor_mixer.cpp
+    Services/Src/attitude_estimator.cpp
     ../libs/src/error_code.cpp
 )
 
