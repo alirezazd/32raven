@@ -2072,9 +2072,11 @@ endchoice
 
 choice
     prompt "Accel full scale"
-    default STM32_IMU_ACCEL_FS_8G
+    default STM32_IMU_ACCEL_FS_16G
     help
-      Full-scale acceleration range for the accelerometer.
+      Full-scale acceleration range for the accelerometer. 16g matches
+      PX4 / Betaflight reference drivers and preserves headroom for
+      crash-impulse logging.
 
 config STM32_IMU_ACCEL_FS_16G
     bool "16g"
@@ -2096,17 +2098,20 @@ menu "Filters"
 
 config STM32_IMU_UI_FILTER_GYRO_BW
     int "UI filter gyro bandwidth index"
-    range 0 3
-    default 2
+    range 0 15
+    default 15
     help
-      Raw ICM42688P UI filter bandwidth field for the gyroscope.
+      Raw GYRO_UI_FILT_BW field (bits[3:0] of GYRO_ACCEL_CONFIG0).
+      15 matches Betaflight LOW_LATENCY — 1st-order LP at ~ODR/4 with
+      negligible group delay. 0 = ODR/2 (passthrough).
 
 config STM32_IMU_UI_FILTER_ACCEL_BW
     int "UI filter accel bandwidth index"
-    range 0 3
-    default 3
+    range 0 15
+    default 15
     help
-      Raw ICM42688P UI filter bandwidth field for the accelerometer.
+      Raw ACCEL_UI_FILT_BW field (bits[7:4] of GYRO_ACCEL_CONFIG0).
+      15 matches Betaflight LOW_LATENCY. 0 = ODR/2 (passthrough).
 
 config STM32_IMU_UI_FILTER_GYRO_CFG1
     int "UI filter gyro CFG1"
@@ -2144,61 +2149,68 @@ config STM32_IMU_NOTCH_BW_IDX
 
 config STM32_IMU_GYRO_AAF_DISABLE
     bool "Disable gyro AAF"
-    default y
+    default n
     help
-      Disable the gyroscope anti-alias filter. Disable stays closest to the
-      current known-good setup.
+      Disable the gyroscope analog-path anti-alias filter. Default OFF —
+      the AAF is the only filter before the ADC, so disabling it lets
+      vibration above Nyquist (ODR/2) fold back into the gyro band. Keep
+      enabled unless you have a specific reason.
 
 config STM32_IMU_GYRO_AAF_DELT
     int "Gyro AAF DELT"
-    range 0 255
-    default 0
+    range 0 63
+    default 13
     help
-      Raw DELT field for the gyroscope anti-alias filter configuration.
+      Raw DELT field (bits[5:0] of GYRO_CONFIG_STATIC3). DELT=13 →
+      585 Hz cutoff at ODR=8 kHz (PX4 reference). For lowest-lag,
+      Betaflight LOW_LATENCY: DELT=21 (997 Hz).
 
 config STM32_IMU_GYRO_AAF_DELT_SQR
     int "Gyro AAF DELT_SQR"
-    range 0 65535
-    default 0
+    range 0 4095
+    default 170
     help
-      Raw DELT_SQR field for the gyroscope anti-alias filter configuration.
+      Raw DELT_SQR field (12-bit, packed across GYRO_CONFIG_STATIC4 LSB +
+      STATIC5 high nibble). DELT_SQR = DELT^2 per datasheet table.
 
 config STM32_IMU_GYRO_AAF_BITSHIFT
     int "Gyro AAF BITSHIFT"
-    range 0 255
-    default 0
+    range 0 15
+    default 8
     help
-      Raw BITSHIFT field for the gyroscope anti-alias filter configuration.
+      Raw BITSHIFT field (bits[7:4] of GYRO_CONFIG_STATIC5). See
+      datasheet table for the (DELT, DELT_SQR, BITSHIFT) triple
+      mapping to the target cutoff.
 
 config STM32_IMU_ACCEL_AAF_DISABLE
     bool "Disable accel AAF"
-    default y
+    default n
     help
-      Disable the accelerometer anti-alias filter. Disable stays closest to
-      the current known-good setup.
+      Disable the accelerometer analog-path anti-alias filter. Default OFF
+      — same reasoning as the gyro AAF.
 
 config STM32_IMU_ACCEL_AAF_DELT
     int "Accel AAF DELT"
-    range 0 255
-    default 0
+    range 0 63
+    default 13
     help
-      Raw DELT field for the accelerometer anti-alias filter configuration.
+      Raw DELT field (bits[6:1] of ACCEL_CONFIG_STATIC2). DELT=13 →
+      585 Hz cutoff at ODR=8 kHz (PX4 reference).
 
 config STM32_IMU_ACCEL_AAF_DELT_SQR
     int "Accel AAF DELT_SQR"
-    range 0 65535
-    default 0
+    range 0 4095
+    default 170
     help
-      Raw DELT_SQR field for the accelerometer anti-alias filter
-      configuration.
+      Raw DELT_SQR field (12-bit, packed across ACCEL_CONFIG_STATIC3 LSB +
+      STATIC4 high nibble). DELT_SQR = DELT^2 per datasheet table.
 
 config STM32_IMU_ACCEL_AAF_BITSHIFT
     int "Accel AAF BITSHIFT"
-    range 0 255
-    default 0
+    range 0 15
+    default 8
     help
-      Raw BITSHIFT field for the accelerometer anti-alias filter
-      configuration.
+      Raw BITSHIFT field (bits[7:4] of ACCEL_CONFIG_STATIC4).
 
 endmenu
 
@@ -2218,6 +2230,18 @@ config STM32_IMU_FIFO_HOLD_LAST
     help
       Keep the last sample in the FIFO on overflow instead of dropping all
       buffered data.
+
+config STM32_IMU_FIFO_HIRES_EN
+    bool "Enable 20-bit HiRes FIFO (Packet4)"
+    default y
+    help
+      Switch the FIFO from 16-bit Packet3 (16-byte records) to 20-bit
+      Packet4 (20-byte records). HiRes mode delivers 18-bit accel + 19-bit
+      gyro precision at fixed sensitivities (8192 LSB/g, 131 LSB/dps); the
+      FSR setting is forced to ±16g + ±2000 dps internally regardless of
+      ACCEL_FS_SEL / GYRO_FS_SEL (datasheet §6.1). Matches PX4 reference
+      driver default. Disable for bringup / characterization against
+      legacy silicon flashed with older firmware.
 
 endmenu
 
@@ -3143,6 +3167,363 @@ config STM32_ESC_SERVICE_COMMAND_REPEAT_COUNT
     help
       Number of times each queued DShot command is retransmitted to ensure
       reliable delivery to the ESC.
+
+endmenu
+
+menu "Multirotor Mixer"
+
+config STM32_MULTIROTOR_MIXER_IDLE_MILLI
+    int "Motor idle floor (x1000)"
+    range 0 1000
+    default 50
+    help
+      Per-motor floor when armed, scaled by 1000 (50 = 0.05 = 5% of full
+      throttle). Outputs from the mixer are clamped to be no lower than
+      this value while armed, so the motors stay spinning during low-
+      throttle maneuvers instead of dropping to a stop. Set just above
+      the motor stall RPM — crossing it stops the motor and recovery
+      isn't free.
+
+config STM32_PILOT_THROTTLE_MIN_MILLI
+    int "Pilot throttle at stick=0 (x1000)"
+    range 0 1000
+    default 80
+    help
+      Thrust commanded at pilot stick=0, scaled by 1000 (80 = 0.08).
+      The pilot's stick range [0, 1] is linearly remapped to
+      [pilot_throttle_min, 1] before reaching the mixer. At stick=0
+      the drone descends if pilot_throttle_min is below the airframe's
+      hover thrust (e.g., 0.08 for most hobby quads where hover ≈
+      0.3-0.5). PX4 equivalent: MPC_MANTHR_MIN (default 0.08). Tune
+      via pilot_input::SetThrottleMin during SIL — too low gives a
+      free-fall feel; too high makes the drone climb at min stick.
+
+endmenu
+
+menu "Rate Controller"
+
+config STM32_RATE_CTRL_SMOOTHING_ENABLED
+    bool "Enable setpoint smoothing (slew + LPF)"
+    default y
+    help
+      When enabled, each axis's rate setpoint passes through a slew-rate
+      limiter and first-order LPF before reaching the PID. Softens the
+      discontinuities from stick steps and mode handoffs without
+      affecting steady-state tracking. Disable to send the raw setpoint
+      straight to the PID (matches the bare-cascade behavior).
+
+config STM32_RATE_CTRL_INTEGRATOR_CLAMP_MILLI
+    int "Integrator clamp (x1000)"
+    range 0 10000
+    default 500
+    help
+      Per-axis I-term magnitude limit, scaled by 1000 (500 = 0.5). Caps
+      how far the integrator can wind up. Set to 0 to disable clamping.
+      Applies to all three axes.
+
+config STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI
+    int "Output clamp (x1000)"
+    range 0 1000
+    default 1000
+    help
+      Per-axis torque output magnitude limit, scaled by 1000 (1000 = 1.0).
+      Matches the mixer's torque input range. Applies to all three axes.
+
+config STM32_RATE_CTRL_DLPF_ALPHA_MILLI
+    int "D-term LPF alpha (x1000)"
+    range 1 1000
+    default 1000
+    help
+      First-order IIR coefficient on the D path, scaled by 1000. 1000 = no
+      filtering; smaller values smooth out gyro noise on the derivative
+      term at the cost of phase lag. Applies to all three axes.
+
+config STM32_RATE_CTRL_ROLL_KP_MILLI
+    int "Roll Kp (x1000)"
+    range 0 100000
+    default 50
+    help
+      Proportional gain for the roll-rate PID, scaled by 1000 (50 = 0.05).
+      Starting point; tune in SIL before flying.
+
+config STM32_RATE_CTRL_ROLL_KI_MILLI
+    int "Roll Ki (x1000)"
+    range 0 100000
+    default 0
+    help
+      Integral gain for the roll-rate PID, scaled by 1000. Defaults to 0
+      while the rate loop is still being characterized; enable after Kp
+      tuning lands.
+
+config STM32_RATE_CTRL_ROLL_KD_MICRO
+    int "Roll Kd (x1000000)"
+    range 0 100000
+    default 0
+    help
+      Derivative gain for the roll-rate PID, scaled by 1 000 000 (because
+      typical Kd values are in the 0.001-0.005 range and need finer
+      resolution than the per-mille gains above). Defaults to 0 until
+      gyro-noise behavior is characterized.
+
+config STM32_RATE_CTRL_ROLL_SP_RATE_LIMIT
+    int "Roll setpoint rate limit (rad/s^2)"
+    range 0 100000
+    default 100
+    help
+      Slew-rate cap on the roll-rate setpoint, in rad/s^2. 0 disables
+      slew limiting on this axis. Only consulted when smoothing is on.
+      Default 100 rad/s^2 takes ~60 ms to traverse the full +-6 rad/s
+      stick range.
+
+config STM32_RATE_CTRL_ROLL_SP_LPF_ALPHA_MILLI
+    int "Roll setpoint LPF alpha (x1000)"
+    range 1 1000
+    default 300
+    help
+      First-order IIR coefficient applied to the roll-rate setpoint
+      after slew limiting, scaled by 1000. 1000 disables filtering.
+      Only consulted when smoothing is on. Default 300 corresponds to
+      ~53 Hz cutoff at the 1 kHz fast tick.
+
+config STM32_RATE_CTRL_PITCH_KP_MILLI
+    int "Pitch Kp (x1000)"
+    range 0 100000
+    default 50
+    help
+      Proportional gain for the pitch-rate PID, scaled by 1000.
+
+config STM32_RATE_CTRL_PITCH_KI_MILLI
+    int "Pitch Ki (x1000)"
+    range 0 100000
+    default 0
+    help
+      Integral gain for the pitch-rate PID, scaled by 1000.
+
+config STM32_RATE_CTRL_PITCH_KD_MICRO
+    int "Pitch Kd (x1000000)"
+    range 0 100000
+    default 0
+    help
+      Derivative gain for the pitch-rate PID, scaled by 1 000 000.
+
+config STM32_RATE_CTRL_PITCH_SP_RATE_LIMIT
+    int "Pitch setpoint rate limit (rad/s^2)"
+    range 0 100000
+    default 100
+    help
+      Slew-rate cap on the pitch-rate setpoint, in rad/s^2. See the
+      roll equivalent for details.
+
+config STM32_RATE_CTRL_PITCH_SP_LPF_ALPHA_MILLI
+    int "Pitch setpoint LPF alpha (x1000)"
+    range 1 1000
+    default 300
+    help
+      First-order IIR coefficient on the pitch-rate setpoint, scaled
+      by 1000. See the roll equivalent for details.
+
+config STM32_RATE_CTRL_YAW_KP_MILLI
+    int "Yaw Kp (x1000)"
+    range 0 100000
+    default 100
+    help
+      Proportional gain for the yaw-rate PID, scaled by 1000 (100 = 0.1).
+      Yaw typically tolerates higher Kp than roll/pitch since the yaw
+      axis has the smallest moment-arm in QuadX and no overshoot to damp.
+
+config STM32_RATE_CTRL_YAW_KI_MILLI
+    int "Yaw Ki (x1000)"
+    range 0 100000
+    default 0
+    help
+      Integral gain for the yaw-rate PID, scaled by 1000.
+
+config STM32_RATE_CTRL_YAW_KD_MICRO
+    int "Yaw Kd (x1000000)"
+    range 0 100000
+    default 0
+    help
+      Derivative gain for the yaw-rate PID, scaled by 1 000 000. Often
+      kept at 0 in practice - yaw doesn't need overshoot damping.
+
+config STM32_RATE_CTRL_YAW_SP_RATE_LIMIT
+    int "Yaw setpoint rate limit (rad/s^2)"
+    range 0 100000
+    default 100
+    help
+      Slew-rate cap on the yaw-rate setpoint, in rad/s^2. See the roll
+      equivalent for details.
+
+config STM32_RATE_CTRL_YAW_SP_LPF_ALPHA_MILLI
+    int "Yaw setpoint LPF alpha (x1000)"
+    range 1 1000
+    default 300
+    help
+      First-order IIR coefficient on the yaw-rate setpoint, scaled by
+      1000. See the roll equivalent for details.
+
+config STM32_RATE_CTRL_ITERM_FREEZE_BELOW_THROTTLE_MILLI
+    int "Freeze integrators when pilot throttle below (x1000)"
+    range 0 1000
+    default 50
+    help
+      When the pilot's commanded throttle is below this value (scaled by
+      1000; 50 = 0.05), the per-axis rate integrators are frozen for that
+      tick. Filter state still advances so D-term and last_error stay
+      consistent, but the I-term does not accumulate. Prevents wind-up
+      during descent throttle when the mixer's airmode floor denies the
+      controller authority anyway — without this, accumulated I-term
+      dumps as a spike when the pilot raises throttle for flare. Set to
+      0 to disable (always commit integrator).
+
+config STM32_RATE_CTRL_I_FACTOR_ERROR_THRESH_MILLI
+    int "I-factor error threshold (rad/s, x1000)"
+    range 0 100000
+    default 7000
+    help
+      Soft I-gain attenuation. When per-axis rate error magnitude reaches
+      this threshold (in rad/s, scaled by 1000; 7000 = 7.0 rad/s ≈ PX4's
+      hard-coded 400 deg/s), the I-term branch effectively scales to 0;
+      below it, ramps as 1 - (error/threshold)^2 back up to full Ki.
+      Prevents the post-flip / stick-whip "bounce-back" where a large
+      transient error accumulates a huge I-term. Applied uniformly to
+      all three axes. Set to 0 to disable.
+
+config STM32_RATE_CTRL_YAW_OUTPUT_LPF_ALPHA_MILLI
+    int "Yaw torque output LPF alpha (x1000)"
+    range 1 1000
+    default 800
+    help
+      First-order IIR coefficient on the yaw torque output (post-PID,
+      pre-mixer), scaled by 1000 (800 = 0.8, 1000 = no filtering).
+      Smaller = more aggressive smoothing; suppresses high-frequency
+      torque transients from rotor acceleration on the weak yaw axis.
+      PX4 equivalent: `_output_lpf_yaw`. Roll/pitch outputs are
+      unfiltered (no equivalent option).
+
+endmenu
+
+menu "AHRS"
+
+config STM32_AHRS_KP_ACCEL_MILLI
+    int "Proportional gain on accel tilt error (x1000)"
+    range 0 100000
+    default 1000
+    help
+      kp_accel for the Mahony complementary filter, scaled by 1000
+      (1000 = 1.0). Controls how strongly the accel-derived gravity
+      reference pulls the quaternion toward truth. Time constant of
+      at-rest convergence is roughly 1/kp seconds. Typical values
+      0.5-4.0; default 1.0 matches PX4's ATT_W_ACC ballpark.
+
+config STM32_AHRS_KI_BIAS_MILLI
+    int "Integral gain for gyro-bias estimator (x1000)"
+    range 0 1000
+    default 10
+    help
+      ki_bias for the Mahony complementary filter, scaled by 1000
+      (10 = 0.01). Controls how quickly the gyro-bias estimator
+      learns. Always gated by the quiescent gyro-trust attenuation
+      below — bias only updates when the drone is near-rest.
+
+config STM32_AHRS_ACCEL_TRUST_FULL_DEV_MILLI
+    int "Accel trust: full-trust band (x1000)"
+    range 0 1000
+    default 20
+    help
+      Accel correction has weight 1.0 when |a|/g is within ±this
+      deviation of 1.0, scaled by 1000 (20 = ±0.02 = ±2 % of 1 g).
+      Tight value defends against contaminated accel during sustained
+      maneuvers; widen for real HW with motor vibration.
+
+config STM32_AHRS_ACCEL_TRUST_ZERO_DEV_MILLI
+    int "Accel trust: zero-trust band (x1000)"
+    range 0 1000
+    default 50
+    help
+      Accel correction weight smoothly decays to 0 by |a|/g deviation
+      = this value, scaled by 1000 (50 = ±0.05 = ±5 %). Must be ≥
+      full-trust band; setting equal disables soft attenuation. Default
+      rejects sustained tilts above ~18°.
+
+config STM32_AHRS_GYRO_QUIESCENT_FULL_MILLI
+    int "Bias-update gate: full-update gyro threshold (rad/s, x1000)"
+    range 0 100000
+    default 50
+    help
+      Gyro-bias estimator updates at full weight when |gyro| <= this
+      value (rad/s scaled by 1000; 50 = 0.05 rad/s ≈ 3°/s). Drone is
+      considered "at rest" for bias-update purposes below this rate.
+
+config STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI
+    int "Bias-update gate: zero-update gyro threshold (rad/s, x1000)"
+    range 0 100000
+    default 200
+    help
+      Gyro-bias estimator update weight smoothly decays to 0 by |gyro|
+      = this value (rad/s scaled by 1000; 200 = 0.20 rad/s ≈ 12°/s).
+      Above this rate the bias estimator is frozen — drone is actively
+      maneuvering and accel is unreliable.
+
+endmenu
+
+menu "Attitude Controller"
+
+config STM32_ATT_CTRL_ROLL_KP_MILLI
+    int "Roll Kp (x1000)"
+    range 0 100000
+    default 6000
+    help
+      Proportional gain on the roll axis-angle error (rad/s of commanded
+      rate per rad of attitude error), scaled by 1000 (6000 = 6.0).
+      Typical operational range 4-10 for a hover-tuned multirotor;
+      higher = crisper response, more potential for ringing.
+
+config STM32_ATT_CTRL_ROLL_RATE_CLAMP_MILLI
+    int "Roll rate-setpoint clamp (rad/s, x1000)"
+    range 0 100000
+    default 6000
+    help
+      Symmetric clamp on the rate setpoint the outer attitude loop will
+      command on roll, in rad/s scaled by 1000 (6000 = 6.0 rad/s).
+      Caps how fast the cascade will ask the rate loop to slew toward
+      the desired attitude; should match the rate loop's own max.
+
+config STM32_ATT_CTRL_PITCH_KP_MILLI
+    int "Pitch Kp (x1000)"
+    range 0 100000
+    default 6000
+    help
+      Proportional gain on the pitch axis-angle error, scaled by 1000.
+      Usually symmetric with roll Kp.
+
+config STM32_ATT_CTRL_PITCH_RATE_CLAMP_MILLI
+    int "Pitch rate-setpoint clamp (rad/s, x1000)"
+    range 0 100000
+    default 6000
+    help
+      Symmetric clamp on the pitch rate setpoint, in rad/s scaled by
+      1000. Usually symmetric with roll.
+
+config STM32_ATT_CTRL_YAW_KP_MILLI
+    int "Yaw Kp (x1000)"
+    range 0 100000
+    default 6000
+    help
+      Proportional gain on the yaw axis-angle error, scaled by 1000.
+      In current Stage 2 wiring the yaw output of this controller is
+      unused (yaw stays rate-controlled from the stick); the field
+      exists for symmetry and for when a yaw heading-hold lands.
+
+config STM32_ATT_CTRL_YAW_RATE_CLAMP_MILLI
+    int "Yaw rate-setpoint clamp (rad/s, x1000)"
+    range 0 100000
+    default 4000
+    help
+      Symmetric clamp on the yaw rate setpoint, in rad/s scaled by 1000
+      (4000 = 4.0 rad/s). Yaw typically wants a lower max-rate than
+      roll/pitch because the yaw axis has the smallest motor authority
+      on a QuadX.
 
 endmenu
 

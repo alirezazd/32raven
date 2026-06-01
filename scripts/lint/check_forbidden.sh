@@ -7,6 +7,9 @@ EXCLUDE_DIRS=(.git build cmake third_party)
 FORBIDDEN_HEADERS="iostream sstream locale regex vector list map set unordered_map unordered_set"
 FORBIDDEN_KEYWORDS=" new" # Space prefix to avoid matching 'newline' etc.
 FORBIDDEN_FREERTOS_DYNAMIC_APIS="xTaskCreate xTaskCreatePinnedToCore xQueueCreate xSemaphoreCreateBinary xSemaphoreCreateCounting xSemaphoreCreateMutex xSemaphoreCreateRecursiveMutex xTimerCreate xEventGroupCreate xStreamBufferCreate xMessageBufferCreate pvPortMalloc"
+# Raw libc allocator calls. C++ idiom is `new`, caught above; this catches
+# the C-style escape hatch in case anyone reaches for stdlib.h directly.
+FORBIDDEN_LIBC_ALLOC_APIS="malloc calloc realloc free aligned_alloc strdup strndup"
 
 echo "Running static check for forbidden C++ features..."
 
@@ -78,6 +81,17 @@ for dir in "${TARGET_DIRS[@]}"; do
         if [ ! -z "$MATCHES_API" ]; then
             echo "ERROR: Forbidden FreeRTOS dynamic allocation API '${api}' found:"
             echo "$MATCHES_API"
+            EXIT_CODE=1
+        fi
+    done
+
+    # 5. Check raw libc allocator calls. Word-boundary match so variables
+    # named e.g. `free_bytes` don't trigger.
+    for api in $FORBIDDEN_LIBC_ALLOC_APIS; do
+        MATCHES_LIBC=$(grep -rnE "${GREP_EXCLUDES[@]}" --include=*.cpp --include=*.hpp "(^|[^A-Za-z0-9_])${api}\s*\(" "$dir" | grep -vE "//|/\\*" | grep -vFf "$EXCEPTIONS_FILE")
+        if [ ! -z "$MATCHES_LIBC" ]; then
+            echo "ERROR: Forbidden libc allocator '${api}' found (no heap policy):"
+            echo "$MATCHES_LIBC"
             EXIT_CODE=1
         fi
     done

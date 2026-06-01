@@ -210,8 +210,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
               static_cast<uint32_t>(config.mode);
   uart->CR2 = static_cast<uint32_t>(config.stop_bits);
   uart->CR3 = static_cast<uint32_t>(config.hw_flow_control);
-  const bool over8 =
-      static_cast<uint32_t>(config.over_sampling) == UART_OVERSAMPLING_8;
+  const bool over8 = config.over_sampling == UartOverSampling::k8;
   uart->BRR = ComputeUartBrr(pclk_hz, config.baud_rate, over8);
   uart->CR1 |= USART_CR1_UE;
 

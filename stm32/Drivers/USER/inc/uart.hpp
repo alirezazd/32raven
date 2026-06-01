@@ -4,46 +4,46 @@
 #include <cstdint>
 
 #include "ring_buffer.hpp"
-#include "stm32f4xx_hal.h"
-
-namespace bench {
-struct UartSilAccess;  // SIL bench friend marker
-}  // namespace bench
+#include "stm32f4xx.h"
 
 enum class UartInstance { kUart1, kUart2, kUart6 };
 
+// Underlying values are the actual USART_CRx register bit patterns from
+// CMSIS — bit-for-bit identical to what the old HAL UART_* macros were
+// expanding to. The driver ORs these straight into the registers, so the
+// values must match the silicon, not a HAL convention.
 enum class UartWordLength : uint32_t {
-  k8Bits = UART_WORDLENGTH_8B,
-  k9Bits = UART_WORDLENGTH_9B,
+  k8Bits = 0u,
+  k9Bits = USART_CR1_M,
 };
 
 enum class UartStopBits : uint32_t {
-  k1 = UART_STOPBITS_1,
-  k2 = UART_STOPBITS_2,
+  k1 = 0u,
+  k2 = USART_CR2_STOP_1,
 };
 
 enum class UartParity : uint32_t {
-  kNone = UART_PARITY_NONE,
-  kEven = UART_PARITY_EVEN,
-  kOdd = UART_PARITY_ODD,
+  kNone = 0u,
+  kEven = USART_CR1_PCE,
+  kOdd = USART_CR1_PCE | USART_CR1_PS,
 };
 
 enum class UartMode : uint32_t {
-  kRx = UART_MODE_RX,
-  kTx = UART_MODE_TX,
-  kTxRx = UART_MODE_TX_RX,
+  kRx = USART_CR1_RE,
+  kTx = USART_CR1_TE,
+  kTxRx = USART_CR1_RE | USART_CR1_TE,
 };
 
 enum class UartHwFlowControl : uint32_t {
-  kNone = UART_HWCONTROL_NONE,
-  kRts = UART_HWCONTROL_RTS,
-  kCts = UART_HWCONTROL_CTS,
-  kRtsCts = UART_HWCONTROL_RTS_CTS,
+  kNone = 0u,
+  kRts = USART_CR3_RTSE,
+  kCts = USART_CR3_CTSE,
+  kRtsCts = USART_CR3_RTSE | USART_CR3_CTSE,
 };
 
 enum class UartOverSampling : uint32_t {
-  k16 = UART_OVERSAMPLING_16,
-  k8 = UART_OVERSAMPLING_8,
+  k16 = 0u,
+  k8 = USART_CR1_OVER8,
 };
 
 struct UartConfig {
@@ -95,7 +95,6 @@ class Uart {
 
  private:
   friend class System;
-  friend struct ::bench::UartSilAccess;
   void Init(const UartConfig &config);
 
   Uart() = default;
