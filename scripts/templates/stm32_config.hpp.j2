@@ -2,6 +2,8 @@
 
 #include <array>
 
+#include "ahrs.hpp"
+#include "attitude_controller.hpp"
 #include "battery.hpp"
 #include "button.hpp"
 #include "crsf_link_service.hpp"
@@ -12,6 +14,8 @@
 #include "icm42688p.hpp"
 #include "led.hpp"
 #include "m10.hpp"
+#include "multirotor_mixer.hpp"
+#include "rate_controller.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
 #include "stm32_limits.hpp"
@@ -162,6 +166,20 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .overrun_threshold = {{ icm42688p.recovery.overrun_threshold }},
         .overrun_window_s = {{ icm42688p.recovery.overrun_window_s }},
         .fault_led_period_ms = {{ icm42688p.recovery.fault_led_period_ms }},
+    },
+    // Chip-frame -> body-NED axis remap. Identity: this board mounts the
+    // ICM-42688P with its native axes already aligned to body-NED (chip
+    // +X = body North, +Y = body East, +Z = body Down). The single
+    // axis-conversion boundary lives in the driver's ScaleSample --
+    // everything downstream is body-NED with no flips. If a future
+    // board rotates/flips the chip, promote these to Kconfig.
+    .axis_map = {
+        .x_from = 0,
+        .x_neg = false,
+        .y_from = 1,
+        .y_neg = false,
+        .z_from = 2,
+        .z_neg = false,
     },
 };
 
@@ -319,4 +337,75 @@ inline constexpr EscService::Config kEscServiceConfig = {
     .command_period_us = {{ esc_service.command_period_us }},
     .telemetry_request_period_us = {{ esc_service.telemetry_request_period_us }},
     .command_repeat_count = {{ esc_service.command_repeat_count }},
+};
+
+inline constexpr multirotor_mixer::Mixer::Config kMultirotorMixerConfig = {
+    .idle = {{ multirotor_mixer.idle_milli }} * 0.001f,
+};
+
+// Pilot stick at 0 maps to this fraction of full thrust, not literal zero.
+// states.cpp linearly remaps NormalizedThrottle() in [0, 1] to
+// [kPilotThrottleMin, 1] before feeding the mixer, so the mixer always
+// has a workable motor band around the pilot's commanded thrust.
+// PX4 equivalent: MPC_MANTHR_MIN.
+inline constexpr float kPilotThrottleMin =
+    {{ multirotor_mixer.pilot_throttle_min_milli }} * 0.001f;
+
+// Per-axis PID gains and shared limits/filter come from the Rate Controller
+// menu. Kconfig stores integers (millis for kp/ki, micros for kd) so the
+// `make 32raven-menuconfig` UI stays sane; the template scales each value
+// to its float representation at the point of use - the compiler folds
+// these constexpr multiplications.
+inline constexpr RateController::Config kRateControllerConfig = {
+    .smoothing_enabled = {{ rate_controller.smoothing_enabled | cpp_bool }},
+{% for axis_name in ["roll", "pitch", "yaw"] %}
+{% set axis = rate_controller[axis_name] %}
+    .{{ axis_name }} = {
+        .gains = {
+            .kp = {{ axis.kp_milli }} * 0.001f,
+            .ki = {{ axis.ki_milli }} * 0.001f,
+            .kd = {{ axis.kd_micro }} * 0.000001f,
+        },
+        .limits = {
+            .integrator_clamp = {{ rate_controller.integrator_clamp_milli }} * 0.001f,
+            .output_clamp = {{ rate_controller.output_clamp_milli }} * 0.001f,
+            .i_factor_error_thresh = {{ rate_controller.i_factor_error_thresh_milli }} * 0.001f,
+        },
+        .smoother = {
+            .rate_limit = static_cast<float>({{ axis.sp_rate_limit }}),
+            .lpf_alpha = {{ axis.sp_lpf_alpha_milli }} * 0.001f,
+        },
+        .d_term_lpf_alpha = {{ rate_controller.d_term_lpf_alpha_milli }} * 0.001f,
+    },
+{% endfor %}
+    .iterm_freeze_below_throttle = {{ rate_controller.iterm_freeze_below_throttle_milli }} * 0.001f,
+    .yaw_output_lpf_alpha = {{ rate_controller.yaw_output_lpf_alpha_milli }} * 0.001f,
+};
+
+// Mahony complementary-filter gains for the AHRS. All six knobs are
+// scaled by 1000 in Kconfig (so menuconfig deals in integers); the
+// template folds each into its float representation at the point of
+// use. Soft attenuation: accel correction full-trust inside +/-full_dev,
+// smooth decay to zero by +/-zero_dev; bias updates full-weight when
+// |gyro| <= quiescent_full, smooth decay to zero by quiescent_zero.
+inline constexpr Ahrs::Config kAhrsConfig = {
+    .kp_accel                  = {{ ahrs.kp_accel_milli }} * 0.001f,
+    .ki_bias                   = {{ ahrs.ki_bias_milli }} * 0.001f,
+    .accel_trust_full_dev_g    = {{ ahrs.accel_trust_full_dev_milli }} * 0.001f,
+    .accel_trust_zero_dev_g    = {{ ahrs.accel_trust_zero_dev_milli }} * 0.001f,
+    .gyro_quiescent_full_rad_s = {{ ahrs.gyro_quiescent_full_milli }} * 0.001f,
+    .gyro_quiescent_zero_rad_s = {{ ahrs.gyro_quiescent_zero_milli }} * 0.001f,
+};
+
+// Outer attitude loop gains (Stage-2 Stabilize mode). Kconfig stores
+// kp scaled by 1000 and rate_clamp in milli-rad/s; the template folds
+// each into its float representation at the point of use.
+inline constexpr AttitudeController::Config kAttitudeControllerConfig = {
+{% for axis_name in ["roll", "pitch", "yaw"] %}
+{% set axis = attitude_controller[axis_name] %}
+    .{{ axis_name }} = {
+        .kp = {{ axis.kp_milli }} * 0.001f,
+        .rate_clamp = {{ axis.rate_clamp_milli }} * 0.001f,
+    },
+{% endfor %}
 };

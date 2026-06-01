@@ -14,6 +14,7 @@ namespace stm32_limits {
 // selections (the enabled-RC-channel set).
 
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
+inline constexpr bool kImuHiResEn = {{ imu_hires_en | cpp_bool }};
 inline constexpr uint8_t kBatteryAdcResolutionBits = {{ battery_adc_resolution_bits }};
 inline constexpr uint16_t kBatteryAdcMaxRaw = {{ battery_adc_max_raw }};
 inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};

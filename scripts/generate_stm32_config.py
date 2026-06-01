@@ -268,9 +268,9 @@ DSHOT_TIM1_MODE_CHOICES = {
 def _system_clock_choices(
     enum_cpp_name: str, kconfig_to_value: dict[str, str]
 ) -> dict[str, str]:
-    """Build a Kconfig sym -> `system_clock::<Enum>::<value>` dict."""
+    """Build a Kconfig sym -> `System::<Enum>::<value>` dict."""
     return {
-        sym: f"system_clock::{enum_cpp_name}::{cpp_name}"
+        sym: f"System::{enum_cpp_name}::{cpp_name}"
         for sym, cpp_name in kconfig_to_value.items()
     }
 
@@ -880,6 +880,7 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
     return {
         "autogen_warning": autogen_warning(source),
         "max_watermark_records": sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS"),
+        "imu_hires_en": sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN"),
         "rc_enabled_indices": enabled_rc_indices,
         "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
         "battery_adc_max_raw": BATTERY_ADC_MAX_RAW,
@@ -943,6 +944,86 @@ def _esc_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "command_repeat_count": sym_int(
             kconf, "STM32_ESC_SERVICE_COMMAND_REPEAT_COUNT"
         ),
+    }
+
+
+def _multirotor_mixer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "idle_milli": sym_int(kconf, "STM32_MULTIROTOR_MIXER_IDLE_MILLI"),
+        "pilot_throttle_min_milli": sym_int(
+            kconf, "STM32_PILOT_THROTTLE_MIN_MILLI"
+        ),
+    }
+
+
+def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    def axis_gains(axis: str) -> dict[str, int]:
+        return {
+            "kp_milli": sym_int(kconf, f"STM32_RATE_CTRL_{axis}_KP_MILLI"),
+            "ki_milli": sym_int(kconf, f"STM32_RATE_CTRL_{axis}_KI_MILLI"),
+            "kd_micro": sym_int(kconf, f"STM32_RATE_CTRL_{axis}_KD_MICRO"),
+            "sp_rate_limit": sym_int(
+                kconf, f"STM32_RATE_CTRL_{axis}_SP_RATE_LIMIT"
+            ),
+            "sp_lpf_alpha_milli": sym_int(
+                kconf, f"STM32_RATE_CTRL_{axis}_SP_LPF_ALPHA_MILLI"
+            ),
+        }
+
+    return {
+        "smoothing_enabled": sym_bool(kconf, "STM32_RATE_CTRL_SMOOTHING_ENABLED"),
+        "integrator_clamp_milli": sym_int(
+            kconf, "STM32_RATE_CTRL_INTEGRATOR_CLAMP_MILLI"
+        ),
+        "output_clamp_milli": sym_int(kconf, "STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI"),
+        "d_term_lpf_alpha_milli": sym_int(kconf, "STM32_RATE_CTRL_DLPF_ALPHA_MILLI"),
+        "iterm_freeze_below_throttle_milli": sym_int(
+            kconf, "STM32_RATE_CTRL_ITERM_FREEZE_BELOW_THROTTLE_MILLI"
+        ),
+        "i_factor_error_thresh_milli": sym_int(
+            kconf, "STM32_RATE_CTRL_I_FACTOR_ERROR_THRESH_MILLI"
+        ),
+        "yaw_output_lpf_alpha_milli": sym_int(
+            kconf, "STM32_RATE_CTRL_YAW_OUTPUT_LPF_ALPHA_MILLI"
+        ),
+        "roll": axis_gains("ROLL"),
+        "pitch": axis_gains("PITCH"),
+        "yaw": axis_gains("YAW"),
+    }
+
+
+def _ahrs_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "kp_accel_milli": sym_int(kconf, "STM32_AHRS_KP_ACCEL_MILLI"),
+        "ki_bias_milli": sym_int(kconf, "STM32_AHRS_KI_BIAS_MILLI"),
+        "accel_trust_full_dev_milli": sym_int(
+            kconf, "STM32_AHRS_ACCEL_TRUST_FULL_DEV_MILLI"
+        ),
+        "accel_trust_zero_dev_milli": sym_int(
+            kconf, "STM32_AHRS_ACCEL_TRUST_ZERO_DEV_MILLI"
+        ),
+        "gyro_quiescent_full_milli": sym_int(
+            kconf, "STM32_AHRS_GYRO_QUIESCENT_FULL_MILLI"
+        ),
+        "gyro_quiescent_zero_milli": sym_int(
+            kconf, "STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI"
+        ),
+    }
+
+
+def _attitude_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    def axis_gains(axis: str) -> dict[str, int]:
+        return {
+            "kp_milli": sym_int(kconf, f"STM32_ATT_CTRL_{axis}_KP_MILLI"),
+            "rate_clamp_milli": sym_int(
+                kconf, f"STM32_ATT_CTRL_{axis}_RATE_CLAMP_MILLI"
+            ),
+        }
+
+    return {
+        "roll": axis_gains("ROLL"),
+        "pitch": axis_gains("PITCH"),
+        "yaw": axis_gains("YAW"),
     }
 
 
@@ -1190,6 +1271,10 @@ def _runtime_context(
         "button": _button_context(kconf),
         "battery": _battery_context(kconf),
         "rc_receiver": _rc_receiver_context(kconf),
+        "multirotor_mixer": _multirotor_mixer_context(kconf),
+        "rate_controller": _rate_controller_context(kconf),
+        "ahrs": _ahrs_context(kconf),
+        "attitude_controller": _attitude_controller_context(kconf),
     }
 
 

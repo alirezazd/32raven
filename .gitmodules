@@ -8,3 +8,12 @@
 [submodule "third_party/Adafruit-GFX-Library"]
 	path = third_party/Adafruit-GFX-Library
 	url = https://github.com/adafruit/Adafruit-GFX-Library
+[submodule "third_party/eigen"]
+	path = third_party/eigen
+	url = https://gitlab.com/libeigen/eigen.git
+[submodule "third_party/nanoprintf"]
+	path = third_party/nanoprintf
+	url = https://github.com/charlesnicholson/nanoprintf.git
+[submodule "third_party/stm32_open_pin_data"]
+	path = third_party/stm32_open_pin_data
+	url = https://github.com/STMicroelectronics/STM32_open_pin_data.git

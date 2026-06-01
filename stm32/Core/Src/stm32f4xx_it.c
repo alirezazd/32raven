@@ -47,7 +47,10 @@
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-
+/* SysTick tick counter increment — implemented in system.cpp. Replaces
+   HAL_IncTick() in the SysTick handler below so HAL's uwTick + GetTick
+   infrastructure can be cut from the link entirely. */
+extern void SystemTickInc(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -208,9 +211,9 @@ void PendSV_Handler(void) {
  */
 void SysTick_Handler(void) {
   /* USER CODE BEGIN SysTick_IRQn 0 */
-
+  SystemTickInc();
   /* USER CODE END SysTick_IRQn 0 */
-  HAL_IncTick();
+  /* HAL_IncTick() removed: tick counter lives in system.cpp now. */
   /* USER CODE BEGIN SysTick_IRQn 1 */
 
   /* USER CODE END SysTick_IRQn 1 */
