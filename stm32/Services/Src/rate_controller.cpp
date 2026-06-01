@@ -57,8 +57,9 @@ std::array<float, 3> RateController::ComputeTorque(
   // will see the LPF transient as a small saturation signal — acceptable
   // at alpha close to 1; the integrator just drains slightly faster than
   // the un-LPF'd ideal.
-  const float yaw_torque = yaw_output_lpf_alpha_ * yaw_raw +
-                           (1.0f - yaw_output_lpf_alpha_) * yaw_output_lpf_prev_;
+  const float yaw_torque =
+      yaw_output_lpf_alpha_ * yaw_raw +
+      (1.0f - yaw_output_lpf_alpha_) * yaw_output_lpf_prev_;
   yaw_output_lpf_prev_ = yaw_torque;
   return {roll_torque, pitch_torque, yaw_torque};
 }

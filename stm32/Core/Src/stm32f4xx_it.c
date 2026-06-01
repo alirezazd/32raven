@@ -18,8 +18,10 @@
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32f4xx_hal.h"
 #include "stm32f4xx_it.h"
+
+#include "stm32f4xx_hal.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -59,13 +61,14 @@ extern void SystemTickInc(void);
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_tim1_up;
 extern DMA_HandleTypeDef hdma_usart1_rx;
 extern DMA_HandleTypeDef hdma_usart1_tx;
 extern DMA_HandleTypeDef hdma_usart2_rx;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern DMA_HandleTypeDef hdma_usart6_rx;
 extern DMA_HandleTypeDef hdma_usart6_tx;
+extern void DshotTim1DmaComplete(void);
+extern void DshotTim1DmaError(void);
 extern void Uart1DmaTxComplete(void);
 extern void Icm42688pOnIrq(void);
 extern void Uart2DmaTxComplete(void);
@@ -227,10 +230,9 @@ void SysTick_Handler(void) {
 /******************************************************************************/
 
 /**
-  * @brief This function handles DMA1 stream1 global interrupt.
-  */
-void DMA1_Stream1_IRQHandler(void)
-{
+ * @brief This function handles DMA1 stream1 global interrupt.
+ */
+void DMA1_Stream1_IRQHandler(void) {
   const uint32_t lisr = DMA1->LISR;
 
   if (lisr & (DMA_LISR_TEIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIF1)) {
@@ -253,10 +255,9 @@ void DMA1_Stream1_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles DMA1 stream3 global interrupt.
-  */
-void DMA1_Stream3_IRQHandler(void)
-{
+ * @brief This function handles DMA1 stream3 global interrupt.
+ */
+void DMA1_Stream3_IRQHandler(void) {
   const uint32_t lisr = DMA1->LISR;
 
   if (lisr & (DMA_LISR_TEIF3 | DMA_LISR_DMEIF3 | DMA_LISR_FEIF3)) {
@@ -276,10 +277,9 @@ void DMA1_Stream3_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles DMA1 stream4 global interrupt.
-  */
-void DMA1_Stream4_IRQHandler(void)
-{
+ * @brief This function handles DMA1 stream4 global interrupt.
+ */
+void DMA1_Stream4_IRQHandler(void) {
   const uint32_t hisr = DMA1->HISR;
 
   DMA1->HIFCR = DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4 |
@@ -370,8 +370,7 @@ void EXTI15_10_IRQHandler(void) {
 /**
  * @brief This function handles DMA2 stream1 global interrupt.
  */
-void DMA2_Stream1_IRQHandler(void)
-{
+void DMA2_Stream1_IRQHandler(void) {
   const uint32_t lisr = DMA2->LISR;
 
   if (lisr & (DMA_LISR_TEIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIF1)) {
@@ -426,20 +425,29 @@ void DMA2_Stream2_IRQHandler(void) {
  * @brief This function handles DMA2 stream5 global interrupt.
  */
 void DMA2_Stream5_IRQHandler(void) {
-  /* USER CODE BEGIN DMA2_Stream5_IRQn 0 */
+  // TIM1 update -> DShot burst DMA. Stream 5 lives in the High flag bank (4-7).
+  const uint32_t hisr = DMA2->HISR;
 
-  /* USER CODE END DMA2_Stream5_IRQn 0 */
-  HAL_DMA_IRQHandler(&hdma_tim1_up);
-  /* USER CODE BEGIN DMA2_Stream5_IRQn 1 */
+  if (hisr & (DMA_HISR_TEIF5 | DMA_HISR_DMEIF5 | DMA_HISR_FEIF5)) {
+    DMA2->HIFCR = DMA_HIFCR_CTEIF5 | DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5 |
+                  DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTCIF5;
+    DMA2_Stream5->CR &= ~DMA_SxCR_EN;
+    while (DMA2_Stream5->CR & DMA_SxCR_EN) {
+    }
+    DshotTim1DmaError();
+    return;
+  }
 
-  /* USER CODE END DMA2_Stream5_IRQn 1 */
+  if (hisr & DMA_HISR_TCIF5) {
+    DMA2->HIFCR = DMA_HIFCR_CTCIF5;
+    DshotTim1DmaComplete();
+  }
 }
 
 /**
  * @brief This function handles DMA2 stream6 global interrupt.
  */
-void DMA2_Stream6_IRQHandler(void)
-{
+void DMA2_Stream6_IRQHandler(void) {
   const uint32_t hisr = DMA2->HISR;
 
   if (hisr & (DMA_HISR_TEIF6 | DMA_HISR_DMEIF6 | DMA_HISR_FEIF6)) {

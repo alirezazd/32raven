@@ -153,23 +153,24 @@ constexpr uint8_t FIFO_CONFIG1_RESUME_PARTIAL_RD = 1u << 6;
 // FIFO header byte field definitions (datasheet §6.2). The 1-byte header
 // at offset 0 of every FIFO packet encodes packet variant + ODR-change
 // flags. The driver gates parsing on the variant detected here.
-constexpr uint8_t FIFO_HEADER_MSG               = 1u << 7;  // 1 = no sensor data
-constexpr uint8_t FIFO_HEADER_ACCEL             = 1u << 6;  // accel payload present
-constexpr uint8_t FIFO_HEADER_GYRO              = 1u << 5;  // gyro payload present
-constexpr uint8_t FIFO_HEADER_20                = 1u << 4;  // 20-bit ext present (Packet4)
-constexpr uint8_t FIFO_HEADER_TIMESTAMP_MASK    = 0x0Cu;    // bits[3:2]
-constexpr uint8_t FIFO_HEADER_TIMESTAMP_ODR     = 0x08u;    // 10b → ODR timestamp
-constexpr uint8_t FIFO_HEADER_TIMESTAMP_FSYNC   = 0x0Cu;    // 11b → first ODR after FSYNC
-constexpr uint8_t FIFO_HEADER_ODR_DIFF_ACCEL    = 1u << 1;  // accel ODR changed
-constexpr uint8_t FIFO_HEADER_ODR_DIFF_GYRO     = 1u << 0;  // gyro ODR changed
+constexpr uint8_t FIFO_HEADER_MSG = 1u << 7;    // 1 = no sensor data
+constexpr uint8_t FIFO_HEADER_ACCEL = 1u << 6;  // accel payload present
+constexpr uint8_t FIFO_HEADER_GYRO = 1u << 5;   // gyro payload present
+constexpr uint8_t FIFO_HEADER_20 = 1u << 4;     // 20-bit ext present (Packet4)
+constexpr uint8_t FIFO_HEADER_TIMESTAMP_MASK = 0x0Cu;  // bits[3:2]
+constexpr uint8_t FIFO_HEADER_TIMESTAMP_ODR = 0x08u;   // 10b → ODR timestamp
+constexpr uint8_t FIFO_HEADER_TIMESTAMP_FSYNC =
+    0x0Cu;  // 11b → first ODR after FSYNC
+constexpr uint8_t FIFO_HEADER_ODR_DIFF_ACCEL = 1u << 1;  // accel ODR changed
+constexpr uint8_t FIFO_HEADER_ODR_DIFF_GYRO = 1u << 0;   // gyro ODR changed
 
 // Mask + nominal header values for Packet3 (16-byte) and Packet4 (20-byte
 // HiRes). Masks the top 5 bits; ODR-change flags (bits[1:0]) are ignored.
 //   Packet3: MSG=0, ACCEL=1, GYRO=1, 20=0, TS=ODR → 0x68
 //   Packet4: MSG=0, ACCEL=1, GYRO=1, 20=1, TS=ODR → 0x78
 constexpr uint8_t kFifoHeaderVariantMask = 0xF8u;
-constexpr uint8_t kFifoHeaderPacket3     = 0x68u;
-constexpr uint8_t kFifoHeaderPacket4     = 0x78u;
+constexpr uint8_t kFifoHeaderPacket3 = 0x68u;
+constexpr uint8_t kFifoHeaderPacket4 = 0x78u;
 
 // FSYNC_CONFIG (0x62)
 constexpr uint8_t FSYNC_CONFIG_UI_SEL_MASK = 0x70;  // bits [6:4]
@@ -334,14 +335,14 @@ static constexpr float FifoTemperatureC(int8_t fifo_temp_data) {
 // In 20-bit mode the chip enforces LSB constraints:
 //   gyro  — LSB[0]   = 0  (values are EVEN, gap = 2)
 //   accel — LSB[1:0] = 0  (values are multiples of 4, gap = 4)
-constexpr int16_t kFifo16ValidMin        = -32767;
-constexpr int16_t kFifo16ValidMax        = +32767;
+constexpr int16_t kFifo16ValidMin = -32767;
+constexpr int16_t kFifo16ValidMax = +32767;
 constexpr int16_t kFifo16InvalidSentinel = -32768;
 
-constexpr int32_t kFifo20GyroValidMin    = -524256;
-constexpr int32_t kFifo20GyroValidMax    = +524286;
-constexpr int32_t kFifo20AccelValidMin   = -524256;
-constexpr int32_t kFifo20AccelValidMax   = +524284;
+constexpr int32_t kFifo20GyroValidMin = -524256;
+constexpr int32_t kFifo20GyroValidMax = +524286;
+constexpr int32_t kFifo20AccelValidMin = -524256;
+constexpr int32_t kFifo20AccelValidMax = +524284;
 constexpr int32_t kFifo20InvalidSentinel = -524288;
 
 // ── 20-bit HiRes (Packet4) constants ───────────────────────────────────
@@ -360,8 +361,8 @@ constexpr int32_t kFifo20InvalidSentinel = -524288;
 // mode operation"). The current PWR_MGMT0 = GYRO_MODE_LN|ACCEL_MODE_LN
 // in firmware satisfies this; do not drop to LP while AAF/Notch are
 // enabled.
-constexpr float   kHiResGyroLsbPerDps  = 131.0f;
-constexpr float   kHiResAccelLsbPerG   = 8192.0f;
+constexpr float kHiResGyroLsbPerDps = 131.0f;
+constexpr float kHiResAccelLsbPerG = 8192.0f;
 
 // HiRes accel / gyro LSB → physical conversions. Take the 20-bit signed
 // raw int (stored in an int32_t) and return SI units. These do NOT take

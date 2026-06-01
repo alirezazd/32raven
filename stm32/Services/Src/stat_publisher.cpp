@@ -112,8 +112,7 @@ message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg(
                         : message::kVehicleArmedStateDisarmed;
   // TODO: (RC-loss, battery, IMU, GPS failsafe detection
   msg.failsafe_flags = 0u;
-  msg.flight_mode =
-      static_cast<uint8_t>(ctx.sys->Vehicle().GetFlightMode());
+  msg.flight_mode = static_cast<uint8_t>(ctx.sys->Vehicle().GetFlightMode());
   return msg;
 }
 

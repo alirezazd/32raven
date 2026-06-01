@@ -165,7 +165,8 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   const float max_lim = 1.0f;
 
   // Steps 2-4: PX4 mixAirmodeDisabled.
-  DesaturateActuators(sp, thrust_z, min_lim, max_lim, /*block_motor_lift=*/true);
+  DesaturateActuators(sp, thrust_z, min_lim, max_lim,
+                      /*block_motor_lift=*/true);
   DesaturateActuators(sp, roll, min_lim, max_lim);
   DesaturateActuators(sp, pitch, min_lim, max_lim);
 
@@ -179,7 +180,8 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   DesaturateActuators(sp, yaw, min_lim, max_expanded);
 
   // Step 7: thrust desat with the real upper limit, decrease-only.
-  DesaturateActuators(sp, thrust_z, min_lim, max_lim, /*block_motor_lift=*/true);
+  DesaturateActuators(sp, thrust_z, min_lim, max_lim,
+                      /*block_motor_lift=*/true);
 
   // Step 8: emit. Final clamp is a paranoid safety; the algorithm leaves
   // motors inside [idle, 1] by construction except for the tiny
@@ -202,7 +204,8 @@ MixOutput Mixer::Mix(const Inputs &in) const {
     p_applied += QuadX::kFactors[i][1] * out.motors[i];
     y_applied += QuadX::kFactors[i][2] * out.motors[i];
   }
-  out.applied_torque = {r_applied * 0.25f, p_applied * 0.25f, y_applied * 0.25f};
+  out.applied_torque = {r_applied * 0.25f, p_applied * 0.25f,
+                        y_applied * 0.25f};
   return out;
 }
 
