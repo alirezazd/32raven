@@ -9,10 +9,7 @@ struct AppContext;
 
 class FcLink {
  public:
-  static FcLink &GetInstance() {
-    static FcLink instance;
-    return instance;
-  }
+  static FcLink &GetInstance();
 
   void Init(AppContext *ctx);
 

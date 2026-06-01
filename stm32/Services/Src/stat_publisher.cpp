@@ -4,6 +4,7 @@
 
 #include "ctx.hpp"
 #include "error_code.hpp"
+#include "esc_service.hpp"
 #include "icm42688p.hpp"
 #include "message.hpp"
 #include "system.hpp"
@@ -46,7 +47,7 @@ int8_t StatPublisher::BatteryRemainingPct(const BatteryData &battery) {
 message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
     AppContext &ctx, uint32_t now_us, uint32_t loop_counter,
     const Icm42688p &imu) {
-  const VehicleState &vehicle_state = ctx.sys->GetVehicleState();
+  const VehicleState &vehicle_state = ctx.sys->Vehicle();
   const GpsData &gps = vehicle_state.GetGps();
   const BatteryData &battery = vehicle_state.GetBattery();
   const RcData &rc = vehicle_state.GetRc();
@@ -103,21 +104,27 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   return msg;
 }
 
-message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() {
+message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg(
+    AppContext &ctx) {
   message::VehicleStatusMsg msg{};
-  msg.armed_state = message::kVehicleArmedStateDisarmed;
+  msg.armed_state = ctx.sys->EscSvc().IsArmed()
+                        ? message::kVehicleArmedStateArmed
+                        : message::kVehicleArmedStateDisarmed;
+  // TODO: (RC-loss, battery, IMU, GPS failsafe detection
   msg.failsafe_flags = 0u;
+  msg.flight_mode =
+      static_cast<uint8_t>(ctx.sys->Vehicle().GetFlightMode());
   return msg;
 }
 
 void StatPublisher::Publish(AppContext &ctx, uint32_t now_us,
                             uint32_t loop_counter) {
-  const Icm42688p &imu = ctx.sys->GetImu42688p();
-  ctx.sys->GetFcLink().SendSystemStatus(
+  const Icm42688p &imu = ctx.sys->Imu();
+  ctx.sys->FcLinkSvc().SendSystemStatus(
       BuildSystemStatusMsg(ctx, now_us, loop_counter, imu));
-  ctx.sys->GetFcLink().SendVehicleStatus(BuildVehicleStatusMsg());
-  const EscTelemetryData &esc = ctx.sys->GetVehicleState().GetEscTelemetry();
+  ctx.sys->FcLinkSvc().SendVehicleStatus(BuildVehicleStatusMsg(ctx));
+  const EscTelemetryData &esc = ctx.sys->Vehicle().GetEscTelemetry();
   if (esc.valid_mask != 0u) {
-    ctx.sys->GetFcLink().SendEscTelemetry(esc);
+    ctx.sys->FcLinkSvc().SendEscTelemetry(esc);
   }
 }

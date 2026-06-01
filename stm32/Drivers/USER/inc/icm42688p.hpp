@@ -11,7 +11,8 @@
 
 class GPIO;
 
-class Icm42688p {
+template <bool HiRes>
+class Icm42688pT {
  public:
   static constexpr uint16_t kMaxWatermarkRecords =
       stm32_limits::kIcm42688pMaxWatermarkRecords;
@@ -70,13 +71,37 @@ class Icm42688p {
       uint32_t overrun_window_s;
       uint32_t fault_led_period_ms;
     } recovery;
+
+    // Per-board chip-frame → body-NED axis remap. Applied by
+    // ScaleSample so downstream firmware (estimator, controllers,
+    // mixer) operates in body-NED end-to-end. Each component selects
+    // one chip-frame axis (0=X, 1=Y, 2=Z) and an optional sign flip.
+    //
+    // Identity (the default) means the chip is mounted such that its
+    // native axes already align with body-NED — chip +X = body +X
+    // (North), chip +Y = body +Y (East), chip +Z = body +Z (Down).
+    // Boards that rotate or flip the chip select the corresponding
+    // non-identity map.
+    //
+    // Single conversion boundary: NO downstream code should re-flip
+    // axes. See firmware_ned_convention memory + states.cpp's
+    // OnFastTick gyro/rate_sp arrays (which carry NED directly,
+    // no flips).
+    struct AxisMap {
+      uint8_t x_from = 0;  // chip-frame axis index feeding body +X
+      bool x_neg = false;
+      uint8_t y_from = 1;
+      bool y_neg = false;
+      uint8_t z_from = 2;
+      bool z_neg = false;
+    } axis_map{};
   };
 
   struct Sample {
     uint64_t timestamp_us;
-    int16_t accel[3];
-    int16_t gyro[3];
-    int8_t temp_raw;
+    int32_t accel[3];
+    int32_t gyro[3];
+    int16_t temp_raw;
     uint32_t seq;
   };
 
@@ -93,10 +118,7 @@ class Icm42688p {
     uint32_t seq;
   };
 
-  static Icm42688p &GetInstance() {
-    static Icm42688p inst;
-    return inst;
-  }
+  static Icm42688pT &GetInstance();
 
   void Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg);
   void OnIrq();
@@ -140,10 +162,10 @@ class Icm42688p {
   bool IsInitialized() const { return device_id_ != 0u; }
 
  private:
-  Icm42688p() = default;
-  ~Icm42688p() = default;
-  Icm42688p(const Icm42688p &) = delete;
-  Icm42688p &operator=(const Icm42688p &) = delete;
+  Icm42688pT() = default;
+  ~Icm42688pT() = default;
+  Icm42688pT(const Icm42688pT &) = delete;
+  Icm42688pT &operator=(const Icm42688pT &) = delete;
 
   void WriteReg(uint8_t reg, uint8_t val);
   uint8_t ReadReg(uint8_t reg);
@@ -175,11 +197,13 @@ class Icm42688p {
   void OnSpiDone(bool ok);
   void PublishLatestBatch(const SampleBatch &batch);
   bool ParsePacket3Record(const uint8_t *rec, Sample &out);
+  bool ParsePacket4Record(const uint8_t *rec, Sample &out);
   void UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us);
-  static uint32_t EffectiveOdrHz(Icm42688pReg::Odr odr,
-                                 const Config::ExternalClock &external_clock);
+  static uint32_t EffectiveOdrHz(
+      Icm42688pReg::Odr odr,
+      const typename Config::ExternalClock &external_clock);
   static uint32_t TimestampTickScaleQ16(
-      const Config::ExternalClock &external_clock);
+      const typename Config::ExternalClock &external_clock);
 
   static constexpr uint32_t kExternalClockMinHz = 31000u;
   static constexpr uint32_t kExternalClockMaxHz = 50000u;
@@ -187,9 +211,16 @@ class Icm42688p {
   static constexpr uint32_t kExternalClockTimestampReferenceHz = 32768u;
   static constexpr uint32_t kTimestampScaleQ16 = 1u << 16;
 
-  // Packet3 record stride remains 16 bytes in FIFO stream layout.
-  static constexpr uint16_t kPacketBytes = 16;
-  static constexpr uint16_t kMaxReadBytes = kMaxWatermarkRecords * kPacketBytes;
+  // DMA buffer sized for the worst-case Packet4 (20-byte record). In
+  // Packet3 mode only the first 16 bytes per record are populated; the
+  // tail stays zero. Kept static so the SPI DMA descriptor + buffers
+  // never need re-allocation when the FIFO mode flips.
+  static constexpr uint16_t kMaxPacketBytes = Icm42688pReg::kPacket4Bytes;
+  static constexpr uint16_t kMaxReadBytes =
+      kMaxWatermarkRecords * kMaxPacketBytes;
+
+  static constexpr uint16_t kPacketBytes =
+      HiRes ? Icm42688pReg::kPacket4Bytes : Icm42688pReg::kPacket3Bytes;
 
   uint16_t fifo_wm_records_{0};
   uint8_t fifo_tx_[1 + kMaxReadBytes]{};
@@ -216,10 +247,13 @@ class Icm42688p {
   bool fifo_hold_last_data_en_{false};
   Icm42688pReg::AccelFs accel_fs_{};
   Icm42688pReg::GyroFs gyro_fs_{};
+  // Captured from cfg.axis_map at Init. Applied per sample in
+  // ScaleSample to convert chip-frame → body-NED.
+  typename Config::AxisMap axis_map_{};
   Icm42688pReg::Odr gyro_odr_{};
   uint32_t gyro_odr_hz_{0};
-  Config::Calibration calibration_cfg_{};
-  Config::Recovery recovery_cfg_{};
+  typename Config::Calibration calibration_cfg_{};
+  typename Config::Recovery recovery_cfg_{};
   uint64_t last_overrun_fault_us_{0};
   uint32_t overrun_window_count_{0};
   uint8_t who_am_i_{0};
@@ -236,3 +270,5 @@ class Icm42688p {
   std::atomic<uint32_t> drop_cnt_{0};
   uint32_t seq_{0};
 };
+
+using Icm42688p = Icm42688pT<stm32_limits::kImuHiResEn>;

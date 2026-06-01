@@ -48,6 +48,11 @@ uint8_t KissCrc8(const uint8_t *data, uint8_t len) {
 
 }  // namespace
 
+EscTelemetry &EscTelemetry::GetInstance() {
+  static EscTelemetry instance;
+  return instance;
+}
+
 void EscTelemetry::Init(const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
@@ -90,8 +95,8 @@ void EscTelemetry::StartRxDma() {
   DMA1->LIFCR = DMA_LIFCR_CTCIF1 | DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTEIF1 |
                 DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1;
 
-  DMA1_Stream1->PAR = reinterpret_cast<uint32_t>(&USART3->DR);
-  DMA1_Stream1->M0AR = reinterpret_cast<uint32_t>(rx_dma_buf_);
+  DMA1_Stream1->PAR = reinterpret_cast<uintptr_t>(&USART3->DR);
+  DMA1_Stream1->M0AR = reinterpret_cast<uintptr_t>(rx_dma_buf_);
   DMA1_Stream1->NDTR = kRxDmaSize;
   rx_last_pos_ = 0;
 
@@ -146,17 +151,19 @@ void EscTelemetry::OnUartInterrupt() {
   bool drain = false;
 
   if ((sr & (USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)) != 0u) {
+    // `count = count + 1` instead of `count++` because C++20 deprecates
+    // the increment of volatile-qualified scalars.
     if ((sr & USART_SR_ORE) != 0u) {
-      uart_ore_error_count_++;
+      uart_ore_error_count_ = uart_ore_error_count_ + 1u;
     }
     if ((sr & USART_SR_FE) != 0u) {
-      uart_fe_error_count_++;
+      uart_fe_error_count_ = uart_fe_error_count_ + 1u;
     }
     if ((sr & USART_SR_NE) != 0u) {
-      uart_ne_error_count_++;
+      uart_ne_error_count_ = uart_ne_error_count_ + 1u;
     }
     if ((sr & USART_SR_PE) != 0u) {
-      uart_pe_error_count_++;
+      uart_pe_error_count_ = uart_pe_error_count_ + 1u;
     }
     drain = true;
   }
@@ -178,7 +185,7 @@ void EscTelemetry::OnRxCplt() { DrainRx(); }
 
 void EscTelemetry::HandleRxDmaError(uint32_t isr_flags) {
   (void)isr_flags;
-  rx_dma_error_count_++;
+  rx_dma_error_count_ = rx_dma_error_count_ + 1u;  // volatile-safe (C++20)
   StartRxDma();
 }
 

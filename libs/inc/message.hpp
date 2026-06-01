@@ -178,7 +178,8 @@ inline constexpr uint32_t kVehicleFailsafeFlagGps = 1u << 3;
 struct VehicleStatusMsg {
   uint8_t armed_state;
   uint32_t failsafe_flags;
-  uint8_t reserved[3];
+  uint8_t flight_mode;  // matches FlightMode's underlying uint8_t
+  uint8_t reserved[2];
 } __attribute__((packed));
 
 struct PanicMsg {

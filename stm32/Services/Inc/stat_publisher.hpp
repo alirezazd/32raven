@@ -2,7 +2,8 @@
 
 #include <cstdint>
 
-class Icm42688p;
+#include "icm42688p.hpp"
+
 struct AppContext;
 struct BatteryData;
 
@@ -33,5 +34,5 @@ class StatPublisher {
                                                        uint32_t now_us,
                                                        uint32_t loop_counter,
                                                        const Icm42688p &imu);
-  static message::VehicleStatusMsg BuildVehicleStatusMsg();
+  static message::VehicleStatusMsg BuildVehicleStatusMsg(AppContext &ctx);
 };

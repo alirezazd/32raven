@@ -9,6 +9,7 @@
 #include "error_code.hpp"
 #include "esp32_config.hpp"
 #include "esp_log.h"
+#include "flight_mode.hpp"
 #include "mavlink.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -330,7 +331,21 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
                                                    uint32_t now_ms) {
   constexpr uint8_t mav_autopilot_32raven = 200;
 
-  uint8_t base_mode = 0;
+  const bool vehicle_armed =
+      vehicle_status_.have_data &&
+      vehicle_status_.value.armed_state == message::kVehicleArmedStateArmed;
+
+  uint8_t base_mode =
+      MAV_MODE_FLAG_CUSTOM_MODE_ENABLED | MAV_MODE_FLAG_MANUAL_INPUT_ENABLED;
+  if (vehicle_armed) {
+    base_mode |= MAV_MODE_FLAG_SAFETY_ARMED;
+  }
+  if (vehicle_status_.have_data &&
+      static_cast<FlightMode>(vehicle_status_.value.flight_mode) ==
+          FlightMode::kStabilize) {
+    base_mode |= MAV_MODE_FLAG_STABILIZE_ENABLED;
+  }
+
   uint8_t system_status = MAV_STATE_BOOT;
   if (system_status_.have_data) {
     const message::SystemStatusMsg &status = system_status_.value;
@@ -341,15 +356,8 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
     const bool system_error =
         status.error_code != static_cast<uint32_t>(ErrorCode::Common::kOk) ||
         status.boot_state == message::kSystemBootStateError;
-    const bool vehicle_armed =
-        vehicle_status_.have_data &&
-        vehicle_status_.value.armed_state == message::kVehicleArmedStateArmed;
     const bool vehicle_failsafe =
         vehicle_status_.have_data && vehicle_status_.value.failsafe_flags != 0u;
-
-    if (vehicle_armed) {
-      base_mode |= MAV_MODE_FLAG_SAFETY_ARMED;
-    }
 
     if (!fresh || !loop_alive || system_error || vehicle_failsafe) {
       system_status = MAV_STATE_CRITICAL;
@@ -362,10 +370,27 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
     }
   }
 
+  // PX4 custom_mode layout: bytes [reserved(2), main_mode, sub_mode].
+  // main_mode values from
+  // PX4-Autopilot/src/modules/commander/px4_custom_mode.h:
+  //   5 = PX4_CUSTOM_MAIN_MODE_ACRO, 7 = PX4_CUSTOM_MAIN_MODE_STABILIZED.
+  uint8_t main_mode = 0;
+  if (vehicle_status_.have_data) {
+    switch (static_cast<FlightMode>(vehicle_status_.value.flight_mode)) {
+      case FlightMode::kAcro:
+        main_mode = 5;
+        break;
+      case FlightMode::kStabilize:
+        main_mode = 7;
+        break;
+    }
+  }
+  const uint32_t custom_mode = static_cast<uint32_t>(main_mode) << 16;
+
   mavlink_message_t m{};
   mavlink_msg_heartbeat_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
                              MAV_TYPE_QUADROTOR, mav_autopilot_32raven,
-                             base_mode, 0, system_status);
+                             base_mode, custom_mode, system_status);
 
   TxFrameState frame{};
   frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));

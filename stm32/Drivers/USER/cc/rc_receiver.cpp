@@ -6,6 +6,7 @@
 #include "config_storage.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
+#include "stm32_config.hpp"
 #include "vehicle_state.hpp"
 
 namespace {
@@ -56,6 +57,11 @@ uint16_t ScaleSegment(uint16_t raw_us, uint16_t in_min_us, uint16_t in_max_us,
 
 }  // namespace
 
+RcReceiver &RcReceiver::GetInstance() {
+  static RcReceiver instance;
+  return instance;
+}
+
 float RcReceiver::NormalizedAxis(uint16_t us) {
   if (us == 0u) return 0.0f;
   const float v = (static_cast<float>(us) - kCalibratedTrimUs) /
@@ -70,10 +76,18 @@ float RcReceiver::NormalizedThrottle(uint16_t us) {
   return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
 }
 
+void RcReceiver::SetThrottleMin(float v) {
+  if (v < 0.0f || v > 1.0f) {
+    Panic(ErrorCode::Stm32::kRcReceiverInvalidThrottleMin);
+  }
+  throttle_min_ = v;
+}
+
 void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEepromReinit);
   }
+  throttle_min_ = kPilotThrottleMin;
 
   if (!IsConfigValid(cfg)) {
     Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);

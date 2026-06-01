@@ -56,6 +56,7 @@ enum class Stm32 : uint32_t {
   kImuOdrMismatch,
   kImuNotInitialized,
   kImuReinit,
+  kImuAxisMapInvalid,
   kImuInvalidSampleDetected,
   kImuCalibrationInvalidConfig,
   kImuCalibrationMotionDetected,
@@ -70,7 +71,10 @@ enum class Stm32 : uint32_t {
   kEepromSchemaMismatch,
   // Misc
   kRcReceiverInvalidConfig,
+  kRcReceiverInvalidThrottleMin,
   kMixerInvalidConfig,
+  kAhrsInvalidConfig,
+  kAttitudeControllerInvalidConfig,
 };
 
 enum class Esp32 : uint32_t {

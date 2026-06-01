@@ -38,10 +38,7 @@ class EscTelemetry {
     uint32_t uart_error_count = 0;
   };
 
-  static EscTelemetry &GetInstance() {
-    static EscTelemetry instance;
-    return instance;
-  }
+  static EscTelemetry &GetInstance();
 
   void Init(const Config &cfg);
   void ExpectMotor(uint8_t motor_index, uint32_t now_us);

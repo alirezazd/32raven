@@ -1,10 +1,11 @@
 #pragma once
 
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 #include <array>
 #include <cstdint>
 
-#include "math/quaternion.hpp"
-#include "math/vec3.hpp"
+#include "flight_mode.hpp"
 #include "stm32_limits.hpp"
 
 // ---------------------------------------------------------
@@ -79,8 +80,11 @@ struct EscTelemetryData {
 
 struct ImuState {
   uint64_t timestamp_us = 0;
-  math::Vec3 gyro_body_rad_s{};
-  math::Quaternion attitude_world_to_body = math::Identity();
+  Eigen::Vector3f gyro_body_rad_s = Eigen::Vector3f::Zero();
+  // Body attitude in world (NED).
+  Eigen::Quaternionf attitude_world_to_body = Eigen::Quaternionf::Identity();
+  // Die temperature decoded from the FIFO Packet3/4 temperature word.
+  float temperature_c = 0.0f;
 };
 
 struct RcData {
@@ -115,6 +119,7 @@ class VehicleState {
     rc_.updated = true;
   }
   void UpdateImu(const ImuState &data) { imu_ = data; }
+  void SetFlightMode(FlightMode mode) { mode_ = mode; }
 
   // --- READERS (Called by Logic/Consumers) ---
 
@@ -124,6 +129,7 @@ class VehicleState {
   const EscTelemetryData &GetEscTelemetry() const { return esc_; }
   const RcData &GetRc() const { return rc_; }
   const ImuState &GetImu() const { return imu_; }
+  FlightMode GetFlightMode() const { return mode_; }
 
   // Polling access for Telemetry/Log (Low Frequency)
   // Returns true if new data was available since last pop
@@ -151,4 +157,5 @@ class VehicleState {
   EscTelemetryData esc_{};
   RcData rc_{};
   ImuState imu_{};
+  FlightMode mode_ = FlightMode::kAcro;
 };
