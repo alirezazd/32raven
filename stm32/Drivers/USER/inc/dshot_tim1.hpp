@@ -1,10 +1,6 @@
 #pragma once
 #include <cstdint>
 
-namespace bench {
-struct DShotTim1Sil;  // SIL bench friend marker
-}  // namespace bench
-
 struct DShotTim1Timings {
   uint16_t arr;
   uint16_t t1h;
@@ -39,7 +35,6 @@ class DShotTim1 {
 
  private:
   friend class System;
-  friend struct ::bench::DShotTim1Sil;
 
   DShotTim1() = default;
   DShotTim1(const DShotTim1 &) = delete;

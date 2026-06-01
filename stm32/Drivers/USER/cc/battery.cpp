@@ -40,6 +40,11 @@ float ClampFloat(float value, float low, float high) {
 
 }  // namespace
 
+Battery &Battery::GetInstance() {
+  static Battery instance;
+  return instance;
+}
+
 void Battery::Init(const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kAdcInitFailed);

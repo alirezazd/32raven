@@ -18,10 +18,7 @@ class DShotCodec {
     uint8_t gap_bits;
   };
 
-  static DShotCodec &GetInstance() {
-    static DShotCodec instance;
-    return instance;
-  }
+  static DShotCodec &GetInstance();
 
   void Init(const Config &cfg);
   bool Write(const MotorValues &motor, bool telemetry = false);

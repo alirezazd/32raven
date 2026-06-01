@@ -3,10 +3,10 @@
 
 #include <cstdint>
 
+#include "stm32f4xx.h"  // for TIM2 (used inline by Micros())
+
 #define SECONDS_TO_MICROS(s) ((s) * 1000000u)
 #define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
-
-namespace bench { struct TimeBaseSil; }  // SIL bench friend marker
 
 struct TimeBaseConfig {
   struct Tim2 {
@@ -26,7 +26,11 @@ class TimeBase {
  public:
   using Config = TimeBaseConfig;
 
-  uint32_t Micros() const;
+  __attribute__((always_inline)) inline uint32_t Micros()
+      const {  // Read TIM2's 32-bit counter directly to minimize call overhead
+               // in the fast path.
+    return TIM2->CNT;
+  }
 
   void DelayMicros(uint32_t us) const;
 
@@ -35,7 +39,6 @@ class TimeBase {
 
  private:
   friend class System;
-  friend struct ::bench::TimeBaseSil;
   void Init(const Config &config);
 
   static TimeBase &GetInstance();

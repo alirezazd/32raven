@@ -2,6 +2,11 @@
 
 #include "gpio.hpp"
 
+Button &Button::GetInstance() {
+  static Button instance;
+  return instance;
+}
+
 void Button::Init(GPIO &gpio, const Config &cfg) {
   gpio_ = &gpio;
 
