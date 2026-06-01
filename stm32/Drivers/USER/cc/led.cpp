@@ -1,5 +1,10 @@
 #include "led.hpp"
 
+LED &LED::GetInstance() {
+  static LED instance;
+  return instance;
+}
+
 void LED::Init(GPIO &gpio, const Config &cfg) {
   gpio_ = &gpio;
   port_ = cfg.pin.port;

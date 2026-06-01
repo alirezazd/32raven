@@ -17,10 +17,7 @@ class Button {
     uint32_t long_press_ms;  // e.g. 500
   };
 
-  static Button &GetInstance() {
-    static Button instance;
-    return instance;
-  }
+  static Button &GetInstance();
 
   void Poll(uint32_t now_ms);
 

@@ -56,9 +56,6 @@ void TimeBase::Init(const Config &config) {
   TIM5->CR1 |= TIM_CR1_CEN;
 }
 
-// Raw, monotonic, fast. Wraps about every 71.6 minutes at 1MHz.
-uint32_t TimeBase::Micros() const { return TIM2->CNT; }
-
 void TimeBase::DelayMicros(uint32_t us) const {
   uint32_t start = TIM2->CNT;
   while ((TIM2->CNT - start) < us) {

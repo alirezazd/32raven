@@ -25,10 +25,7 @@ class Battery {
     uint32_t initial_mah_drawn;
   };
 
-  static Battery &GetInstance() {
-    static Battery instance;
-    return instance;
-  }
+  static Battery &GetInstance();
 
   void Poll(uint32_t now_us);
   const BatteryData &GetData() const { return data_; }

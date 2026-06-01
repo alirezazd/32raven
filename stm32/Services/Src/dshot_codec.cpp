@@ -4,6 +4,11 @@
 #include "error_code.hpp"
 #include "panic.hpp"
 
+DShotCodec &DShotCodec::GetInstance() {
+  static DShotCodec instance;
+  return instance;
+}
+
 void DShotCodec::Init(const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kDshotCodecInvalidArg);

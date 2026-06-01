@@ -47,6 +47,11 @@ bool BufferIsErased(const uint8_t *data, size_t len) {
 
 }  // namespace
 
+EE &EE::GetInstance() {
+  static EE instance;
+  return instance;
+}
+
 void EE::Init(GPIO &gpio, Spi1 &spi) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEepromReinit);

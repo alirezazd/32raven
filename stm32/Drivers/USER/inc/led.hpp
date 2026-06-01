@@ -22,10 +22,7 @@ class LED {
   friend class System;
   void Init(GPIO &gpio, const Config &cfg);
 
-  static LED &GetInstance() {
-    static LED instance;
-    return instance;
-  }
+  static LED &GetInstance();
 
   LED() = default;
   ~LED() = default;
