@@ -39,8 +39,7 @@ static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  const message::RcMapConfigMsg rc_map =
-      ctx.sys->RcRx().GetRcMapConfig();
+  const message::RcMapConfigMsg rc_map = ctx.sys->RcRx().GetRcMapConfig();
   if (!message::IsRcMapConfigValid(rc_map)) {
     Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
@@ -95,8 +94,7 @@ static void OnSetRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
     (void)ctx.sys->RcRx().SetRcMapConfig(*req);
   }
 
-  const message::RcMapConfigMsg rc_map =
-      ctx.sys->RcRx().GetRcMapConfig();
+  const message::RcMapConfigMsg rc_map = ctx.sys->RcRx().GetRcMapConfig();
   if (!message::IsRcMapConfigValid(rc_map)) {
     Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }

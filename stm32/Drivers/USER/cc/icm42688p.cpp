@@ -408,7 +408,8 @@ void Icm42688pT<HiRes>::InjectOverrunFaultForTest() {
 }
 
 template <bool HiRes>
-typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(const Sample &sample) const {
+typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(
+    const Sample &sample) const {
   // HiRes mode locks the chip to ±2000 dps + ±16g (datasheet §6.1) and
   // delivers fixed sensitivities; the AccelFs/GyroFs config knobs are
   // ignored by the chip in that mode, so we must also bypass the
@@ -452,7 +453,8 @@ typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(const Sa
 }
 
 template <bool HiRes>
-void Icm42688pT<HiRes>::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
+void Icm42688pT<HiRes>::UpdateTimestampAndSync(uint16_t ts16,
+                                               uint64_t &out_host_us) {
   // Unwrap 16-bit timestamp (1us ticks) into tmst64_us_
   if (!tmst_inited_) {
     last_tmst16_ = ts16;
@@ -584,30 +586,27 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   //   0x11       Accel X [3:0] (upper nibble) | Gyro X [3:0] (lower nibble)
   //   0x12       Accel Y [3:0] | Gyro Y [3:0]
   //   0x13       Accel Z [3:0] | Gyro Z [3:0]
-  const int16_t  temp16 = be_s16(&rec[0x0D]);
-  const uint16_t ts16   = be_u16(&rec[0x0F]);
+  const int16_t temp16 = be_s16(&rec[0x0D]);
+  const uint16_t ts16 = be_u16(&rec[0x0F]);
 
   uint64_t host_ts_us = 0;
   UpdateTimestampAndSync(ts16, host_ts_us);
   out.timestamp_us = host_ts_us;
-  out.temp_raw     = temp16;
+  out.temp_raw = temp16;
 
   const uint8_t b11 = rec[0x11];
   const uint8_t b12 = rec[0x12];
   const uint8_t b13 = rec[0x13];
 
-  out.accel[0] = pack20(be_s16(&rec[0x01]),
-                        static_cast<uint8_t>((b11 >> 4) & 0x0Fu));
-  out.accel[1] = pack20(be_s16(&rec[0x03]),
-                        static_cast<uint8_t>((b12 >> 4) & 0x0Fu));
-  out.accel[2] = pack20(be_s16(&rec[0x05]),
-                        static_cast<uint8_t>((b13 >> 4) & 0x0Fu));
-  out.gyro[0]  = pack20(be_s16(&rec[0x07]),
-                        static_cast<uint8_t>(b11 & 0x0Fu));
-  out.gyro[1]  = pack20(be_s16(&rec[0x09]),
-                        static_cast<uint8_t>(b12 & 0x0Fu));
-  out.gyro[2]  = pack20(be_s16(&rec[0x0B]),
-                        static_cast<uint8_t>(b13 & 0x0Fu));
+  out.accel[0] =
+      pack20(be_s16(&rec[0x01]), static_cast<uint8_t>((b11 >> 4) & 0x0Fu));
+  out.accel[1] =
+      pack20(be_s16(&rec[0x03]), static_cast<uint8_t>((b12 >> 4) & 0x0Fu));
+  out.accel[2] =
+      pack20(be_s16(&rec[0x05]), static_cast<uint8_t>((b13 >> 4) & 0x0Fu));
+  out.gyro[0] = pack20(be_s16(&rec[0x07]), static_cast<uint8_t>(b11 & 0x0Fu));
+  out.gyro[1] = pack20(be_s16(&rec[0x09]), static_cast<uint8_t>(b12 & 0x0Fu));
+  out.gyro[2] = pack20(be_s16(&rec[0x0B]), static_cast<uint8_t>(b13 & 0x0Fu));
 
   // Invalid-sample sentinel (datasheet §12.8) — chip writes -524288
   // when FIFO_HOLD_LAST_DATA_EN=0 and no fresh data is available.
@@ -615,8 +614,8 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   if (!fifo_hold_last_data_en_) {
     static constexpr int32_t kInvalid20 = Icm42688pReg::kFifo20InvalidSentinel;
     if (out.accel[0] == kInvalid20 || out.accel[1] == kInvalid20 ||
-        out.accel[2] == kInvalid20 || out.gyro[0]  == kInvalid20 ||
-        out.gyro[1]  == kInvalid20 || out.gyro[2]  == kInvalid20) {
+        out.accel[2] == kInvalid20 || out.gyro[0] == kInvalid20 ||
+        out.gyro[1] == kInvalid20 || out.gyro[2] == kInvalid20) {
       Panic(ErrorCode::Stm32::kImuInvalidSampleDetected);
       return false;
     }
@@ -639,7 +638,8 @@ void Icm42688pT<HiRes>::PublishLatestBatch(const SampleBatch &batch) {
 }
 
 template <bool HiRes>
-bool Icm42688pT<HiRes>::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
+bool Icm42688pT<HiRes>::WaitAndGetLatestBatch(uint32_t &last_seq,
+                                              SampleBatch &out) {
   uint32_t s = tick_seq_.load(std::memory_order_acquire);
   if (s == last_seq) {
     return false;
@@ -668,7 +668,8 @@ bool Icm42688pT<HiRes>::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &o
 }
 
 template <bool HiRes>
-typename Icm42688pT<HiRes>::SampleBatch Icm42688pT<HiRes>::GetLatestBatch() const {
+typename Icm42688pT<HiRes>::SampleBatch Icm42688pT<HiRes>::GetLatestBatch()
+    const {
   SampleBatch out{};
   uint32_t seq = tick_seq_.load(std::memory_order_acquire);
   if (seq == 0) {
@@ -757,7 +758,8 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
   if constexpr (HiRes) {
     dps_per_lsb = 1.0f / Icm42688pReg::kHiResGyroLsbPerDps;
   } else {
-    dps_per_lsb = Icm42688pReg::GyroRangeDps(gyro_fs_) / Icm42688pReg::kFifoDataLsb;
+    dps_per_lsb =
+        Icm42688pReg::GyroRangeDps(gyro_fs_) / Icm42688pReg::kFifoDataLsb;
   }
   for (int axis = 0; axis < 3; ++axis) {
     const int32_t bias_raw =
@@ -802,8 +804,9 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
 }
 
 template <bool HiRes>
-void Icm42688pT<HiRes>::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
-                                     int16_t z_offset_lsb) {
+void Icm42688pT<HiRes>::WriteGyroUserOffsets(int16_t x_offset_lsb,
+                                             int16_t y_offset_lsb,
+                                             int16_t z_offset_lsb) {
   auto pack12 = [](int16_t offset_lsb) -> uint16_t {
     return static_cast<uint16_t>(offset_lsb) & 0x0FFFu;
   };
@@ -856,7 +859,8 @@ void Icm42688pT<HiRes>::SoftReset() {
 
 template <bool HiRes>
 uint32_t Icm42688pT<HiRes>::EffectiveOdrHz(
-    Icm42688pReg::Odr odr, const typename Config::ExternalClock &external_clock) {
+    Icm42688pReg::Odr odr,
+    const typename Config::ExternalClock &external_clock) {
   const uint32_t odr_hz = Icm42688pReg::OdrHz(odr);
   if (!external_clock.enabled) {
     return odr_hz;

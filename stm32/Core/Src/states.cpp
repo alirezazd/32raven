@@ -16,8 +16,9 @@ namespace {
 // in 2d when tuning is wanted.
 constexpr std::size_t kFlightModeChannelIndex = 4u;
 constexpr std::uint16_t kFlightModeThresholdUs = 1500u;
-static_assert(kFlightModeChannelIndex < stm32_limits::kRcEnabledChannelCount,
-              "kFlightModeChannelIndex exceeds the configured RC channel count");
+static_assert(
+    kFlightModeChannelIndex < stm32_limits::kRcEnabledChannelCount,
+    "kFlightModeChannelIndex exceeds the configured RC channel count");
 
 // Max tilt the Stabilize mode will command from a full stick deflection
 // (rad). 30° is the conservative beginner / camera default; FPV-leaning
@@ -281,13 +282,14 @@ void IdleState::OnFastTick(AppContext &ctx,
         .thrust = pilot_thrust,
     };
     // 2) Mix → motor commands + back-projected per-axis applied torque.
-    //    `mix.motors` is zero on every channel when disarmed; `mix.applied_torque`
-    //    is zero in that case, and reflects the post-saturation-rescale
-    //    effective body torque when armed (equals commanded in the linear
-    //    region, < commanded after Betaflight motor-mix rescale).
+    //    `mix.motors` is zero on every channel when disarmed;
+    //    `mix.applied_torque` is zero in that case, and reflects the
+    //    post-saturation-rescale effective body torque when armed (equals
+    //    commanded in the linear region, < commanded after Betaflight motor-mix
+    //    rescale).
     const auto mix = ctx.sys->MixerSvc().Mix(in);
     (void)ctx.sys->EscSvc().WriteMotorsThrust(mix.motors,
-                                                     ctx.sys->Time().Micros());
+                                              ctx.sys->Time().Micros());
 
     // 3) Commit integrators with the per-axis APPLIED torque. Back-calc
     //    anti-windup drains the integrator at rate Kt = Ki/Kp whenever
@@ -473,8 +475,8 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
 
     if (kEnableEspLogs) {
       ctx.sys->FcLinkSvc().SendLog(
-          "Sched: GpsB=%lu Drop=%lu/s Phase=%lu Loss=%lu",
-          g_dbg_max_gps_bytes, drop_rate_per_sec, 0u, high_loss_consec);
+          "Sched: GpsB=%lu Drop=%lu/s Phase=%lu Loss=%lu", g_dbg_max_gps_bytes,
+          drop_rate_per_sec, 0u, high_loss_consec);
     }
 
     (void)drop_rate_per_sec;

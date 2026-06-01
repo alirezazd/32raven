@@ -22,9 +22,7 @@ bool IsConfigValid(const Ahrs::Config &cfg) {
 // Cubic-Hermite smoothstep on [0, 1]. Smooth at both endpoints (zero
 // derivative there), branchless, ~3 FMAs on Cortex-M4. The standard
 // shape for soft trust transitions used in PX4, ArduPilot, etc.
-inline float SmoothStep01(float t) {
-  return t * t * (3.0f - 2.0f * t);
-}
+inline float SmoothStep01(float t) { return t * t * (3.0f - 2.0f * t); }
 
 // Two-sided trust weight: 1.0 within ±full_dev of the centre, smooth
 // ramp to 0.0 by ±zero_dev, 0.0 beyond. When zero_dev <= full_dev the
@@ -95,8 +93,8 @@ ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
     float dt_s = 0.0f;
     if (i == 0) {
       if (has_last_sample_ts_ && raw.timestamp_us > last_sample_ts_us_) {
-        dt_s = static_cast<float>(raw.timestamp_us - last_sample_ts_us_) *
-               1e-6f;
+        dt_s =
+            static_cast<float>(raw.timestamp_us - last_sample_ts_us_) * 1e-6f;
       }
     } else {
       const uint64_t prev_ts = batch.samples[i - 1u].timestamp_us;
@@ -125,9 +123,9 @@ ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
     const float accel_norm = accel.norm();
     if (accel_norm > 1e-3f) {
       const float accel_norm_g = accel_norm / kGravityMps2;
-      const float accel_trust = TwoSidedTrustWeight(
-          accel_norm_g, 1.0f, cfg_.accel_trust_full_dev_g,
-          cfg_.accel_trust_zero_dev_g);
+      const float accel_trust =
+          TwoSidedTrustWeight(accel_norm_g, 1.0f, cfg_.accel_trust_full_dev_g,
+                              cfg_.accel_trust_zero_dev_g);
       if (accel_trust > 0.0f) {
         const Eigen::Vector3f world_up(0.0f, 0.0f, -1.0f);
         const Eigen::Vector3f v_ref = q_.conjugate() * world_up;

@@ -17,19 +17,19 @@
 // Enable only what the firmware uses today; adjust if SendLog format
 // strings grow new conversions later.
 #define NANOPRINTF_USE_FIELD_WIDTH_FORMAT_SPECIFIERS 1
-#define NANOPRINTF_USE_PRECISION_FORMAT_SPECIFIERS   1
-#define NANOPRINTF_USE_FLOAT_FORMAT_SPECIFIERS       0  // no %f / %e / %g
-#define NANOPRINTF_USE_LARGE_FORMAT_SPECIFIERS       1  // %lld, %lu, %zu, …
-#define NANOPRINTF_USE_SMALL_FORMAT_SPECIFIERS       1  // %hd, %hhd
-#define NANOPRINTF_USE_WRITEBACK_FORMAT_SPECIFIERS   0  // no %n
-#define NANOPRINTF_USE_BINARY_FORMAT_SPECIFIERS      0  // no %b
-#define NANOPRINTF_USE_ALT_FORM_FLAG                 1
+#define NANOPRINTF_USE_PRECISION_FORMAT_SPECIFIERS 1
+#define NANOPRINTF_USE_FLOAT_FORMAT_SPECIFIERS 0      // no %f / %e / %g
+#define NANOPRINTF_USE_LARGE_FORMAT_SPECIFIERS 1      // %lld, %lu, %zu, …
+#define NANOPRINTF_USE_SMALL_FORMAT_SPECIFIERS 1      // %hd, %hhd
+#define NANOPRINTF_USE_WRITEBACK_FORMAT_SPECIFIERS 0  // no %n
+#define NANOPRINTF_USE_BINARY_FORMAT_SPECIFIERS 0     // no %b
+#define NANOPRINTF_USE_ALT_FORM_FLAG 1
 
 #define NANOPRINTF_IMPLEMENTATION
-#include "nanoprintf.h"
-
 #include <cstdarg>
 #include <cstddef>
+
+#include "nanoprintf.h"
 
 // Linker wrap stubs. `-Wl,--wrap=vsnprintf` redirects every call to
 // vsnprintf into __wrap_vsnprintf; the original libc vsnprintf is

@@ -118,7 +118,7 @@ class RateController {
   // clean step input to the PID, or for GCS/autotune flows that
   // briefly disable smoothing to identify the unshaped cascade.
   void SetSmoothingEnabled(bool on) { smoothing_enabled_ = on; }
-  bool IsSmoothingEnabled() const   { return smoothing_enabled_; }
+  bool IsSmoothingEnabled() const { return smoothing_enabled_; }
 
   // Runtime adjust the freeze threshold. Integrator state is NOT
   // cleared on change. Pass 0 to disable.

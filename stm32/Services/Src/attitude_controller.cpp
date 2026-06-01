@@ -44,7 +44,8 @@ Eigen::Vector3f AttitudeController::Step(
     const Eigen::Quaternionf &q_measured) const {
   // q_err in body frame: applying q_err on the right of q_measured
   // rotates the body to the setpoint.
-  //   q_setpoint = q_measured · q_err   →   q_err = q_measured^{-1} · q_setpoint
+  //   q_setpoint = q_measured · q_err   →   q_err = q_measured^{-1} ·
+  //   q_setpoint
   Eigen::Quaternionf q_err = q_measured.conjugate() * q_setpoint;
 
   // Shortest-arc convention: if scalar part is negative, the same
@@ -67,7 +68,6 @@ Eigen::Vector3f AttitudeController::Step(
       ClampSymmetric(cfg_.roll.kp * err_vec.x(), cfg_.roll.rate_clamp);
   rate_sp.y() =
       ClampSymmetric(cfg_.pitch.kp * err_vec.y(), cfg_.pitch.rate_clamp);
-  rate_sp.z() =
-      ClampSymmetric(cfg_.yaw.kp * err_vec.z(), cfg_.yaw.rate_clamp);
+  rate_sp.z() = ClampSymmetric(cfg_.yaw.kp * err_vec.z(), cfg_.yaw.rate_clamp);
   return rate_sp;
 }
