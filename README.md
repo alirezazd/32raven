@@ -10,18 +10,14 @@
 
 32Raven is a bare-metal flight-control stack built around a **decoupled dual-target architecture**. The flight-critical loop and the connectivity surface live on different MCUs and share only a versioned wire protocol.
 
-- **`stm32/` — flight controller.** Real-time control loop, IMU/GPS/RC drivers, PID, mixer. Runs on STM32F407.
+- **`stm32/` — flight controller.** Real-time control loop, IMU/GPS/RC drivers, AHRS, attitude/rate control, mixer. Runs on STM32F407.
 - **`esp32/` — connectivity bridge.** MAVLink/CRSF telemetry, WiFi, OTA, on-device UI. Runs on ESP32-C3.
 - **`libs/` — shared contract.** Wire-protocol structs, error codes, dual-target utilities.
-- **`third_party/` — pinned vendor code.** ESP-IDF, MAVLink, ST open-pin-data, Adafruit GFX.
-
-### Companion repo
-
-[**32Raven-SIL**](https://github.com/alirezazd/32Raven-SIL) — host-build Software-In-The-Loop bench. The unmodified STM32 firmware is recompiled for x86 and run against a virtual-time scheduler with register-level peripheral models. Used for regression testing, fidelity benchmarks, and (eventually) bench-side PID tuning. The few `friend struct ::bench::*Sil` declarations in the firmware drivers exist for this — zero runtime cost on the real STM32 build.
+- **`third_party/` — pinned vendor code.** ESP-IDF, MAVLink, Eigen, nanoprintf, ST open-pin-data, Adafruit GFX.
 
 ## Design Principles
 
-- **Deterministic by default.** No exceptions, no RTTI, no dynamic allocation in hot paths. Static stacks for FreeRTOS tasks. Pin alignment validated against ST silicon data at build time.
+- **Deterministic by default.** No exceptions, no RTTI, no dynamic allocation — the firmware links with no heap at all, and raw libc allocators are rejected by a lint check. Static stacks for FreeRTOS tasks. Pin alignment validated against ST silicon data at build time.
 - **HAL only at bring-up.** Clock and peripheral init use STM32 HAL; runtime data paths are direct-register where it matters.
 - **Custom drivers where it matters.** ICM42688P IMU and u-blox M10 GPS have hand-written drivers tuned for the loop they live in.
 - **Wireless flashing.** STM32 firmware updates flow over the air through the ESP32 bridge — no probe required for field updates.
@@ -34,7 +30,7 @@
 - **`config/`** — `Kconfig`, `32raven.config`, EEPROM schema input.
 - **`scripts/`** — code generators (Kconfig → headers via Jinja2), pin-map validator, lint hooks.
 - **`tools/`** — host-side helpers for flashing, bridging, and telemetry.
-- **`third_party/`** — pinned submodules: ESP-IDF, MAVLink, ST open-pin-data, Adafruit GFX.
+- **`third_party/`** — pinned submodules: ESP-IDF, MAVLink, Eigen, nanoprintf, ST open-pin-data, Adafruit GFX.
 
 ### Agent Guides
 
