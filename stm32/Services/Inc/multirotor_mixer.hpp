@@ -8,15 +8,41 @@
 // of whether the upstream layer uses Euler, quaternions, rotation matrices,
 // or any other parameterization. The mixer's contract never changes.
 //
-// Algorithm:
-//   1. Matrix multiply: 4x3 QuadX factors × (roll, pitch, yaw).
-//   2. Saturation rescale (Betaflight motorMixRange): if motor spread > 1,
-//      scale axis demands down so they fit. Preserves *relative* torque
-//      across axes; sacrifices absolute magnitude.
-//   3. Add throttle, clamp each motor to [idle, 1]. v1 has no airmode, so
-//      attitude authority drops at low throttle (acceptable for hover-only
-//      first flight; v2 adds airmode for inverted / aggressive use).
-//   4. If disarmed, all outputs = 0.
+// PX4 MC_AIRMODE=0 ("Disabled") sequential-desaturation port:
+//   - Faithful port of PX4-Autopilot's
+//     ControlAllocationSequentialDesaturation (mixAirmodeDisabled + mixYaw),
+//     reduced to the multirotor path with PX4's pseudo-inverse / trim
+//     machinery elided (this codebase represents motors directly in
+//     normalized [idle, 1] with no hover trim).
+//   - Pilot's collective thrust is NEVER raised by the mixer to unsaturate
+//     motors. If torque demand can't fit in the band around the pilot's
+//     thrust, roll/pitch/yaw are scaled down (per-axis, sequentially)
+//     until motors fit — the drone gives up attitude authority rather
+//     than refusing to descend. This is the only PX4 airmode mode that
+//     honours commanded descent.
+//   - Yaw is given a temporary +15 % expansion on the upper limit during
+//     its desat pass (PX4's MINIMUM_YAW_MARGIN), then thrust is dropped
+//     uniformly to bring motors back into the real band. Preserves yaw
+//     authority right up to the saturation boundary.
+//   - `applied_torque` reports {R, P, Y}_applied projected back from the
+//     final motor vector (factor_axis · motors / 4 — exact for QuadX
+//     because the factor columns are mutually orthogonal with ‖·‖² = 4).
+//     RateController::CommitTorque drains each integrator by the gap
+//     between commanded and actually delivered.
+//
+// Algorithm (full detail in multirotor_mixer.cpp):
+//   1. Build pre-yaw setpoint sp[i] = R·factor[i][R] + P·factor[i][P]
+//                                   + T (T is the collective per motor).
+//   2. Desaturate along thrust direction, BLOCK MOTOR LIFT — drops the
+//      whole band uniformly if any motor is above max; does nothing if
+//      motors are below min.
+//   3. Desaturate along roll direction (bidirectional).
+//   4. Same for pitch.
+//   5. Add yaw: sp[i] += Y · factor[i][Y].
+//   6. Desaturate yaw with upper limit expanded by 15 %.
+//   7. Desaturate thrust again with real upper limit, block motor lift.
+//   8. Final clamp to [idle, 1] (FP safety only).
+//   If disarmed, all outputs = 0.
 //
 // Frame convention (looking down from above, body Z points down):
 //   M1 = front-right (CCW prop)
@@ -28,32 +54,59 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
 
 namespace multirotor_mixer {
 
 // Per-motor normalized thrust output, [0, 1]. Caller scales to DShot units.
 using MotorThrust = std::array<float, 4>;
 
-// Inputs consumed by the mixer. Body-frame, normalized — quaternion choice
-// upstream does not affect this struct.
+// Mix() output bundle: motor commands AND the per-axis body torque that
+// was actually projected through the mixer after saturation rescale.
+//
+//   `motors`         — per-motor normalized thrust in [0, 1].
+//   `applied_torque` — {τR_eff, τP_eff, τY_eff}. Equals the commanded
+//                      torque in the linear region; equals
+//                      `scale × commanded` after the saturation rescale;
+//                      equals {0, 0, 0} when disarmed.
+//
+// Returned by Mix() so the caller can feed `applied_torque` into the
+// PID's back-calculation anti-windup (CommitIntegrator / CommitTorque).
+struct MixOutput {
+  MotorThrust motors;
+  std::array<float, 3> applied_torque;  // {roll, pitch, yaw}
+};
+
+// Inputs consumed by the mixer. Body-frame NED, normalized.
+// All signs follow the aerospace right-hand rule about NED body axes
+// (X = forward, Y = right, Z = down):
+//   +roll_torque  → right wing down (rotates +Y_right toward +Z_down)
+//   +pitch_torque → nose down       (rotates +X_fwd  toward +Z_down)
+//   +yaw_torque   → nose right      (rotates +X_fwd  toward +Y_right)
 struct Inputs {
-  float roll_torque;  // [-1, +1]   moment around body X (right wing down = +)
-  float
-      pitch_torque;  // [-1, +1]               around body Y (nose up      = +)
-  float yaw_torque;  // [-1, +1]               around body Z (nose right   = +)
-  float thrust;      // [ 0, +1]   collective along body -Z
+  float roll_torque;   // [-1, +1]  body X — right wing down = +
+  float pitch_torque;  // [-1, +1]  body Y — nose down       = +
+  float yaw_torque;    // [-1, +1]  body Z — nose right      = +
+  float thrust;        // [ 0, +1]  collective along body -Z (up)
 };
 
 // QuadX mix matrix. Rows = motors (M1..M4), cols = (roll, pitch, yaw).
 // Throttle column is implicit +1 for every motor.
+//
+// Sign convention (all NED):
+//   Pitch +1 (nose down): front motors (M1, M4) slow; back motors
+//     (M2, M3) speed up — tail lifts, nose dips.
+//   Yaw  +1 (nose right): CCW props (M1, M3) speed up; CW props
+//     (M2, M4) slow down. Faster CCW prop → more CW reaction torque
+//     on the body (Newton's 3rd) → body yaws right.
+//   Roll +1 (right wing down): right motors (M1, M2) slow; left
+//     motors (M3, M4) speed up — left side lifts, right side dips.
 struct QuadX {
   static constexpr float kFactors[4][3] = {
       // R    P    Y
-      {-1, +1, -1},  // M1 front-right (CCW)
-      {-1, -1, +1},  // M2 back-right  (CW)
-      {+1, -1, -1},  // M3 back-left   (CCW)
-      {+1, +1, +1},  // M4 front-left  (CW)
+      {-1, +1, +1},  // M1 front-right (CCW prop)
+      {-1, -1, -1},  // M2 back-right  (CW  prop)
+      {+1, -1, +1},  // M3 back-left   (CCW prop)
+      {+1, +1, -1},  // M4 front-left  (CW  prop)
   };
 };
 
@@ -63,7 +116,10 @@ class Mixer {
  public:
   // Init-time configuration. Runtime state (arm flag) lives separately.
   struct Config {
-    float idle;  // motor floor when armed; outputs >= idle. [0, 1].
+    // Motor floor when armed; outputs >= idle. [0, 1]. Set just above
+    // the motor's stall RPM — crossing it stops the motor and recovery
+    // is not free.
+    float idle;
   };
 
   Mixer() = default;
@@ -71,13 +127,19 @@ class Mixer {
   // Init. Panics on invalid config; called once by System::InitComponent.
   void Init(const Config &cfg);
 
+  // Runtime config swap; preserves arm state. Use for tuning during a
+  // SIL session without restarting the mixer. Panics on invalid config.
+  void SetConfig(const Config &cfg);
+
+  const Config &GetConfig() const { return cfg_; }
+
   // Runtime controls.
   void SetArmed(bool armed) { armed_ = armed; }
   bool IsArmed() const { return armed_; }
-  float Idle() const { return cfg_.idle; }
 
-  // Compute motor commands. Disarmed -> all zeros (the safety gate).
-  MotorThrust Mix(const Inputs &in) const;
+  // Compute motor commands AND back-projected per-axis applied torque.
+  // Disarmed -> motors all zero, applied_torque all zero (the safety gate).
+  MixOutput Mix(const Inputs &in) const;
 
  private:
   Config cfg_{};

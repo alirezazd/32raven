@@ -150,6 +150,27 @@ constexpr uint8_t FIFO_CONFIG1_HIRES_EN = 1u << 4;
 constexpr uint8_t FIFO_CONFIG1_WM_GT_TH = 1u << 5;
 constexpr uint8_t FIFO_CONFIG1_RESUME_PARTIAL_RD = 1u << 6;
 
+// FIFO header byte field definitions (datasheet §6.2). The 1-byte header
+// at offset 0 of every FIFO packet encodes packet variant + ODR-change
+// flags. The driver gates parsing on the variant detected here.
+constexpr uint8_t FIFO_HEADER_MSG               = 1u << 7;  // 1 = no sensor data
+constexpr uint8_t FIFO_HEADER_ACCEL             = 1u << 6;  // accel payload present
+constexpr uint8_t FIFO_HEADER_GYRO              = 1u << 5;  // gyro payload present
+constexpr uint8_t FIFO_HEADER_20                = 1u << 4;  // 20-bit ext present (Packet4)
+constexpr uint8_t FIFO_HEADER_TIMESTAMP_MASK    = 0x0Cu;    // bits[3:2]
+constexpr uint8_t FIFO_HEADER_TIMESTAMP_ODR     = 0x08u;    // 10b → ODR timestamp
+constexpr uint8_t FIFO_HEADER_TIMESTAMP_FSYNC   = 0x0Cu;    // 11b → first ODR after FSYNC
+constexpr uint8_t FIFO_HEADER_ODR_DIFF_ACCEL    = 1u << 1;  // accel ODR changed
+constexpr uint8_t FIFO_HEADER_ODR_DIFF_GYRO     = 1u << 0;  // gyro ODR changed
+
+// Mask + nominal header values for Packet3 (16-byte) and Packet4 (20-byte
+// HiRes). Masks the top 5 bits; ODR-change flags (bits[1:0]) are ignored.
+//   Packet3: MSG=0, ACCEL=1, GYRO=1, 20=0, TS=ODR → 0x68
+//   Packet4: MSG=0, ACCEL=1, GYRO=1, 20=1, TS=ODR → 0x78
+constexpr uint8_t kFifoHeaderVariantMask = 0xF8u;
+constexpr uint8_t kFifoHeaderPacket3     = 0x68u;
+constexpr uint8_t kFifoHeaderPacket4     = 0x78u;
+
 // FSYNC_CONFIG (0x62)
 constexpr uint8_t FSYNC_CONFIG_UI_SEL_MASK = 0x70;  // bits [6:4]
 constexpr uint8_t FSYNC_CONFIG_UI_SEL_SHIFT = 4;
@@ -301,6 +322,72 @@ static constexpr float GyroLsbToRadS(GyroFs fs) {
 static constexpr float FifoTemperatureC(int8_t fifo_temp_data) {
   return (static_cast<float>(fifo_temp_data) / 2.07f) + 25.0f;
 }
+
+// ── FIFO sample ranges (datasheet §12.8) ───────────────────────────────
+// With FIFO_HOLD_LAST_DATA_EN=0, the chip inserts an invalid-sample
+// sentinel when no fresh data is available; the firmware Panics on
+// detection (Stm32::kImuInvalidSampleDetected). Valid samples are
+// constrained to the ranges below — the encoder side (SIL chip slave /
+// future Packet4 writer) saturates to these bounds, never the raw
+// int16/int20 limits.
+//
+// In 20-bit mode the chip enforces LSB constraints:
+//   gyro  — LSB[0]   = 0  (values are EVEN, gap = 2)
+//   accel — LSB[1:0] = 0  (values are multiples of 4, gap = 4)
+constexpr int16_t kFifo16ValidMin        = -32767;
+constexpr int16_t kFifo16ValidMax        = +32767;
+constexpr int16_t kFifo16InvalidSentinel = -32768;
+
+constexpr int32_t kFifo20GyroValidMin    = -524256;
+constexpr int32_t kFifo20GyroValidMax    = +524286;
+constexpr int32_t kFifo20AccelValidMin   = -524256;
+constexpr int32_t kFifo20AccelValidMax   = +524284;
+constexpr int32_t kFifo20InvalidSentinel = -524288;
+
+// ── 20-bit HiRes (Packet4) constants ───────────────────────────────────
+// HiRes mode forces ±2000 dps + ±16g (datasheet §6.1 — other FSR
+// settings are ignored when FIFO_HIRES_EN=1). The "actual data" widths
+// are 19-bit gyro (LSB[0]=0) and 18-bit accel (LSBs[1:0]=0); the FIFO
+// emits the full 20-bit signed value with those LSBs forced low.
+//
+// Sensitivity factors are referenced to the raw 20-bit value: divide
+// the int32 FIFO sample by the constants below to get physical units.
+//   "the corresponding sensitivity scale factor values are 131 LSB/dps
+//    for gyroscope and 8192 LSB/g for accelerometer." (datasheet §6.1)
+//
+// AAF + Notch require LN power mode (datasheet §12.4 — "Use of Notch
+// Filter and Anti-Alias Filter is supported only for Low Noise (LN)
+// mode operation"). The current PWR_MGMT0 = GYRO_MODE_LN|ACCEL_MODE_LN
+// in firmware satisfies this; do not drop to LP while AAF/Notch are
+// enabled.
+constexpr float   kHiResGyroLsbPerDps  = 131.0f;
+constexpr float   kHiResAccelLsbPerG   = 8192.0f;
+
+// HiRes accel / gyro LSB → physical conversions. Take the 20-bit signed
+// raw int (stored in an int32_t) and return SI units. These do NOT take
+// the FS enum because HiRes locks the chip to ±2000 dps + ±16g.
+inline constexpr float AccelLsbToMps2_HiRes() {
+  return (1.0f / kHiResAccelLsbPerG) * kStandardGravityMps2;
+}
+inline constexpr float GyroLsbToRadS_HiRes() {
+  return (1.0f / kHiResGyroLsbPerDps) * kDegToRad;
+}
+
+// 16-bit FIFO temperature decode for Packet4 (the field widens from
+// 8 bits in Packet3 to 16 bits in Packet4; offset stays at 25 °C, scale
+// factor is 64× finer — matching TDK / InvenSense reference firmware).
+inline constexpr float FifoTemperatureC16(int16_t fifo_temp_data) {
+  return (static_cast<float>(fifo_temp_data) / 132.48f) + 25.0f;
+}
+
+// ── FIFO packet sizes (datasheet §6.1, Figure 10) ──────────────────────
+// Driver allocates DMA + parses by these. Packet3 / Packet4 are the
+// only variants the firmware uses; Packet1/2 (accel-only / gyro-only)
+// stay defined here for completeness but aren't on the driver path.
+constexpr uint16_t kPacket1Bytes = 8;
+constexpr uint16_t kPacket2Bytes = 8;
+constexpr uint16_t kPacket3Bytes = 16;
+constexpr uint16_t kPacket4Bytes = 20;
 
 static constexpr uint32_t OdrHz(Odr odr) {
   switch (odr) {

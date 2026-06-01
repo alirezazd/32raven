@@ -139,6 +139,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/USER/cc/icm42688p.cpp
     Drivers/USER/cc/rc_receiver.cpp
     Drivers/USER/cc/ee.cpp
+    Core/Src/printf_impl.cpp
+    Core/Src/cxa_atexit_stub.cpp
     Core/Src/states.cpp
     Services/Src/m10_service.cpp
     Services/Src/crsf_link_service.cpp
@@ -150,7 +152,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/command_handler.cpp
     Services/Src/panic.cpp
     Services/Src/multirotor_mixer.cpp
-    Services/Src/attitude_estimator.cpp
+    Services/Src/ahrs.cpp
+    Services/Src/rate_controller.cpp
+    Services/Src/attitude_controller.cpp
     ../libs/src/error_code.cpp
 )
 
@@ -168,6 +172,37 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ../libs/inc
 )
 
+target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE
+    ../third_party/eigen
+    ../third_party/nanoprintf
+)
+
+# Eigen runtime knobs — this firmware has no heap (no operator new, no
+# malloc by policy). Anything that triggers a dynamic allocation inside
+# Eigen is a bug, not a fallback.
+#   EIGEN_NO_MALLOC       — every Eigen heap-allocation path is gated
+#                           behind an eigen_assert that always fires.
+#                           Acts as a compile-time guarantee that the
+#                           only Eigen types we instantiate are fixed-
+#                           size (today: Vector3f, Quaternionf).
+#   EIGEN_NO_AUTOMATIC_RESIZING — refuse silent resize on assignment.
+#                           Reinforces "every matrix size is a static
+#                           property" with a hard error instead of a
+#                           silent realloc.
+#   EIGEN_RUNTIME_NO_MALLOC — also enables `set_is_malloc_allowed(bool)`
+#                           so SIL bench fixtures can flip an extra
+#                           runtime guard on if they want.
+#   EIGEN_STACK_ALLOCATION_LIMIT=0 — disable the per-temporary stack
+#                           limit (we don't need the heuristic; fixed-
+#                           size types live entirely on the stack /
+#                           inside the owning object anyway).
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    EIGEN_NO_MALLOC
+    EIGEN_NO_AUTOMATIC_RESIZING
+    EIGEN_RUNTIME_NO_MALLOC
+    EIGEN_STACK_ALLOCATION_LIMIT=0
+)
+
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:-fno-rtti>
     -fno-exceptions
@@ -176,10 +211,18 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     -Wdouble-promotion
     -Wunused
     -Werror=switch
+    -Wno-psabi # Suppress Eigen's Matrix warnings
 )
 
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -Wl,--gc-sections
+    # Route vsnprintf / snprintf through nanoprintf
+    # (stm32/Core/Src/printf_impl.cpp). newlib's nano-svfprintf
+    # pulled in _malloc_r / _free_r / _sbrk for unbounded conversions;
+    # nanoprintf is allocation-free, so those symbols leave the binary
+    # entirely once the linker stops needing newlib's printf object.
+    -Wl,--wrap=vsnprintf
+    -Wl,--wrap=snprintf
 )
 
 # Remove wrong libob.a library dependency when using cpp files

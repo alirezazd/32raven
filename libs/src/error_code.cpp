@@ -88,6 +88,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "IMU Not Initialized";
     case ErrorCode::Stm32::kImuReinit:
       return "IMU re-init";
+    case ErrorCode::Stm32::kImuAxisMapInvalid:
+      return "IMU axis_map invalid (duplicate or out-of-range axis index)";
     case ErrorCode::Stm32::kImuInvalidSampleDetected:
       return "IMU invalid sample detected";
     case ErrorCode::Stm32::kImuCalibrationInvalidConfig:
@@ -112,8 +114,14 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "EEPROM schema mismatch";
     case ErrorCode::Stm32::kRcReceiverInvalidConfig:
       return "RC receiver invalid config";
+    case ErrorCode::Stm32::kRcReceiverInvalidThrottleMin:
+      return "RC receiver invalid throttle min (out of [0, 1])";
     case ErrorCode::Stm32::kMixerInvalidConfig:
       return "Mixer invalid config";
+    case ErrorCode::Stm32::kAhrsInvalidConfig:
+      return "AHRS invalid config";
+    case ErrorCode::Stm32::kAttitudeControllerInvalidConfig:
+      return "Attitude controller invalid config";
   }
   return "Unknown error";
 }

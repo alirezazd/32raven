@@ -11,10 +11,6 @@
 
 class VehicleState;
 
-namespace bench {
-struct RcReceiverSil;  // SIL bench friend marker
-}  // namespace bench
-
 class RcReceiver {
  public:
   struct Config {
@@ -30,10 +26,7 @@ class RcReceiver {
     uint32_t timestamp_us = 0;
   };
 
-  static RcReceiver &GetInstance() {
-    static RcReceiver instance;
-    return instance;
-  }
+  static RcReceiver &GetInstance();
 
   void ProcessRawState(const message::RcChannelsMsg &msg, uint32_t now_us);
   void Poll(uint32_t now_us);
@@ -66,9 +59,15 @@ class RcReceiver {
   // Returns 0 if `us == 0`. Saturates to [0, 1].
   static float NormalizedThrottle(uint16_t us);
 
+  // Pilot throttle floor — thrust commanded when stick = 0. Default from
+  // kPilotThrottleMin (Kconfig STM32_PILOT_THROTTLE_MIN_MILLI). Runtime-
+  // mutable so a SIL session can sweep the floor without reflashing. PX4
+  // equivalent: MPC_MANTHR_MIN.
+  void SetThrottleMin(float v);
+  float ThrottleMin() const { return throttle_min_; }
+
  private:
   friend class System;
-  friend struct ::bench::RcReceiverSil;
 
   void Init(const Config &cfg, EE &ee, VehicleState &vehicle_state);
   uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us, uint16_t trim_us,
@@ -85,6 +84,7 @@ class RcReceiver {
   RcReceiver(const RcReceiver &) = delete;
   RcReceiver &operator=(const RcReceiver &) = delete;
 
+  float throttle_min_ = 0.0f;  // Seeded from kPilotThrottleMin in Init().
   EE *ee_ = nullptr;
   VehicleState *vehicle_state_ = nullptr;
   bool initialized_ = false;

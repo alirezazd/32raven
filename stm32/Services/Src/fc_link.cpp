@@ -8,12 +8,17 @@
 #include "system.hpp"
 #include "uart.hpp"
 
+FcLink &FcLink::GetInstance() {
+  static FcLink instance;
+  return instance;
+}
+
 void FcLink::Init(AppContext *ctx) { ctx_ = ctx; }
 
 void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   if (!ctx_) return;
 
-  auto &uart = ctx_->sys->GetUart1();
+  auto &uart = ctx_->sys->FcUart();
 
   // 1. RX Parsing
   uint8_t c;

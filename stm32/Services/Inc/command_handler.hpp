@@ -6,10 +6,7 @@ struct AppContext;
 
 class CommandHandler {
  public:
-  static CommandHandler &GetInstance() {
-    static CommandHandler instance;
-    return instance;
-  }
+  static CommandHandler &GetInstance();
 
   void Init();
   bool Dispatch(AppContext &ctx, const message::Packet &pkt);

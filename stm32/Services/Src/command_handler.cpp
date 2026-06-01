@@ -9,13 +9,18 @@
 #include "rc_receiver.hpp"
 #include "system.hpp"
 
+CommandHandler &CommandHandler::GetInstance() {
+  static CommandHandler instance;
+  return instance;
+}
+
 static void OnPing(AppContext &ctx, const message::Packet &pkt) {
   (void)pkt;
   // Send Pong
   message::Packet tx_pkt;
   tx_pkt.header.id = (uint8_t)message::MsgId::kPong;
   tx_pkt.header.len = 0;
-  ctx.sys->GetFcLink().Send(tx_pkt);
+  ctx.sys->FcLinkSvc().Send(tx_pkt);
 }
 
 static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
@@ -25,7 +30,7 @@ static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
   }
 
   const auto *rc = (const message::RcChannelsMsg *)pkt.payload;
-  ctx.sys->GetRcReceiver().ProcessRawState(*rc, ctx.sys->Time().Micros());
+  ctx.sys->RcRx().ProcessRawState(*rc, ctx.sys->Time().Micros());
 }
 
 static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
@@ -35,11 +40,11 @@ static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
   }
 
   const message::RcMapConfigMsg rc_map =
-      ctx.sys->GetRcReceiver().GetRcMapConfig();
+      ctx.sys->RcRx().GetRcMapConfig();
   if (!message::IsRcMapConfigValid(rc_map)) {
     Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
-  ctx.sys->GetFcLink().SendRcMapConfig(rc_map);
+  ctx.sys->FcLinkSvc().SendRcMapConfig(rc_map);
 }
 
 static void OnReqRcCalibration(AppContext &ctx, const message::Packet &pkt) {
@@ -48,7 +53,7 @@ static void OnReqRcCalibration(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  const auto &cal = ctx.sys->GetRcReceiver().GetCalibration();
+  const auto &cal = ctx.sys->RcRx().GetCalibration();
   message::RcCalibrationConfigMsg rc_cal{};
   static_assert(sizeof(rc_cal.min_us) == sizeof(cal.min_us));
   static_assert(sizeof(rc_cal.max_us) == sizeof(cal.max_us));
@@ -61,7 +66,7 @@ static void OnReqRcCalibration(AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsRcCalibrationConfigValid(rc_cal)) {
     Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
   }
-  ctx.sys->GetFcLink().SendRcCalibrationConfig(rc_cal);
+  ctx.sys->FcLinkSvc().SendRcCalibrationConfig(rc_cal);
 }
 
 static message::RcCalibrationConfigMsg GetRcCalibrationConfigMsg(
@@ -87,15 +92,15 @@ static void OnSetRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
 
   const auto *req = (const message::RcMapConfigMsg *)pkt.payload;
   if (message::IsRcMapConfigValid(*req)) {
-    (void)ctx.sys->GetRcReceiver().SetRcMapConfig(*req);
+    (void)ctx.sys->RcRx().SetRcMapConfig(*req);
   }
 
   const message::RcMapConfigMsg rc_map =
-      ctx.sys->GetRcReceiver().GetRcMapConfig();
+      ctx.sys->RcRx().GetRcMapConfig();
   if (!message::IsRcMapConfigValid(rc_map)) {
     Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
   }
-  ctx.sys->GetFcLink().SendRcMapConfig(rc_map);
+  ctx.sys->FcLinkSvc().SendRcMapConfig(rc_map);
 }
 
 static void OnSetRcCalibration(AppContext &ctx, const message::Packet &pkt) {
@@ -106,15 +111,15 @@ static void OnSetRcCalibration(AppContext &ctx, const message::Packet &pkt) {
 
   const auto *req = (const message::RcCalibrationConfigMsg *)pkt.payload;
   if (message::IsRcCalibrationConfigValid(*req)) {
-    (void)ctx.sys->GetRcReceiver().SetCalibrationConfig(*req);
+    (void)ctx.sys->RcRx().SetCalibrationConfig(*req);
   }
 
   const message::RcCalibrationConfigMsg rc_cal =
-      GetRcCalibrationConfigMsg(ctx.sys->GetRcReceiver());
+      GetRcCalibrationConfigMsg(ctx.sys->RcRx());
   if (!message::IsRcCalibrationConfigValid(rc_cal)) {
     Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
   }
-  ctx.sys->GetFcLink().SendRcCalibrationConfig(rc_cal);
+  ctx.sys->FcLinkSvc().SendRcCalibrationConfig(rc_cal);
 }
 
 static void OnReqGyroCalibrationId(AppContext &ctx,
@@ -125,12 +130,12 @@ static void OnReqGyroCalibrationId(AppContext &ctx,
   }
 
   const message::GyroCalibrationIdConfigMsg cfg = {
-      .cal_gyro0_id = ctx.sys->GetImu42688p().GetDeviceId(),
+      .cal_gyro0_id = ctx.sys->Imu().GetDeviceId(),
   };
   if (!message::IsGyroCalibrationIdConfigValid(cfg)) {
     Panic(ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig);
   }
-  ctx.sys->GetFcLink().SendGyroCalibrationIdConfig(cfg);
+  ctx.sys->FcLinkSvc().SendGyroCalibrationIdConfig(cfg);
 }
 
 static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
@@ -139,8 +144,8 @@ static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  ctx.sys->GetCrsfLinkService().RequestReceiverBind();
-  ctx.sys->GetFcLink().SendLog("CRSF RX bind requested");
+  ctx.sys->CrsfLinkSvc().RequestReceiverBind();
+  ctx.sys->FcLinkSvc().SendLog("CRSF RX bind requested");
 }
 
 // Privileged: directly toggle ESC + Mixer arm state. Bypasses any future
@@ -155,8 +160,11 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
   const auto *req =
       reinterpret_cast<const message::PrivilegedArmMsg *>(pkt.payload);
   const bool armed = req->armed != 0u;
-  ctx.sys->GetEscService().SetArmed(armed);
-  ctx.sys->GetMixer().SetArmed(armed);
+  // Clear integrator + filter state on every arm transition so a
+  // wound-up controller from a prior session can't kick the next arm.
+  ctx.sys->RateControllerSvc().Reset();
+  ctx.sys->EscSvc().SetArmed(armed);
+  ctx.sys->MixerSvc().SetArmed(armed);
 }
 
 static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {

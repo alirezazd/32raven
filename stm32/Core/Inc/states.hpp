@@ -23,10 +23,4 @@ struct IdleState : public IState<AppContext>, public IFastTickState {
   uint64_t last_imu_send_us_ = 0;
   uint32_t last_status_send_us_ = 0;
   uint32_t slow_loop_counter_ = 0;
-
-  // Diagnostic metrics (shared between OnFastTick and StepSlow)
-  uint32_t max_send_us_ = 0;
-  uint32_t max_seq_gap_ = 0;
-  uint32_t max_raw_dt_us_ = 0;
-  uint32_t prev_imu_seq_ = 0;
 };
