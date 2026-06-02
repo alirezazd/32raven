@@ -11,12 +11,23 @@
 #include "stm32_config.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
+#include "watchdog.hpp"
 
 namespace {
 // Millisecond counter driven by the SysTick exception (1 kHz). Replaces
 // HAL's uwTick + HAL_IncTick + HAL_GetTick. Used by spin-wait timeouts
 // in InitOscillators and InitClockTree before TimeBase (TIM2) is up.
 volatile uint32_t g_system_tick_ms = 0;
+
+// Clock bring-up timeouts (ms) and PLL-source selector bits — formerly HAL
+// macros from stm32f4xx_hal_conf.h / stm32f4xx_hal_rcc.h, inlined here now that
+// HAL is gone. Values are unchanged from HAL.
+constexpr uint32_t kHseTimeoutMs = 100u;  // HSE_STARTUP_TIMEOUT
+constexpr uint32_t kHsiTimeoutMs = 2u;
+constexpr uint32_t kPllTimeoutMs = 2u;
+constexpr uint32_t kClockSwitchTimeoutMs = 5000u;
+constexpr uint32_t kPllSourceHse = RCC_PLLCFGR_PLLSRC_HSE;  // PLLSRC bit set
+constexpr uint32_t kPllSourceHsi = 0u;                      // PLLSRC bit clr
 }  // namespace
 
 // C-callable increment for the SysTick exception. Called from
@@ -25,6 +36,36 @@ volatile uint32_t g_system_tick_ms = 0;
 // entirely out of the link.
 extern "C" void SystemTickInc(void) {
   g_system_tick_ms = g_system_tick_ms + 1u;
+}
+
+// Clock Security System failsafe — invoked from the NMI when HSE fails. The
+// hardware has already disabled HSE and switched SYSCLK to HSI, so we (1) clear
+// the CSS flag so the NMI stops re-pending, (2) normalise the clock tree onto a
+// known HSI @ 16 MHz so the panic LED cadence and telemetry baud are correct,
+// then (3) hand off to Panic(), which disarms the motors and screams the reason
+// forever (no reboot — the panic loop keeps the watchdog fed). Never returns.
+extern "C" void SystemOnClockSecurityFailure(void) {
+  RCC->CIR = RCC_CIR_CSSC;  // clear CSSF (we don't enable other RCC interrupts)
+
+  RCC->CR |= RCC_CR_HSION;
+  while ((RCC->CR & RCC_CR_HSIRDY) == 0u) {
+  }
+  // SYSCLK = HSI (SW=00), AHB/APB1/APB2 prescalers = /1 -> 16 MHz everywhere.
+  RCC->CFGR &= ~(RCC_CFGR_SW | RCC_CFGR_HPRE | RCC_CFGR_PPRE1 | RCC_CFGR_PPRE2);
+  while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI) {
+  }
+  SystemCoreClockUpdate();  // recompute SystemCoreClock (now 16 MHz)
+
+  // Re-fix what the panic loop depends on at the new clock:
+  //  - TIM2 µs tick: APB1 timer clock is now 16 MHz (PPRE1 = /1) -> /16 = 1
+  //  MHz.
+  TIM2->PSC = 16u - 1u;
+  TIM2->EGR = TIM_EGR_UG;
+  //  - USART1 panic-telemetry baud: recompute BRR against the new PCLK2.
+  Uart1::GetInstance().SetBaudRate(kUart1Config.baud_rate);
+
+  Panic(
+      ErrorCode::Stm32::kHseClockFailure);  // disarms + screams; never returns
 }
 
 // Out-of-line definition of the System singleton accessor — a single
@@ -68,6 +109,10 @@ void System::Init(const System::Config &config) {
   InitComponent(Component::kAhrs);
   InitComponent(Component::kRateController);
   InitComponent(Component::kAttitudeController);
+
+  // Last: arm the watchdog once everything is up so blocking bring-up can't
+  // trip it. From here the main loop (and the panic loop) must keep feeding it.
+  Wdg().Init();
 }
 
 // ─── Direct-register CPU + clock bring-up helpers ────────────────────
@@ -91,7 +136,7 @@ void System::CoreInit() {
   // 24 bits (SystemCoreClock > 16 GHz). At HSI 16 MHz boot it's 16000;
   // at the target 168 MHz it's 168000 — both well under 2^24.
   (void)SysTick_Config(SystemCoreClock / 1000U);
-  NVIC_SetPriority(SysTick_IRQn, TICK_INT_PRIORITY);
+  NVIC_SetPriority(SysTick_IRQn, irq_priority::kSysTick);
 }
 
 // APB1 clock gate to the PWR peripheral (RCC_APB1ENR.PWREN). Read-back
@@ -132,7 +177,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
     RCC->CR |= RCC_CR_HSEON;
     tickstart = g_system_tick_ms;
     while ((RCC->CR & RCC_CR_HSERDY) == 0U) {
-      if ((g_system_tick_ms - tickstart) > HSE_TIMEOUT_VALUE) {
+      if ((g_system_tick_ms - tickstart) > kHseTimeoutMs) {
         Panic(ErrorCode::Stm32::kRccOscConfigFailed);
       }
     }
@@ -141,7 +186,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
     RCC->CR |= RCC_CR_HSION;
     tickstart = g_system_tick_ms;
     while ((RCC->CR & RCC_CR_HSIRDY) == 0U) {
-      if ((g_system_tick_ms - tickstart) > HSI_TIMEOUT_VALUE) {
+      if ((g_system_tick_ms - tickstart) > kHsiTimeoutMs) {
         Panic(ErrorCode::Stm32::kRccOscConfigFailed);
       }
     }
@@ -152,7 +197,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
   RCC->CR &= ~RCC_CR_PLLON;
   tickstart = g_system_tick_ms;
   while ((RCC->CR & RCC_CR_PLLRDY) != 0U) {
-    if ((g_system_tick_ms - tickstart) > PLL_TIMEOUT_VALUE) {
+    if ((g_system_tick_ms - tickstart) > kPllTimeoutMs) {
       Panic(ErrorCode::Stm32::kRccOscConfigFailed);
     }
   }
@@ -163,7 +208,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
   //   PLLN   : bits [14:6]  (shift by RCC_PLLCFGR_PLLN_Pos = 6)
   //   PLLP   : bits [17:16] (encoded ((PLLP>>1)-1), shift by 16)
   //   PLLQ   : bits [27:24] (shift by 24)
-  const uint32_t pll_source = use_hse ? RCC_PLLSOURCE_HSE : RCC_PLLSOURCE_HSI;
+  const uint32_t pll_source = use_hse ? kPllSourceHse : kPllSourceHsi;
   const uint32_t pllp_raw = static_cast<uint32_t>(cfg.pllp);
   RCC->PLLCFGR = pll_source | cfg.pllm | (cfg.plln << RCC_PLLCFGR_PLLN_Pos) |
                  (((pllp_raw >> 1U) - 1U) << RCC_PLLCFGR_PLLP_Pos) |
@@ -173,7 +218,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
   RCC->CR |= RCC_CR_PLLON;
   tickstart = g_system_tick_ms;
   while ((RCC->CR & RCC_CR_PLLRDY) == 0U) {
-    if ((g_system_tick_ms - tickstart) > PLL_TIMEOUT_VALUE) {
+    if ((g_system_tick_ms - tickstart) > kPllTimeoutMs) {
       Panic(ErrorCode::Stm32::kRccOscConfigFailed);
     }
   }
@@ -224,7 +269,7 @@ void System::InitClockTree(const Config &cfg) {
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW) | RCC_CFGR_SW_PLL;
   uint32_t tickstart = g_system_tick_ms;
   while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_PLL) {
-    if ((g_system_tick_ms - tickstart) > CLOCKSWITCH_TIMEOUT_VALUE) {
+    if ((g_system_tick_ms - tickstart) > kClockSwitchTimeoutMs) {
       Panic(ErrorCode::Stm32::kRccClockConfigFailed);
     }
   }
@@ -248,7 +293,7 @@ void System::InitClockTree(const Config &cfg) {
   //    at the new HCLK.
   SystemCoreClockUpdate();
   (void)SysTick_Config(SystemCoreClock / 1000U);
-  NVIC_SetPriority(SysTick_IRQn, TICK_INT_PRIORITY);
+  NVIC_SetPriority(SysTick_IRQn, irq_priority::kSysTick);
 }
 
 void System::InitComponent(Component c) {
@@ -341,5 +386,12 @@ void System::ConfigureSystemClock(const System::Config &config) {
   });
 
   InitClockTree(config);
-  // EnableCSS(): TODO when we have a backup power source.
+
+  // Arm the Clock Security System. If HSE fails, hardware disables it, falls
+  // back to HSI for SYSCLK, and raises an NMI ->
+  // SystemOnClockSecurityFailure(). Only meaningful when we're actually running
+  // off HSE.
+  if (config.oscillator == Oscillator::kHse) {
+    RCC->CR |= RCC_CR_CSSON;
+  }
 }

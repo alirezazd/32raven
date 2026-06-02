@@ -22,8 +22,6 @@ const char *GetMessage(ErrorCode::Common code) {
 
 const char *GetMessage(ErrorCode::Stm32 code) {
   switch (code) {
-    case ErrorCode::Stm32::kHalErrorHandler:
-      return "HAL Error_Handler (CubeMX MSP)";
     case ErrorCode::Stm32::kSystemReinit:
       return "STM32 System re-init";
     case ErrorCode::Stm32::kRccOscConfigFailed:
@@ -122,6 +120,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "AHRS invalid config";
     case ErrorCode::Stm32::kAttitudeControllerInvalidConfig:
       return "Attitude controller invalid config";
+    case ErrorCode::Stm32::kHseClockFailure:
+      return "HSE clock failure (CSS): HSI fallback";
   }
   return "Unknown error";
 }

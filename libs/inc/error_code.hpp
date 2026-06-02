@@ -20,9 +20,8 @@ enum class Common : uint32_t {
 };
 
 enum class Stm32 : uint32_t {
-  // Init / HAL
-  kHalErrorHandler = 0x10000,
-  kSystemReinit,
+  // Init
+  kSystemReinit = 0x10000,
   kRccOscConfigFailed,
   kRccClockConfigFailed,
   kSpiInitFailed,
@@ -75,6 +74,7 @@ enum class Stm32 : uint32_t {
   kMixerInvalidConfig,
   kAhrsInvalidConfig,
   kAttitudeControllerInvalidConfig,
+  kHseClockFailure,  // HSE lost (CSS): fell back to HSI, motors disarmed
 };
 
 enum class Esp32 : uint32_t {

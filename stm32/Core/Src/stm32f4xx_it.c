@@ -20,7 +20,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_it.h"
 
-#include "stm32f4xx_hal.h"
+#include "stm32f4xx.h"
 
 
 /* Private includes ----------------------------------------------------------*/
@@ -53,6 +53,10 @@
    HAL_IncTick() in the SysTick handler below so HAL's uwTick + GetTick
    infrastructure can be cut from the link entirely. */
 extern void SystemTickInc(void);
+/* CSS clock-failure failsafe — implemented in system.cpp. Replaces
+   HAL_RCC_NMI_IRQHandler() in NMI_Handler; disarms, reclocks to HSI and
+   panics. Never returns. */
+extern void SystemOnClockSecurityFailure(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -61,12 +65,6 @@ extern void SystemTickInc(void);
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern DMA_HandleTypeDef hdma_usart1_rx;
-extern DMA_HandleTypeDef hdma_usart1_tx;
-extern DMA_HandleTypeDef hdma_usart2_rx;
-extern DMA_HandleTypeDef hdma_usart2_tx;
-extern DMA_HandleTypeDef hdma_usart6_rx;
-extern DMA_HandleTypeDef hdma_usart6_tx;
 extern void DshotTim1DmaComplete(void);
 extern void DshotTim1DmaError(void);
 extern void Uart1DmaTxComplete(void);
@@ -110,9 +108,10 @@ extern void EscTelemetryRxDmaError(uint32_t);
  */
 void NMI_Handler(void) {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-
+  if (RCC->CIR & RCC_CIR_CSSF) {
+    SystemOnClockSecurityFailure(); /* disarm + reclock + panic; never returns */
+  }
   /* USER CODE END NonMaskableInt_IRQn 0 */
-  HAL_RCC_NMI_IRQHandler();
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
   while (1) {
   }
