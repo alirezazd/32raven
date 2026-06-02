@@ -19,6 +19,7 @@
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "vehicle_state.hpp"
+#include "watchdog.hpp"
 
 class System {
  public:
@@ -136,6 +137,7 @@ class System {
 
   GPIO &Gpio() { return GPIO::GetInstance(); }
   TimeBase &Time() { return TimeBase::GetInstance(); }
+  Watchdog &Wdg() { return Watchdog::GetInstance(); }
   Battery &Batt() { return Battery::GetInstance(); }
   Button &Btn() { return Button::GetInstance(); }
   Uart1 &FcUart() { return Uart1::GetInstance(); }

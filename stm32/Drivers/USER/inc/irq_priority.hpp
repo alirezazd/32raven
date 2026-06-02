@@ -42,5 +42,7 @@ inline constexpr uint32_t kDshotTim1Dma = 6;  // DMA2 Stream5
 inline constexpr uint32_t kTimeBaseTim5 = 7;  // 1 kHz slow tick scheduler
 inline constexpr uint32_t kUart1 = 10;        // FcLink USART1
 inline constexpr uint32_t kUart1Dma = 10;     // DMA2 Stream2/7
+inline constexpr uint32_t kSysTick = 15;      // coarse boot ms-tick; lowest
+                                              // (was HAL's TICK_INT_PRIORITY)
 
 }  // namespace irq_priority

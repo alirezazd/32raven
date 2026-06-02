@@ -26,7 +26,8 @@ int main(void) {
   app.sm = &sm;
   sm.Start(idle);
   while (1) {
-    app.sm->Step(static_cast<SmTick>(app.sys->Time().Micros()));
+    app.sm->Step(app.sys->Time().Micros());
+    app.sys->Wdg().Kick();  // main-loop liveness; wedged loop -> reset
     __WFI();
   }
 }

@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "error_code.hpp"
 #include "message.hpp"
 #include "stm32f4xx.h"
 
@@ -116,20 +115,32 @@ static void SendPanicMessage(uint32_t error_code) {
 }
 
 void PanicImpl(uint32_t code) {
+  // Fail safe: drive the DShot/TIM1 lines idle low so any panic disarms the
+  // motors (ESCs failsafe on signal loss). Guarded by the TIM1 clock — a panic
+  // before the motor driver is up leaves the peripheral gated, and poking a
+  // clock-gated peripheral would fault.
+  if (RCC->APB2ENR & RCC_APB2ENR_TIM1EN) {
+    TIM1->DIER &= ~TIM_DIER_UDE;  // stop the burst-DMA frame requests
+    TIM1->CCR1 = 0;
+    TIM1->CCR2 = 0;
+    TIM1->CCR3 = 0;
+    TIM1->CCR4 = 0;
+    TIM1->EGR = TIM_EGR_UG;  // latch zeros -> all four ESC lines idle low
+  }
+
   // Disable interrupts to prevent further corruption
   __disable_irq();
 
-  // Toggle LED and send panic message every 500ms (as currently coded)
+  // Toggle LED and send panic message every ~100ms. Refresh the IWDG each pass
+  // so this deliberate, disarmed panic state persists instead of being reset
+  // out of it; an un-refreshed hang elsewhere still trips the watchdog. The
+  // write is a no-op if the watchdog was never started.
   while (true) {
     SendPanicMessage(code);
     ToggleLed();
-    DelayMs(40);
+    IWDG->KR = 0x0000AAAAu;  // IWDG reload key: keep this disarmed panic state
+                             // alive (raw, à la Watchdog::Kick — panic depends
+                             // on no drivers)
+    DelayMs(100);
   }
-}
-
-// HAL bridge: CubeMX-generated MSP code (`stm32f4xx_hal_msp.c`) calls
-// `ErrorHandler()` (declared in `Core/Inc/stm32f4xx_it.h`). Forward to the
-// typed Panic so HAL failures land in the same panic loop as everything else.
-extern "C" void ErrorHandler(void) {
-  Panic(ErrorCode::Stm32::kHalErrorHandler);
 }

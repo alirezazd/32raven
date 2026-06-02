@@ -18,7 +18,7 @@
 ## Design Principles
 
 - **Deterministic by default.** No exceptions, no RTTI, no dynamic allocation — the firmware links with no heap at all, and raw libc allocators are rejected by a lint check. Static stacks for FreeRTOS tasks. Pin alignment validated against ST silicon data at build time.
-- **HAL only at bring-up.** Clock and peripheral init use STM32 HAL; runtime data paths are direct-register where it matters.
+- **No HAL — register-level throughout.** Clock, GPIO and peripheral bring-up all run direct-register against CMSIS; the STM32 HAL has been removed from the firmware entirely (source tree and binary).
 - **Custom drivers where it matters.** ICM42688P IMU and u-blox M10 GPS have hand-written drivers tuned for the loop they live in.
 - **Wireless flashing.** STM32 firmware updates flow over the air through the ESP32 bridge — no probe required for field updates.
 

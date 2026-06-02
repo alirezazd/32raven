@@ -71,8 +71,7 @@ ModeBits DecodeMode(uint32_t mode) {
   };
 }
 
-void ProgramPin(GPIO_TypeDef *port, uint8_t pin_index,
-                const GPIO_InitTypeDef &init) {
+void ProgramPin(GPIO_TypeDef *port, uint8_t pin_index, const GpioInit &init) {
   const ModeBits mb = DecodeMode(init.Mode);
   const uint32_t shift2 = static_cast<uint32_t>(pin_index) * 2u;
 
@@ -126,7 +125,7 @@ void ProgramPin(GPIO_TypeDef *port, uint8_t pin_index,
   }
 }
 
-void ApplyConfig(GPIO_TypeDef *port, const GPIO_InitTypeDef &init) {
+void ApplyConfig(GPIO_TypeDef *port, const GpioInit &init) {
   for (uint8_t i = 0; i < 16u; ++i) {
     if ((init.Pin & (1u << i)) != 0u) {
       ProgramPin(port, i, init);

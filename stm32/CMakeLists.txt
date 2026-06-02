@@ -118,7 +118,6 @@ add_subdirectory(cmake/stm32cubemx)
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Src/stm32f4xx_hal_msp.c
     Core/Src/stm32f4xx_it.c
     Core/Src/syscalls.c
     Core/Src/sysmem.c

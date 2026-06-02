@@ -48,6 +48,11 @@ stm32/Drivers/USER/inc/stm32_config.hpp
 stm32/Drivers/USER/inc/stm32_limits.hpp
 stm32/Drivers/USER/inc/ee_schema.hpp
 
+# Stray in-source CMake output (the real configure goes to build/). CMakeFiles/
+# and cmake_install.cmake are already ignored above; this covers the Makefile a
+# top-level in-source `cmake` would drop next to the cubemx CMakeLists.
+stm32/cmake/stm32cubemx/Makefile
+
 
 # Temporary files
 .temp/
