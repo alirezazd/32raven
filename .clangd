@@ -18,10 +18,12 @@ If:
 CompileFlags:
   CompilationDatabase: build/Ninja/stm32
 ---
-# Silence clang-tidy + style/lint noise on STM32 C / .h files.
-# These are mostly CubeMX-generated (HAL conf, MSP, IT, system_*) and follow
-# ST naming conventions that don't match our C++ style. Keep real compile
-# errors visible; suppress only the noisy diagnostic IDs.
+# Silence clang-tidy + style/lint noise on STM32 C / .h files. These are the
+# CubeMX-generated C translation units (stm32f4xx_it.c, syscalls.c, sysmem.c,
+# system_stm32f4xx.c) and follow ST naming conventions that don't match our C++
+# style. Vendored CMSIS headers are handled separately — they're an -isystem
+# include (see cmake/stm32cubemx) so clangd already ignores them. Keep real
+# compile errors visible; suppress only the noisy diagnostic IDs.
 If:
   PathMatch: (^|.*/)stm32/.*\.(c|h)$
 Diagnostics:

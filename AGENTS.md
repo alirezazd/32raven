@@ -11,7 +11,7 @@ Use this file for repository-wide guidance. More specific `AGENTS.md` files in s
 ## Repo Layout
 
 - `esp32/`: ESP32 firmware, split across `drivers/`, `services/`, `ui/`, and `main/`.
-- `stm32/`: STM32 firmware, with application code in `Core/`, drivers in `Drivers/USER/`, and services in `Services/`.
+- `stm32/`: STM32 firmware, with application code in `Core/`, drivers in `Drivers/`, and services in `Services/`.
 - `libs/`: dual-target protocol and utility code (`libs/inc/message.hpp`, `libs/inc/error_code.hpp`).
 - `config/`: user-tunable configuration inputs (`Kconfig`, `32raven.config`, `ee.toml`).
 - `scripts/`: code generators (Kconfig → headers via Jinja2), pin-map validator, lint hooks.
@@ -31,9 +31,9 @@ Use this file for repository-wide guidance. More specific `AGENTS.md` files in s
 
 - Treat these as generated and regenerate them via scripts or the build:
   - `esp32/main/esp32_config.hpp`
-  - `stm32/Drivers/USER/inc/stm32_config.hpp`
-  - `stm32/Drivers/USER/inc/stm32_limits.hpp`
-  - `stm32/Drivers/USER/inc/ee_schema.hpp`
+  - `stm32/Drivers/Inc/stm32_config.hpp`
+  - `stm32/Drivers/Inc/stm32_limits.hpp`
+  - `stm32/Drivers/Inc/ee_schema.hpp`
 - Do not commit edits to `build/`, `build/Ninja/`, or other derived output trees.
 
 ## Build And Verify

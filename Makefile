@@ -73,9 +73,9 @@ CLEAN_FILES := \
 	config/32raven.config.old \
 	config/defconfig \
 	esp32/main/esp32_config.hpp \
-	stm32/Drivers/USER/inc/stm32_config.hpp \
-	stm32/Drivers/USER/inc/stm32_limits.hpp \
-	stm32/Drivers/USER/inc/ee_schema.hpp
+	stm32/Drivers/Inc/stm32_config.hpp \
+	stm32/Drivers/Inc/stm32_limits.hpp \
+	stm32/Drivers/Inc/ee_schema.hpp
 
 .PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp enable-docker disable-docker docker-image setup-vscode
 
@@ -121,9 +121,9 @@ format-cpp:
 		command -v clang-format >/dev/null; \
 		rg --files esp32 stm32 -g "*.cpp" -g "*.hpp" \
 		  | grep -vxF "esp32/main/esp32_config.hpp" \
-		  | grep -vxF "stm32/Drivers/USER/inc/stm32_config.hpp" \
-		  | grep -vxF "stm32/Drivers/USER/inc/stm32_limits.hpp" \
-		  | grep -vxF "stm32/Drivers/USER/inc/ee_schema.hpp" \
+		  | grep -vxF "stm32/Drivers/Inc/stm32_config.hpp" \
+		  | grep -vxF "stm32/Drivers/Inc/stm32_limits.hpp" \
+		  | grep -vxF "stm32/Drivers/Inc/ee_schema.hpp" \
 		  | while IFS= read -r file; do \
 		      clang-format -i "$$file"; \
 		    done'

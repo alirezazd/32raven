@@ -131,6 +131,11 @@ class PinConstraints:
         """Return the AF macro (e.g. 'GPIO_AF5_SPI2') or None if invalid."""
         return self._pin_signal_af.get((pin, signal))
 
+    def afs_for_pin(self, pin: str) -> set[str]:
+        """Every AF macro valid on `pin` across all its signals — e.g. to list
+        the legal alternates when a (pin, AF) combo is rejected."""
+        return {af for (p, _), af in self._pin_signal_af.items() if p == pin}
+
     def pins_for_signal(self, signal: str) -> list[PinAf]:
         return sorted(
             (PinAf(pin=pin, af=af)
@@ -155,7 +160,9 @@ if __name__ == "__main__":
     # Lightweight smoke check: print stats so a dev can sanity-eyeball the load.
     db = PinConstraints.load_default()
     print(f"Package pins:    {len(db.package_pins)}")
-    print(f"(pin,sig)→AF:    {len(db._pin_signal_af)}")
+    # Debug smoke-test in this module's own __main__ — reaching into its own
+    # class's internals here is fine. pylint: disable=protected-access
+    print(f"(pin,sig)→AF:    {len(db._pin_signal_af)}")  # pylint: disable=protected-access
     print(f"Distinct signals:{len(db.all_signals())}")
     for sig in ("SPI2_SCK", "USART1_TX", "TIM1_CH1", "CAN1_RX"):
         choices = db.pins_for_signal(sig)

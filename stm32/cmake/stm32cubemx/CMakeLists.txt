@@ -10,6 +10,11 @@ set(MX_Defines_Syms
 # STM32CubeMX generated include paths
 set(MX_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Inc
+)
+
+# Vendored CMSIS — included SYSTEM so the compiler and clangd treat it as an
+# external library: no warnings, no clang-tidy, no naming checks on its headers.
+set(MX_System_Include_Dirs
     ${CMAKE_CURRENT_SOURCE_DIR}/../../lib/CMSIS_F4xx
 )
 
@@ -46,6 +51,7 @@ set(MX_LINK_LIBS
 # Interface library for includes and symbols
 add_library(stm32cubemx INTERFACE)
 target_include_directories(stm32cubemx INTERFACE ${MX_Include_Dirs})
+target_include_directories(stm32cubemx SYSTEM INTERFACE ${MX_System_Include_Dirs})
 target_compile_definitions(stm32cubemx INTERFACE ${MX_Defines_Syms})
 
 # Create STM32_Drivers static library

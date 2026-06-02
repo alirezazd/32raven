@@ -25,10 +25,10 @@ scripts/
 
 - `kconfig_gen.py`: shared module imported by both per-target generators. Pinned semantics for `sym_int` (`int(value, 0)`, hex-aware), `sym_bool` (`tri_value == 2`), `choice_value`, plus the Jinja env, `cpp_bool` filter, `autogen_warning(source)` helper, and the `run(...)` entrypoint that handles argparse / Kconfig load / template render. Adding a new helper used by both generators goes here, not in either generator.
 - `generate_stm32_config.py` / `generate_esp32_config.py`: read `config/32raven.config` (kconfiglib via the helpers above), evaluate `config/Kconfig` symbols, render `<target>_config.hpp` and `<target>_limits.hpp` from Jinja2 templates. Each `main()` is a one-liner that hands `validate_fn`, `runtime_context_fn`, `limits_context_fn`, and template names to `kconfig_gen.run`.
-- `generate_ee_schema.py`: emits `stm32/Drivers/USER/inc/ee_schema.hpp` from `config/ee.toml`.
+- `generate_ee_schema.py`: emits `stm32/Drivers/Inc/ee_schema.hpp` from `config/ee.toml`.
 - `generate_firmware_ver.py`: stamps a build-id header for ESP32.
 - `pin_constraints.py`: parses ST's open-pin-data XML (vendored under `third_party/stm32_open_pin_data/`) and exposes `PinConstraints.load_default()` with `is_valid_signal_on_pin`, `pins_for_signal`, `af_for`, etc. Lives at `scripts/` root because both the generator and `lint/check_pinmap.py` import it.
-- `lint/check_pinmap.py`: runs `pin_constraints` against the freshly-generated `stm32/Drivers/USER/inc/stm32_config.hpp` (the only source of `BoardPin` declarations). Wired as a `COMMAND` of the STM32 config-generation `add_custom_command` — there is no standalone target.
+- `lint/check_pinmap.py`: runs `pin_constraints` against the freshly-generated `stm32/Drivers/Inc/stm32_config.hpp` (the only source of `BoardPin` declarations). Wired as a `COMMAND` of the STM32 config-generation `add_custom_command` — there is no standalone target.
 - `lint/check_error_codes.py`: parses `libs/inc/error_code.hpp` and fails the build if any enumerator has zero callsites. Run with `--fix` to also prune them from `error_code.hpp` + the matching switch case in `error_code.cpp`.
 - `lint/check_forbidden.sh` + `lint/forbidden_exceptions.txt`: pre-build static check for banned constructs (RTTI, exceptions, dynamic alloc in hot paths). Allowlist exceptions live in the `.txt`.
 - `setup-vscode.sh`: idempotent merge into `.vscode/settings.json` (preserves user customizations).
