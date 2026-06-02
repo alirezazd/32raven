@@ -45,11 +45,11 @@ set(STM32_EE_SCHEMA_GENERATOR
 set(STM32_EE_SCHEMA_TEMPLATE
     "${STM32_CONFIG_TEMPLATE_DIR}/ee_schema.hpp.j2")
 set(STM32_RUNTIME_CONFIG_HPP
-    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_config.hpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Inc/stm32_config.hpp")
 set(STM32_LIMITS_HPP
-    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/stm32_limits.hpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Inc/stm32_limits.hpp")
 set(STM32_EE_SCHEMA_HPP
-    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/USER/inc/ee_schema.hpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Inc/ee_schema.hpp")
 
 # Validate the freshly-generated stm32_config.hpp against ST's silicon pin /
 # AF data as part of header generation. Catches typo'd alternate functions,
@@ -124,20 +124,20 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/ctx.cpp
     Core/Src/main.cpp
     Core/Src/system.cpp
-    Drivers/USER/cc/gpio.cpp
-    Drivers/USER/cc/time_base.cpp
-    Drivers/USER/cc/led.cpp
-    Drivers/USER/cc/battery.cpp
-    Drivers/USER/cc/esc_telemetry.cpp
+    Drivers/Src/gpio.cpp
+    Drivers/Src/time_base.cpp
+    Drivers/Src/led.cpp
+    Drivers/Src/battery.cpp
+    Drivers/Src/esc_telemetry.cpp
 
-    Drivers/USER/cc/dshot_tim1.cpp
-    Drivers/USER/cc/spi.cpp
-    Drivers/USER/cc/button.cpp
-    Drivers/USER/cc/uart.cpp
-    Drivers/USER/cc/m10.cpp
-    Drivers/USER/cc/icm42688p.cpp
-    Drivers/USER/cc/rc_receiver.cpp
-    Drivers/USER/cc/ee.cpp
+    Drivers/Src/dshot_tim1.cpp
+    Drivers/Src/spi.cpp
+    Drivers/Src/button.cpp
+    Drivers/Src/uart.cpp
+    Drivers/Src/m10.cpp
+    Drivers/Src/icm42688p.cpp
+    Drivers/Src/rc_receiver.cpp
+    Drivers/Src/ee.cpp
     Core/Src/printf_impl.cpp
     Core/Src/cxa_atexit_stub.cpp
     Core/Src/states.cpp
@@ -164,7 +164,7 @@ add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    Drivers/USER/inc
+    Drivers/Inc
     Core/Inc
     Services/Inc
     lib

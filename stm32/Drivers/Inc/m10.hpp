@@ -1,8 +1,6 @@
 #pragma once
 #include <cstdint>
 
-#include "error_code.hpp"
-
 class M10 {
  public:
   enum class BaudRate : uint32_t {
@@ -40,7 +38,7 @@ class M10 {
   enum class UartStopBits : uint8_t {
     kHalf = 0,
     k1 = 1,
-    k1_5 = 2,
+    k1Point5 = 2,
     k2 = 3,
   };
 

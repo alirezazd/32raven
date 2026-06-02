@@ -38,7 +38,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 # emitted by generate_stm32_config.py from PINMAP_ENTRIES. Hand-edited pin
 # entries no longer exist — adding a new pin means adding to PINMAP_ENTRIES
 # and a Kconfig knob, never editing this file's parsed source list.
-STM32_CONFIG_HPP = REPO_ROOT / "stm32" / "Drivers" / "USER" / "inc" / "stm32_config.hpp"
+STM32_CONFIG_HPP = REPO_ROOT / "stm32" / "Drivers" / "Inc" / "stm32_config.hpp"
 DECL_SOURCES = (STM32_CONFIG_HPP,)
 SEARCH_DIRS = [
     REPO_ROOT / "stm32" / "Core",
@@ -164,9 +164,7 @@ def main() -> int:
             if d.af == "0":
                 # Plain GPIO — pin existing on package is enough.
                 continue
-            af_macros = {
-                af for ((p, _sig), af) in db._pin_signal_af.items() if p == pin_id
-            }
+            af_macros = db.afs_for_pin(pin_id)
             if d.af not in af_macros:
                 valid = sorted(af_macros)
                 _emit(

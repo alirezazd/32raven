@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "panic.hpp"
 #include "stm32f4xx.h"
 
 // Register-level GPIO configuration vocabulary — the small slice of the STM32
