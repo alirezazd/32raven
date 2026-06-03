@@ -13,11 +13,9 @@ class FcLink {
 
   void Init(AppContext *ctx);
 
-  // Minimum RX byte budget per Poll call that guarantees draining at
-  // least one max-sized packet. Smaller budgets stall the state machine
-  // — multi-Poll-fragment frames work in light traffic but pile up
-  // unprocessed when frames arrive faster than (rx_budget / frame_size)
-  // Polls per second.
+  // Min RX byte budget per Poll to drain one max-sized packet. Smaller
+  // budgets stall: frames arriving faster than rx_budget/frame_size per
+  // Poll pile up unprocessed.
   static constexpr size_t kMinRxByteBudget =
       message::kMaxPayload + message::kPacketOverhead;
 
@@ -26,8 +24,6 @@ class FcLink {
   // Sending Logic
   bool Send(const message::Packet &pkt);
 
-  // Convenience for GpsData from Blackboard
-  // Convenience for GpsData from Blackboard
   void SendGps(const GpsData &data, const BatteryData &bat);
 
   // Convenience for one IMU sample.

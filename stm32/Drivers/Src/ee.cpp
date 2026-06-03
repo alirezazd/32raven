@@ -236,8 +236,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
     const uint32_t active_begin = RecordSectorBegin(active_record_);
     const uint32_t active_end = RecordSectorEnd(active_record_);
 
-    // Once the new record verifies, reclaiming the previous sectors is
-    // best-effort cleanup. The committed data is already durable.
+    // New record already verified/durable; reclaiming old sectors is
+    // best-effort.
     if (!RangesOverlap(previous_begin, previous_end, active_begin,
                        active_end)) {
       static_cast<void>(EraseRange(previous_begin, previous_end));
@@ -628,8 +628,8 @@ EE::RecordState EE::ScanLatestRecord() const {
   for (uint32_t sector = 0u; sector < kFlashSize; sector += kSectorSize) {
     const RecordHeader sector_probe = ReadHeader(sector);
 
-    // Fresh sectors are always erased from the start because writes only enter
-    // a clean sector at its boundary.
+    // Writes only enter a clean sector at its boundary, so a blank header at
+    // sector start means the whole sector is empty.
     if (HeaderIsBlank(sector_probe)) {
       continue;
     }

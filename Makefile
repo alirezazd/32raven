@@ -85,7 +85,8 @@ help:
 	@echo "  all                 - Build all firmware"
 	@echo "  32raven-menuconfig  - Run 32Raven menuconfig (ESP32 + STM32)"
 	@echo "  esp32               - Build ESP32 firmware"
-	@echo "  stm32               - Build STM32 firmware"
+	@echo "  stm32               - Build STM32 firmware (optimized / Release)"
+	@echo "  stm32-debug         - Build STM32 firmware (debug, -O0 -g3)"
 	@echo "  format-cpp          - Run clang-format on STM32/ESP32 C++ source headers"
 	@echo "  clean               - Clean build directory"
 	@echo "  esp32-menuconfig    - Run ESP-IDF menuconfig"
@@ -115,6 +116,9 @@ esp32: configure
 
 stm32: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target stm32
+
+stm32-debug: configure
+	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target stm32-debug
 
 format-cpp:
 	@$(RUN) bash -lc 'set -euo pipefail; \

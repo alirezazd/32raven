@@ -9,48 +9,39 @@ void Spi<Inst>::Init(const SpiConfig &config) {
   EnableDmaClk();
   SPI_TypeDef *spi = Hw();
 
-  // Enable Clock
   EnableSpiClk();
 
-  // 1. Disable SPI
+  // SPE must be off to write CR1.
   spi->CR1 &= ~SPI_CR1_SPE;
 
-  // 2. Configure CR1
-  // Base configuration: Master, 8-bit, Soft NSS (SSM=1, SSI=1)
+  // Master, 8-bit (DFF=0), software NSS held high (SSM=1, SSI=1).
   uint32_t cr1 = SPI_CR1_MSTR | SPI_CR1_SSI | SPI_CR1_SSM;
 
-  // Polarity
   if (config.polarity == SpiPolarity::kHigh) {
     cr1 |= SPI_CR1_CPOL;
   }
 
-  // Phase
   if (config.phase == SpiPhase::k2Edge) {
     cr1 |= SPI_CR1_CPHA;
   }
 
-  // Bit Order
   if (config.bit_order == SpiBitOrder::kLsbFirst) {
     cr1 |= SPI_CR1_LSBFIRST;
   }
 
-  // Baud Rate Prescaler: bits [5:3]
+  // Baud prescaler: BR bits [5:3].
   cr1 |= (static_cast<uint32_t>(config.prescaler) << SPI_CR1_BR_Pos);
-
-  // Data Size (DFF) is 0 for 8-bit, so nothing to add.
 
   spi->CR1 = cr1;
 
-  // 3. Configure CR2
-  // Motorola frame format (TI Mode off), interrupts disabled, etc.
+  // Motorola frame format, interrupts off.
   spi->CR2 = 0;
 
-  // 4. Clear residual flags (OVR) before enabling
+  // Read DR then SR to clear any residual OVR before enabling.
   volatile uint32_t tmp __attribute__((unused));
   tmp = spi->DR;
   tmp = spi->SR;
 
-  // 5. Enable SPI
   Enable();
   initialized_ = true;
 }
@@ -97,39 +88,32 @@ void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
   uint8_t *rx_ptr = rx;
   size_t i = 0;
 
-  // Ensure SPI is enabled
   if (!(spi->CR1 & SPI_CR1_SPE)) {
     Enable();
   }
 
   while (i < len) {
-    // Wait until TXE (Transmit Empty) is set
     while (!(spi->SR & SPI_SR_TXE)) {
-      // Yield or timeout? Blocking for now.
     };
 
-    // Write Data
+    // Drive 0xFF when transmit-only so the receiver sees idle MOSI.
     *reinterpret_cast<volatile uint8_t *>(&spi->DR) = tx_ptr ? *tx_ptr++ : 0xFF;
 
-    // Wait until RXNE (Receive Not Empty) is set
     while (!(spi->SR & SPI_SR_RXNE)) {
-      // Yield or timeout?
     };
 
-    // Read Data
-    uint8_t d =
-        *reinterpret_cast<volatile uint8_t *>(&spi->DR);  // Read clears RXNE
+    // Reading DR clears RXNE.
+    uint8_t d = *reinterpret_cast<volatile uint8_t *>(&spi->DR);
     if (rx_ptr) {
       *rx_ptr++ = d;
     }
     i++;
   }
 
-  // Strictly wait for BSY to clear so CS can be deasserted safely
+  // Wait for BSY before the caller deasserts CS.
   while (spi->SR & SPI_SR_BSY) {
   }
 
-  // Clear flags (Hygiene) - only if OVR set
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp __attribute__((unused));
     tmp = spi->DR;
@@ -164,7 +148,7 @@ void Spi<Inst>::SetPrescaler(SpiPrescaler rate) {
   Disable();
 
   uint32_t cr1 = spi->CR1;
-  cr1 &= ~SPI_CR1_BR;  // Clear old BR
+  cr1 &= ~SPI_CR1_BR;
   cr1 |= (static_cast<uint32_t>(rate) << SPI_CR1_BR_Pos);
   spi->CR1 = cr1;
 
@@ -179,13 +163,12 @@ void Spi<Inst>::Enable() {
 template <SpiInstance Inst>
 void Spi<Inst>::Disable() {
   SPI_TypeDef *spi = Hw();
-  // 1. Wait for BSY to clear
+  // Drain in-flight frame before clearing SPE.
   while (spi->SR & SPI_SR_BSY) {
   }
-  // 2. Disable SPI
   spi->CR1 &= ~SPI_CR1_SPE;
 
-  // 3. Clear OVR (Read DR then SR) unconditionally
+  // Read DR then SR to clear OVR.
   volatile uint32_t tmp __attribute__((unused));
   tmp = spi->DR;
   tmp = spi->SR;
@@ -226,12 +209,11 @@ bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
 
   SPI_TypeDef *spi = Hw();
 
-  // Pre-flight drain: Ensure DR is empty and OVR is cleared
+  // Drain stale RX so DMA starts on a clean DR; then clear OVR.
   while (spi->SR & SPI_SR_RXNE) {
     volatile uint32_t tmp = spi->DR;
     (void)tmp;
   }
-  // Clear OVR if it was set during drain or before
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp = spi->DR;
     tmp = spi->SR;
@@ -258,24 +240,22 @@ bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
                        DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4;
   }
 
-  // 1. Disable Streams
   DmaDisableAndWait(rx_stream);
   DmaDisableAndWait(tx_stream);
 
-  // Hardening: Disable SPI DMA requests to ensure clean state
+  // Drop SPI DMA requests while reconfiguring streams.
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
-  // 2. Clear Flags
   dma->LIFCR = low_clear_flags;
   if (high_clear_flags != 0) {
     dma->HIFCR = high_clear_flags;
   }
 
-  // Hardening: Clear FCR (Direct Mode default)
+  // FCR=0 selects direct (non-FIFO) mode.
   rx_stream->FCR = 0;
   tx_stream->FCR = 0;
 
-  // 3. Configure RX Stream
+  // RX stream: periph->mem.
   rx_stream->PAR = reinterpret_cast<uint32_t>(&spi->DR);
   rx_stream->NDTR = len;
   if (rx) {
@@ -285,21 +265,18 @@ bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
   }
 
   uint32_t rx_cr = 0;
-  // Channel select
   rx_cr |= channel_sel;
-  // DIR: 00 (Periph-to-Memory) -> Default
-  // Priority: Very High
+  // DIR=00 periph->mem (default); PL=11 very high.
   rx_cr |= DMA_SxCR_PL_0 | DMA_SxCR_PL_1;
-  // MINC: Only if rx buffer provided
+  // Increment memory only when a real buffer is supplied.
   if (rx) {
     rx_cr |= DMA_SxCR_MINC;
   }
-  // Interrupts: TCIE, TEIE, DMEIE
   rx_cr |= DMA_SxCR_TCIE | DMA_SxCR_TEIE | DMA_SxCR_DMEIE;
 
   rx_stream->CR = rx_cr;
 
-  // 4. Configure TX Stream
+  // TX stream: mem->periph.
   tx_stream->PAR = reinterpret_cast<uint32_t>(&spi->DR);
   tx_stream->NDTR = len;
   if (tx) {
@@ -309,26 +286,22 @@ bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
   }
 
   uint32_t tx_cr = 0;
-  // Channel select
   tx_cr |= channel_sel;
-  // DIR: 01 (Memory-to-Periph)
+  // DIR=01 mem->periph; PL=11 very high.
   tx_cr |= DMA_SxCR_DIR_0;
-  // Priority: Very High
   tx_cr |= DMA_SxCR_PL_0 | DMA_SxCR_PL_1;
-  // MINC: Only if tx buffer provided
   if (tx) {
     tx_cr |= DMA_SxCR_MINC;
   }
-  // Interrupts: TEIE, DMEIE (TCIE not needed on TX, we assume RX finishes last)
+  // No TCIE on TX; completion is driven off RX, which finishes last.
   tx_cr |= DMA_SxCR_TEIE | DMA_SxCR_DMEIE;
 
   tx_stream->CR = tx_cr;
 
-  // 5. Enable Streams (RX then TX)
+  // Enable RX before TX so the first received frame can't be dropped.
   rx_stream->CR |= DMA_SxCR_EN;
   tx_stream->CR |= DMA_SxCR_EN;
 
-  // 6. Enable SPI DMA Request
   spi->CR2 |= (SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
   return true;
@@ -357,32 +330,26 @@ void Spi<Inst>::OnRxDmaTcIrqImpl() {
                        DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4;
   }
 
-  // Clear IRQ flags
   dma->LIFCR = low_clear_flags;
   if (high_clear_flags != 0) {
     dma->HIFCR = high_clear_flags;
   }
 
-  // 1. Wait for BSY to clear
-  // Loop limit for safety? SPI is fast, so this should be quick.
+  // RX TC fires when the last byte hits memory, but SPI may still be shifting.
   while (spi->SR & SPI_SR_BSY) {
   }
 
-  // 2. Disable SPI DMA Requests
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
-  // 3. Disable Streams
   DmaDisableAndWait(rx_stream);
   DmaDisableAndWait(tx_stream);
 
-  // Hardening: Clear OVR if present (cheap insurance)
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp = spi->DR;
     tmp = spi->SR;
     (void)tmp;
   }
 
-  // 4. Callback
   SpiDoneCb cb = nullptr;
   void *user = nullptr;
 
@@ -391,7 +358,7 @@ void Spi<Inst>::OnRxDmaTcIrqImpl() {
   user = user_;
 
   if (cb) {
-    cb(user, true);  // ok=true
+    cb(user, true);
   }
 }
 
@@ -402,8 +369,7 @@ void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
     return;
   }
 
-  // Just clear flags and maybe fail the callback?
-  // Implementation similar to OnRxDmaTcIrq but with ok=false
+  // Tear down like OnRxDmaTcIrq, but report failure to the callback.
   SPI_TypeDef *spi = Hw();
   DMA_Stream_TypeDef *rx_stream = nullptr;
   DMA_Stream_TypeDef *tx_stream = nullptr;
@@ -413,7 +379,6 @@ void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
 
   System::GetInstance().Led().Set(true);
 
-  // Disable SPI DMA Requests
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
   if constexpr (Inst == SpiInstance::kSpi2) {
@@ -431,11 +396,9 @@ void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
     dma->HIFCR = high_clear_flags;
   }
 
-  // Disable Streams
   DmaDisableAndWait(rx_stream);
   DmaDisableAndWait(tx_stream);
 
-  // Hardening: Clear OVR if present
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp = spi->DR;
     tmp = spi->SR;
@@ -450,7 +413,7 @@ void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
   user = user_;
 
   if (cb) {
-    cb(user, false);  // ok=false
+    cb(user, false);
   }
 }
 

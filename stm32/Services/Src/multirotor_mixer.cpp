@@ -16,13 +16,10 @@
 // represents motors in the normalized [idle, 1] band — there is no hover
 // trim to subtract.
 //
-// The "Disabled" airmode is the only variant that lets the drone honour a
-// commanded descent: it never lifts collective thrust to unsaturate motors.
-// When pilot stick is low and torque demand would otherwise saturate the
-// low end of the motor band, the algorithm scales the torque axes down
-// (giving up attitude authority) instead of raising thrust. This trade is
-// exactly what the SIL workflow needs: descent always works; authority
-// degrades smoothly toward zero as the pilot commits to coming down.
+// "Disabled" airmode never lifts collective thrust to unsaturate motors, so
+// commanded descent always works: when torque demand saturates the low end of
+// the band, torque axes are scaled down (attitude authority degrades) rather
+// than raising thrust.
 
 namespace multirotor_mixer {
 
@@ -44,14 +41,11 @@ bool IsConfigValid(const Mixer::Config &cfg) {
 
 // Port of ControlAllocationSequentialDesaturation::computeDesaturationGain.
 //
-// Returns the gain k by which `desat` should be added to `sp` to drive the
-// worst-saturated actuator back toward the [min_lim, max_lim] band. The
-// k_min/k_max accumulation captures both ends of saturation; summing them
-// puts the result roughly at the centre of the residual saturation.
-//
-// Actuators whose desat-direction magnitude is below kEffectivenessFloor
-// are skipped — they're too weakly coupled to the desat axis to be worth
-// touching (using them would inflate gain magnitudes unhelpfully).
+// Gain k to add `desat` to `sp`, driving the worst-saturated actuator back
+// toward [min_lim, max_lim]. k_min/k_max capture both saturation ends; summing
+// centres the result in the residual saturation. Actuators with desat-direction
+// magnitude below kEffectivenessFloor are skipped (too weakly coupled;
+// including them inflates gain magnitudes).
 float ComputeDesaturationGain(const float desat[4], const float sp[4],
                               float min_lim, float max_lim) {
   float k_min = 0.0f;
@@ -74,16 +68,13 @@ float ComputeDesaturationGain(const float desat[4], const float sp[4],
 
 // Port of ControlAllocationSequentialDesaturation::desaturateActuators.
 //
-// Apply the desaturation gain along `desat` in two passes — full, then
-// half of the residual — which refines the fit because the first
-// k_min + k_max sum overshoots when both ends of the band are saturated.
+// Two passes — full gain then half the residual — refines the fit, since the
+// first k_min + k_max overshoots when both band ends saturate.
 //
-// `block_motor_lift` blocks the "raise motors" direction. PX4 names this
-// `increase_only` but uses a thrust-axis convention where the desat
-// vector has negative sign per motor; we use thrust_z[i] = +1 (motor
-// command rises with positive thrust input), so the equivalent guard is
-// `gain > 0`. The behaviour matches PX4 line-for-line: motors must not
-// be lifted to unsaturate.
+// `block_motor_lift` blocks the "raise motors" direction (PX4's
+// `increase_only`). PX4's thrust desat vector is negative per motor; here
+// thrust_z[i] = +1 (motor command rises with thrust), so the equivalent guard
+// is `gain > 0`.
 void DesaturateActuators(float sp[4], const float desat[4], float min_lim,
                          float max_lim, bool block_motor_lift = false) {
   float gain = ComputeDesaturationGain(desat, sp, min_lim, max_lim);
@@ -111,27 +102,18 @@ void Mixer::SetConfig(const Config &cfg) {
 }
 
 // PX4 mixAirmodeDisabled + mixYaw, in order:
-//
-//   1. Build pre-yaw actuator setpoint:  sp[i] = R·mix_R + P·mix_P + T·mix_T.
-//   2. Desaturate thrust direction, BLOCKING motor lift — drops the whole
-//      band uniformly if any motor is above max; does nothing if motors are
-//      below min (PX4's "never increase thrust" rule).
-//   3. Desaturate roll direction (bidirectional) — shrinks roll authority
-//      to fit the band.
-//   4. Same for pitch.
-//   5. Add yaw to the actuator setpoint.
-//   6. Desaturate yaw with the upper limit temporarily expanded by +15 %
-//      (kMinimumYawMargin) — preserves yaw authority right up to the
-//      saturation point.
-//   7. Desaturate thrust again, BLOCKING motor lift — restores the real
-//      upper limit by dropping motors uniformly if needed.
+//   1. Pre-yaw setpoint: sp[i] = R·mix_R + P·mix_P + T·mix_T.
+//   2. Thrust desat, BLOCKING motor lift (PX4's "never increase thrust").
+//   3-4. Roll then pitch desat (bidirectional, shrinks authority to fit band).
+//   5. Add yaw.
+//   6. Yaw desat with upper limit expanded by kMinimumYawMargin.
+//   7. Thrust desat again, BLOCKING lift, restoring the real upper limit.
 //   8. Final clamp to [idle, 1] for FP-noise safety.
 //
-// applied_torque is the orthogonal projection of the resulting motor
-// vector onto each torque axis (factor_axis · motors / 4 for the QuadX
-// factors whose columns are mutually orthogonal with squared-norm 4).
-// The rate PID's back-calc anti-windup feeds on the gap between
-// commanded and applied per axis.
+// applied_torque is the orthogonal projection of the motor vector onto each
+// torque axis (factor_axis · motors / 4: QuadX factor columns are mutually
+// orthogonal with ||·||² = 4). Feeds the rate PID's back-calc anti-windup via
+// the commanded-vs-applied gap per axis.
 MixOutput Mixer::Mix(const Inputs &in) const {
   if (!armed_) {
     return MixOutput{
@@ -183,19 +165,16 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   DesaturateActuators(sp, thrust_z, min_lim, max_lim,
                       /*block_motor_lift=*/true);
 
-  // Step 8: emit. Final clamp is a paranoid safety; the algorithm leaves
-  // motors inside [idle, 1] by construction except for the tiny
-  // kMinimumYawMargin overshoot that step 7 was supposed to absorb.
+  // Step 8: emit. Clamp guards FP noise and any residual kMinimumYawMargin
+  // overshoot step 7 left unabsorbed; algorithm is otherwise in-band.
   MixOutput out;
   for (int i = 0; i < 4; ++i) {
     out.motors[i] = std::clamp(sp[i], min_lim, max_lim);
   }
 
-  // applied_torque: orthogonal projection of the final motor vector onto
-  // each torque axis. QuadX factor columns are mutually orthogonal with
-  // ||·||² = 4, and the thrust direction (1,1,1,1) is orthogonal to each
-  // of them, so this projection cleanly recovers the actually-delivered
-  // R/P/Y components for back-calc anti-windup.
+  // applied_torque: project final motor vector onto each torque axis. Factor
+  // columns and thrust (1,1,1,1) are mutually orthogonal (||·||² = 4), so this
+  // recovers the actually-delivered R/P/Y for back-calc anti-windup.
   float r_applied = 0.0f;
   float p_applied = 0.0f;
   float y_applied = 0.0f;

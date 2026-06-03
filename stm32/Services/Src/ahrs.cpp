@@ -19,9 +19,8 @@ bool IsConfigValid(const Ahrs::Config &cfg) {
   return true;
 }
 
-// Cubic-Hermite smoothstep on [0, 1]. Smooth at both endpoints (zero
-// derivative there), branchless, ~3 FMAs on Cortex-M4. The standard
-// shape for soft trust transitions used in PX4, ArduPilot, etc.
+// Cubic-Hermite smoothstep on [0, 1]: zero derivative at both endpoints,
+// branchless, ~3 FMAs on Cortex-M4.
 inline float SmoothStep01(float t) { return t * t * (3.0f - 2.0f * t); }
 
 // Two-sided trust weight: 1.0 within ±full_dev of the centre, smooth
@@ -114,11 +113,9 @@ ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
     //                                       that would rotate ref onto
     //                                       meas (zero when q correct).
     //
-    // Soft accel-trust: weight decays smoothly from 1.0 inside the
-    // ±accel_trust_full_dev_g band to 0.0 at ±accel_trust_zero_dev_g.
-    // No chatter at the gate boundary (cf. the previous hard-cutoff
-    // version); behaviour at the limit zero_dev <= full_dev is "always
-    // full trust" (attenuation disabled).
+    // Accel-trust weight decays smoothly from 1.0 inside the
+    // ±accel_trust_full_dev_g band to 0.0 at ±accel_trust_zero_dev_g, so
+    // no chatter at the gate boundary.
     Eigen::Vector3f mes_err = Eigen::Vector3f::Zero();
     const float accel_norm = accel.norm();
     if (accel_norm > 1e-3f) {
@@ -134,11 +131,9 @@ ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
       }
     }
 
-    // PI update of the gyro bias (Mahony & Hamel), additionally gated
-    // on quiescence. mes_err is already attenuated above by the accel-
-    // trust weight; here we apply a second one-sided weight based on
-    // |gyro| so the bias stops learning whenever the drone is actively
-    // maneuvering. Both gates have to be open for full bias update.
+    // PI gyro-bias update (Mahony & Hamel). mes_err is already accel-trust
+    // weighted; a second |gyro| quiescence gate stops bias learning while
+    // maneuvering. Both gates must be open for a full update.
     const float gyro_quiescent = OneSidedQuiescentWeight(
         gyro_meas.norm(), cfg_.gyro_quiescent_full_rad_s,
         cfg_.gyro_quiescent_zero_rad_s);

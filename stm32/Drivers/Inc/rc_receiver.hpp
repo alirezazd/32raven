@@ -61,7 +61,7 @@ class RcReceiver {
 
   // Pilot throttle floor — thrust commanded when stick = 0. Default from
   // kPilotThrottleMin (Kconfig STM32_PILOT_THROTTLE_MIN_MILLI). Runtime-
-  // mutable so a SIL session can sweep the floor without reflashing. PX4
+  // mutable so the floor can be tuned without reflashing. PX4
   // equivalent: MPC_MANTHR_MIN.
   void SetThrottleMin(float v);
   float ThrottleMin() const { return throttle_min_; }

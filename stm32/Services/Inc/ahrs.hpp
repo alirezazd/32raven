@@ -1,40 +1,31 @@
-// AHRS — Attitude estimator on the unit quaternion.
+// AHRS — Mahony complementary filter on the unit quaternion.
 //
-// Mahony complementary filter: fuses body-frame gyro (1 kHz prediction)
-// with body-frame accelerometer (gravity reference) to produce a
-// drift-bounded orientation estimate. Owned by System like the rate
-// controller and mixer; runs once per fast tick from `OnFastTick`.
+// Fuses body-frame gyro (1 kHz prediction) with body-frame accel
+// (gravity reference) into a drift-bounded orientation. Runs once per
+// fast tick.
 //
-// Behaviour is gated by the gains in Config:
-//   - kp_accel = 0 → accel correction off; quaternion drifts on gyro
-//                    bias alone (matches a pure-integration AHRS).
-//   - kp_accel > 0 → accel pulls the quaternion toward truth at a rate
-//                    set by the gain.
-//   - ki_bias  > 0 → gyro bias is learned alongside the quaternion.
+// Gains (Config):
+//   - kp_accel = 0 → accel correction off; pure gyro integration.
+//   - kp_accel > 0 → accel pulls the quaternion toward truth.
+//   - ki_bias  > 0 → gyro bias learned alongside the quaternion.
 //
-// Trust attenuation (soft, two-sided):
-//   - The accel correction is scaled by a smooth weight that's 1.0
-//     when |accel|/g is within ±accel_trust_full_dev_g of 1.0, decays
-//     smoothly to 0.0 as deviation reaches accel_trust_zero_dev_g, and
-//     stays 0.0 beyond. Smoothstep ramp — no chatter at the boundary.
-//   - The gyro-bias update is additionally scaled by a one-sided
-//     smooth weight that's 1.0 when |gyro| <= gyro_quiescent_full_rad_s,
-//     decays to 0.0 as |gyro| reaches gyro_quiescent_zero_rad_s. Stops
-//     the bias estimator from absorbing transient errors during
-//     maneuvers — matches the PX4 / ArduPilot / INAV spin-rate gate.
-// Defaults with all four band fields at 0.0 disable the attenuation
-// (weight is always 1) — same behaviour as a wide-open trust window.
+// Trust attenuation (smoothstep ramps, no boundary chatter):
+//   - Accel correction scaled by a two-sided weight: 1.0 within
+//     ±accel_trust_full_dev_g of |accel|/g == 1.0, → 0.0 by
+//     accel_trust_zero_dev_g, 0.0 beyond.
+//   - Bias update additionally scaled by a one-sided weight: 1.0 below
+//     gyro_quiescent_full_rad_s, → 0.0 by gyro_quiescent_zero_rad_s.
+//     Spin-rate gate (cf. PX4/ArduPilot/INAV) keeps the bias estimator
+//     from absorbing transient maneuver errors.
+//   All four band fields 0.0 disables attenuation (weight always 1).
 //
 // Convention (NED world, +Z = down):
-//   q = attitude_world_to_body tracks the orientation of body in world,
-//   propagated by right-multiplication with a body-frame angular
-//   increment:
-//     v_world = q · v_body
-//     v_body  = q.conjugate() · v_world
-//   World "up" is (0, 0, -1). Accel at rest reads specific force, which
-//   points along "up" in body frame because the normal force opposes
-//   gravity, so a normalised accel sample is the direct measurement of
-//   "up" in body.
+//   q = attitude_world_to_body, propagated by right-multiply with a
+//   body-frame angular increment:
+//     v_world = q · v_body ; v_body = q.conjugate() · v_world
+//   World "up" is (0, 0, -1). At rest accel reads specific force along
+//   body "up" (normal force opposes gravity), so a normalised sample is
+//   a direct measurement of "up" in body.
 
 #pragma once
 
@@ -48,27 +39,20 @@
 class Ahrs {
  public:
   struct Config {
-    // Proportional gain on the accel-derived tilt error (rad/s per rad
-    // of mismatch). Zero disables the accel correction. Typical
-    // operational value ~1.0.
+    // Tilt-error proportional gain (rad/s per rad of mismatch); 0
+    // disables accel correction. Typical ~1.0.
     float kp_accel = 0.0f;
-    // Integral gain on the accel-derived tilt error — drives the
-    // gyro-bias estimator. Zero freezes the bias estimate at zero.
-    // Typical operational value ~0.005-0.01.
+    // Tilt-error integral gain driving the bias estimator; 0 freezes
+    // bias at zero. Typical ~0.005-0.01.
     float ki_bias = 0.0f;
 
-    // Soft accel-trust attenuation, expressed as deviations of |a|/g
-    // from 1.0. Inside ±full → weight = 1; smoothly ramps to 0 at
-    // ±zero; held at 0 beyond. When zero <= full, the attenuation is
-    // disabled (weight is always 1) — preserves the wide-open default.
+    // Accel-trust band, as deviations of |a|/g from 1.0: weight 1
+    // inside ±full, ramps to 0 by ±zero. zero <= full disables it.
     float accel_trust_full_dev_g = 0.0f;
     float accel_trust_zero_dev_g = 0.0f;
 
-    // Soft gyro-quiescence attenuation for the bias-update path,
-    // expressed as |gyro| magnitudes in rad/s. Below full → weight = 1;
-    // smoothly ramps to 0 at zero; held at 0 beyond. Stops bias from
-    // absorbing wrong corrections during transient maneuvering. When
-    // zero <= full, disabled (weight = 1).
+    // Gyro-quiescence band for the bias path, |gyro| in rad/s: weight 1
+    // below full, ramps to 0 by zero. zero <= full disables it.
     float gyro_quiescent_full_rad_s = 0.0f;
     float gyro_quiescent_zero_rad_s = 0.0f;
   };
@@ -84,7 +68,7 @@ class Ahrs {
   void Reset();
 
   // Runtime config swap; preserves quaternion + bias state. Use for
-  // tuning gains during a SIL session without restarting the filter.
+  // tuning gains at runtime without restarting the filter.
   // Panics on invalid config.
   void SetConfig(const Config &cfg);
 

@@ -24,14 +24,11 @@
 class System {
  public:
   // ── Clock + power configuration types ─────────────────────────────
-  // Each enum value's underlying integer is the actual register-bit
-  // pattern the peripheral expects (CMSIS-level — no HAL wrappers),
-  // so `static_cast<uint32_t>(value)` produces the register write
-  // directly. PllP is special: InitOscillators does its own
-  // integer-to-bitfield mapping, so the values here are the human-
-  // readable divisors. Oscillator is special — it influences several
-  // RCC fields (HSE/HSI on/off, PLL source), so system.cpp branches
-  // on it explicitly.
+  // Enum underlying ints are the raw RCC register-bit patterns (CMSIS,
+  // no HAL), so static_cast<uint32_t> writes the field directly.
+  // Exceptions: PllP holds the human divisor (InitOscillators encodes
+  // it), and Oscillator is branched on in system.cpp since it drives
+  // several RCC fields (HSE/HSI on/off, PLL source).
 
   enum class Oscillator : uint8_t { kHsi, kHse };
 
@@ -54,9 +51,8 @@ class System {
     kDiv512 = RCC_CFGR_HPRE_DIV512,
   };
 
-  // PPRE1 bit positions — APB2 reuses these and ClockConfig shifts them
-  // by 3 internally to land in the PPRE2 field of RCC_CFGR. So a single
-  // ApbDiv enum works for both buses.
+  // PPRE1 bit positions; APB2 reuses them shifted by 3 into PPRE2, so
+  // one ApbDiv enum covers both buses.
   enum class ApbDiv : uint32_t {
     kDiv1 = RCC_CFGR_PPRE1_DIV1,
     kDiv2 = RCC_CFGR_PPRE1_DIV2,
@@ -72,10 +68,9 @@ class System {
     kScale2 = 0,
   };
 
-  // Inputs to InitOscillators (system.cpp). Selects HSE or HSI as the
-  // PLL reference and pins the PLL divider chain. PLLP is the human-
-  // readable divisor (2/4/6/8); the helper encodes it into the
-  // register's ((P>>1)-1) field internally. PLLM/N/Q are raw values.
+  // InitOscillators input: PLL reference + divider chain. pllp is the
+  // human divisor (2/4/6/8), encoded to ((P>>1)-1) internally; pllm/n/q
+  // are raw register values.
   struct OscillatorConfig {
     Oscillator oscillator;
     uint32_t pllm;
@@ -84,10 +79,9 @@ class System {
     uint32_t pllq;
   };
 
-  // Clock + power configuration consumed by Init(). Cross-field
-  // constraints (PLL VCO range, max APB1/APB2 freqs, flash latency vs
-  // SYSCLK, voltage scale vs target clock) are documented in the
-  // reference manual; the build does not police them.
+  // Clock + power config for Init(). Cross-field constraints (PLL VCO
+  // range, APB1/APB2 max freqs, flash latency vs SYSCLK, voltage scale
+  // vs clock) are caller's responsibility — unchecked here.
   struct Config {
     Oscillator oscillator;
     uint8_t pllm;   // 2..63

@@ -1,35 +1,23 @@
-// math::Pid (namespace control) — single-input single-output PID primitive
-// with back-calculation anti-windup.
+// control::Pid — SISO PID with back-calculation anti-windup.
+// Header-only, no allocations/exceptions/RTTI/deps. Cortex-M4 hard-FPU.
 //
-// Cortex-M4 hard-FPU: every op is single-cycle VFP. Header-only, no
-// allocations, no exceptions, no RTTI, no external dependencies.
+// Anti-windup uses Kt = Ki/Kp (Aström rule 1): the integrator unwinds as
+// fast as it accumulates. Saturation is detected by comparing the PID's
+// pre-clip output to the actuator's post-clip value passed by the caller,
+// so one mechanism covers output_clamp, downstream clipping (mixer disarm),
+// and actuator saturation (motor at max) without arm-edge resets or hints.
 //
-// Anti-windup: back-calculation with Kt = Ki/Kp (textbook Aström rule 1
-// — anti-windup time constant equals the natural integral time so the
-// integrator unwinds as fast as it normally accumulates). Saturation is
-// detected by comparing the PID's pre-clip output to the actuator's
-// post-clip value supplied by the caller, so this single mechanism
-// catches:
-//   - the PID's own output_clamp saturation
-//   - downstream clipping (e.g., mixer disarm zeroing all motors)
-//   - actuator saturation (e.g., motor at max throttle)
-// without an arm-edge reset, mode-aware logic, or saturation hint.
-//
-// Two-call API:
+// Two-call API (committing integrator only after downstream clipping):
 //   float u_pid = pid.Compute(setpoint, measurement, dt_s);
 //   float u_post = downstream.Apply(u_pid);   // mixer / ESC / clip
 //   pid.CommitIntegrator(u_post, dt_s);
+// Update() collapses both for callers with no clipping beyond output_clamp.
 //
-// Convenience Update(setpoint, measurement, dt_s) collapses Compute +
-// CommitIntegrator(u_pid) for callers with no downstream clipping
-// beyond the PID's own output_clamp.
-//
-// Design choices (all standard practice; matches BetaFlight + ArduPilot):
-//   - D from filtered measurement, negated — no setpoint-step kick.
+// Design (matches BetaFlight + ArduPilot):
+//   - D on filtered measurement, negated — no setpoint-step kick.
 //   - First-order IIR on the D-input. alpha ∈ (0, 1]; alpha = 1 → off.
-//   - **Back-calculation anti-windup with Kt = Ki/Kp.**
-//   - Hard integrator_clamp safety net independent of anti-windup
-//     (catches pathological cases if Kt is mistuned).
+//   - Hard integrator_clamp safety net, independent of anti-windup, in
+//     case Kt is mistuned.
 
 #pragma once
 
@@ -46,12 +34,10 @@ struct PidGains {
 struct PidLimits {
   float integrator_clamp = 0.0f;
   float output_clamp = 0.0f;
-  // Soft I-gain attenuation at large signed errors. When |error| reaches
-  // this threshold the I-term branch effectively scales to 0; below it,
-  // ramps as 1 − (error/threshold)² up to full Ki. Prevents the
-  // post-flip / stick-whip "bounce-back" where a huge transient error
-  // dumps a large I accumulation. Set to 0 (default) to disable.
-  // PX4 equivalent: hard-coded 400°/s ≈ 7 rad/s.
+  // Soft I-gain attenuation at large signed errors: scales Ki by
+  // 1 − (error/threshold)², reaching 0 at |error| = threshold. Prevents
+  // post-flip / stick-whip bounce-back from a huge transient I dump.
+  // 0 (default) disables. PX4 equivalent: hard-coded 400°/s ≈ 7 rad/s.
   float i_factor_error_thresh = 0.0f;
 };
 
@@ -93,17 +79,11 @@ class Pid {
     pending_filtered_meas_ = 0.0f;
   }
 
-  // Two-call API: Compute returns the PID output WITHOUT committing the
-  // integrator. Caller passes that output through any downstream stage
-  // (mixer, ESC) that may clip/zero it, then calls CommitIntegrator with
-  // the post-clip value so back-calc can detect saturation.
-  //
-  //   setpoint    : desired value
-  //   measurement : current value
-  //   dt_s        : seconds since the previous Compute() (must be > 0)
-  //
-  // dt_s ≤ 0 returns the last output unchanged; pending state is
-  // invalidated so a stale CommitIntegrator becomes a no-op.
+  // Returns the PID output WITHOUT committing the integrator; caller must
+  // pair with CommitIntegrator (see two-call API above). dt_s is seconds
+  // since the previous Compute() and must be > 0; dt_s ≤ 0 returns the last
+  // output unchanged and invalidates pending state so a stale
+  // CommitIntegrator becomes a no-op.
   float Compute(float setpoint, float measurement, float dt_s) {
     if (dt_s <= 0.0f) {
       pending_valid_ = false;
@@ -134,8 +114,7 @@ class Pid {
     }
 
     // Stash for CommitIntegrator. Filter state stays in filtered_meas_
-    // until commit so a Compute() that's never committed (e.g., dt
-    // glitch) doesn't desync the D-term filter.
+    // until commit so an uncommitted Compute() doesn't desync the D filter.
     pending_error_ = error;
     pending_u_unsat_ = u_unsat;
     pending_filtered_meas_ = filtered_meas_new;
@@ -155,8 +134,7 @@ class Pid {
   void CommitIntegrator(float u_post, float dt_s) {
     if (!pending_valid_ || dt_s <= 0.0f) return;
 
-    // I-gain attenuation at huge errors (PX4 RateControl i_factor).
-    // Disabled when threshold ≤ 0.
+    // I-gain attenuation at huge errors (see PidLimits::i_factor_error_thresh).
     float i_factor = 1.0f;
     if (limits_.i_factor_error_thresh > 0.0f) {
       const float r = pending_error_ / limits_.i_factor_error_thresh;
@@ -180,17 +158,12 @@ class Pid {
     pending_valid_ = false;
   }
 
-  // Commit the FILTER state from a pending Compute() but leave the
-  // integrator frozen. Used by upstream policy (e.g. RateController)
-  // when an external invariant says the integrator must not accumulate
-  // during this tick — for example, pilot throttle is at zero so no
-  // torque can be applied anyway, and any accumulated I-term would dump
-  // as a spike when authority returns.
-  //
-  // Filter state (D-term LPF and last_error_) still advances so the
-  // derivative branch keeps tracking the measurement and the controller
-  // resumes from a correct state once the freeze lifts.
-  //
+  // Commit the FILTER state from a pending Compute() but freeze the
+  // integrator. For upstream policy (e.g. RateController) that must block
+  // I accumulation this tick — e.g. throttle at zero, where any I-term
+  // would dump as a spike when authority returns. The D-LPF and last_error_
+  // still advance so the derivative branch keeps tracking and resumes
+  // correctly once the freeze lifts.
   // No-op if Compute() wasn't called since the last commit.
   void CommitFilterOnly(float dt_s) {
     if (!pending_valid_ || dt_s <= 0.0f) return;
@@ -227,9 +200,8 @@ class Pid {
   }
 
   void RecomputeKt() {
-    // Aström textbook rule 1: Kt = Ki / Kp. Kp ≤ 0 means degenerate PID
-    // with no proportional response → no output to saturate → disable
-    // back-calc (Kt = 0). The hard integrator_clamp still applies.
+    // Aström rule 1: Kt = Ki / Kp. Kp ≤ 0 is degenerate (no output to
+    // saturate) → disable back-calc; hard integrator_clamp still applies.
     kt_ = (gains_.kp > 1e-9f) ? (gains_.ki / gains_.kp) : 0.0f;
   }
 

@@ -8,10 +8,9 @@
 
 enum class UartInstance { kUart1, kUart2, kUart6 };
 
-// Underlying values are the actual USART_CRx register bit patterns from
-// CMSIS — bit-for-bit identical to what the old HAL UART_* macros were
-// expanding to. The driver ORs these straight into the registers, so the
-// values must match the silicon, not a HAL convention.
+// Underlying values are raw USART_CRx register bit patterns from CMSIS;
+// the driver ORs them straight into the registers, so they must match the
+// silicon, not any HAL convention.
 enum class UartWordLength : uint32_t {
   k8Bits = 0u,
   k9Bits = USART_CR1_M,
@@ -119,7 +118,7 @@ class Uart {
   // Error Counters
   volatile uint32_t tx_drop_bytes_ = 0;
   volatile uint32_t tx_dma_err_ = 0;
-  uint8_t tx_retry_count_ = 0;  // For TX DMA retries
+  uint8_t tx_retry_count_ = 0;
   volatile uint32_t rx_drop_bytes_ = 0;
   volatile uint32_t rx_dma_err_ = 0;
   volatile uint32_t uart_ore_err_ = 0;

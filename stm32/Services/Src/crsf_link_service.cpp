@@ -144,7 +144,7 @@ void EncodeHeartbeatPayload(uint8_t payload[kHeartbeatPayloadSize]) {
 
 void EncodeBatteryPayload(const BatteryData &battery,
                           uint8_t payload[kBatteryPayloadSize]) {
-  // Match the de-facto FC/EdgeTX CRSF battery encoding used in common stacks.
+  // De-facto EdgeTX CRSF battery encoding for cross-stack compatibility.
   StoreBe16(payload + 0u,
             ClampU16(EncodeBatteryVoltageTenths(battery.voltage)));
   StoreBe16(payload + 2u,

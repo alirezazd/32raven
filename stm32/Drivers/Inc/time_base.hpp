@@ -27,8 +27,7 @@ class TimeBase {
   using Config = TimeBaseConfig;
 
   __attribute__((always_inline)) inline uint32_t Micros()
-      const {  // Read TIM2's 32-bit counter directly to minimize call overhead
-               // in the fast path.
+      const {  // direct 32-bit counter read; inlined for fast-path overhead
     return TIM2->CNT;
   }
 

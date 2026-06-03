@@ -16,10 +16,8 @@ class EE {
   static constexpr uint32_t kRecordAlign = 16u;
   static constexpr uint32_t kCapacity = kFlashSize - kHeaderSize;
 
-  // Defined out-of-line in ee.cpp so the singleton's `static EE` lands
-  // in the firmware TU. SIL's fw-context pass relocates it into each
-  // drone's FirmwareContext; an inline definition would yield a
-  // linkonce/COMDAT copy in libbench, shared across every drone.
+  // Out-of-line in ee.cpp to keep the singleton's `static EE` in one TU;
+  // inline would emit a COMDAT copy per includer.
   static EE &GetInstance();
 
   void Init(GPIO &gpio, Spi1 &spi);

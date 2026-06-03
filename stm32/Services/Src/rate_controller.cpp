@@ -36,8 +36,7 @@ void RateController::Reset() {
 std::array<float, 3> RateController::ComputeTorque(
     const Eigen::Vector3f &rate_sp, const Eigen::Vector3f &gyro_measured,
     float dt_s) {
-  // Smoothing shapes the rate setpoint before it reaches the PID. When
-  // disabled the PID sees the raw setpoint.
+  // Smoothing shapes the rate setpoint before the PID; disabled = raw setpoint.
   float sp_roll = rate_sp.x();
   float sp_pitch = rate_sp.y();
   float sp_yaw = rate_sp.z();
@@ -46,17 +45,14 @@ std::array<float, 3> RateController::ComputeTorque(
     sp_pitch = pitch_smoother_.Update(sp_pitch, dt_s);
     sp_yaw = yaw_smoother_.Update(sp_yaw, dt_s);
   }
-  // Compute pre-clip torque per axis. Integrators are NOT committed here
-  // — CommitTorque() must be called with the actually-applied torque
-  // for back-calc anti-windup to fire on downstream saturation.
+  // Pre-clip torque; integrators NOT committed here. Caller must pair with
+  // CommitTorque(applied) so back-calc anti-windup sees downstream saturation.
   const float roll_torque = roll_.Compute(sp_roll, gyro_measured.x(), dt_s);
   const float pitch_torque = pitch_.Compute(sp_pitch, gyro_measured.y(), dt_s);
   const float yaw_raw = yaw_.Compute(sp_yaw, gyro_measured.z(), dt_s);
-  // Yaw output LPF (PX4 _output_lpf_yaw). Pass-through when alpha == 1.
-  // The PID's pending_u_unsat_ remains the unfiltered value, so back-calc
-  // will see the LPF transient as a small saturation signal — acceptable
-  // at alpha close to 1; the integrator just drains slightly faster than
-  // the un-LPF'd ideal.
+  // Yaw output LPF (PX4 _output_lpf_yaw); pass-through at alpha == 1. PID's
+  // pending_u_unsat_ stays unfiltered, so back-calc reads the LPF transient as
+  // mild saturation — fine near alpha 1, I just drains slightly faster.
   const float yaw_torque =
       yaw_output_lpf_alpha_ * yaw_raw +
       (1.0f - yaw_output_lpf_alpha_) * yaw_output_lpf_prev_;
@@ -66,11 +62,10 @@ std::array<float, 3> RateController::ComputeTorque(
 
 void RateController::CommitTorque(const std::array<float, 3> &applied,
                                   float dt_s, float pilot_throttle) {
-  // If the pilot is commanding descent below the configured threshold,
-  // freeze the integrators for this tick. Filter state still advances
-  // inside CommitFilterOnly so D-term and last_error_ stay consistent
-  // — only the I-term accumulation is suppressed. Disabled entirely
-  // when threshold == 0.
+  // Below the throttle threshold, freeze I accumulation this tick (prevents an
+  // I-dump spike when authority returns). CommitFilterOnly still advances the
+  // D-LPF and last_error_ so the derivative branch stays consistent. threshold
+  // == 0 disables.
   const bool freeze = (iterm_freeze_below_throttle_ > 0.0f) &&
                       (pilot_throttle < iterm_freeze_below_throttle_);
   if (freeze) {

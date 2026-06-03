@@ -61,9 +61,8 @@ void DShotTim1::Init(const Config &config) {
     Panic(ErrorCode::Stm32::kDshotInitFailed);
   }
   initialized_ = true;
-  // SystemClock is 168MHz (HSE=8, PLLM=8, PLLN=336, PLLP=2) -> SYSCLK=168MHz.
-  // TIM1 is on APB2 (84MHz); with APB2 pre != 1 the timer clock is 2 x APB2 =
-  // 168MHz. DShot600 = 280 ticks, DShot300 = 560, DShot150 = 1120.
+  // TIM1 (APB2) timer clock is 168MHz: APB2 = 84MHz, doubled because APB2
+  // prescaler != 1. Period ticks scale the bit period (see DshotPeriodTicks).
   const uint16_t period = DshotPeriodTicks(config.mode);
 
   DmaInit();
@@ -173,7 +172,6 @@ bool DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {
 
   // Mem->periph, 16-bit both ends, memory auto-increment, channel 6, high
   // priority, transfer-complete + transfer-error + direct-mode-error IRQs.
-  // The stream is dedicated to DShot, so a full assignment is fine.
   DMA2_Stream5->CR = (kDmaChannel << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DIR_0 |
                      DMA_SxCR_MINC | DMA_SxCR_PSIZE_0 | DMA_SxCR_MSIZE_0 |
                      DMA_SxCR_PL_1 | DMA_SxCR_TCIE | DMA_SxCR_TEIE |

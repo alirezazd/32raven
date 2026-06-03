@@ -5,19 +5,15 @@
 
 #include "stm32f4xx.h"
 
-// Register-level GPIO configuration vocabulary — the small slice of the STM32
-// HAL GPIO header this firmware used, reimplemented here with values that are
-// bit-for-bit identical to HAL's so GPIO::ProgramPin's decoding (in gpio.cpp)
-// is unchanged. The HAL spelling of the names is kept so the generated
-// stm32_config.hpp can keep using them. Adding a peripheral pin on a new
-// alternate function? Add its GPIO_AFx_* constant (value = the AF index x).
+// GPIO configuration vocabulary subset of the STM32 HAL GPIO header. Values are
+// bit-for-bit identical to HAL's so ProgramPin's decoding (gpio.cpp) is
+// unchanged; HAL names are kept verbatim so the generated stm32_config.hpp can
+// use them. New AF pin: add a GPIO_AFx_* constant (value = AF index x).
 
-// Pin configuration record (was HAL's GPIO_InitTypeDef). Field names and order
-// are preserved so the generated config's designated initializers still apply.
-//
-// The names below deliberately keep HAL's GPIO_* spelling because the config
-// generator emits them verbatim, so they don't follow the project's kCamelCase
-// rule for constants.
+// Pin configuration record (HAL's GPIO_InitTypeDef). Field names/order
+// preserved so the generated config's designated initializers still apply.
+// Constants below keep HAL's GPIO_* spelling (config generator emits them
+// verbatim), hence the kCamelCase exemption.
 // NOLINTBEGIN(readability-identifier-naming)
 struct GpioInit {
   uint32_t Pin;

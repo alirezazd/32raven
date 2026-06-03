@@ -14,14 +14,11 @@
 #include "watchdog.hpp"
 
 namespace {
-// Millisecond counter driven by the SysTick exception (1 kHz). Replaces
-// HAL's uwTick + HAL_IncTick + HAL_GetTick. Used by spin-wait timeouts
-// in InitOscillators and InitClockTree before TimeBase (TIM2) is up.
+// Millisecond counter driven by the SysTick exception (1 kHz). Backs spin-wait
+// timeouts in InitOscillators/InitClockTree before TimeBase (TIM2) is up.
 volatile uint32_t g_system_tick_ms = 0;
 
-// Clock bring-up timeouts (ms) and PLL-source selector bits — formerly HAL
-// macros from stm32f4xx_hal_conf.h / stm32f4xx_hal_rcc.h, inlined here now that
-// HAL is gone. Values are unchanged from HAL.
+// Clock bring-up timeouts (ms) and PLL-source selector bits.
 constexpr uint32_t kHseTimeoutMs = 100u;  // HSE_STARTUP_TIMEOUT
 constexpr uint32_t kHsiTimeoutMs = 2u;
 constexpr uint32_t kPllTimeoutMs = 2u;
@@ -30,22 +27,17 @@ constexpr uint32_t kPllSourceHse = RCC_PLLCFGR_PLLSRC_HSE;  // PLLSRC bit set
 constexpr uint32_t kPllSourceHsi = 0u;                      // PLLSRC bit clr
 }  // namespace
 
-// C-callable increment for the SysTick exception. Called from
-// stm32f4xx_it.c::SysTick_Handler — the HAL_IncTick() call there has
-// been replaced by SystemTickInc() so HAL's tick infrastructure is
-// entirely out of the link.
+// C-callable tick increment, invoked from stm32f4xx_it.c::SysTick_Handler.
 extern "C" void SystemTickInc(void) {
   g_system_tick_ms = g_system_tick_ms + 1u;
 }
 
-// Clock Security System failsafe — invoked from the NMI when HSE fails. The
-// hardware has already disabled HSE and switched SYSCLK to HSI, so we (1) clear
-// the CSS flag so the NMI stops re-pending, (2) normalise the clock tree onto a
-// known HSI @ 16 MHz so the panic LED cadence and telemetry baud are correct,
-// then (3) hand off to Panic(), which disarms the motors and screams the reason
-// forever (no reboot — the panic loop keeps the watchdog fed). Never returns.
+// Clock Security System failsafe, invoked from the NMI when HSE fails. Hardware
+// has already disabled HSE and switched SYSCLK to HSI; normalise the tree onto
+// a known HSI @ 16 MHz so panic LED cadence and telemetry baud stay correct,
+// then hand off to Panic() (no reboot — the panic loop keeps the watchdog fed).
 extern "C" void SystemOnClockSecurityFailure(void) {
-  RCC->CIR = RCC_CIR_CSSC;  // clear CSSF (we don't enable other RCC interrupts)
+  RCC->CIR = RCC_CIR_CSSC;  // clear CSSF so the NMI stops re-pending
 
   RCC->CR |= RCC_CR_HSION;
   while ((RCC->CR & RCC_CR_HSIRDY) == 0u) {
@@ -54,24 +46,21 @@ extern "C" void SystemOnClockSecurityFailure(void) {
   RCC->CFGR &= ~(RCC_CFGR_SW | RCC_CFGR_HPRE | RCC_CFGR_PPRE1 | RCC_CFGR_PPRE2);
   while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI) {
   }
-  SystemCoreClockUpdate();  // recompute SystemCoreClock (now 16 MHz)
+  SystemCoreClockUpdate();
 
-  // Re-fix what the panic loop depends on at the new clock:
-  //  - TIM2 µs tick: APB1 timer clock is now 16 MHz (PPRE1 = /1) -> /16 = 1
-  //  MHz.
+  // Re-fix what the panic loop depends on at the new 16 MHz clock:
+  // TIM2 µs tick — APB1 timer clock now 16 MHz (PPRE1 = /1) -> /16 = 1 MHz.
   TIM2->PSC = 16u - 1u;
   TIM2->EGR = TIM_EGR_UG;
-  //  - USART1 panic-telemetry baud: recompute BRR against the new PCLK2.
+  // USART1 panic-telemetry baud — recompute BRR against the new PCLK2.
   Uart1::GetInstance().SetBaudRate(kUart1Config.baud_rate);
 
   Panic(
       ErrorCode::Stm32::kHseClockFailure);  // disarms + screams; never returns
 }
 
-// Out-of-line definition of the System singleton accessor — a single
-// non-inline definition gives the SIL's fw-context deglobalization pass
-// exactly one `static System` to relocate into the per-drone
-// FirmwareContext. (Previously its own TU, system_instance.cpp.)
+// Out-of-line so the `static System` lives in this one TU rather than emitting
+// a linkonce/COMDAT copy per includer.
 System &System::GetInstance() {
   static System instance;
   return instance;
@@ -110,70 +99,51 @@ void System::Init(const System::Config &config) {
   InitComponent(Component::kRateController);
   InitComponent(Component::kAttitudeController);
 
-  // Last: arm the watchdog once everything is up so blocking bring-up can't
-  // trip it. From here the main loop (and the panic loop) must keep feeding it.
+  // Arm the watchdog last so blocking bring-up can't trip it. From here the
+  // main loop (and the panic loop) must keep feeding it.
   Wdg().Init();
 }
 
 // ─── Direct-register CPU + clock bring-up helpers ────────────────────
-// Each helper replaces the corresponding HAL function or macro body.
-// Private static methods on System (declared in system.hpp) because
-// they're invoked only from System::Init / System::ConfigureSystemClock
-// during boot and carry no instance state. On failure: Panic — matches
-// the firmware-wide convention used by every driver/service Init.
+// Boot-only static methods, invoked from System::Init / ConfigureSystemClock.
+// On failure: Panic, matching the firmware-wide driver/service Init convention.
 
-// Cortex / flash / SysTick bring-up. Equivalent to HAL_Init():
-//   - Enable flash I-cache, D-cache, prefetch buffer.
-//   - Set NVIC priority grouping to group 4 (4 preempt bits, 0 sub).
-//   - Start the 1 kHz SysTick (HAL_GetTick uses this for timeouts in
-//     InitOscillators below and HAL_RCC_ClockConfig).
+// Cortex / flash / SysTick bring-up: I-cache, D-cache, prefetch buffer, NVIC
+// priority grouping (4 preempt bits, 0 sub), and the 1 kHz SysTick that backs
+// the InitOscillators/InitClockTree spin-wait timeouts.
 void System::CoreInit() {
   FLASH->ACR |= FLASH_ACR_ICEN;
   FLASH->ACR |= FLASH_ACR_DCEN;
   FLASH->ACR |= FLASH_ACR_PRFTEN;
-  NVIC_SetPriorityGrouping(0x3U);  // CMSIS, == HAL's NVIC_PRIORITYGROUP_4
-  // SysTick_Config returns nonzero only if the reload value exceeds
-  // 24 bits (SystemCoreClock > 16 GHz). At HSI 16 MHz boot it's 16000;
-  // at the target 168 MHz it's 168000 — both well under 2^24.
+  NVIC_SetPriorityGrouping(0x3U);  // group 4: 4 preempt bits, 0 sub
+  // Reload fits 24 bits: 16000 at HSI 16 MHz boot, 168000 at target 168 MHz.
   (void)SysTick_Config(SystemCoreClock / 1000U);
   NVIC_SetPriority(SysTick_IRQn, irq_priority::kSysTick);
 }
 
-// APB1 clock gate to the PWR peripheral (RCC_APB1ENR.PWREN). Read-back
-// dummy enforces a bus-retire barrier before the next PWR register
-// access — same pattern the HAL's __HAL_RCC_PWR_CLK_ENABLE macro emits
-// via its tmpreg.
+// APB1 clock gate to PWR (RCC_APB1ENR.PWREN). Read-back enforces a bus-retire
+// barrier before the next PWR register access.
 void System::EnablePwrClock() {
   RCC->APB1ENR |= RCC_APB1ENR_PWREN;
   (void)RCC->APB1ENR;
 }
 
-// PWR_CR.VOS field write. Read-back dummy same as EnablePwrClock above.
+// PWR_CR.VOS field write. Read-back barrier as in EnablePwrClock.
 void System::SetVoltageScale(VoltageScale scale) {
   PWR->CR = (PWR->CR & ~PWR_CR_VOS) | static_cast<uint32_t>(scale);
   (void)PWR->CR;
 }
 
-// HSE/HSI + PLL bring-up. Direct register pokes — equivalent to the
-// non-dead subset of HAL_RCC_OscConfig (stm32f4xx_hal_rcc.c:219) for
-// our boot-time use:
-//   - Reentrancy guards dropped (System::Init Panics on re-init at
-//     system.cpp:initialized_, so SYSCLK = HSI from reset is the only
-//     entry state).
-//   - HSI calibration trim write dropped: RCC_HSICALIBRATION_DEFAULT
-//     (0x10) equals the reset value of RCC_CR.HSITRIM[7:3] per
-//     RM0090 §6.3.1, so writing it at boot is a no-op.
-//   - LSI/LSE/HSE_BYPASS/PLL-OFF paths dropped: firmware doesn't use
-//     them.
-// Timeouts read our own g_system_tick_ms (incremented by SystemTickInc
-// from the SysTick handler, started by CoreInit). No HAL functions in
-// the spin-wait paths.
+// HSE/HSI + PLL bring-up. Boot-only, so reentrancy guards and unused
+// LSI/LSE/HSE_BYPASS/PLL-OFF paths are omitted (System::Init Panics on re-init;
+// SYSCLK = HSI from reset is the only entry state). HSI calibration trim is not
+// written: RCC_CR.HSITRIM[7:3] resets to 0x10 (RM0090 §6.3.1), so it's a no-op.
 void System::InitOscillators(const OscillatorConfig &cfg) {
   const bool use_hse = (cfg.oscillator == Oscillator::kHse);
   uint32_t tickstart;
 
   if (use_hse) {
-    // Enable HSE — RCC_CR.HSEON. No bypass: external crystal, not clock-in.
+    // HSEON, no bypass: external crystal, not a clock input.
     RCC->CR |= RCC_CR_HSEON;
     tickstart = g_system_tick_ms;
     while ((RCC->CR & RCC_CR_HSERDY) == 0U) {
@@ -182,7 +152,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
       }
     }
   } else {
-    // HSI is on out of reset; this re-enable is defensive (matches HAL).
+    // HSI is on out of reset; this re-enable is defensive.
     RCC->CR |= RCC_CR_HSION;
     tickstart = g_system_tick_ms;
     while ((RCC->CR & RCC_CR_HSIRDY) == 0U) {
@@ -192,8 +162,7 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
     }
   }
 
-  // Disable PLL before reconfiguring (PLL is off from reset; this is
-  // defensive — same as HAL).
+  // Disable PLL before reconfiguring (off from reset; defensive).
   RCC->CR &= ~RCC_CR_PLLON;
   tickstart = g_system_tick_ms;
   while ((RCC->CR & RCC_CR_PLLRDY) != 0U) {
@@ -202,19 +171,18 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
     }
   }
 
-  // PLLCFGR field packing (mirrors HAL lines 492-496):
-  //   PLLSRC : bit 22       (RCC_PLLSOURCE_* is already pre-shifted)
+  // PLLCFGR field packing:
+  //   PLLSRC : bit 22       (kPllSource* is already pre-shifted)
   //   PLLM   : bits [5:0]   (raw value, no shift)
-  //   PLLN   : bits [14:6]  (shift by RCC_PLLCFGR_PLLN_Pos = 6)
-  //   PLLP   : bits [17:16] (encoded ((PLLP>>1)-1), shift by 16)
-  //   PLLQ   : bits [27:24] (shift by 24)
+  //   PLLN   : bits [14:6]
+  //   PLLP   : bits [17:16] (encoded ((PLLP>>1)-1))
+  //   PLLQ   : bits [27:24]
   const uint32_t pll_source = use_hse ? kPllSourceHse : kPllSourceHsi;
   const uint32_t pllp_raw = static_cast<uint32_t>(cfg.pllp);
   RCC->PLLCFGR = pll_source | cfg.pllm | (cfg.plln << RCC_PLLCFGR_PLLN_Pos) |
                  (((pllp_raw >> 1U) - 1U) << RCC_PLLCFGR_PLLP_Pos) |
                  (cfg.pllq << RCC_PLLCFGR_PLLQ_Pos);
 
-  // Enable PLL and wait for lock.
   RCC->CR |= RCC_CR_PLLON;
   tickstart = g_system_tick_ms;
   while ((RCC->CR & RCC_CR_PLLRDY) == 0U) {
@@ -224,28 +192,23 @@ void System::InitOscillators(const OscillatorConfig &cfg) {
   }
 }
 
-// AHB / APB divider setup + SYSCLK switch to PLL + flash latency.
-// Direct-register replacement for HAL_RCC_ClockConfig
-// (stm32f4xx_hal_rcc.c:591). Order matters and is silicon-safety-
-// critical, mirrors HAL:
-//   1. Raise flash latency BEFORE SYSCLK rises (CPU at low clock needs
-//      fewer wait states; running at high clock with too few wait
-//      states corrupts instruction fetch).
-//   2. Bump APB1+APB2 prescalers to /16 BEFORE the SYSCLK switch.
-//      Otherwise during the transition APB1 momentarily runs at HCLK
-//      (168 MHz), far over its 42 MHz spec.
+// AHB/APB dividers + SYSCLK switch to PLL + flash latency. Order is
+// silicon-safety-critical:
+//   1. Raise flash latency BEFORE SYSCLK rises — too few wait states at high
+//      clock corrupts instruction fetch.
+//   2. Park APB1+APB2 prescalers at /16 BEFORE the switch, else APB1 briefly
+//      runs at HCLK (168 MHz), far over its 42 MHz spec.
 //   3. Set the AHB divider.
 //   4. Switch SYSCLK source to PLL and spin on RCC_CFGR.SWS.
-//   5. Lower flash latency if target is below current (dead at boot;
-//      kept for symmetry with HAL).
-//   6. Apply target APB1+APB2 dividers now that SYSCLK is stable.
-//   7. Recompute SystemCoreClock from RCC (CMSIS) and re-arm SysTick
-//      at the new HCLK rate so SystemTickInc keeps firing at 1 kHz.
+//   5. Lower flash latency if target < current (dead at boot).
+//   6. Apply target APB1+APB2 dividers once SYSCLK is stable.
+//   7. Recompute SystemCoreClock and re-arm SysTick at the new HCLK so
+//      SystemTickInc keeps firing at 1 kHz.
 void System::InitClockTree(const Config &cfg) {
   const uint32_t target_latency = cfg.flash_latency;
   const uint32_t current_latency = FLASH->ACR & FLASH_ACR_LATENCY;
 
-  // 1. Latency UP (if raising clock).
+  // 1. Latency UP.
   if (target_latency > current_latency) {
     FLASH->ACR = (FLASH->ACR & ~FLASH_ACR_LATENCY) | target_latency;
     if ((FLASH->ACR & FLASH_ACR_LATENCY) != target_latency) {
@@ -253,19 +216,17 @@ void System::InitClockTree(const Config &cfg) {
     }
   }
 
-  // 2. Park APB1 + APB2 prescalers at /16 to keep both buses safely
-  //    under spec across the SYSCLK transition. APB2 reuses PPRE1 bit
-  //    values shifted left by 3.
+  // 2. Park APB1/APB2 at /16 across the switch. APB2 reuses PPRE1 bit values
+  //    shifted left by 3.
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE1) | RCC_CFGR_PPRE1_DIV16;
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) | (RCC_CFGR_PPRE1_DIV16 << 3);
 
-  // 3. AHB divider (HPRE field).
+  // 3. AHB divider (HPRE).
   RCC->CFGR =
       (RCC->CFGR & ~RCC_CFGR_HPRE) | static_cast<uint32_t>(cfg.ahb_divider);
 
-  // 4. Switch SYSCLK source → PLL. SWS mirrors SW once hardware
-  //    accepts the change. PLL readiness is guaranteed at this
-  //    point (InitOscillators already Panicked if it didn't lock).
+  // 4. Switch SYSCLK → PLL; SWS mirrors SW once accepted. PLL is already
+  //    locked (InitOscillators Panicked otherwise).
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_SW) | RCC_CFGR_SW_PLL;
   uint32_t tickstart = g_system_tick_ms;
   while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_PLL) {
@@ -274,7 +235,7 @@ void System::InitClockTree(const Config &cfg) {
     }
   }
 
-  // 5. Latency DOWN (if lowering clock). Dead at boot for our config.
+  // 5. Latency DOWN. Dead at boot for our config.
   if (target_latency < current_latency) {
     FLASH->ACR = (FLASH->ACR & ~FLASH_ACR_LATENCY) | target_latency;
     if ((FLASH->ACR & FLASH_ACR_LATENCY) != target_latency) {
@@ -288,9 +249,7 @@ void System::InitClockTree(const Config &cfg) {
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) |
               (static_cast<uint32_t>(cfg.apb2_divider) << 3);
 
-  // 7. Recompute SystemCoreClock from the new RCC state (CMSIS, not
-  //    HAL) and re-arm SysTick so SystemTickInc keeps firing at 1 kHz
-  //    at the new HCLK.
+  // 7. Recompute SystemCoreClock and re-arm SysTick at the new HCLK.
   SystemCoreClockUpdate();
   (void)SysTick_Config(SystemCoreClock / 1000U);
   NVIC_SetPriority(SysTick_IRQn, irq_priority::kSysTick);
@@ -387,10 +346,8 @@ void System::ConfigureSystemClock(const System::Config &config) {
 
   InitClockTree(config);
 
-  // Arm the Clock Security System. If HSE fails, hardware disables it, falls
-  // back to HSI for SYSCLK, and raises an NMI ->
-  // SystemOnClockSecurityFailure(). Only meaningful when we're actually running
-  // off HSE.
+  // Arm CSS (HSE only): on HSE failure hardware falls back to HSI and raises an
+  // NMI -> SystemOnClockSecurityFailure().
   if (config.oscillator == Oscillator::kHse) {
     RCC->CR |= RCC_CR_CSSON;
   }

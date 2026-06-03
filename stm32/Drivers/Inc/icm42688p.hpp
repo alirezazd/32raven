@@ -72,21 +72,10 @@ class Icm42688pT {
       uint32_t fault_led_period_ms;
     } recovery;
 
-    // Per-board chip-frame → body-NED axis remap. Applied by
-    // ScaleSample so downstream firmware (estimator, controllers,
-    // mixer) operates in body-NED end-to-end. Each component selects
-    // one chip-frame axis (0=X, 1=Y, 2=Z) and an optional sign flip.
-    //
-    // Identity (the default) means the chip is mounted such that its
-    // native axes already align with body-NED — chip +X = body +X
-    // (North), chip +Y = body +Y (East), chip +Z = body +Z (Down).
-    // Boards that rotate or flip the chip select the corresponding
-    // non-identity map.
-    //
-    // Single conversion boundary: NO downstream code should re-flip
-    // axes. See firmware_ned_convention memory + states.cpp's
-    // OnFastTick gyro/rate_sp arrays (which carry NED directly,
-    // no flips).
+    // Per-board chip-frame → body-NED axis remap applied by ScaleSample;
+    // the sole conversion boundary, so no downstream code re-flips axes.
+    // Each component picks a chip axis (0=X, 1=Y, 2=Z) and optional sign.
+    // Identity default: chip +X/+Y/+Z = body +X(N)/+Y(E)/+Z(D).
     struct AxisMap {
       uint8_t x_from = 0;  // chip-frame axis index feeding body +X
       bool x_neg = false;
@@ -211,10 +200,9 @@ class Icm42688pT {
   static constexpr uint32_t kExternalClockTimestampReferenceHz = 32768u;
   static constexpr uint32_t kTimestampScaleQ16 = 1u << 16;
 
-  // DMA buffer sized for the worst-case Packet4 (20-byte record). In
-  // Packet3 mode only the first 16 bytes per record are populated; the
-  // tail stays zero. Kept static so the SPI DMA descriptor + buffers
-  // never need re-allocation when the FIFO mode flips.
+  // Buffer sized for worst-case Packet4 (20-byte record); Packet3 fills
+  // only the first 16 bytes. Static so SPI DMA buffers never re-allocate
+  // when the FIFO mode flips.
   static constexpr uint16_t kMaxPacketBytes = Icm42688pReg::kPacket4Bytes;
   static constexpr uint16_t kMaxReadBytes =
       kMaxWatermarkRecords * kMaxPacketBytes;

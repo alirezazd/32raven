@@ -1,10 +1,4 @@
-// math::Vec3 — 3-float vector with the operations we actually need
-// (cross/dot/add/subtract/scale/length/normalize). Single-precision to
-// match the FPU on the F4.
-//
-// Used by the rate controller (body rates, torques), by the quaternion
-// kinematics, by the bench world dynamics, and (eventually) by the EKF
-// state vector slices.
+// math::Vec3 — 3-float vector. Single-precision to match the F4 FPU.
 
 #pragma once
 
@@ -61,9 +55,7 @@ constexpr Vec3 Cross(const Vec3 &a, const Vec3 &b) {
 inline float LengthSquared(const Vec3 &a) { return Dot(a, a); }
 inline float Length(const Vec3 &a) { return std::sqrt(LengthSquared(a)); }
 
-// Returns the zero vector if input is too small to safely divide.
-// Caller of the rate controller does not pass zero-length vectors in
-// production, but this keeps a stray Normalize call from producing NaN.
+// Returns zero vector when too small to divide; avoids NaN from div-by-zero.
 inline Vec3 Normalize(const Vec3 &a) {
   const float n2 = LengthSquared(a);
   if (n2 < 1e-30f) return {0.0f, 0.0f, 0.0f};
