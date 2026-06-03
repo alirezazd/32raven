@@ -137,7 +137,7 @@ unidirectional DShot.
 
 ## Implementation plan
 
-Add in this order. Each step is independently testable in SIL and shouldn't
+Add in this order. Each step is independently testable and shouldn't
 regress anything above it.
 
 | # | Feature | LOC | New state | New config | Notes |
@@ -158,7 +158,7 @@ Total Tier 1 (steps 1–3): ~30 LOC, 3 config fields, no architectural changes.
 2. **Step 2 next** — also a single transformation, makes step 3's tuning more
    predictable.
 3. **Step 3** — airmode. The big flight-feel change. Validate by recording PID
-   error during fast descents in SIL and confirming attitude error stays bounded.
+   error during fast descents and confirming attitude error stays bounded.
 4. **Stop here** unless you've actually felt a need for slew limit / yaw
    deprio / per-motor disarm. Don't add complexity ahead of demand.
 

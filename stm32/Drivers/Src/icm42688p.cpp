@@ -52,8 +52,7 @@ void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
                (static_cast<uint32_t>(who_am_i_) << 16);
   SoftReset();
   SetBank(0);
-  // Keep gyro/accel OFF while programming non-ODR/FS registers.
-  // Matches datasheet register-modification guidance and reference drivers.
+  // Datasheet: keep gyro/accel OFF while programming non-ODR/FS registers.
   WriteReg(REG_PWR_MGMT0, 0x00u);
   System::GetInstance().Time().DelayMicros(200);
 
@@ -67,21 +66,17 @@ void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
 
   SetTimestampConfig();
   ClearUserOffsets();
-  // Keep temperature sensor disabled while accel/gyro are OFF during FIFO
-  // setup.
+  // Keep temp sensor disabled while accel/gyro OFF during FIFO setup.
   WriteReg(REG_PWR_MGMT0, PWR_MGMT0_TEMP_DIS);
   ConfigureFifo();
 
-  // Enable sensors ONCE, last, including the temperature sensor so FIFO samples
-  // carry die temperature for future estimator compensation.
+  // Enable all sensors (incl. temp, for FIFO die-temp) once, last.
   WriteReg(REG_PWR_MGMT0, PWR_MGMT0_GYRO_MODE_LN | PWR_MGMT0_ACCEL_MODE_LN);
 
-  // Datasheet: no register writes after OFF->ON transition
+  // Datasheet: no register writes for 200us after OFF->ON transition.
   System::GetInstance().Time().DelayMicros(200);
-  // Optional: allow gyro to settle / become valid
+  // Allow gyro to settle / become valid.
   System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(50));
-
-  // EXTI->PR = (1u << 10);
 
   spi.EnableIrqs(irq_priority::kImuSpiDma);
   NVIC_SetPriority(board::kImuInt.exti_irqn, irq_priority::kImuInt);
@@ -137,9 +132,8 @@ void Icm42688pT<HiRes>::ValidateConfig(const Config &cfg) {
     Panic(ErrorCode::Stm32::kImuOverrun);
   }
 
-  // axis_map must select each chip axis (0,1,2) exactly once across
-  // the three body axes. Anything else would alias / drop an axis →
-  // a silently misconfigured estimator with no obvious flight symptom.
+  // axis_map must be a permutation of {0,1,2}: aliasing/dropping an axis
+  // silently misconfigures the estimator with no obvious flight symptom.
   const uint8_t a = cfg.axis_map.x_from;
   const uint8_t b = cfg.axis_map.y_from;
   const uint8_t c = cfg.axis_map.z_from;
@@ -162,18 +156,17 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
   {
     uint8_t s2 = ReadReg(REG_GYRO_CONFIG_STATIC2);
 
-    // ---- Gyro notch filter (datasheet correct) ----
     if (cfg.notch.enabled && cfg.notch.freq_hz > 0.0f) {
-      // Datasheet: supported 1kHz..3kHz
+      // Datasheet: notch supported 1kHz..3kHz.
       float f_hz = clampf(cfg.notch.freq_hz, 1000.0f, 3000.0f);
 
-      // Need CLKDIV from Bank 3 reg 0x2A
+      // CLKDIV lives in Bank 3.
       SetBank(3);
       uint8_t clkdiv = ReadReg(REG_CLKDIV);
       SetBank(1);
 
       if (clkdiv == 0) {
-        // Invalid, do not enable notch
+        // Invalid clock divider: leave notch disabled.
         s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
         WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
       } else {
@@ -196,11 +189,10 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
                              0x1FF);
         }
 
-        // Enable notch
         s2 &= ~GYRO_CONFIG_STATIC2_NF_DIS;
         WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
 
-        // Same coefficient for all three axes
+        // Same notch coefficient for all three axes.
         WriteReg(REG_GYRO_CONFIG_STATIC6, (uint8_t)(val & 0xFF));
         WriteReg(REG_GYRO_CONFIG_STATIC7, (uint8_t)(val & 0xFF));
         WriteReg(REG_GYRO_CONFIG_STATIC8, (uint8_t)(val & 0xFF));
@@ -265,7 +257,7 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
     }
   }
 
-  // — the lowest-latency option.
+  // UI filter bandwidths (Bank 0).
   SetBank(0);
   WriteReg(REG_GYRO_ACCEL_CONFIG0,
            static_cast<uint8_t>(((cfg.ui_filter.accel_bw & 0x0Fu) << 4) |
@@ -401,19 +393,16 @@ void Icm42688pT<HiRes>::HandleOverrunFault() {
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::InjectOverrunFaultForTest() {
-  // Arm a one-shot recovery fault. The actual fault is injected from the
-  // normal IMU SPI completion path so recovery runs in the same context as a
-  // real transport fault.
+  // One-shot: fault is injected from the SPI completion path so recovery
+  // runs in the same context as a real transport fault.
   inject_overrun_fault_for_test_.store(true, std::memory_order_release);
 }
 
 template <bool HiRes>
 typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(
     const Sample &sample) const {
-  // HiRes mode locks the chip to ±2000 dps + ±16g (datasheet §6.1) and
-  // delivers fixed sensitivities; the AccelFs/GyroFs config knobs are
-  // ignored by the chip in that mode, so we must also bypass the
-  // FS-parameterised scale helpers here.
+  // HiRes locks the chip to ±2000 dps + ±16g (datasheet §6.1) with fixed
+  // sensitivity; the FS config is ignored, so bypass the FS scale helpers.
   float accel_scale;
   float gyro_scale;
   if constexpr (HiRes) {
@@ -434,9 +423,8 @@ typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(
   }
   out.seq = sample.seq;
 
-  // Chip-frame → body-NED. Single per-axis pick + optional sign flip
-  // from the per-board axis_map_ (configured in Init from cfg.axis_map).
-  // Default = identity (chip-X = body-N, chip-Y = body-E, chip-Z = body-D).
+  // Chip-frame -> body-NED via per-board axis_map_ (pick + optional sign).
+  // Default = identity (chip XYZ = body NED).
   const uint8_t src_x[3] = {axis_map_.x_from, axis_map_.y_from,
                             axis_map_.z_from};
   const bool neg[3] = {axis_map_.x_neg, axis_map_.y_neg, axis_map_.z_neg};
@@ -562,12 +550,8 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
                                 static_cast<uint16_t>(q[1]));
   };
 
-  // Pack the chip's split 20-bit signed value: high 16 bits from
-  // big-endian bytes 0x01..0x0C, low 4 bits from upper/lower nibble of
-  // bytes 0x11..0x13. Sign-extension follows naturally — the int16
-  // `high` already carries the sign bit (bit 19 of the 20-bit value
-  // sits at bit 15 of the int16 high half); shifting left by 4 in
-  // int32 preserves the sign.
+  // Reassemble split 20-bit signed value: high 16 bits + low 4. Sign extends
+  // naturally — int16 `high` carries bit 19, and <<4 in int32 preserves sign.
   auto pack20 = [](int16_t high, uint8_t low4) -> int32_t {
     return (static_cast<int32_t>(high) << 4) |
            static_cast<int32_t>(low4 & 0x0Fu);
@@ -751,9 +735,7 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
   }
 
   int16_t offset_lsb[3] = {0, 0, 0};
-  // HiRes locks the chip to ±2000 dps at fixed 131 LSB/dps → 1/131
-  // dps per raw LSB. 16-bit Packet3 uses the FS-parameterised
-  // sensitivity (GyroRangeDps(fs) / 32768).
+  // HiRes: fixed 131 LSB/dps. Packet3: FS-parameterised (range/32768).
   float dps_per_lsb;
   if constexpr (HiRes) {
     dps_per_lsb = 1.0f / Icm42688pReg::kHiResGyroLsbPerDps;
@@ -898,10 +880,8 @@ void Icm42688pT<HiRes>::SetClockSource(const Config &cfg) {
   SetBank(0);
 
   uint8_t v = ReadReg(REG_INTF_CONFIG1);
-  // INTF_CONFIG1:
-  // - CLKSEL bits[1:0] = 01 (PLL when available)
-  // - RTC_MODE bit2 requires the pin 9 CLKIN function when external clocking.
-  // Preserve reserved bits [7:4] and ACCEL_LP_CLK_SEL bit3.
+  // CLKSEL[1:0]=01 (PLL when available); RTC_MODE bit2 needs pin9 CLKIN for
+  // external clocking. Preserve reserved [7:4] and ACCEL_LP_CLK_SEL bit3.
   v &= static_cast<uint8_t>(~(Icm42688pReg::INTF_CONFIG1_CLKSEL_MASK |
                               Icm42688pReg::INTF_CONFIG1_RTC_MODE_MASK));
   v |= Icm42688pReg::INTF_CONFIG1_CLKSEL_PLL;
@@ -983,11 +963,8 @@ void Icm42688pT<HiRes>::SetTimestampConfig() {
 
   uint8_t v = ReadReg(REG_TMST_CONFIG);
 
-  // Preserve reserved bits 7:5
-  // Clear bits 4:1
+  // Preserve reserved [7:5], clear [4:1], set TMST_EN (bit0).
   v &= 0xE0u;
-
-  // Set TMST_EN = 1
   v |= 0x01u;
 
   WriteReg(REG_TMST_CONFIG, v);

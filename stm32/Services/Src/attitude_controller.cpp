@@ -42,25 +42,18 @@ void AttitudeController::SetConfig(const Config &cfg) {
 Eigen::Vector3f AttitudeController::Step(
     const Eigen::Quaternionf &q_setpoint,
     const Eigen::Quaternionf &q_measured) const {
-  // q_err in body frame: applying q_err on the right of q_measured
-  // rotates the body to the setpoint.
-  //   q_setpoint = q_measured · q_err   →   q_err = q_measured^{-1} ·
-  //   q_setpoint
+  // Body-frame error: q_setpoint = q_measured · q_err, so
+  // q_err = q_measured^{-1} · q_setpoint.
   Eigen::Quaternionf q_err = q_measured.conjugate() * q_setpoint;
 
-  // Shortest-arc convention: if scalar part is negative, the same
-  // rotation can be represented with the conjugate sign, taking the
-  // short way around the unit sphere. Without this flip the controller
-  // would happily rotate 270° instead of 90°.
+  // Shortest-arc: negate to take the short way around the unit sphere
+  // (q and -q are the same rotation); avoids rotating the long way.
   if (q_err.w() < 0.0f) {
     q_err.coeffs() = -q_err.coeffs();
   }
 
-  // Small-angle axis-angle approximation: for small q_err,
-  //   q_err ≈ (1, 0.5 · θ),   θ = rotation vector in body frame
-  // so θ ≈ 2 · q_err.vec(). For larger errors the approximation
-  // saturates at θ = 2 (180°), which is acceptable because the
-  // per-axis rate clamp dominates the response anyway.
+  // Small-angle: q_err ≈ (1, 0.5·θ), so rotation vector θ ≈ 2·q_err.vec().
+  // Saturates at θ=2 (180°); fine since the per-axis rate clamp dominates.
   const Eigen::Vector3f err_vec = 2.0f * q_err.vec();
 
   Eigen::Vector3f rate_sp;

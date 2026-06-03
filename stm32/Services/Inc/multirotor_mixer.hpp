@@ -1,48 +1,26 @@
 // Multirotor motor mixer — stateless thrust allocator for a quad-X frame.
 //
 // Maps body-frame torque demands (roll/pitch/yaw) and collective thrust to
-// per-motor normalized thrust in [0, 1]. The caller (EscService /
-// DShotCodec) maps to DShot units (typically [48, 2047]).
+// per-motor normalized thrust in [0, 1]; the caller (EscService / DShotCodec)
+// scales to DShot units. Attitude-representation-agnostic: torques are
+// 3-vectors regardless of the upstream parameterization.
 //
-// Representation-agnostic w.r.t. attitude — torques are 3-vectors regardless
-// of whether the upstream layer uses Euler, quaternions, rotation matrices,
-// or any other parameterization. The mixer's contract never changes.
-//
-// PX4 MC_AIRMODE=0 ("Disabled") sequential-desaturation port:
-//   - Faithful port of PX4-Autopilot's
-//     ControlAllocationSequentialDesaturation (mixAirmodeDisabled + mixYaw),
-//     reduced to the multirotor path with PX4's pseudo-inverse / trim
-//     machinery elided (this codebase represents motors directly in
-//     normalized [idle, 1] with no hover trim).
-//   - Pilot's collective thrust is NEVER raised by the mixer to unsaturate
-//     motors. If torque demand can't fit in the band around the pilot's
-//     thrust, roll/pitch/yaw are scaled down (per-axis, sequentially)
-//     until motors fit — the drone gives up attitude authority rather
-//     than refusing to descend. This is the only PX4 airmode mode that
-//     honours commanded descent.
-//   - Yaw is given a temporary +15 % expansion on the upper limit during
-//     its desat pass (PX4's MINIMUM_YAW_MARGIN), then thrust is dropped
-//     uniformly to bring motors back into the real band. Preserves yaw
-//     authority right up to the saturation boundary.
-//   - `applied_torque` reports {R, P, Y}_applied projected back from the
-//     final motor vector (factor_axis · motors / 4 — exact for QuadX
-//     because the factor columns are mutually orthogonal with ‖·‖² = 4).
-//     RateController::CommitTorque drains each integrator by the gap
-//     between commanded and actually delivered.
-//
-// Algorithm (full detail in multirotor_mixer.cpp):
-//   1. Build pre-yaw setpoint sp[i] = R·factor[i][R] + P·factor[i][P]
-//                                   + T (T is the collective per motor).
-//   2. Desaturate along thrust direction, BLOCK MOTOR LIFT — drops the
-//      whole band uniformly if any motor is above max; does nothing if
-//      motors are below min.
-//   3. Desaturate along roll direction (bidirectional).
-//   4. Same for pitch.
-//   5. Add yaw: sp[i] += Y · factor[i][Y].
-//   6. Desaturate yaw with upper limit expanded by 15 %.
-//   7. Desaturate thrust again with real upper limit, block motor lift.
-//   8. Final clamp to [idle, 1] (FP safety only).
-//   If disarmed, all outputs = 0.
+// PX4 MC_AIRMODE=0 ("Disabled") sequential-desaturation port of
+// ControlAllocationSequentialDesaturation (mixAirmodeDisabled + mixYaw),
+// reduced to the multirotor path; PX4's pseudo-inverse / hover-trim machinery
+// is elided because motors are already in normalized [idle, 1]. Algorithm
+// detail lives in multirotor_mixer.cpp. Key contract:
+//   - Collective thrust is NEVER raised to unsaturate motors. If torque can't
+//     fit the band, roll/pitch/yaw are scaled down per-axis instead — the only
+//     airmode mode that honours commanded descent (gives up attitude authority
+//     rather than refusing to descend).
+//   - Yaw gets a temporary +15 % upper-limit expansion during its desat pass
+//     (PX4 MINIMUM_YAW_MARGIN), preserving yaw authority to the saturation
+//     boundary; thrust is then dropped uniformly back into the real band.
+//   - `applied_torque` is {R,P,Y} projected back from the final motor vector;
+//     RateController::CommitTorque drains integrators by the commanded-vs-
+//     applied gap. (Projection math: see MixOutput / Mix().)
+//   - Disarmed -> all outputs 0.
 //
 // Frame convention (looking down from above, body Z points down):
 //   M1 = front-right (CCW prop)
@@ -60,17 +38,10 @@ namespace multirotor_mixer {
 // Per-motor normalized thrust output, [0, 1]. Caller scales to DShot units.
 using MotorThrust = std::array<float, 4>;
 
-// Mix() output bundle: motor commands AND the per-axis body torque that
-// was actually projected through the mixer after saturation rescale.
-//
-//   `motors`         — per-motor normalized thrust in [0, 1].
-//   `applied_torque` — {τR_eff, τP_eff, τY_eff}. Equals the commanded
-//                      torque in the linear region; equals
-//                      `scale × commanded` after the saturation rescale;
-//                      equals {0, 0, 0} when disarmed.
-//
-// Returned by Mix() so the caller can feed `applied_torque` into the
-// PID's back-calculation anti-windup (CommitIntegrator / CommitTorque).
+// Mix() output. `applied_torque` {τR,τP,τY}_eff is the body torque actually
+// projected through the mixer after saturation rescale: equals commanded in
+// the linear region, scale×commanded after rescale, {0,0,0} when disarmed.
+// Caller feeds it into the rate PID's back-calculation anti-windup.
 struct MixOutput {
   MotorThrust motors;
   std::array<float, 3> applied_torque;  // {roll, pitch, yaw}
@@ -110,25 +81,21 @@ struct QuadX {
   };
 };
 
-// Owned as an instance member of System (matches CrsfLinkService / EscService
-// pattern), not a singleton — pure logic, no hardware ownership.
+// Instance member of System (not a singleton) — pure logic, no hardware.
 class Mixer {
  public:
-  // Init-time configuration. Runtime state (arm flag) lives separately.
   struct Config {
-    // Motor floor when armed; outputs >= idle. [0, 1]. Set just above
-    // the motor's stall RPM — crossing it stops the motor and recovery
-    // is not free.
+    // Armed motor floor; outputs >= idle. [0, 1]. Set just above stall RPM —
+    // crossing it stops the motor and recovery is not free.
     float idle;
   };
 
   Mixer() = default;
 
-  // Init. Panics on invalid config; called once by System::InitComponent.
+  // Panics on invalid config; called once by System::InitComponent.
   void Init(const Config &cfg);
 
-  // Runtime config swap; preserves arm state. Use for tuning during a
-  // SIL session without restarting the mixer. Panics on invalid config.
+  // Runtime config swap for tuning; preserves arm state. Panics if invalid.
   void SetConfig(const Config &cfg);
 
   const Config &GetConfig() const { return cfg_; }

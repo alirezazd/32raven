@@ -12,7 +12,7 @@ class Button {
       GPIO_TypeDef *port;
       uint16_t number;  // GPIO_PIN_x bitmask
     } pin;
-    bool active_low;         // for your schematic: false
+    bool active_low;         // false = active-high
     uint32_t debounce_ms;    // e.g. 50
     uint32_t long_press_ms;  // e.g. 500
   };

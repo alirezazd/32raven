@@ -61,12 +61,9 @@ class CrsfLinkService {
     kReceiverCancelBind,
   };
 
-  // TODO(crsf):
-  // - Add more native telemetry frames as upstream data becomes available:
-  //   flight mode (0x21), attitude (0x1E), baro/vario (0x09/0x07),
-  //   temperatures (0x0D), voltages/cell data (0x0E), rpm (0x0C),
-  //   richer link stats if the radio-side UI benefits.
-  // - Slot future telemetry topics into the topic table and scheduler.
+  // TODO(crsf): add native telemetry frames as data lands and slot them into
+  // the topic table/scheduler: flight mode 0x21, attitude 0x1E, baro/vario
+  // 0x09/0x07, temps 0x0D, voltages/cell 0x0E, rpm 0x0C.
   bool SendScheduledTelemetry(uint32_t now_us);
   void PrimeScheduler(uint32_t now_us);
   const TopicConfig &GetTelemetryTopicConfig(TelemetryTopic topic) const;
@@ -87,9 +84,8 @@ class CrsfLinkService {
   bool TrySendHeartbeatTelemetry();
   bool TrySendGpsTelemetry(const uint8_t *payload, uint8_t payload_len);
   bool TrySendBatteryTelemetry();
-  // TODO(crsf): Track command ACK/timeout state for bind/cancel-bind.
-  // If the receiver does not ACK within the expected window, decide whether
-  // to retry, surface an FcLink error, or escalate to Panic().
+  // TODO(crsf): track ACK/timeout for bind/cancel-bind; on no-ACK, retry,
+  // surface an FcLink error, or Panic().
   bool TrySendPendingCommand();
   bool ProcessCrsfByte(uint8_t byte, uint32_t now_us);
   bool FinishCrsfFrame(uint32_t now_us);

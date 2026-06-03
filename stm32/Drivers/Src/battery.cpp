@@ -90,8 +90,8 @@ void Battery::Poll(uint32_t now_us) {
 }
 
 void Battery::InitAdc() {
-  // GPIO mode + port clocks for kEscVba/kEscCur are programmed by GPIO::Init()
-  // via kGpioDefault. Only the ADC1 clock + peripheral programming live here.
+  // GPIO/port clocks for kEscVba/kEscCur are set by GPIO::Init(); only the
+  // ADC1 clock + peripheral programming belong here.
   RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
   (void)RCC->APB2ENR;
 

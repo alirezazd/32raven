@@ -10,16 +10,17 @@
 //
 // Ordering invariant (must hold; nothing enforces it at compile time):
 //
-//   IMU SPI DMA (2)              ── express lane: must finish before next
-//   sample IMU EXTI INT (3)             ── kicks the SPI DMA above PendSV (4)
-//   ── express bottom-half right under the IMU path ESC TLM, USART2/6 + DMAs
-//   (5) ── normal sensor / telemetry traffic DShot TIM1 DMA (6)           ──
-//   motor frame DMA, kicked off by the slow tick TIM5 slow tick (7) ── 1 kHz
-//   scheduler tick USART1 / FcLink + DMA (10)   ── ESP32 link, fully background
+//   IMU SPI DMA (2)            express lane: finish before next sample
+//   IMU EXTI INT (3)           kicks the SPI DMA above
+//   PendSV (4)                 express bottom-half, just under the IMU path
+//   ESC TLM, USART2/6 + DMA (5) sensor / telemetry traffic
+//   DShot TIM1 DMA (6)         motor frame DMA, kicked by the slow tick
+//   TIM5 slow tick (7)         1 kHz scheduler tick
+//   USART1 / FcLink + DMA (10) ESP32 link, fully background
 //
-// Don't shuffle these without thinking through the sample budget — the IMU
-// path is the only thing that can preempt PendSV and starts the chain that
-// every other deadline depends on.
+// The IMU path is the only thing that can preempt PendSV and starts the chain
+// every other deadline depends on; re-check the sample budget before
+// reordering.
 
 namespace irq_priority {
 

@@ -21,72 +21,58 @@ class RateController {
   };
 
   struct Config {
-    // Global on/off for setpoint smoothing. When false, the per-axis
-    // smoother instances are bypassed entirely (rate_sp goes straight
-    // to the PID). Per-axis `AxisConfig::smoother` is still loaded so
-    // that flipping the flag at runtime starts from a sane state.
+    // Global on/off for setpoint smoothing. When false, per-axis smoothers
+    // are bypassed (rate_sp goes straight to PID). Per-axis smoother config
+    // is still loaded so a runtime flip starts from a sane state.
     bool smoothing_enabled = true;
     AxisConfig roll{};
     AxisConfig pitch{};
     AxisConfig yaw{};
 
-    // When the pilot's commanded throttle is below this value, the
-    // per-axis integrators are frozen for that tick — Compute() still
-    // runs (so D-term LPF tracks measurement and the controller stays
-    // warm) but the I-term doesn't accumulate. Prevents wind-up at
-    // descent throttle where the mixer can't apply torque anyway.
-    // Set to 0 to disable.
+    // Below this commanded throttle, freeze the per-axis integrators for the
+    // tick: Compute() still runs (D-term LPF keeps tracking, controller stays
+    // warm) but the I-term doesn't accumulate. Prevents wind-up at descent
+    // throttle where the mixer can't apply torque anyway. 0 disables.
     float iterm_freeze_below_throttle = 0.0f;
 
-    // First-order IIR on the yaw torque output (post-PID, pre-mixer).
-    // alpha ∈ (0, 1]: 1 = pass-through; smaller = more aggressive
-    // smoothing. Reduces high-frequency torque transients from rotor
-    // acceleration on the yaw axis, where the QuadX geometry gives the
-    // weakest authority and highest noise pickup. Roll/pitch are
-    // unfiltered. PX4 equivalent: `_output_lpf_yaw`.
+    // First-order IIR on yaw torque output (post-PID, pre-mixer). alpha ∈
+    // (0, 1]: 1 = pass-through, smaller = more smoothing. Tames HF torque
+    // transients from rotor accel on yaw, where QuadX geometry has the
+    // weakest authority and highest noise. Roll/pitch unfiltered. PX4
+    // equivalent: `_output_lpf_yaw`.
     float yaw_output_lpf_alpha = 1.0f;
   };
 
   RateController() = default;
 
-  // Initialize all three axes. Idempotent — resets integrator + filter
-  // state. Called once by System::InitComponent.
+  // Idempotent — resets integrator + filter state.
   void Init(const Config &cfg);
 
   // Clear integrator + filter state on every axis. Call on arm/disarm
   // transitions or whenever the measurement source restarts.
   void Reset();
 
-  // Two-call API (preferred — exercises the PID's back-calculation
-  // anti-windup through any downstream stage, including mixer-disarm).
+  // Two-call API (preferred): routes the PID back-calc anti-windup
+  // through downstream saturation, including mixer-disarm.
   //
-  // 1. ComputeTorque(rate_sp, gyro, dt) → torque demands {τR, τP, τY}.
-  //    Per-axis PID computes, returns the pre-mixer torque. Integrator
-  //    is NOT yet committed; pending state lives on each axis PID.
-  //
-  // 2. CommitTorque(applied, dt). `applied` is what the downstream
-  //    actuator/mixer chain actually applied per axis (e.g., zero on
-  //    every axis when disarmed, equal to the commanded value in the
-  //    mixer's linear region). The per-axis PID's back-calc unwinds
-  //    whenever applied != commanded — for the disarm case, this
-  //    means the integrator can't accumulate stale state during a
-  //    600 ms pre-arm pump.
+  // 1. ComputeTorque → pre-mixer torque {τR, τP, τY}. Integrator not yet
+  //    committed; pending state lives on each axis PID.
+  // 2. CommitTorque(applied) — `applied` is what the actuator/mixer chain
+  //    actually applied per axis (zero when disarmed, == commanded in the
+  //    mixer's linear region). Back-calc unwinds when applied != commanded,
+  //    so the integrator can't wind up during a 600 ms pre-arm pump.
   std::array<float, 3> ComputeTorque(const Eigen::Vector3f &rate_sp,
                                      const Eigen::Vector3f &gyro_measured,
                                      float dt_s);
-  // pilot_throttle is the [0, 1] stick value forwarded by the caller.
-  // If it falls below Config::iterm_freeze_below_throttle, integrators
-  // are frozen via Pid::CommitFilterOnly instead of CommitIntegrator.
-  // Default 1.0f (above any sensible threshold) keeps legacy callers
-  // that don't pass throttle behaving identically — integrator always
-  // commits.
+  // pilot_throttle: [0, 1] stick value. Below iterm_freeze_below_throttle,
+  // integrators freeze via Pid::CommitFilterOnly. Default 1.0f keeps callers
+  // that omit throttle always committing the integrator.
   void CommitTorque(const std::array<float, 3> &applied, float dt_s,
                     float pilot_throttle = 1.0f);
 
-  // Convenience single-call: Compute + CommitTorque(itself). Use when
-  // there is no downstream clipping beyond the PID's own output_clamp
-  // (the PID's own anti-windup still fires for output_clamp saturation
-  // via the back-calc inside Update / Compute+CommitIntegrator).
+  // Single-call Compute + CommitTorque(itself). Use when there is no
+  // downstream clipping beyond the PID's own output_clamp (its back-calc
+  // still fires for output_clamp saturation).
   std::array<float, 3> Step(const Eigen::Vector3f &rate_sp,
                             const Eigen::Vector3f &gyro_measured, float dt_s);
 
@@ -110,13 +96,9 @@ class RateController {
   }
   float YawOutputLpfAlpha() const { return yaw_output_lpf_alpha_; }
 
-  // Runtime toggle for the setpoint smoother. When false, the per-axis
-  // smoothers are bypassed and rate_sp goes straight to the PID — the
-  // same effect as constructing with Config::smoothing_enabled=false.
-  // Smoother internal state is retained so flipping back resumes from
-  // the same point. Use for SIL cascade-primitive tests that need a
-  // clean step input to the PID, or for GCS/autotune flows that
-  // briefly disable smoothing to identify the unshaped cascade.
+  // Runtime equivalent of Config::smoothing_enabled. Smoother state is
+  // retained so flipping back resumes from the same point. Used by tests
+  // and GCS/autotune flows needing a clean step into the unshaped cascade.
   void SetSmoothingEnabled(bool on) { smoothing_enabled_ = on; }
   bool IsSmoothingEnabled() const { return smoothing_enabled_; }
 

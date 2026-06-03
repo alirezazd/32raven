@@ -70,43 +70,43 @@ set(_FMT_CONFIG_CMD)
 set(_FMT_EE_CMD)
 if(CLANG_FORMAT_EXECUTABLE)
     set(_FMT_CONFIG_CMD COMMAND ${CLANG_FORMAT_EXECUTABLE} -i
-                        ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP})
+        ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP})
     set(_FMT_EE_CMD COMMAND ${CLANG_FORMAT_EXECUTABLE} -i ${STM32_EE_SCHEMA_HPP})
 endif()
 
 add_custom_command(
     OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
     COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
-            --kconfig ${STM32_KCONFIG}
-            --config ${STM32_MASTER_CONFIG}
-            --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
-            --limits-out ${STM32_LIMITS_HPP}
+    --kconfig ${STM32_KCONFIG}
+    --config ${STM32_MASTER_CONFIG}
+    --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
+    --limits-out ${STM32_LIMITS_HPP}
     ${_FMT_CONFIG_CMD}
     COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
     COMMAND ${Python3_EXECUTABLE} ${ERROR_CODE_LINTER}
     DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
-            ${STM32_CONFIG_GENERATOR}
-            ${STM32_RUNTIME_CONFIG_TEMPLATE}
-            ${STM32_LIMITS_TEMPLATE}
-            ${STM32_PIN_CHECKER}
-            ${ERROR_CODE_LINTER}
-            ${ERROR_CODE_HPP}
+    ${STM32_CONFIG_GENERATOR}
+    ${STM32_RUNTIME_CONFIG_TEMPLATE}
+    ${STM32_LIMITS_TEMPLATE}
+    ${STM32_PIN_CHECKER}
+    ${ERROR_CODE_LINTER}
+    ${ERROR_CODE_HPP}
     COMMENT "Generating + validating STM32 configuration headers"
     VERBATIM)
 
 add_custom_target(generate_stm32_config
-                  DEPENDS ${STM32_RUNTIME_CONFIG_HPP}
-                          ${STM32_LIMITS_HPP})
+    DEPENDS ${STM32_RUNTIME_CONFIG_HPP}
+    ${STM32_LIMITS_HPP})
 add_dependencies(${CMAKE_PROJECT_NAME} generate_stm32_config)
 
 add_custom_command(
     OUTPUT ${STM32_EE_SCHEMA_HPP}
     COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
-            --config ${STM32_EE_CONFIG}
-            --out ${STM32_EE_SCHEMA_HPP}
+    --config ${STM32_EE_CONFIG}
+    --out ${STM32_EE_SCHEMA_HPP}
     ${_FMT_EE_CMD}
     DEPENDS ${STM32_EE_CONFIG} ${STM32_EE_SCHEMA_GENERATOR}
-            ${STM32_EE_SCHEMA_TEMPLATE}
+    ${STM32_EE_SCHEMA_TEMPLATE}
     COMMENT "Generating EEPROM schema header"
     VERBATIM)
 
@@ -149,7 +149,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/stat_publisher.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp
-    Services/Src/panic.cpp
+    Core/Src/panic.cpp
     Services/Src/multirotor_mixer.cpp
     Services/Src/ahrs.cpp
     Services/Src/rate_controller.cpp
@@ -189,8 +189,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE
 #                           property" with a hard error instead of a
 #                           silent realloc.
 #   EIGEN_RUNTIME_NO_MALLOC — also enables `set_is_malloc_allowed(bool)`
-#                           so SIL bench fixtures can flip an extra
-#                           runtime guard on if they want.
 #   EIGEN_STACK_ALLOCATION_LIMIT=0 — disable the per-temporary stack
 #                           limit (we don't need the heuristic; fixed-
 #                           size types live entirely on the stack /
@@ -223,6 +221,14 @@ target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -Wl,--wrap=vsnprintf
     -Wl,--wrap=snprintf
 )
+
+# Keep printf_impl.cpp out of LTO. The linker's --wrap (above) rebinds calls to
+# __wrap_vsnprintf/__wrap_snprintf at final link, but LTO doesn't model --wrap,
+# so it internalizes those wrappers as "uncalled" and the references dangle.
+# Compiling this one tiny TU without LTO leaves the __wrap_* symbols as real,
+# linker-visible symbols. (No LTO loss — it's just the nanoprintf shim.)
+set_source_files_properties(Core/Src/printf_impl.cpp PROPERTIES
+    COMPILE_OPTIONS "-fno-lto")
 
 # Remove wrong libob.a library dependency when using cpp files
 list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)

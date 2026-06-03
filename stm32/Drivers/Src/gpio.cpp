@@ -5,8 +5,7 @@
 
 namespace {
 
-// Map a GPIO_TypeDef* to the bit in RCC->AHB1ENR that gates its clock.
-// Returns 0 (no bit) for unrecognized ports — callers should panic.
+// RCC->AHB1ENR clock-gate bit for a port; 0 for unrecognized (callers panic).
 uint32_t PortClockBit(GPIO_TypeDef *port) {
   if (port == GPIOA) return RCC_AHB1ENR_GPIOAEN;
   if (port == GPIOB) return RCC_AHB1ENR_GPIOBEN;
@@ -19,8 +18,8 @@ uint32_t PortClockBit(GPIO_TypeDef *port) {
   return 0;
 }
 
-// SYSCFG_EXTICR port-source code (0 = PA, 1 = PB, ...). NVIC routing for an
-// EXTI line goes: pin n -> SYSCFG->EXTICR[n / 4] selects the source port.
+// SYSCFG_EXTICR port-source code (0=PA, 1=PB, ...); selects source port for
+// EXTI line n via SYSCFG->EXTICR[n / 4].
 uint32_t ExtiPortSource(GPIO_TypeDef *port) {
   if (port == GPIOA) return 0;
   if (port == GPIOB) return 1;

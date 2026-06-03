@@ -110,7 +110,7 @@ message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg(
   msg.armed_state = ctx.sys->EscSvc().IsArmed()
                         ? message::kVehicleArmedStateArmed
                         : message::kVehicleArmedStateDisarmed;
-  // TODO: (RC-loss, battery, IMU, GPS failsafe detection
+  // TODO: detect RC-loss, battery, IMU, GPS failsafe conditions
   msg.failsafe_flags = 0u;
   msg.flight_mode = static_cast<uint8_t>(ctx.sys->Vehicle().GetFlightMode());
   return msg;

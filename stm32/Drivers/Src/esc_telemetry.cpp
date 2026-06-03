@@ -72,9 +72,8 @@ void EscTelemetry::Init(const Config &cfg) {
 }
 
 void EscTelemetry::ConfigureUart() {
-  // GPIO setup for kEscTlmRx (mode/speed/pull/AF) is done by GPIO::Init()
-  // via the kGpioDefault entry. Only the peripheral clock and USART3
-  // configuration remain here.
+  // RX pin (mode/speed/pull/AF) is configured by GPIO::Init(); only the
+  // peripheral clock and USART3 setup belong here.
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
   RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
   __DSB();
@@ -151,8 +150,7 @@ void EscTelemetry::OnUartInterrupt() {
   bool drain = false;
 
   if ((sr & (USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)) != 0u) {
-    // `count = count + 1` instead of `count++` because C++20 deprecates
-    // the increment of volatile-qualified scalars.
+    // `x = x + 1`, not `x++`: C++20 deprecates ++ on volatile scalars.
     if ((sr & USART_SR_ORE) != 0u) {
       uart_ore_error_count_ = uart_ore_error_count_ + 1u;
     }

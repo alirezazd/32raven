@@ -62,7 +62,7 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
 
         if (message::IsPacketValid(rx_pkt_internal_.id,
                                    rx_pkt_internal_.payload, rx_len_)) {
-          // Verify CRC
+          // Rebuild header+payload to recompute CRC over the wire format.
           uint8_t check_buf[sizeof(message::Header) + message::kMaxPayload];
           message::Header *h = (message::Header *)check_buf;
           h->magic[0] = message::kMagic1;
@@ -82,7 +82,6 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
             if (rx_len_ > 0)
               memcpy(pkt.payload, rx_pkt_internal_.payload, rx_len_);
 
-            // Dispatch
             CommandHandler::GetInstance().Dispatch(*ctx_, pkt);
           }
         }
@@ -106,7 +105,6 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
 
 bool FcLink::Send(const message::Packet &pkt) {
   uint8_t buf[sizeof(message::Packet)];
-  // Serialize returns total length
   size_t len = message::Serialize((message::MsgId)pkt.header.id,
                                   (pkt.header.len > 0) ? pkt.payload : nullptr,
                                   pkt.header.len, buf);
@@ -124,13 +122,7 @@ bool FcLink::Send(const message::Packet &pkt) {
 
 void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   message::GpsData t = {};
-  // Map internal GpsData (blackboard) to Message GpsData
-  // Warning: Ensure types match message definitions
-  // message::GpsData in shared libs might differ from internal GpsData struct
-  // Re-verification of libs/include/message.hpp might be needed if fields
-  // differ significantly. Based on previous tasks, message::GpsData has: valid,
-  // lat, lon, height, etc.
-
+  // Map blackboard GpsData onto wire message::GpsData.
   t.fixType = data.fix_type;
   t.numSV = data.num_sats;
   t.hMSL = data.alt;  // data.alt is in mm MSL
@@ -153,11 +145,10 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   t.hDOP = data.hDOP;
   t.vDOP = data.vDOP;
 
-  // Populate new fields with dummy/placeholder data for now
-  // Real attitude/battery data needs to come from `data` source
+  // No attitude estimate plumbed here yet; yaw falls back to GPS heading.
   t.roll = 0;
   t.pitch = 0;
-  t.yaw = data.hdg;  // Use GPS heading as yaw fallback
+  t.yaw = data.hdg;
 
   t.batt_voltage = (uint16_t)(bat.voltage * 1000.0f);  // V -> mV
   t.batt_current = (int16_t)(bat.current * 100.0f);    // A -> cA
@@ -273,7 +264,7 @@ void FcLink::SendVehicleStatus(const message::VehicleStatusMsg &msg) {
 }
 
 void FcLink::SendLog(const char *format, ...) {
-  char buf[128];  // Max payload size relative
+  char buf[128];
   va_list args;
   va_start(args, format);
   int len = vsnprintf(buf, sizeof(buf), format, args);

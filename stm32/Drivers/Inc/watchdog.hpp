@@ -31,12 +31,11 @@ class Watchdog {
   // under a debugger. Irreversible once armed; System::Init() calls this last,
   // after every component, so blocking bring-up can't trip it.
   void Init() {
-    DBGMCU->APB1FZ |=
-        DBGMCU_APB1_FZ_DBG_IWDG_STOP;  // pause when core is halted
-    IWDG->KR = kKeyAccess;             // enable write access to PR/RLR
-    IWDG->PR = IWDG_PR_PR_2;           // prescaler /64 -> ~2 ms per tick
-    IWDG->RLR = kReloadCount;          // (kReloadCount + 1) ticks ≈ 1.0 s
-    while (IWDG->SR != 0u) {           // wait for the PR/RLR write to latch
+    DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_IWDG_STOP;
+    IWDG->KR = kKeyAccess;     // enable write access to PR/RLR
+    IWDG->PR = IWDG_PR_PR_2;   // prescaler /64 -> ~2 ms per tick
+    IWDG->RLR = kReloadCount;  // (kReloadCount + 1) ticks ≈ 1.0 s
+    while (IWDG->SR != 0u) {   // wait for the PR/RLR write to latch
     }
     Kick();
     IWDG->KR = kKeyStart;  // start (irreversible)

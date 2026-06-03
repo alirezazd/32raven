@@ -16,7 +16,6 @@ CommandHandler &CommandHandler::GetInstance() {
 
 static void OnPing(AppContext &ctx, const message::Packet &pkt) {
   (void)pkt;
-  // Send Pong
   message::Packet tx_pkt;
   tx_pkt.header.id = (uint8_t)message::MsgId::kPong;
   tx_pkt.header.len = 0;
@@ -146,10 +145,10 @@ static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->FcLinkSvc().SendLog("CRSF RX bind requested");
 }
 
-// Privileged: directly toggle ESC + Mixer arm state. Bypasses any future
-// arming state machine. Same trust model as kReboot/kBootload — gated only
-// by FCLink access (implicit). Used by SIL test fixtures so the mixer
-// produces non-zero outputs without needing physical RC stick gestures.
+// Privileged: directly toggle ESC + Mixer arm state, bypassing any future
+// arming state machine. Trust model matches kReboot/kBootload (gated only by
+// FCLink access). Used by test fixtures to drive non-zero mixer outputs
+// without physical RC stick gestures.
 static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kPrivilegedArm,
                                      pkt.header.len)) {
@@ -158,8 +157,8 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
   const auto *req =
       reinterpret_cast<const message::PrivilegedArmMsg *>(pkt.payload);
   const bool armed = req->armed != 0u;
-  // Clear integrator + filter state on every arm transition so a
-  // wound-up controller from a prior session can't kick the next arm.
+  // Reset on every arm transition: a wound-up controller from a prior
+  // session must not kick the next arm.
   ctx.sys->RateControllerSvc().Reset();
   ctx.sys->EscSvc().SetArmed(armed);
   ctx.sys->MixerSvc().SetArmed(armed);

@@ -13,8 +13,7 @@ IdleState idle;
 
 extern "C" void ExpressMain(void) {
   if (!app.fast_tick_state) {
-    return;  // Fast lane not ready, skip. This can happen during startup before
-             // main() runs.
+    return;  // ISR can fire before main() assigns the fast-tick state
   }
   const Icm42688p::SampleBatch batch =
       Icm42688p::GetInstance().GetLatestBatch();

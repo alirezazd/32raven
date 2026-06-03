@@ -8,22 +8,17 @@
 
 namespace {
 
-// ── Stage-2c Stabilize wiring ────────────────────────────────────────
-// RC channel and threshold used to flip between kAcro and kStabilize.
-// AUX1 (channel 5 on most transmitters) lives at index 4 of the raw
-// channels[] array; mid-range pulse (~1500 µs) is the standard
-// 3-position-switch transition. Hardcoded for 2c — moves to Kconfig
-// in 2d when tuning is wanted.
+// RC channel/threshold to flip between kAcro and kStabilize.
+// AUX1 (channel 5 on most TX) is index 4 of raw channels[]; mid-pulse
+// (~1500 µs) is the standard 3-position-switch transition.
 constexpr std::size_t kFlightModeChannelIndex = 4u;
 constexpr std::uint16_t kFlightModeThresholdUs = 1500u;
 static_assert(
     kFlightModeChannelIndex < stm32_limits::kRcEnabledChannelCount,
     "kFlightModeChannelIndex exceeds the configured RC channel count");
 
-// Max tilt the Stabilize mode will command from a full stick deflection
-// (rad). 30° is the conservative beginner / camera default; FPV-leaning
-// builds typically run 45–55°. Soft default for first activation; tune
-// in 2d.
+// Max tilt Stabilize commands at full stick deflection (rad). 30° is a
+// conservative beginner default; FPV builds run 45–55°.
 constexpr float kStabilizeMaxTiltRad = 0.5236f;  // ≈ 30°
 
 }  // namespace
@@ -57,7 +52,6 @@ void IdleState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().Set(false);
   ctx.fast_tick_state = this;
 
-  // Init Protocol Links
   ctx.sys->GetCommandHandler().Init();
   ctx.sys->FcLinkSvc().Init(&ctx);
 
@@ -84,7 +78,6 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
 
 void IdleState::OnFastTick(AppContext &ctx,
                            const Icm42688p::SampleBatch &batch) {
-  // --- Fast Loop (per IMU burst) ---
   uint32_t fast_t0 = ctx.sys->Time().Micros();
   g_fast_last_us = fast_t0;
 
@@ -119,28 +112,17 @@ void IdleState::OnFastTick(AppContext &ctx,
     }
   }
 
-  // Run AHRS: aggregate the IMU sample burst → averaged ω + integrated
-  // quaternion → ImuState → VehicleState. Sub-step 1a: AHRS gains are
-  // zero, so the quaternion is pure gyro integration (drifts) and
-  // gyro_body_rad_s matches the previous inline averager bit-for-bit.
-  // The rate controller only reads gyro_body_rad_s; the quaternion is
-  // along for the ride until Stabilize mode lands.
+  // AHRS: aggregate IMU burst → averaged ω + integrated quaternion →
+  // ImuState → VehicleState. Acro reads gyro_body_rad_s; Stabilize also
+  // reads attitude_world_to_body.
   const ImuState imu_state = ctx.sys->AhrsSvc().Process(batch);
   ctx.sys->Vehicle().UpdateImu(imu_state);
 
-  // 3. Cascade: sticks → rate_sp → rate PID → torque → mixer → DShot.
-  //
-  // Acro mode (rate-only — no attitude controller yet): stick deflection
-  // maps linearly to a body-rate setpoint per axis. Rate controller
-  // closes the loop on gyro_measured and emits the torque demand for
-  // the mixer. Mixer's `armed` flag still defaults false → Mix() returns
-  // all zeros until the arming sequence flips it. ESC layer enforces
-  // SetArmed semantics separately as defense in depth.
-  //
-  // RC source: VehicleState (last update from RcReceiver, via CRSF).
+  // Cascade: sticks → rate_sp → rate PID → torque → mixer → DShot.
+  // Mixer `armed` defaults false → Mix() returns all zeros until armed;
+  // ESC layer enforces SetArmed independently as defense in depth.
   // No tx_online check yet — disarmed mixer + disarmed ESC means worst
-  // case is "harmlessly compute zeros from stale RC." Add tx_online
-  // gating when we add an arming sequence.
+  // case is harmlessly computing zeros from stale RC.
   {
     constexpr float fast_dt_sec = 0.001f;
     constexpr float max_rate_roll_pitch = 6.0f;  // rad/s, ~340 deg/s
@@ -148,12 +130,8 @@ void IdleState::OnFastTick(AppContext &ctx,
 
     const RcData &rc = ctx.sys->Vehicle().GetRc();
 
-    // Sub-step 2c: read the mode switch and publish to VehicleState
-    // before the cascade reads it. Two-position switch: AUX1 above
-    // mid-pulse → kStabilize, otherwise kAcro. The published mode is
-    // visible to any other consumer (telemetry, future failsafe
-    // manager, etc.) — the cascade itself reads it via the same
-    // VehicleState getter immediately below.
+    // Publish the mode switch to VehicleState before the cascade reads
+    // it back below. AUX1 above mid-pulse → kStabilize, else kAcro.
     {
       const FlightMode new_mode =
           rc.channels[kFlightModeChannelIndex] >= kFlightModeThresholdUs
@@ -162,28 +140,18 @@ void IdleState::OnFastTick(AppContext &ctx,
       ctx.sys->Vehicle().SetFlightMode(new_mode);
     }
 
-    // Throttle mapping (computed up-front so the authority scaling
-    // below can read it before rate_sp is finalised). Linear remap of
-    // raw stick [0, 1] onto [thr_min, 1]. PX4 equivalent: MPC_MANTHR_MIN.
-    // `stick` is preserved separately because the rate controller's
-    // integrator-freeze threshold is compared against pilot INTENT, not
-    // the post-mapping effective thrust — see CommitTorque call below.
+    // Linear remap of raw stick [0,1] onto [thr_min,1] (PX4 MPC_MANTHR_MIN).
+    // Raw `stick` kept separately: the integrator-freeze threshold compares
+    // against pilot intent, not post-mapping thrust — see CommitTorque below.
     const float stick = RcReceiver::NormalizedThrottle(rc.throttle_us);
     const float thr_min = ctx.sys->RcRx().ThrottleMin();
     const float pilot_thrust = thr_min + (1.0f - thr_min) * stick;
 
-    // Throttle-authority scaling: at low pilot thrust the mixer can only
-    // deliver a small fraction of full torque (the band headroom near
-    // `idle`). Scale the rate setpoint by this fraction so the cascade
-    // asks only for what it can actually track — prevents integrator
-    // wind-up + spiral when pilot whips sticks during descent.
-    //
+    // Throttle-authority scaling: at low thrust the mixer has little
+    // torque headroom above `idle`, so scale rate_sp to what it can track
+    // and prevent integrator wind-up + spiral on stick whip during descent.
     //   authority = (pilot_thrust − idle) / (1 − idle)
-    //
-    // At hover/above: authority = 1, rate_sp unchanged. At pilot_thrust
-    // → idle: authority → 0, rate_sp → 0 (drone honors current rate).
-    // Equivalent to what PX4 gets implicitly from its position
-    // controller holding thrust above idle.
+    // 1 at/above hover; → 0 as pilot_thrust → idle (rate_sp → 0).
     const float mixer_idle = ctx.sys->MixerSvc().GetConfig().idle;
     const float band = 1.0f - mixer_idle;
     float authority = 1.0f;
@@ -193,19 +161,16 @@ void IdleState::OnFastTick(AppContext &ctx,
       if (authority > 1.0f) authority = 1.0f;
     }
 
-    // FlightMode gate on the setpoint source.
-    //   kAcro      : sticks → angular-rate setpoint directly (Phase A).
-    //   kStabilize : sticks → desired-tilt quaternion → outer attitude
-    //                controller → rate setpoint for roll/pitch. Yaw
-    //                stays rate-from-stick (no heading reference without
-    //                a magnetometer; that lands later).
+    // FlightMode gates the setpoint source.
+    //   kAcro      : sticks → angular-rate setpoint directly.
+    //   kStabilize : sticks → desired-tilt quaternion → attitude
+    //                controller → roll/pitch rate setpoint. Yaw stays
+    //                rate-from-stick (no heading reference without a mag).
     Eigen::Vector3f rate_sp;
     if (ctx.sys->Vehicle().GetFlightMode() == FlightMode::kStabilize) {
-      // Stick → desired tilt about the world-frame axes the body shares
-      // when level: roll about body-X, pitch about body-Y. No yaw
-      // component (yaw bypasses the attitude loop). Direct quaternion
-      // construction is cheaper than going through AngleAxis and
-      // produces less template bloat.
+      // Stick → desired tilt: roll about body-X, pitch about body-Y, no
+      // yaw (yaw bypasses the attitude loop). Direct quaternion build is
+      // cheaper than AngleAxis and avoids template bloat.
       const float roll_des_rad =
           RcReceiver::NormalizedAxis(rc.roll_us) * kStabilizeMaxTiltRad;
       const float pitch_des_rad =
@@ -217,26 +182,20 @@ void IdleState::OnFastTick(AppContext &ctx,
                                       0.0f, 0.0f);
       const Eigen::Quaternionf q_pitch(std::cos(half_pitch), 0.0f,
                                        std::sin(half_pitch), 0.0f);
-      // q_rp = the tilt geometry from sticks. Composition order matters
-      // only at compound tilts; at small angles either order is
-      // indistinguishable.
+      // Tilt geometry from sticks. Composition order matters only at
+      // compound tilts; indistinguishable at small angles.
       const Eigen::Quaternionf q_rp = q_roll * q_pitch;
 
-      // Yaw decoupling. Build q_desired so it carries the body's CURRENT
-      // yaw — otherwise yaw drift (no magnetometer reference + rate-
-      // bypassed yaw) bleeds into the roll/pitch error vector and the
-      // cascade injects cross-axis torque whenever the body has yawed
-      // from its arm-time heading. User-observed: "yaw left/right then
-      // move forward → drone goes a different direction."
+      // Yaw decoupling: q_desired must carry the body's CURRENT yaw, else
+      // yaw drift (no mag, rate-bypassed yaw) bleeds into the roll/pitch
+      // error and the cascade injects cross-axis torque after any heading
+      // change.
       //
-      // Closed-form swing-twist decomposition about world-Z: any unit
-      // quaternion q = (w, x, y, z) factors as q_twist · q_swing where
-      // q_twist is a rotation about world-Z. The twist component has
-      // the closed form (w, 0, 0, z) / sqrt(w² + z²) — no atan2, no
-      // cos/sin, just one sqrt + one division. Avoids the gimbal-lock
-      // edge case of ZYX Euler yaw extraction (which degenerates at
-      // pitch ±90°); this form is well-defined for any attitude short
-      // of fully inverted (w² + z² ≈ 0, irrelevant for Stabilize).
+      // Swing-twist about world-Z: unit q = (w,x,y,z) factors as
+      // q_twist·q_swing with twist = (w,0,0,z)/sqrt(w²+z²) — one sqrt +
+      // one div, no atan2/trig. Avoids the ZYX-Euler gimbal-lock at pitch
+      // ±90°; well-defined for any attitude short of fully inverted
+      // (w²+z² ≈ 0, irrelevant for Stabilize).
       const Eigen::Quaternionf &q_meas = imu_state.attitude_world_to_body;
       const float qw = q_meas.w();
       const float qz = q_meas.z();
@@ -246,9 +205,8 @@ void IdleState::OnFastTick(AppContext &ctx,
         const float inv_n = 1.0f / std::sqrt(yaw_norm_sq);
         q_yaw = Eigen::Quaternionf(qw * inv_n, 0.0f, 0.0f, qz * inv_n);
       }
-      // Rotate the tilt geometry into the body's current heading: pitch-
-      // forward stick now always means "pitch forward in current heading",
-      // regardless of accumulated yaw drift.
+      // Rotate tilt geometry into current heading so stick direction
+      // tracks heading regardless of yaw drift.
       const Eigen::Quaternionf q_desired = q_yaw * q_rp;
 
       const Eigen::Vector3f attitude_rate_sp =
@@ -265,13 +223,9 @@ void IdleState::OnFastTick(AppContext &ctx,
       };
     }
 
-    // Apply throttle-authority scaling to rate_sp — see the authority
-    // computation above. Bounds the demanded rate to what the mixer
-    // can actually deliver at the pilot's current thrust.
-    rate_sp *= authority;
+    rate_sp *= authority;  // bound demand to deliverable torque, see above
 
-    // 1) Compute pre-clip torque demand. PID integrators are NOT yet
-    //    committed.
+    // 1) Pre-clip torque demand; PID integrators not yet committed.
     const auto torque = ctx.sys->RateControllerSvc().ComputeTorque(
         rate_sp, imu_state.gyro_body_rad_s, fast_dt_sec);
 
@@ -281,35 +235,26 @@ void IdleState::OnFastTick(AppContext &ctx,
         .yaw_torque = torque[2],
         .thrust = pilot_thrust,
     };
-    // 2) Mix → motor commands + back-projected per-axis applied torque.
-    //    `mix.motors` is zero on every channel when disarmed;
-    //    `mix.applied_torque` is zero in that case, and reflects the
-    //    post-saturation-rescale effective body torque when armed (equals
-    //    commanded in the linear region, < commanded after Betaflight motor-mix
-    //    rescale).
+    // 2) Mix → motor commands + back-projected applied torque. Both zero
+    //    when disarmed; armed, applied_torque is the post-saturation
+    //    effective torque (= commanded in linear region, < commanded after
+    //    Betaflight motor-mix rescale).
     const auto mix = ctx.sys->MixerSvc().Mix(in);
     (void)ctx.sys->EscSvc().WriteMotorsThrust(mix.motors,
                                               ctx.sys->Time().Micros());
 
-    // 3) Commit integrators with the per-axis APPLIED torque. Back-calc
-    //    anti-windup drains the integrator at rate Kt = Ki/Kp whenever
-    //    applied ≠ commanded — covering both the disarm case (applied=0)
-    //    and the armed mixer-saturation case (applied = scale·commanded).
-    //    Pilot throttle is forwarded so RateController can freeze
-    //    integrators when descent throttle is commanded (mixer can't
-    //    apply torque there anyway).
-    // Pass the RAW stick (pre-floor) to CommitTorque so the freeze
-    // threshold reflects pilot intent ("commanding descent"), not the
-    // post-floor effective thrust. Without this, the throttle-floor
-    // remap above would push the comparand permanently above the freeze
-    // threshold and the integrator would never freeze at min stick.
+    // 3) Commit integrators with APPLIED torque. Back-calc anti-windup
+    //    drains at rate Kt = Ki/Kp whenever applied ≠ commanded — covers
+    //    disarm (applied=0) and armed mixer saturation (applied=scale·cmd).
+    //    Raw stick (not pilot_thrust) lets RateController freeze integrators
+    //    on commanded descent; post-floor thrust never drops below the
+    //    freeze threshold, so it would never freeze at min stick.
     ctx.sys->RateControllerSvc().CommitTorque(mix.applied_torque, fast_dt_sec,
                                               stick);
   }
 
   uint32_t t1 = ctx.sys->Time().Micros();
 
-  // Capture fast-tick duration
   uint32_t fast_dt = (t1 > fast_t0) ? (t1 - fast_t0) : 0;
   if (fast_dt > g_prof_fast_us) g_prof_fast_us = fast_dt;
 }
@@ -321,10 +266,9 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     return (uint32_t)(micros() - g_fast_last_us) >= kSlowBudgetFromFastUs;
   };
 
-  // User-button → LED toggle. Polled BEFORE the budget check so the
-  // debounce state machine inside Button::Poll always sees ticks
-  // (otherwise budget-exhausted ticks would stretch the debounce
-  // window and drop fast presses).
+  // Polled BEFORE the budget check so Button::Poll's debounce SM always
+  // sees ticks; budget-exhausted gaps would stretch the window and drop
+  // fast presses.
   {
     auto &btn = ctx.sys->Btn();
     btn.Poll(micros() / 1000u);

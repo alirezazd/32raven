@@ -38,9 +38,8 @@ class EscService {
   bool WriteMotors(const DShotCodec::MotorValues &motor);
   bool WriteMotors(const DShotCodec::MotorValues &motor, uint32_t now_us);
 
-  // Convenience overloads taking normalized thrust [0, 1] per motor — the
-  // currency mixers / controllers speak. Internally calls ThrustToDshot per
-  // motor and dispatches to WriteMotors(MotorValues, ...).
+  // Overloads taking normalized thrust [0, 1] per motor — the units mixers /
+  // controllers produce. Per-motor ThrustToDshot, then WriteMotors.
   bool WriteMotorsThrust(const std::array<float, 4> &thrust);
   bool WriteMotorsThrust(const std::array<float, 4> &thrust, uint32_t now_us);
 

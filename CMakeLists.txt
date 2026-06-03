@@ -116,28 +116,37 @@ add_custom_target(forbidden_check_stm32 DEPENDS "${FORBIDDEN_CHECK_STM32_STAMP}"
 # -----------------------------------------------------------------------------
 # STM32 target
 # -----------------------------------------------------------------------------
-add_custom_target(stm32
-  DEPENDS forbidden_check_stm32
-  COMMAND ${CMAKE_COMMAND} -E echo "Building STM32 firmware"
-  COMMAND ${CMAKE_COMMAND}
-          -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32
-          -B ${CMAKE_CURRENT_BINARY_DIR}/stm32
-          -G "${CMAKE_GENERATOR}"
-          -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
-          -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${_STM32_TC}
-          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-  COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/stm32 ${_CFG_ARG}
-  VERBATIM
-)
-
-if(NOT _STM32_TC)
-  add_custom_command(TARGET stm32 PRE_BUILD
-    COMMAND ${CMAKE_COMMAND} -E echo "ERROR: STM32 toolchain file not found."
-    COMMAND ${CMAKE_COMMAND} -E echo "Expected: ${CMAKE_CURRENT_SOURCE_DIR}/stm32/cmake/gcc-arm-none-eabi.cmake"
-    COMMAND ${CMAKE_COMMAND} -E echo "Or pass: -DSTM32_TOOLCHAIN_FILE=/path/to/gcc-arm-none-eabi.cmake"
-    COMMAND ${CMAKE_COMMAND} -E false
+# Configure + build the STM32 firmware sub-project with a given build type, each
+# in its own binary dir. Both link through the same toolchain, so both print the
+# flash/RAM/CCRAM usage (-Wl,--print-memory-usage). 'stm32' is the optimized
+# image (Release: -O2 -flto); 'stm32-debug' is the -O0 -g3 build.
+function(_add_stm32_target name build_type)
+  add_custom_target(${name}
+    DEPENDS forbidden_check_stm32
+    COMMAND ${CMAKE_COMMAND} -E echo "Building STM32 firmware"
+    COMMAND ${CMAKE_COMMAND}
+            -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32
+            -B ${CMAKE_CURRENT_BINARY_DIR}/${name}
+            -G "${CMAKE_GENERATOR}"
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${_STM32_TC}
+            -DCMAKE_BUILD_TYPE=${build_type}
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/${name} ${_CFG_ARG}
+    VERBATIM
   )
-endif()
+  if(NOT _STM32_TC)
+    add_custom_command(TARGET ${name} PRE_BUILD
+      COMMAND ${CMAKE_COMMAND} -E echo "ERROR: STM32 toolchain file not found."
+      COMMAND ${CMAKE_COMMAND} -E echo "Expected: ${CMAKE_CURRENT_SOURCE_DIR}/stm32/cmake/gcc-arm-none-eabi.cmake"
+      COMMAND ${CMAKE_COMMAND} -E echo "Or pass: -DSTM32_TOOLCHAIN_FILE=/path/to/gcc-arm-none-eabi.cmake"
+      COMMAND ${CMAKE_COMMAND} -E false
+    )
+  endif()
+endfunction()
+
+_add_stm32_target(stm32       Release)
+_add_stm32_target(stm32-debug Debug)
 
 add_custom_target(esp32
   DEPENDS forbidden_check_esp32

@@ -6,10 +6,8 @@
 //     v_world = q ⊗ v_body ⊗ q*
 //
 // Initialized to identity (1, 0, 0, 0). Stays on the unit sphere by
-// renormalizing after each integration step.
-//
-// Cost on Cortex-M4 with FPU: every operation here is ~10-30 VFP
-// instructions, single-precision. No allocations, no virtuals.
+// renormalizing after each integration step. Single-precision; no
+// allocations, no virtuals.
 
 #pragma once
 
@@ -81,12 +79,10 @@ inline Vec3 Rotate(const Quaternion &q, const Vec3 &v) {
 // ── kinematics: integrate body angular rate into attitude ───────────
 
 // First-order Euler step of dq/dt = (1/2) q ⊗ (0, ω_b). Renormalizes
-// to absorb the small linearization drift. dt_s is in SECONDS.
+// to absorb the linearization drift. dt_s is in SECONDS.
 //
-// At 1 kHz tick / dt = 1 ms, the first-order error is < 1e-6 per step
-// for body rates up to a few rad/s. Plenty for a rate-loop integrator.
-// Sub-loops that need higher accuracy (IMU pre-integration across 8 kHz
-// samples) can call this repeatedly with smaller dt.
+// First-order error is < 1e-6 per step at dt = 1 ms for body rates up
+// to a few rad/s. For higher accuracy, call repeatedly with smaller dt.
 inline Quaternion IntegrateBodyRate(const Quaternion &q, const Vec3 &omega_b,
                                     float dt_s) {
   const float half_dt = 0.5f * dt_s;
@@ -111,19 +107,13 @@ inline Quaternion IntegrateBodyRate(const Quaternion &q, const Vec3 &omega_b,
 // rotation vector (in radians per axis) that would rotate the
 // measured attitude into the setpoint.
 //
-// For a small error this is twice the vector part of
-// (q_sp ⊗ q_m⁻¹). The sign is chosen so we always take the short
-// path around the unit sphere — q and -q represent the same
-// rotation, but we want the rotation vector with magnitude < π.
-//
-// This is the function Phase B's attitude controller calls each tick
-// to convert quaternion attitude error into an ω_sp vector (in rad/s)
-// for the rate controller.
+// For a small error this is twice the vector part of (q_sp ⊗ q_m⁻¹).
+// Sign chosen to take the short path: q and -q are the same rotation,
+// pick the one with magnitude < π.
 inline Vec3 ErrorRotationVector(const Quaternion &q_setpoint,
                                 const Quaternion &q_measured) {
   const Quaternion q_err = Compose(q_setpoint, Conjugate(q_measured));
-  // Short-path: if scalar part is negative, q_err and -q_err describe
-  // the same rotation but the latter has smaller |vec| → use it.
+  // Negative scalar part → -q_err has smaller |vec|; flip sign.
   const float s = (q_err.w < 0.0f) ? -1.0f : 1.0f;
   return Vec3{2.0f * s * q_err.x, 2.0f * s * q_err.y, 2.0f * s * q_err.z};
 }
