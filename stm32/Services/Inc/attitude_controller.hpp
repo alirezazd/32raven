@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 // AttitudeController — outer loop on SO(3) for Stabilize / Angle modes.
 //
 // Stateless pure-P on the small-angle attitude error; emits a body-frame

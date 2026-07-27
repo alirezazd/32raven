@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 #include "renderer_demo_widget.hpp"
 
 #include <algorithm>

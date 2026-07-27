@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 // Widget dependency note:
 // This widget uses FreeRTOS idle run-time stats for CPU%.
 //

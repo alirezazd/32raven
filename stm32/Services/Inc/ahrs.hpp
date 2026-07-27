@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 // AHRS — Mahony complementary filter on the unit quaternion.
 //
 // Fuses body-frame gyro (1 kHz prediction) with body-frame accel

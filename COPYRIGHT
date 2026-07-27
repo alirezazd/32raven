@@ -1,0 +1,5 @@
+Copyright (C) 2026 Alireza Azadi.
+32raven is dual-licensed: GPL-3.0-only for open-source use (see LICENSE), with
+commercial licences available for closed-source use (contact@nordir.ca).
+Third-party components in third_party/ and vendored vendor code retain their own
+licences and are NOT covered by the grant above; see THIRD_PARTY_LICENSES.md.

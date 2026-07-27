@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 // printf_impl.cpp — replaces newlib's vsnprintf with nanoprintf.
 //
 // newlib-nano vsprintf pulls in _malloc_r / _free_r / _sbrk to support

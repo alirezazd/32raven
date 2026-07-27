@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 // cxa_atexit_stub.cpp — no-op replacements for the C++ runtime's
 // destructor-registration machinery.
 //

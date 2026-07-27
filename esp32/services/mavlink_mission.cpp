@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 #include "mavlink.hpp"
 
 void Mavlink::HandleMissionMessage(const mavlink_message_t &msg) {

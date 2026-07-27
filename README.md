@@ -141,3 +141,17 @@ The STM32 binary is uploaded over WiFi to the ESP32, which forwards it to the ST
 - **Output:** build outputs are generator-specific — `build/Ninja/stm32/`, `build/Ninja/esp32/`.
 - **Toolchains:** when switching generators or toolchains, run `make clean` first to drop stale CMake cache.
 - **Verifying a change:** `make stm32` and `make esp32` are independent; touch shared code under `libs/` and run both. The STM32 build also runs `scripts/lint/check_pinmap.py` against ST's silicon data — typo'd pin or AF aborts the build.
+
+## License
+
+32raven is **dual-licensed**:
+
+- **GPL-3.0-only** for open-source use — see [LICENSE](./LICENSE).
+- **Commercial licences** for closed-source use — contact@nordir.ca.
+
+Copyright (C) 2026 Alireza Azadi. See [COPYRIGHT](./COPYRIGHT) for the full notice.
+
+Third-party components under `third_party/` and vendored vendor code retain their
+own upstream licences and are **not** covered by the grant above — see
+[THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md). Contributions: see
+[CONTRIBUTING.md](./CONTRIBUTING.md).

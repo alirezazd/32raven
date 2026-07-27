@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 // Multirotor motor mixer — stateless thrust allocator for a quad-X frame.
 //
 // Maps body-frame torque demands (roll/pitch/yaw) and collective thrust to

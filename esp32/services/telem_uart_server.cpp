@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 #include "telem_uart_server.hpp"
 
 int TelemUartServer::Receive(uint8_t *dst, size_t max_len) {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
 #ifndef USER_DRIVERS_TIMEBASE_HPP
 #define USER_DRIVERS_TIMEBASE_HPP
 
