@@ -43,6 +43,7 @@ flowchart LR
 
 ## Inter-MCU link — FcLink
 
+<!-- --8<-- [start:fclink] -->
 The one connection that must be right before anything else works. Cross TX to RX.
 
 | Signal | ESP32-C3 | STM32F407 | Kconfig symbol |
@@ -60,9 +61,11 @@ follows it.
 
     921600 baud over long unshielded wire inside a frame full of ESC switching noise is a
     good way to spend an evening debugging handshake failures. Twist TX/RX with ground.
+<!-- --8<-- [end:fclink] -->
 
 ### STM32 programming lines
 
+<!-- --8<-- [start:programming] -->
 The ESP32 reflashes the STM32 over the air by driving its bootloader pins directly. Without
 these two wires, `make flash-wifi-stm32` cannot work.
 
@@ -70,6 +73,9 @@ these two wires, `make flash-wifi-stm32` cannot work.
 |--------|----------|-----------|----------------|
 | BOOT0 | `GPIO0` | `BOOT0` | `CONFIG_ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM` |
 | NRST | `GPIO1` | `NRST` | `CONFIG_ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM` |
+<!-- --8<-- [end:programming] -->
+
+`BOOT0` is on the `J1` header, alongside SWD.
 
 ## IMU — ICM42688P (SPI2)
 

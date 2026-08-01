@@ -173,3 +173,39 @@ Two more things to get right while the tape is still repositionable:
 
 `TBD` — the measured tape thickness, which is the number that matters here, and the final
 orientation once the frame exists.
+
+## Wiring the core
+
+Five wires join the two boards. Nothing else is connected at this stage — no sensors, no
+power distribution, no battery.
+
+The tables below are the same ones on [the wiring reference](wiring.md); they are pulled in
+from that page rather than copied, so the two cannot drift apart.
+
+### The link
+
+--8<-- "docs/build/wiring.md:fclink"
+
+### Reflashing lines
+
+--8<-- "docs/build/wiring.md:programming"
+
+`BOOT0` is on the `J1` header next to SWD.
+
+### Order of work
+
+1. **Ground first.** Everything else references it.
+2. **FcLink, crossed.** `GPIO4` to `PA10`, `GPIO3` to `PA9`. Twist the pair with ground even
+   on the bench — the habit costs nothing and 921600 baud will punish you later.
+3. **`BOOT0` and `NRST`.** These only matter for over-the-air STM32 updates, but they are far
+   easier to solder now than once the stack is in a frame.
+
+!!! warning "No power rail between the boards yet"
+
+    On the bench, run each board from its own USB. Do **not** wire 5 V between them: the
+    flight controller's `+5V` pins go straight to its USB connector with no protection, so a
+    5 V link plus two plugged-in USB ports ties two host rails together.
+
+    How the boards are powered in flight belongs to the power distribution stage.
+
+`TBD` — photographs of the finished core wiring.
