@@ -3195,8 +3195,8 @@ config STM32_PILOT_THROTTLE_MIN_MILLI
       the drone descends if pilot_throttle_min is below the airframe's
       hover thrust (e.g., 0.08 for most hobby quads where hover ≈
       0.3-0.5). PX4 equivalent: MPC_MANTHR_MIN (default 0.08). Tune
-      via pilot_input::SetThrottleMin during SIL — too low gives a
-      free-fall feel; too high makes the drone climb at min stick.
+      via pilot_input::SetThrottleMin — too low gives a free-fall
+      feel; too high makes the drone climb at min stick.
 
 endmenu
 
@@ -3244,7 +3244,7 @@ config STM32_RATE_CTRL_ROLL_KP_MILLI
     default 50
     help
       Proportional gain for the roll-rate PID, scaled by 1000 (50 = 0.05).
-      Starting point; tune in SIL before flying.
+      Starting point; tune before flying.
 
 config STM32_RATE_CTRL_ROLL_KI_MILLI
     int "Roll Ki (x1000)"

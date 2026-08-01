@@ -43,7 +43,7 @@ enum class MsgId : uint8_t {
   kVehicleStatus = 0x13,
   kPanic = 0x14,
   kEscTelemetry = 0x15,
-  kPrivilegedArm = 0x16,  // SIL/test: directly toggle EscService + Mixer arm
+  kPrivilegedArm = 0x16,  // Test-only: directly toggle EscService + Mixer arm
                           // state. Bypasses any arming state machine. Same
                           // privilege level as kReboot/kBootload — gated only
                           // by FCLink access (which is implicitly trusted).
