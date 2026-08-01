@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img"
+     aria-label="Placeholder — a photograph of the assembled prototype goes here">
+  <!-- Deliberately background-free: the dashed frame and mid-grey ink both read
+       against the light and dark Material palettes, so this needs no theme rules.
+       Replace this file with a photograph of the built aircraft (roadmap #1). -->
+  <rect x="10" y="10" width="1580" height="880" rx="28"
+        fill="none" stroke="#8b8f94" stroke-width="4" stroke-dasharray="26 20" opacity="0.55"/>
+
+  <g stroke="#8b8f94" stroke-width="14" fill="none" opacity="0.5"
+     stroke-linecap="round" transform="translate(800 402)">
+    <!-- arms -->
+    <path d="M-190-190 L190 190 M190-190 L-190 190"/>
+    <!-- motors -->
+    <circle cx="-190" cy="-190" r="34"/>
+    <circle cx="190"  cy="-190" r="34"/>
+    <circle cx="-190" cy="190"  r="34"/>
+    <circle cx="190"  cy="190"  r="34"/>
+    <!-- prop discs -->
+    <g stroke-width="7" opacity="0.65">
+      <circle cx="-190" cy="-190" r="112"/>
+      <circle cx="190"  cy="-190" r="112"/>
+      <circle cx="-190" cy="190"  r="112"/>
+      <circle cx="190"  cy="190"  r="112"/>
+    </g>
+    <!-- stack -->
+    <rect x="-72" y="-56" width="144" height="112" rx="16" stroke-width="14"/>
+  </g>
+
+  <text x="800" y="700" text-anchor="middle" fill="#8b8f94" opacity="0.85"
+        font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+        font-size="46" font-weight="600" letter-spacing="0.5">Photograph pending</text>
+  <text x="800" y="752" text-anchor="middle" fill="#8b8f94" opacity="0.6"
+        font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif"
+        font-size="30">The assembled prototype goes here — roadmap #1</text>
+</svg>

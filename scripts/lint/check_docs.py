@@ -17,6 +17,10 @@ Catches:
     that sends a reader hunting through menuconfig for something that is gone.
     Scoped to the two 32Raven namespaces so ESP-IDF's own CONFIG_* symbols
     (which live in the submodule, not our tree) don't false-positive.
+  - Untracked placeholders. A `TBD(#N)` marker whose number has no `### #N —`
+    entry in docs/roadmap.md. Placeholders are how an unfinished page admits
+    what it is missing; one that points nowhere is just a dead end, and it is
+    the failure mode a reader hits hardest because it looks deliberate.
 
 Exit codes:
   0  no errors
@@ -35,6 +39,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 KCONFIG = ROOT / "config" / "Kconfig"
+ROADMAP = DOCS / "roadmap.md"
 
 # pymdownx.snippets section syntax: --8<-- "relative/path.hpp:anchor_name"
 SNIPPET_REF = re.compile(r'--8<--\s+"([^"]+)"')
@@ -43,6 +48,9 @@ GH_ADMONITION = re.compile(r"^\s*>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]
 # Only our own namespaces — see the docstring.
 CONFIG_REF = re.compile(r"\bCONFIG_((?:STM32|ESP32)_[A-Z0-9_]+)\b")
 KCONFIG_DECL = re.compile(r"^\s*(?:menuconfig|config)\s+([A-Za-z0-9_]+)\s*$", re.M)
+# Placeholder marker in a page, and the roadmap entry that must back it.
+TBD_MARKER = re.compile(r"\bTBD\(#(\d+)\)")
+ROADMAP_ITEM = re.compile(r"^###\s+#(\d+)\s+—", re.M)
 
 
 def _markdown_files() -> list[pathlib.Path]:
@@ -99,12 +107,31 @@ def check_config_refs(md: pathlib.Path, text: str, known: set[str]) -> list[str]
     return errors
 
 
+def check_tbd_markers(md: pathlib.Path, text: str, tracked: set[str]) -> list[str]:
+    errors: list[str] = []
+    for match in TBD_MARKER.finditer(text):
+        item = match.group(1)
+        if item in tracked:
+            continue
+        line = text[: match.start()].count("\n") + 1
+        errors.append(
+            f"{md.relative_to(ROOT)}:{line}: TBD(#{item}) has no `### #{item} — ` "
+            f"entry in docs/roadmap.md — untracked placeholder"
+        )
+    return errors
+
+
 def main() -> int:
     if not DOCS.is_dir():
         print(f"check_docs: no docs/ directory at {DOCS}", file=sys.stderr)
         return 1
 
     known = set(KCONFIG_DECL.findall(KCONFIG.read_text(encoding="utf-8")))
+    tracked = (
+        set(ROADMAP_ITEM.findall(ROADMAP.read_text(encoding="utf-8")))
+        if ROADMAP.is_file()
+        else set()
+    )
 
     errors: list[str] = []
     files = _markdown_files()
@@ -113,6 +140,7 @@ def main() -> int:
         errors += check_anchors(md, text)
         errors += check_admonitions(md, text)
         errors += check_config_refs(md, text, known)
+        errors += check_tbd_markers(md, text, tracked)
 
     if errors:
         for err in errors:
@@ -120,7 +148,10 @@ def main() -> int:
         print(f"\ncheck_docs: {len(errors)} error(s) across {len(files)} page(s)", file=sys.stderr)
         return 1
 
-    print(f"check_docs: {len(files)} page(s) OK (anchors, admonitions, Kconfig refs)")
+    print(
+        f"check_docs: {len(files)} page(s) OK "
+        f"(anchors, admonitions, Kconfig refs, {len(tracked)} roadmap item(s))"
+    )
     return 0
 
 

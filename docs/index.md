@@ -8,13 +8,68 @@ This handbook is the practical layer — how to **build one**, wire it, flash it
 and fly it. The repository README covers the architecture; these pages cover the hardware in
 front of you.
 
-[:material-book-open-variant: Start the build guide](build/index.md){ .md-button .md-button--primary }
+![The assembled 32Raven prototype](assets/prototype-placeholder.svg)
+
+## At a glance
+
+<div class="grid cards" markdown>
+
+-   :material-quadcopter:{ .lg .middle } **Airframe**
+
+    ---
+
+    `TBD(#3)`
+
+-   :material-chip:{ .lg .middle } **Flight controller**
+
+    ---
+
+    STM32F407 — control loop, IMU, GPS, RC, mixer
+
+-   :material-wifi:{ .lg .middle } **Connectivity**
+
+    ---
+
+    ESP32-C3 — MAVLink/CRSF, WiFi, OTA, on-device UI
+
+-   :material-battery-high:{ .lg .middle } **Power**
+
+    ---
+
+    6S pack — `TBD(#3)` for capacity and all-up weight
+
+-   :material-cash-multiple:{ .lg .middle } **Parts cost**
+
+    ---
+
+    `TBD(#2)`
+
+-   :material-timer-outline:{ .lg .middle } **Build time**
+
+    ---
+
+    `TBD(#2)`
+
+</div>
+
+Anything marked `TBD(#N)` is an open item on the [roadmap](roadmap.md) — the number is its
+entry there. The build fails if a marker points at an item that does not exist.
+
+## What you need to be able to do
+
+- **Solder** a 0.1-inch header and tin stranded wire. Everything is through-hole or
+  module-level — there is no PCB to fabricate and no SMD rework.
+- **Use a multimeter** for continuity and DC voltage. One measurement in this guide is
+  load-bearing: the battery divider, before it ever reaches an ADC pin.
+- **Flash over USB and read a serial console.**
+
+No prior flight-controller experience is assumed, and no oscilloscope is required.
 
 !!! warning "Status: active development"
 
     Interfaces, configs, and pin assignments change quickly. Every pin and tunable quoted
-    here is checked against `config/Kconfig` on each build (see below), but a page can still
-    describe a stage that has moved on. Build from a tagged release if you want stability.
+    here is checked against `config/Kconfig` on each build, but a page can still describe a
+    stage that has moved on. Build from a tagged release if you want stability.
 
 !!! danger "This aircraft can injure you"
 
@@ -22,40 +77,11 @@ front of you.
     substitute for your own judgement: props stay **off** the motors until the bench-test
     stage explicitly says otherwise, and the battery stays disconnected while you wire.
 
-## Where to start
+## Where this handbook stands
 
-<div class="grid cards" markdown>
+It is being written **right now**, alongside the first from-scratch build of the prototype —
+the aircraft and its documentation are being assembled together. [Wiring](build/wiring.md) is
+complete and every pin in it is checked against the reference config on each build. The
+remaining stages are stubs, filled in as that aircraft reaches them.
 
-- **[Build the prototype](build/index.md)**
-
-    Parts, wiring, power, and assembly — the from-scratch path. Start with
-    [the wiring reference](build/wiring.md).
-
-</div>
-
-## How this handbook stays honest
-
-Docs that quote pin numbers rot the instant a pin moves, and a stale pin number is not a
-typo — it is a destroyed ESC. Three gates run on every push:
-
-- **`mkdocs build --strict`** — broken internal links, orphan pages, dangling heading
-  anchors, and absolute links (which break under the `/32raven/` Pages path) all fail.
-- **Embedded code is transcluded, not copied.** Code blocks pull from the real source via
-  [pymdownx.snippets][snip] anchors, so an embedded block cannot drift from the file it
-  documents.
-- **`scripts/lint/check_docs.py`** — catches what `--strict` cannot see: a transclusion
-  anchor whose `[start:…]` marker was deleted (which silently embeds *nothing*), GitHub-style
-  `> [!NOTE]` blocks that render broken in Material, and any `CONFIG_STM32_*` /
-  `CONFIG_ESP32_*` symbol named here that no longer exists in `config/Kconfig`.
-
-[snip]: https://facelessuser.github.io/pymdown-extensions/extensions/snippets/
-
-## Building this handbook locally
-
-```bash
-make docs          # strict build into ./site, then the lint described above
-make docs-serve    # live-reload preview at http://127.0.0.1:8000
-```
-
-The toolchain installs through **uv** as an opt-in dependency group — it is not part of the
-firmware build, and `make docs` resolves it on demand.
+**[Start with the build guide →](build/index.md)**
