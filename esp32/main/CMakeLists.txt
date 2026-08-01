@@ -1,13 +1,13 @@
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format)
-find_program(ESP32_CONFIG_PYTHON3_EXECUTABLE
-    NAMES python3
-    PATHS /usr/bin /usr/local/bin
-    NO_DEFAULT_PATH)
+# The generator runs through `uv run --script`, which resolves the script's own
+# PEP 723 dependencies into an isolated env. This replaces the previous dance of
+# hunting for a system python3 outside the ESP-IDF virtualenv: IDF sets
+# Python3_EXECUTABLE to its own venv, which has no kconfiglib or jinja2, so the
+# build had to escape it to reach the apt-installed packages. uv makes the
+# generator independent of whichever interpreter IDF or CMake picked.
+find_program(UV_EXECUTABLE NAMES uv REQUIRED)
+set(UV_RUN ${UV_EXECUTABLE} run --quiet --script)
 
-if(NOT ESP32_CONFIG_PYTHON3_EXECUTABLE)
-    set(ESP32_CONFIG_PYTHON3_EXECUTABLE ${Python3_EXECUTABLE})
-endif()
+find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format)
 
 set(ESP32_KCONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../../config/Kconfig")
 set(ESP32_MASTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/../../config/32raven.config")
@@ -86,7 +86,7 @@ endif()
 
 add_custom_command(
     OUTPUT ${ESP32_RUNTIME_CONFIG_HPP} ${ESP32_LIMITS_HPP}
-    COMMAND ${ESP32_CONFIG_PYTHON3_EXECUTABLE} ${ESP32_CONFIG_GENERATOR}
+    COMMAND ${UV_RUN} ${ESP32_CONFIG_GENERATOR}
             --kconfig ${ESP32_KCONFIG}
             --config ${ESP32_MASTER_CONFIG}
             --runtime-out ${ESP32_RUNTIME_CONFIG_HPP}

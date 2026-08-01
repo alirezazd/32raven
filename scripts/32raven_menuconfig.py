@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
 
+# /// script
+# dependencies = [
+#     "kconfiglib",
+# ]
+# ///
+
 from __future__ import annotations
 
 import argparse

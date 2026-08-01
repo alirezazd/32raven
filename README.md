@@ -49,7 +49,7 @@ The build can run in two modes — pick one. The same `make` targets work in eit
 
 ### Mode A — Docker (recommended, zero host pollution)
 
-You only need a working Docker engine. Everything else (ARM GCC, CMake, Ninja, Python deps, ESP-IDF host prerequisites) lives inside the build image.
+You only need a working Docker engine. Everything else (ARM GCC, CMake, Ninja, uv, ESP-IDF host prerequisites) lives inside the build image.
 
 - **Docker Engine** — install per the [official docs](https://docs.docker.com/engine/install/), then add your user to the `docker` group and re-login.
 
@@ -61,7 +61,7 @@ VSCode users with the **Dev Containers** extension can open the repo directly in
 
 - **CMake** (3.22+)
 - **ARM GCC toolchain** (`arm-none-eabi-*`) for STM32
-- **Python 3** with `kconfiglib` and `jinja2`
+- **Python 3** and **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — no manual package installs. Every first-party script declares its own dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)) and the build invokes them via `uv run --script`, so uv resolves and caches them on first use.
 - **ripgrep** + **clang-format** (for `make format-cpp`)
 - ESP-IDF host prereqs ([list](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32/get-started/linux-macos-setup.html#install-prerequisites)) for ESP32 builds
 

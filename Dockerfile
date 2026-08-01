@@ -1,8 +1,15 @@
 # 32Raven build image.
-# Provides the STM32 ARM toolchain and ESP-IDF host prerequisites.
+# Provides the STM32 ARM toolchain, uv, and ESP-IDF host prerequisites.
 # ESP-IDF tools themselves are installed at runtime via `make idf-install`,
 # which writes into a persisted volume (.docker/home/.espressif on the host).
 FROM ubuntu:24.04
+
+# uv resolves every first-party Python script's inline (PEP 723) dependencies at
+# build time, so kconfiglib/jinja2/pillow are NOT apt-installed here — the
+# scripts declare what they need and uv fetches it. Pinned for reproducibility.
+# The cache lands in $HOME (a persisted volume), so only the first build in a
+# fresh checkout downloads anything.
+COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /usr/local/bin/
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
@@ -21,8 +28,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip \
       python3-venv \
       python3-setuptools \
-      python3-kconfiglib \
-      python3-jinja2 \
       wget \
       curl \
       flex \

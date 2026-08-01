@@ -23,7 +23,15 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 
 # Enable CMake support for ASM and C languages
 enable_language(C CXX ASM)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+# Every first-party Python script runs through `uv run --script`. Each script
+# declares its own dependencies inline (PEP 723), so the build resolves them
+# itself instead of trusting whatever happens to be installed in the ambient
+# interpreter — which differs between the Docker image, a host install, and the
+# ESP-IDF virtualenv. uv caches after the first run.
+find_program(UV_EXECUTABLE NAMES uv REQUIRED)
+set(UV_RUN ${UV_EXECUTABLE} run --quiet --script)
+
 find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format)
 
 # Create an executable object type
@@ -76,14 +84,14 @@ endif()
 
 add_custom_command(
     OUTPUT ${STM32_RUNTIME_CONFIG_HPP} ${STM32_LIMITS_HPP}
-    COMMAND ${Python3_EXECUTABLE} ${STM32_CONFIG_GENERATOR}
+    COMMAND ${UV_RUN} ${STM32_CONFIG_GENERATOR}
     --kconfig ${STM32_KCONFIG}
     --config ${STM32_MASTER_CONFIG}
     --runtime-out ${STM32_RUNTIME_CONFIG_HPP}
     --limits-out ${STM32_LIMITS_HPP}
     ${_FMT_CONFIG_CMD}
-    COMMAND ${Python3_EXECUTABLE} ${STM32_PIN_CHECKER}
-    COMMAND ${Python3_EXECUTABLE} ${ERROR_CODE_LINTER}
+    COMMAND ${UV_RUN} ${STM32_PIN_CHECKER}
+    COMMAND ${UV_RUN} ${ERROR_CODE_LINTER}
     DEPENDS ${STM32_KCONFIG} ${STM32_MASTER_CONFIG}
     ${STM32_CONFIG_GENERATOR}
     ${STM32_RUNTIME_CONFIG_TEMPLATE}
@@ -101,7 +109,7 @@ add_dependencies(${CMAKE_PROJECT_NAME} generate_stm32_config)
 
 add_custom_command(
     OUTPUT ${STM32_EE_SCHEMA_HPP}
-    COMMAND ${Python3_EXECUTABLE} ${STM32_EE_SCHEMA_GENERATOR}
+    COMMAND ${UV_RUN} ${STM32_EE_SCHEMA_GENERATOR}
     --config ${STM32_EE_CONFIG}
     --out ${STM32_EE_SCHEMA_HPP}
     ${_FMT_EE_CMD}

@@ -3,9 +3,11 @@ name = "raven-docs-tools"
 version = "0.1.0"
 description = "Host-side toolchain for the 32Raven handbook (MkDocs Material)."
 requires-python = ">=3.10"
-# Deliberately empty. The firmware generators (kconfiglib, jinja2) are supplied
-# by the build image / host packages and are NOT managed here — this file exists
-# only so the docs toolchain is lockable and reproducible.
+# Deliberately empty, and this file covers ONLY the docs site. Every first-party
+# *script* declares its own dependencies inline via PEP 723 and is invoked with
+# `uv run --script` (see stm32/CMakeLists.txt and the Makefile) — a script is
+# self-describing, so duplicating its deps here would just be a second place to
+# forget to update. The handbook is not a script, so it needs a group.
 dependencies = []
 
 [tool.uv]

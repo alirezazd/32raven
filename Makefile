@@ -114,7 +114,7 @@ all: configure
 esp32: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target esp32
 	@printf "\n"
-	$(RUN) python3 tools/esp32_size_metrics.py --build-dir "$(BUILD_DIR)/esp32"
+	$(RUN) uv run --quiet --script tools/esp32_size_metrics.py --build-dir "$(BUILD_DIR)/esp32"
 
 stm32: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target stm32
@@ -135,14 +135,14 @@ format-cpp:
 		    done'
 
 32raven-menuconfig:
-	$(RUN) python3 scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
+	$(RUN) uv run --quiet --script scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
 
 # Handbook. Runs host-side (no $(RUN)): the build image carries the firmware
 # toolchain, not MkDocs, and the docs read only tracked source. The 'docs' uv
 # group is opt-in — uv resolves it on demand here.
 docs:
 	@uv run --group docs mkdocs build --strict
-	@python3 scripts/lint/check_docs.py
+	@uv run --quiet --script scripts/lint/check_docs.py
 
 docs-serve:
 	@pkill -f '[m]kdocs serve' 2>/dev/null && { echo "docs-serve: stopped a previous preview server"; sleep 1; } || true
@@ -188,11 +188,11 @@ ESP_IP ?= 192.168.4.1
 
 # WiFi Flashing
 flash-wifi-stm32: stm32
-	$(RUN) python3 tools/esp32_client.py $(ESP_IP) flash $(BUILD_DIR)/stm32/32Raven_stm32.bin
+	$(RUN) uv run --quiet --script tools/esp32_client.py $(ESP_IP) flash $(BUILD_DIR)/stm32/32Raven_stm32.bin
 
 flash-wifi-esp32: esp32
 	-pkill -f esp32_client.py || true
-	$(RUN) python3 tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/32Raven_esp32.bin
+	$(RUN) uv run --quiet --script tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/32Raven_esp32.bin
 
 distclean: clean
 	@echo "Removing all generator build directories in $(BUILD_ROOT)/"
