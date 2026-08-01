@@ -21,7 +21,7 @@ priced.
 |---|---|---|---|
 | Flight controller | `STM32F407VGT6 DevEBox` — black board, silkscreen `STM32F4XX_M` | ~$10 | Aug 2026 |
 | Bridge + display | `ESP32-C3 0.42 OLED` — small purple board, ceramic antenna | ~$3 | Aug 2026 |
-| Mounting | Double-sided foam tape | ~$2 | Aug 2026 |
+| Mounting | Double-sided **foam** tape — thickness matters, see [mounting](boards.md#mounting-the-stack) | ~$2 | Aug 2026 |
 
 **Running subtotal: ~$15.** That is the entire brain of the aircraft — both microcontrollers,
 the telemetry radio, and the status display. Almost all of the cost is still ahead of it: the

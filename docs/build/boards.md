@@ -151,11 +151,25 @@ and the `STM32F407VG` marking are both visible here.
 mounting stage.
 ///
 
-Two things to get right while the tape is still repositionable:
+!!! warning "The tape is a spacer, not just adhesive"
+
+    The underside of the bridge has exposed pads and via tails on it. The microSD slot it
+    mounts over is a **metal shell**. Pressed together, they short.
+
+    This is why the tape is specified as **foam** rather than the thin transfer kind: it is
+    doing two jobs, and holding the two boards apart is the more important one. Thin
+    double-sided tape will stick perfectly well and leave almost nothing between a live board
+    and a grounded can.
+
+    Before power goes anywhere near the stack, look along the seam and confirm nothing on the
+    bridge's underside is touching the slot.
+
+Two more things to get right while the tape is still repositionable:
 
 - **Keep the tape off the castellations.** Both header rows have to stay solderable from
   above, and the pads run right to the board edge.
 - **Leave the USB-C connector clear.** Both boards get flashed over USB during bring-up, and
   the bridge's connector faces off the edge of the stack.
 
-`TBD` — tape type and thickness, and final orientation once the frame exists.
+`TBD` — the measured tape thickness, which is the number that matters here, and the final
+orientation once the frame exists.
