@@ -145,6 +145,10 @@ tape. It is the first physical step of the build.
 The stack. The bridge's USB-C faces off the edge so both boards stay flashable, and the
 castellated pads on both rows are left clear. The flight controller's 8.000 MHz crystal (`Y2`)
 and the `STM32F407VG` marking are both visible here.
+
+**Ignore the wires already on the bridge** — they are the buzzer, which runs from `GPIO10`
+(see [ESP32-C3 peripherals](wiring.md#esp32-c3-peripherals)). Nothing needs to be wired at the
+mounting stage.
 ///
 
 Two things to get right while the tape is still repositionable:
