@@ -39,7 +39,9 @@ jobs:
         with:
           submodules: false      # handbook transcludes only tracked source
 
-      - uses: astral-sh/setup-uv@v5
+      # Exact tag on purpose: setup-uv publishes no moving major past v7, so
+      # `@v9` does not resolve. Same pinning philosophy as uv in the Dockerfile.
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           enable-cache: true
 
@@ -47,11 +49,11 @@ jobs:
         run: uv run --group docs mkdocs build --strict
 
       - name: Lint (anchors, admonitions, Kconfig references)
-        run: python3 scripts/lint/check_docs.py
+        run: uv run --quiet --script scripts/lint/check_docs.py
 
       - name: Upload Pages artifact
         if: github.ref == 'refs/heads/master'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
@@ -72,4 +74,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
