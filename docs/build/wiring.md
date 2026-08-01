@@ -187,6 +187,21 @@ transistor.
 | Telemetry TX | `GPIO20` | `CONFIG_ESP32_PINMAP_TELEM_UART_TX_GPIO_NUM` |
 | Telemetry RX | `GPIO21` | `CONFIG_ESP32_PINMAP_TELEM_UART_RX_GPIO_NUM` |
 
+On the reference bridge board (the 0.42" OLED module), the first five rows are **already wired
+on the board** — the LED, the BOOT button and the OLED are not yours to connect. Only the
+buzzer and the telemetry UART leave the board. See [the bill of materials](bom.md#which-pins-are-already-used)
+for the full pin budget.
+
+!!! warning "The board's RX/TX labels are inverted relative to this firmware"
+
+    The silkscreen marks `GPIO20` as **RX** and `GPIO21` as **TX**, following the chip's
+    default UART0 assignment. This firmware drives them the other way round — `GPIO20` is
+    telemetry **TX** and `GPIO21` is **RX**, as the table above says.
+
+    The ESP32-C3 routes any UART to any pin through its GPIO matrix, so this is legal and
+    works. It also means wiring by the printed label gives you a dead link with no error.
+    Wire by GPIO number.
+
 `GPIO9` is the ESP32-C3's strapping pin for download mode. Holding the user button through a
 reset will drop the bridge into the ROM bootloader instead of running firmware — inconvenient
 in the field, so consider where you mount it.

@@ -75,6 +75,7 @@ nav:
   - Home: index.md
   - Build the prototype:
       - build/index.md
+      - "Bill of materials": build/bom.md
       - "Wiring — the reference build": build/wiring.md
       # Pages land here as they're written; see build/index.md for the running
       # order. Adding a docs/*.md without a nav entry fails the strict build.
