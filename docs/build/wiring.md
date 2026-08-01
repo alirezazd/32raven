@@ -189,8 +189,8 @@ transistor.
 
 On the reference bridge board (the 0.42" OLED module), the first five rows are **already wired
 on the board** — the LED, the BOOT button and the OLED are not yours to connect. Only the
-buzzer and the telemetry UART leave the board. See [the bill of materials](bom.md#which-pins-are-already-used)
-for the full pin budget.
+buzzer and the telemetry UART leave the board. See [the pin budget](boards.md#pin-budget) for
+the full picture.
 
 !!! warning "The board's RX/TX labels are inverted relative to this firmware"
 

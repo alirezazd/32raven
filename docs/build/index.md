@@ -8,8 +8,8 @@ propellers fitted and no flight battery connected; the boards are powered from U
 
 | # | Stage | What it covers | Status |
 |---|-------|----------------|--------|
-| 1 | **[Bill of materials](bom.md)** | Parts, vendors, approximate cost, acceptable substitutions | *in progress* |
-| 2 | Tools and consumables | Iron, heat-shrink, ST-Link, USB-serial, LiPo charger | *not written* |
+| 1 | **[Bill of materials](bom.md)** | Parts, vendors, cost, tools, acceptable substitutions | *in progress* |
+| 2 | **[The two boards](boards.md)** | Specs, pinouts, what is already wired, mounting the stack | *in progress* |
 | 3 | Frame and motors | Frame assembly, motor mounting, ESC placement | *not written* |
 | 4 | **[Wiring](wiring.md)** | Every signal between the two MCUs and the peripherals | **written** |
 | 5 | Power | Battery, BEC rails, ESC flashing and AM32 settings | *not written* |

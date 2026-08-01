@@ -51,6 +51,7 @@ markdown_extensions:
       dedent_subsections: true
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.blocks.caption          # /// caption — figure captions under images
   - tables
   - attr_list
   - md_in_html
@@ -76,6 +77,7 @@ nav:
   - Build the prototype:
       - build/index.md
       - "Bill of materials": build/bom.md
+      - "The two boards": build/boards.md
       - "Wiring — the reference build": build/wiring.md
       # Pages land here as they're written; see build/index.md for the running
       # order. Adding a docs/*.md without a nav entry fails the strict build.
