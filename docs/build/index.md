@@ -1,12 +1,8 @@
 # Build the prototype
 
 The from-scratch path: a pile of parts to an aircraft that arms. Stages run in order —
-each one assumes the previous passed.
-
-!!! danger "Props off, battery out"
-
-    Every stage before *Bench test* is done with **no propellers fitted** and **no flight
-    battery connected**. The STM32 and ESP32 are powered from USB during bring-up.
+each one assumes the previous passed. Every stage before *Bench test* runs with no
+propellers fitted and no flight battery connected; the boards are powered from USB.
 
 ## Running order
 

@@ -1,12 +1,7 @@
 # Wiring — the reference build
 
 Every signal in the aircraft, grouped by the thing it connects to. This is the page to have
-open while you solder.
-
-!!! danger "Before you touch anything"
-
-    Flight battery **disconnected**, propellers **off**, iron on a stand. A shorted 6S pack
-    will vaporise a trace before the breaker in your bench supply notices.
+open while you solder — flight battery disconnected throughout.
 
 ## How to read these tables
 
@@ -202,7 +197,6 @@ in the field, so consider where you mount it.
 - [ ] Confirm no pin appears twice across the tables above — the build enforces this for
       pin-map entries, but the two off-map UARTs are yours to check.
 - [ ] Confirm the battery divider output with a meter at full pack voltage.
-- [ ] Propellers still off.
 
 Next: power and ESC configuration *(not yet written — see the
 [running order](index.md#running-order))*.
