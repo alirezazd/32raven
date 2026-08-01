@@ -8,8 +8,7 @@ This handbook is the practical layer — how to **build one**, wire it, flash it
 and fly it. The repository README covers the architecture; these pages cover the hardware in
 front of you.
 
-[:fontawesome-brands-github: Source on GitHub](https://github.com/alirezazd/32raven){ .md-button .md-button--primary }
-[:material-book-open-variant: Start the build guide](build/index.md){ .md-button }
+[:material-book-open-variant: Start the build guide](build/index.md){ .md-button .md-button--primary }
 
 !!! warning "Status: active development"
 
