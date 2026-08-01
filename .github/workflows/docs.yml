@@ -1,0 +1,75 @@
+name: Docs
+
+# Builds the MkDocs Material handbook strictly and lints it for the drift
+# --strict cannot see (orphan transclusion anchors, GitHub admonitions, stale
+# CONFIG_ citations). A required gate: a broken link or a renamed Kconfig symbol
+# quoted in the build guide fails the PR rather than shipping a wrong pin number.
+#
+# The handbook reads only tracked source, so submodules are skipped and no
+# firmware toolchain is installed — keeps this job fast and independent of the
+# firmware build.
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'config/Kconfig'
+      - 'scripts/lint/check_docs.py'
+      - '.github/workflows/docs.yml'
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build handbook (strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: false      # handbook transcludes only tracked source
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build (strict)
+        run: uv run --group docs mkdocs build --strict
+
+      - name: Lint (anchors, admonitions, Kconfig references)
+        run: python3 scripts/lint/check_docs.py
+
+      - name: Upload Pages artifact
+        if: github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    # One-time setup before this can succeed:
+    #   Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
+    # Private repos need a plan that includes Pages; delete this job if the
+    # handbook should stay build-checked but unpublished.
+    name: Deploy to GitHub Pages
+    if: github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

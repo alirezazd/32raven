@@ -1,0 +1,51 @@
+# Build the prototype
+
+The from-scratch path: a pile of parts to an aircraft that arms. Stages run in order —
+each one assumes the previous passed.
+
+!!! danger "Props off, battery out"
+
+    Every stage before *Bench test* is done with **no propellers fitted** and **no flight
+    battery connected**. The STM32 and ESP32 are powered from USB during bring-up.
+
+## Running order
+
+| # | Stage | What it covers | Status |
+|---|-------|----------------|--------|
+| 1 | Bill of materials | Parts, vendors, approximate cost, acceptable substitutions | *not written* |
+| 2 | Tools and consumables | Iron, heat-shrink, ST-Link, USB-serial, LiPo charger | *not written* |
+| 3 | Frame and motors | Frame assembly, motor mounting, ESC placement | *not written* |
+| 4 | **[Wiring](wiring.md)** | Every signal between the two MCUs and the peripherals | **written** |
+| 5 | Power | Battery, BEC rails, ESC flashing and AM32 settings | *not written* |
+| 6 | Toolchain | Docker or host build environment | *not written* |
+| 7 | Configure and flash | `make 32raven-menuconfig`, wired flash, OTA | *not written* |
+| 8 | Smoke test | First power-on, error codes, link handshake | *not written* |
+| 9 | Sensors | IMU orientation, GPS lock, battery calibration | *not written* |
+| 10 | RC link | CRSF binding, channel map, failsafe | *not written* |
+| 11 | Bench test | Motor order and direction, **props still off** | *not written* |
+| 12 | First flight | Arming, hover, initial tuning | *not written* |
+
+Stages 6 and 7 currently live in the
+[repository README](https://github.com/alirezazd/32raven#build-prerequisites) and will move
+here as they are rewritten for someone who has never built the firmware before.
+
+## What you are building
+
+A quadcopter carrying two boards that split the work:
+
+- **STM32F407** — the flight controller. IMU, GPS, RC input, AHRS, attitude and rate control,
+  DShot mixer. Nothing on this MCU waits on WiFi.
+- **ESP32-C3** — the bridge. MAVLink and CRSF telemetry, WiFi, over-the-air firmware updates
+  for *both* MCUs, and the on-device OLED UI.
+
+The two are joined by a single UART running a versioned wire protocol (**FcLink**). That link
+is the first thing to get right, and it is the first table in
+[the wiring reference](wiring.md).
+
+## Reference build
+
+Where a choice exists, this guide documents one specific build — the pin assignments checked
+into `config/32raven.config`. That file is the reference build's source of truth, not a
+suggestion: every pin quoted in these pages is the value it holds. Most pins are Kconfig
+choices, so a different board layout is a `make 32raven-menuconfig` change rather than a
+firmware edit.

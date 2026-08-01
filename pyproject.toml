@@ -1,0 +1,22 @@
+[project]
+name = "raven-docs-tools"
+version = "0.1.0"
+description = "Host-side toolchain for the 32Raven handbook (MkDocs Material)."
+requires-python = ">=3.10"
+# Deliberately empty. The firmware generators (kconfiglib, jinja2) are supplied
+# by the build image / host packages and are NOT managed here — this file exists
+# only so the docs toolchain is lockable and reproducible.
+dependencies = []
+
+[tool.uv]
+managed = true
+package = false          # nothing to build; this is an env spec, not a library
+
+# Opt-in docs toolchain. NOT a default group — install with `uv sync --group docs`
+# (or just run `make docs`, which resolves it on demand). Keeping it opt-in means
+# a contributor who only builds firmware never pulls MkDocs.
+[dependency-groups]
+docs = [
+    "mkdocs-material>=9.5",      # mkdocs core + Material theme
+    "pymdown-extensions>=10.7",  # superfences / snippets / details / tabbed
+]

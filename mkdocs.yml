@@ -1,0 +1,77 @@
+site_name: 32Raven Handbook
+site_description: >-
+  Build, wire, flash, and fly the 32Raven prototype — the dual-MCU bare-metal
+  flight-control stack (STM32F407 flight controller + ESP32-C3 bridge).
+site_url: https://alirezazd.github.io/32raven/
+repo_url: https://github.com/alirezazd/32raven
+repo_name: alirezazd/32raven
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+site_dir: site            # gitignored
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.sections
+    - navigation.indexes          # section index.md = clickable landing page
+    - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link           # pick "Docker" once → every tabbed block follows
+  palette:
+    - scheme: default
+      toggle: { icon: material/brightness-7, name: Switch to dark mode }
+    - scheme: slate
+      toggle: { icon: material/brightness-4, name: Switch to light mode }
+
+markdown_extensions:
+  - admonition                    # !!! warning  (Material does NOT render GitHub > [!NOTE])
+  - pymdownx.details              # ??? collapsible
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: ["."]            # repo root → "config/32raven.config:anchor" resolves
+      check_paths: true           # missing FILE = hard error under --strict
+      dedent_subsections: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+# Under `mkdocs build --strict` every `warn` below becomes a hard error, so
+# stale docs fail CI instead of shipping:
+#   anchors        — a cross-reference to a heading that no longer exists
+#   omitted_files  — a page in docs/ that nobody linked from nav (orphan)
+#   absolute_links — "/build/wiring/" breaks on Pages, which serves under /32raven/
+validation:
+  links:
+    anchors: warn
+    absolute_links: warn
+  omitted_files: warn
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - Build the prototype:
+      - build/index.md
+      - "Wiring — the reference build": build/wiring.md
+      # Pages land here as they're written; see build/index.md for the running
+      # order. Adding a docs/*.md without a nav entry fails the strict build.

@@ -1,5 +1,9 @@
 # Build Artifacts
+# Unanchored on purpose: also catches accidental in-source builds (stm32/build/,
+# esp32/build/). The negation rescues the handbook's build-guide section, which
+# would otherwise be silently dropped from every commit.
 build/
+!docs/build/
 .docker/
 .build-mode
 CMakeCache.txt
@@ -12,6 +16,9 @@ compile_commands.json
 *.o
 *.a
 *.log
+
+# Docs (mkdocs build output)
+site/
 
 # Editors & OS
 .vscode/

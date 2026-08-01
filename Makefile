@@ -77,7 +77,7 @@ CLEAN_FILES := \
 	stm32/Drivers/Inc/stm32_limits.hpp \
 	stm32/Drivers/Inc/ee_schema.hpp
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp enable-docker disable-docker docker-image setup-vscode
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp enable-docker disable-docker docker-image setup-vscode docs docs-serve
 
 help:
 	@echo "Targets:"
@@ -100,6 +100,8 @@ help:
 	@echo "  disable-docker      - Remove .build-mode (builds run on host)"
 	@echo "  docker-image        - (Re)build the $(DOCKER_IMAGE) container image"
 	@echo "  setup-vscode        - Configure VSCode settings for 32Raven (git submodule handling, watchers)"
+	@echo "  docs                - Build the handbook strictly into ./site + lint it"
+	@echo "  docs-serve          - Live-reload handbook preview at http://127.0.0.1:8000"
 	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_ROOT=build, BUILD_DIR=build/<generator>, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..., USE_DOCKER=0|1, DOCKER_IMAGE=..."
 
 configure:
@@ -134,6 +136,17 @@ format-cpp:
 
 32raven-menuconfig:
 	$(RUN) python3 scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
+
+# Handbook. Runs host-side (no $(RUN)): the build image carries the firmware
+# toolchain, not MkDocs, and the docs read only tracked source. The 'docs' uv
+# group is opt-in — uv resolves it on demand here.
+docs:
+	@uv run --group docs mkdocs build --strict
+	@python3 scripts/lint/check_docs.py
+
+docs-serve:
+	@pkill -f '[m]kdocs serve' 2>/dev/null && { echo "docs-serve: stopped a previous preview server"; sleep 1; } || true
+	@uv run --group docs mkdocs serve
 
 export IDF_PATH ?= $(if $(IDF_PATH_VAR),$(IDF_PATH_VAR),$(LOCAL_IDF_PATH))
 
