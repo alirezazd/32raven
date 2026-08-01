@@ -5,8 +5,11 @@ running the flight-critical loop and an **ESP32-C3** carrying the connectivity s
 They share nothing but a versioned wire protocol.
 
 This handbook is the practical layer — how to **build one**, wire it, flash it, bring it up,
-and fly it. The [repository README](https://github.com/alirezazd/32raven#readme) covers the
-architecture; these pages cover the hardware in front of you.
+and fly it. The repository README covers the architecture; these pages cover the hardware in
+front of you.
+
+[:fontawesome-brands-github: Source on GitHub](https://github.com/alirezazd/32raven){ .md-button .md-button--primary }
+[:material-book-open-variant: Start the build guide](build/index.md){ .md-button }
 
 !!! warning "Status: active development"
 

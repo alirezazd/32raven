@@ -6,6 +6,8 @@
 
 [![Firmware Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Falirezazd%2F32raven%2Fbadge-data%2Ffirmware-version-badge.json)](https://github.com/alirezazd/32raven/tags)
 
+📖 **[Build one yourself — the 32Raven Handbook](https://alirezazd.github.io/32raven/)** — bill of materials, wiring, flashing, and bring-up for the prototype.
+
 ## Overview
 
 32Raven is a bare-metal flight-control stack built around a **decoupled dual-target architecture**. The flight-critical loop and the connectivity surface live on different MCUs and share only a versioned wire protocol.
