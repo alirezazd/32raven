@@ -50,15 +50,11 @@ The one connection that must be right before anything else works. Cross TX to RX
 
 !!! tip
 
-    **Keep this link short.** The reference build runs the link at **921600 baud**
-    (`CONFIG_ESP32_FCLINK_UART_BAUD_921600`). It is set on the ESP32 side and the STM32
-    follows it, so both ends stay matched from one setting — the choice runs 9600 to 5 M under
-    `make 32raven-menuconfig` → **ESP32 → FcLink → Uart**, where the Kconfig default is 5 M
-    rather than the 921600 checked in here.
-
-    Even at 921600, long unshielded wire inside a frame full of ESC switching noise is a good
-    way to spend an evening debugging handshake failures. Twist TX/RX with ground, and if the
-    run has to be long, drop the baud rather than fight the noise.
+    **Keep this link short.** The reference build runs the link at **921600 baud**, and long
+    unshielded wire inside a frame full of ESC switching noise is a good way to spend an
+    evening debugging handshake failures. Twist TX/RX with ground, and if the run has to be
+    long, drop the baud under `make 32raven-menuconfig` → **ESP32 → FcLink → Uart** rather
+    than fight the noise.
 <!-- --8<-- [end:fclink] -->
 
 ### STM32 programming lines
