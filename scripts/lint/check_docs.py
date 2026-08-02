@@ -17,6 +17,13 @@ Catches:
     that sends a reader hunting through menuconfig for something that is gone.
     Scoped to the two 32Raven namespaces so ESP-IDF's own CONFIG_* symbols
     (which live in the submodule, not our tree) don't false-positive.
+  - Deselected Kconfig citations. Most pin symbols are Kconfig *choices*, so
+    every alternative exists in Kconfig and an existence check proves only that
+    a symbol is spellable. A page citing CONFIG_STM32_SPI1_SCK_PIN_PA5 when the
+    reference build selects ..._PB3 documents a pin the aircraft does not use,
+    and passes an existence check. Citations are therefore checked against
+    config/32raven.config for `# CONFIG_X is not set`, which is what the wiring
+    page already promises the reader ("pins come from config/32raven.config").
   - Untracked placeholders. A `TBD(#N)` marker whose number has no `### #N —`
     entry in docs/roadmap.md. Placeholders are how an unfinished page admits
     what it is missing; one that points nowhere is just a dead end, and it is
@@ -39,6 +46,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 KCONFIG = ROOT / "config" / "Kconfig"
+DEFCONFIG = ROOT / "config" / "32raven.config"
 ROADMAP = DOCS / "roadmap.md"
 
 # pymdownx.snippets section syntax: --8<-- "relative/path.hpp:anchor_name"
@@ -51,10 +59,26 @@ KCONFIG_DECL = re.compile(r"^\s*(?:menuconfig|config)\s+([A-Za-z0-9_]+)\s*$", re
 # Placeholder marker in a page, and the roadmap entry that must back it.
 TBD_MARKER = re.compile(r"\bTBD\(#(\d+)\)")
 ROADMAP_ITEM = re.compile(r"^###\s+#(\d+)\s+—", re.M)
+# Untracked placeholder — legal, but counted so its growth stays visible.
+BARE_TBD = re.compile(r"\bTBD\b(?!\(#\d+\))")
+# kconfiglib writes unselected symbols as a comment rather than omitting them.
+CONFIG_UNSET = re.compile(r"^#\s*CONFIG_([A-Za-z0-9_]+) is not set\s*$", re.M)
+# Only symbols whose NAME encodes the value they select are checked for being
+# selected — a deselected ..._PIN_PB13 means the page documents the wrong pin.
+# Plain feature booleans (..._ACTIVE_LOW) are legitimately named while unset, as
+# when a page explains that an option exists; those are existence-checked only.
+VALUE_BEARING = re.compile(
+    r"(?:_PIN_P[A-Z]\d+|_PORT_[A-Z]|_P[A-Z]\d{1,2}|_BAUD_\d+"
+    r"|_PARITY_[A-Z]+|_\d+BITS)$"
+)
 
 
 def _markdown_files() -> list[pathlib.Path]:
     return sorted(DOCS.rglob("*.md"))
+
+
+def _line_of(text: str, pos: int) -> int:
+    return text[:pos].count("\n") + 1
 
 
 def _split_ref(ref: str) -> tuple[str, str | None]:
@@ -93,17 +117,24 @@ def check_admonitions(md: pathlib.Path, text: str) -> list[str]:
     ]
 
 
-def check_config_refs(md: pathlib.Path, text: str, known: set[str]) -> list[str]:
+def check_config_refs(
+    md: pathlib.Path, text: str, known: set[str], unset: set[str]
+) -> list[str]:
     errors: list[str] = []
     for match in CONFIG_REF.finditer(text):
         symbol = match.group(1)
-        if symbol in known:
-            continue
-        line = text[: match.start()].count("\n") + 1
-        errors.append(
-            f"{md.relative_to(ROOT)}:{line}: CONFIG_{symbol} is not declared in "
-            f"config/Kconfig — renamed or removed tunable"
-        )
+        if symbol not in known:
+            errors.append(
+                f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
+                f"CONFIG_{symbol} is not declared in config/Kconfig — renamed or "
+                f"removed tunable"
+            )
+        elif symbol in unset and VALUE_BEARING.search(symbol):
+            errors.append(
+                f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
+                f"CONFIG_{symbol} exists but is NOT SELECTED in config/32raven.config "
+                f"— the docs describe a pin or option the reference build does not use"
+            )
     return errors
 
 
@@ -113,10 +144,10 @@ def check_tbd_markers(md: pathlib.Path, text: str, tracked: set[str]) -> list[st
         item = match.group(1)
         if item in tracked:
             continue
-        line = text[: match.start()].count("\n") + 1
         errors.append(
-            f"{md.relative_to(ROOT)}:{line}: TBD(#{item}) has no `### #{item} — ` "
-            f"entry in docs/roadmap.md — untracked placeholder"
+            f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
+            f"TBD(#{item}) has no `### #{item} — ` entry in docs/roadmap.md — "
+            f"untracked placeholder"
         )
     return errors
 
@@ -127,6 +158,11 @@ def main() -> int:
         return 1
 
     known = set(KCONFIG_DECL.findall(KCONFIG.read_text(encoding="utf-8")))
+    unset = (
+        set(CONFIG_UNSET.findall(DEFCONFIG.read_text(encoding="utf-8")))
+        if DEFCONFIG.is_file()
+        else set()
+    )
     tracked = (
         set(ROADMAP_ITEM.findall(ROADMAP.read_text(encoding="utf-8")))
         if ROADMAP.is_file()
@@ -134,13 +170,15 @@ def main() -> int:
     )
 
     errors: list[str] = []
+    bare_tbd = 0
     files = _markdown_files()
     for md in files:
         text = md.read_text(encoding="utf-8")
         errors += check_anchors(md, text)
         errors += check_admonitions(md, text)
-        errors += check_config_refs(md, text, known)
+        errors += check_config_refs(md, text, known, unset)
         errors += check_tbd_markers(md, text, tracked)
+        bare_tbd += len(BARE_TBD.findall(text))
 
     if errors:
         for err in errors:
@@ -148,9 +186,13 @@ def main() -> int:
         print(f"\ncheck_docs: {len(errors)} error(s) across {len(files)} page(s)", file=sys.stderr)
         return 1
 
+    # Bare TBD is a deliberate, legal form for short-lived placeholders, so it is
+    # counted rather than rejected — an unchecked marker that nobody ever sees is
+    # how a placeholder quietly becomes permanent.
     print(
         f"check_docs: {len(files)} page(s) OK "
         f"(anchors, admonitions, Kconfig refs, {len(tracked)} roadmap item(s))"
+        + (f"; {bare_tbd} untracked TBD placeholder(s)" if bare_tbd else "")
     )
     return 0
 

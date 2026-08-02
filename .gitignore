@@ -27,7 +27,6 @@ site/
 *~
 *.swp
 *.swo
-.codex
 
 # ESP-IDF
 managed_components/

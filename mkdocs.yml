@@ -16,9 +16,11 @@ theme:
     - navigation.instant
     - navigation.instant.progress
     - navigation.tracking
-    - navigation.sections
+    # No navigation.sections / navigation.expand: that leaves Material's default
+    # sidebar, where each section is a collapsible dropdown.
     - navigation.indexes          # section index.md = clickable landing page
     - navigation.top
+    - navigation.footer        # auto Previous/Next links from the nav order
     - toc.follow
     - search.suggest
     - search.highlight
@@ -69,6 +71,9 @@ validation:
     absolute_links: warn
   omitted_files: warn
 
+extra_css:
+  - stylesheets/extra.css
+
 plugins:
   - search
 
@@ -77,8 +82,11 @@ nav:
   - Build the prototype:
       - build/index.md
       - "Bill of materials": build/bom.md
-      - "The two boards": build/boards.md
+      - "The brain": build/boards.md
+      - "Sensors and peripherals": build/peripherals.md
       - "Wiring — the reference build": build/wiring.md
-      # Pages land here as they're written; see build/index.md for the running
-      # order. Adding a docs/*.md without a nav entry fails the strict build.
+      # Pages land here as they're written. Adding a docs/*.md without a nav
+      # entry fails the strict build.
+  - Firmware:
+      - "Flashing the firmware": flashing.md
   - Roadmap: roadmap.md

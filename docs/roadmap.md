@@ -51,13 +51,22 @@ Needed: frame class and prop size, motor and ESC selection, battery capacity, al
 and measured flight time. Weight and flight time must come from the built aircraft — an
 estimate here is worse than the blank, because a reader will size their own pack from it.
 
-### #4 — The eleven stubbed build stages — 🎯 CRITICAL
+### #4 — The remaining stubbed build stages — 🎯 CRITICAL
 
-`docs/build/index.md` lists twelve stages. Only *Wiring* is written; the rest are stubs.
+Materials, boards and wiring have pages. Still to write: frame and motors, power, toolchain,
+configure and flash, smoke test, sensors, RC link, bench test, and first flight.
 
 Write each as its stage is reached during the real build, while the details are fresh and
 the mistakes are still visible. A stage documented from memory six months later is the kind
 that omits the step that actually caused the problem.
+
+### #6 — Buzzer — 🟢 SUPPORTING
+
+The buzzer is visible in the photographs on **The brain** and wired to `GPIO10`, but its
+section on **Sensors and peripherals** is a `TBD(#6)` stub.
+
+Needed: the part used and whether it is an active or passive type, how it is wired to
+`GPIO10`, where it mounts, and what the firmware actually sounds it for.
 
 ---
 

@@ -20,7 +20,7 @@ front of you.
 
     `TBD(#3)`
 
--   :material-chip:{ .lg .middle } **Flight controller**
+-   :material-chip:{ .lg .middle } **Flight computer**
 
     ---
 
@@ -52,36 +52,23 @@ front of you.
 
 </div>
 
-Anything marked `TBD(#N)` is an open item on the [roadmap](roadmap.md) — the number is its
-entry there. The build fails if a marker points at an item that does not exist.
+Anything marked `TBD(#N)` is an open item on the [roadmap](roadmap.md).
 
-## What you need to be able to do
+!!! info
 
-- **Solder** a 0.1-inch header and tin stranded wire. Everything is through-hole or
-  module-level — there is no PCB to fabricate and no SMD rework.
-- **Use a multimeter** for continuity and DC voltage. One measurement in this guide is
-  load-bearing: the battery divider, before it ever reaches an ADC pin.
-- **Flash over USB and read a serial console.**
+    **Status: active development.** Interfaces, configs, and pin assignments change quickly.
 
-No prior flight-controller experience is assumed, and no oscilloscope is required.
+!!! danger
 
-!!! warning "Status: active development"
-
-    Interfaces, configs, and pin assignments change quickly. Every pin and tunable quoted
-    here is checked against `config/Kconfig` on each build, but a page can still describe a
-    stage that has moved on. Build from a tagged release if you want stability.
-
-!!! danger "This aircraft can injure you"
-
-    A 6S quadcopter with props on is a serious hazard. Nothing in this handbook is a
-    substitute for your own judgement: props stay **off** the motors until the bench-test
-    stage explicitly says otherwise, and the battery stays disconnected while you wire.
+    **This aircraft can injure you.** A 6S quadcopter with props on is a serious hazard.
+    Nothing in this handbook is a substitute for your own judgement: props stay **off** the
+    motors until the bench-test stage explicitly says otherwise, and the battery stays
+    disconnected while you wire.
 
 ## Where this handbook stands
 
 It is being written **right now**, alongside the first from-scratch build of the prototype —
-the aircraft and its documentation are being assembled together. [Wiring](build/wiring.md) is
-complete and every pin in it is checked against the reference config on each build. The
-remaining stages are stubs, filled in as that aircraft reaches them.
+the aircraft and its documentation are being assembled together. Pages appear as that
+aircraft reaches the stage they describe.
 
 **[Start with the build guide →](build/index.md)**

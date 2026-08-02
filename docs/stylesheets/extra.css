@@ -1,0 +1,39 @@
+/* Material caps figcaption at 24rem, so a caption under a full-width photo
+   wraps into a narrow column with wide empty gutters either side. Let it use
+   the figure's width instead — including inside the side-by-side pinout grid,
+   where 24rem is wider than the cell and stretches the figure past its image. */
+.md-typeset figcaption {
+  max-width: 100%;
+  font-size: 0.85em;
+}
+
+/* ANSI Z535 signal words: DANGER (will injure) > WARNING (could injure or
+   destroy hardware) > CAUTION (recoverable mistake) > NOTICE (information).
+   Material ships danger/warning/note but has no `caution`, so define it here
+   in ANSI's amber, reusing the warning glyph. */
+.md-typeset .admonition.caution,
+.md-typeset details.caution {
+  border-color: #f5b800;
+}
+
+.md-typeset .admonition.caution:focus-within,
+.md-typeset details.caution:focus-within {
+  box-shadow: 0 0 0 0.2rem #f5b8001a;
+}
+
+.md-typeset .caution > .admonition-title,
+.md-typeset .caution > summary {
+  background-color: #f5b8001a;
+}
+
+.md-typeset .caution > .admonition-title::before,
+.md-typeset .caution > summary::before {
+  background-color: #f5b800;
+  -webkit-mask-image: var(--md-admonition-icon--warning);
+          mask-image: var(--md-admonition-icon--warning);
+}
+
+.md-typeset .caution > .admonition-title::after,
+.md-typeset .caution > summary::after {
+  color: #f5b800;
+}
