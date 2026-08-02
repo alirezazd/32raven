@@ -89,10 +89,8 @@ by a timer. An unconnected INT is a control loop that never runs.
 !!! note
 
     **Mounting matters more than wiring.** Orientation and vibration isolation dominate IMU
-    performance. Note which way the chip's X axis points as you mount it; the sensors stage
-    will need it.
-
-<!-- TODO(build): photo of the IMU mounted, axis arrow visible. -->
+    performance — see [mounting](peripherals.md#mounting) for how the sensor goes down and
+    which way its axes end up pointing.
 
 ## GPS — u-blox M10 (USART2)
 

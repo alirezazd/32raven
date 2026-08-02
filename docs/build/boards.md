@@ -81,7 +81,8 @@ crystal frequency in MHz under `make 32raven-menuconfig` → **STM32 → System 
 
 ### Bridge — ESP32-C3 0.42″ OLED
 
-More is already wired here, and some of it is not yours to change:
+Every pin on this board falls into one of three groups — spoken for by the board, reserved by
+the chip, or free:
 
 **The display, LED and button are on the board.** The SSD1306 panel is on `GPIO5` (SDA) and
 `GPIO6` (SCL), the LED on `GPIO8`, the BOOT button on `GPIO9`. Nothing to connect.
@@ -163,41 +164,20 @@ The finished core.
     [stm32-base.org](https://stm32-base.org/boards/STM32F407VET6-STM32F4XX-M).** Worth tracing
     these nets yourself before committing an iron to them.
 
-### Order of work
-
-1. **The two surface-mount taps, R7 and C6.** Do the hardest joints while the board is bare,
-   uncluttered and easy to hold under magnification. Continuity-check each pad before the iron
-   touches it.
-2. **Ground.** Everything else references it.
-3. **FcLink, crossed.** `GPIO4` to `PA10`, `GPIO3` to `PA9`. Twist the pair with ground even
-   on the bench — the habit costs nothing and 921600 baud will punish you later.
-4. **5 V last.** It is the longest run and the one that goes through the board to the back, so
-   it is easier to route once everything else is settled.
-
 !!! warning
 
-    **Two things here mark permanently: the display, and the surface-mount pads.**
+    **The OLED marks permanently, and it sits a few millimetres from every pad you solder.**
+    It covers most of the bridge board, it is plastic over glass, and the panel is not a
+    separate module you can replace. The tip's **point** is not the danger — you are watching
+    that. The danger is the **side of the tip and the shaft behind it**, swinging in while
+    your eyes are on the joint.
 
-    The OLED occupies most of the bridge board, a few millimetres from every pad you are
-    soldering. It is plastic over glass, and the panel is not a separate module you can
-    replace. The tip's **point** is not the danger — you are watching that. The danger is the
-    **side of the tip and the shaft behind it**, swinging in while your eyes are on the joint.
+    Come in from the outside edge, keep the iron's body angled away from the centre of the
+    board, and pull clear entirely between attempts rather than pivoting over the panel.
 
-    R7 and C6 are a couple of millimetres long and held down by two small pads. They do not
-    tolerate a dwelling iron the way a header pin does: too long on the joint and you cook the
-    component, or the pad lifts off the laminate and takes the net with it.
-
-    So work so that each contact is short, and each approach is clear of the screen:
-
-    - **Tin the wire first**, away from the board. The joint should be a touch, not a
-      construction.
-    - **Flux the pad.** It is what makes the solder take immediately instead of you waiting
-      on it with the iron down.
-    - **One or two seconds of contact.** If it does not take, lift off and let the part cool
-      completely before trying again. Repeated short attempts are far safer than one long one.
-    - **Do not push.** Pressure is what shears a pad off, and a chip resistor needs none.
-    - **Come in from the outside edge**, keep the iron's body angled away from the centre of
-      the board, and pull clear entirely between attempts rather than pivoting over the panel.
+    `R7` and `C6` are the two surface-mount joints on the core. Do them first, while the board
+    is still bare and there is nothing to reach over. The technique is in
+    [what you need to be able to do](index.md#what-you-need-to-be-able-to-do).
 
 ### Bootloader control lines
 

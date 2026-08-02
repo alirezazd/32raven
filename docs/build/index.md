@@ -24,12 +24,44 @@ before it ever leaves the ground.
 
 No prior flight-controller experience is assumed, and no oscilloscope is required.
 
+!!! warning
+
+    **Surface-mount pads do not tolerate a dwelling iron.** A chip component is a couple of
+    millimetres long and held down by two small pads. It will not take the heat a header pin
+    shrugs off: too long on the joint and you cook the part, or the pad lifts off the laminate
+    and takes the net with it.
+
+    Wherever these joints come up, the technique is the same:
+
+    - **Tin the wire first**, away from the board. The joint should be a touch, not a
+      construction.
+    - **Flux the pad.** It is what makes the solder take immediately instead of you waiting on
+      it with the iron down.
+    - **One or two seconds of contact.** If it does not take, lift off and let the part cool
+      completely before trying again. Repeated short attempts are far safer than one long one.
+    - **Do not push.** Pressure is what shears a pad off, and a chip component needs none.
+
 ## Flying it is on you
 
-This guide covers building the machine. It does not cover operating one lawfully, and that
-part is not optional: registration, weight thresholds, and where you are allowed to fly all
-vary by country and change over time. Find out what applies where you are before the first
-flight, not after.
+This guide covers building the machine. It does not cover operating one lawfully.
+
+!!! danger
+
+    **Flying this and transmitting from it are separately regulated, and both are on you.**
+
+    Registration, remote ID, weight and altitude thresholds, distance from people and from
+    controlled airspace, line of sight — all of it varies by country and changes over time.
+    An uncertified aircraft assembled from parts is not exempt from any of it.
+
+    The radio side is the half people miss. An RC link and a telemetry radio are transmitters:
+    which bands you may use, at what power, and whether you need a licence to use them at all
+    are national rules. A module sold openly online is not evidence that operating it where
+    you live is lawful.
+
+    The penalties are real — fines, confiscation of the aircraft, and prosecution where a
+    flight endangers people or other aircraft. Nothing in this handbook is legal advice and
+    none of it transfers that liability to anyone but you. Find out what applies where you
+    are before the first flight, not after.
 
 ## Reference build
 

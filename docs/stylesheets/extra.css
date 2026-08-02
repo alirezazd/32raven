@@ -7,6 +7,14 @@
   font-size: 0.85em;
 }
 
+/* Material shrink-wraps figures with `width: fit-content`. When a caption block
+   wraps a .grid, the grid never gets the width its auto-fit columns need and
+   every cell stacks instead of sitting side by side. Give those figures the
+   full content width. */
+.md-typeset figure:has(.grid) {
+  width: 100%;
+}
+
 /* ANSI Z535 signal words: DANGER (will injure) > WARNING (could injure or
    destroy hardware) > CAUTION (recoverable mistake) > NOTICE (information).
    Material ships danger/warning/note but has no `caution`, so define it here
@@ -36,4 +44,26 @@
 .md-typeset .caution > .admonition-title::after,
 .md-typeset .caution > summary::after {
   color: #f5b800;
+}
+
+/* Spec cards are headerless two-column tables written as `| | |`, which still
+   emits an empty <thead> row taking a full row of padding. Drop it. */
+.md-typeset .admonition table:not([class]) thead:has(th:empty) {
+  display: none;
+}
+
+/* Fallback for engines without :has() — collapses the row rather than hiding it. */
+.md-typeset .admonition table:not([class]) thead th:empty {
+  padding: 0;
+  border: 0;
+}
+
+/* A standalone spec card spans the full content width, which strands a narrow
+   two-column table in a lot of empty space. Let the card hug its table instead,
+   centred on the page. Scoped to direct children of the content so the paired
+   cards inside a .grid keep filling their cells. */
+.md-typeset > .admonition.abstract {
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
 }
