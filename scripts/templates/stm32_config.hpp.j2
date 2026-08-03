@@ -46,6 +46,10 @@ inline const BoardPin {{ p.name }} = {
 inline constexpr uint8_t {{ p.adc_const }} = {{ p.adc_channel }}u;
 {% endif %}
 {% endfor %}
+// SYSCLK after the AHB divider: what System::Init() publishes as CMSIS's
+// SystemCoreClock, in place of SystemCoreClockUpdate() reading it back.
+inline constexpr uint32_t kHclkHz = {{ system_clock.hclk_hz }}u;
+
 }  // namespace board
 
 #include "system.hpp"

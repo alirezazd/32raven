@@ -28,6 +28,7 @@ constexpr uint32_t kPllTimeoutMs = 2u;
 constexpr uint32_t kClockSwitchTimeoutMs = 5000u;
 constexpr uint32_t kPllSourceHse = RCC_PLLCFGR_PLLSRC_HSE;  // PLLSRC bit set
 constexpr uint32_t kPllSourceHsi = 0u;                      // PLLSRC bit clr
+constexpr uint32_t kHsiHz = 16000000u;  // fixed silicon, not a Kconfig value
 }  // namespace
 
 // C-callable tick increment, invoked from stm32f4xx_it.c::SysTick_Handler.
@@ -49,7 +50,7 @@ extern "C" void SystemOnClockSecurityFailure(void) {
   RCC->CFGR &= ~(RCC_CFGR_SW | RCC_CFGR_HPRE | RCC_CFGR_PPRE1 | RCC_CFGR_PPRE2);
   while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_HSI) {
   }
-  SystemCoreClockUpdate();
+  SystemCoreClock = kHsiHz;  // not board::kHclkHz — the PLL is gone
 
   // Re-fix what the panic loop depends on at the new 16 MHz clock:
   // TIM2 µs tick — APB1 timer clock now 16 MHz (PPRE1 = /1) -> /16 = 1 MHz.
@@ -252,8 +253,8 @@ void System::InitClockTree(const Config &cfg) {
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) |
               (static_cast<uint32_t>(cfg.apb2_divider) << 3);
 
-  // 7. Recompute SystemCoreClock and re-arm SysTick at the new HCLK.
-  SystemCoreClockUpdate();
+  // 7. Publish SystemCoreClock and re-arm SysTick at the new HCLK.
+  SystemCoreClock = board::kHclkHz;
   (void)SysTick_Config(SystemCoreClock / 1000U);
   NVIC_SetPriority(SysTick_IRQn, irq_priority::kSysTick);
 }

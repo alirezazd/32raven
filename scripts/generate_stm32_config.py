@@ -928,8 +928,71 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
 # returns the sub-dict used by the matching block in stm32_config.hpp.j2.
 # `_runtime_context` just stitches them together.
 
+# RM0090 §6.3.2 PLL limits, plus the F407's SYSCLK ceiling.
+PLL_VCO_IN_HZ = (1_000_000, 2_000_000)
+PLL_VCO_OUT_HZ = (100_000_000, 432_000_000)
+SYSCLK_MAX_HZ = 168_000_000
+HSI_HZ = 16_000_000
+
+
+def _solve_system_clock(kconf: kconfiglib.Kconfig) -> int:
+    """Resolve HCLK from the clock tree, checking it against RM0090.
+
+    Kconfig ranges police each field alone; nothing checks them against
+    each other or against the crystal they divide.
+    """
+    # choice_value returns the qualified enumerator (System::PllP::kDiv2).
+    hse = sym_int(kconf, "STM32_SYSTEM_HSE_HZ")
+    use_hse = choice_value(kconf, SYSTEM_OSC_CHOICES).endswith("kHse")
+    src_hz = hse if use_hse else HSI_HZ
+    src_name = f"HSE {hse / 1e6:g} MHz" if use_hse else f"HSI {HSI_HZ / 1e6:g} MHz"
+
+    pllm = sym_int(kconf, "STM32_SYSTEM_PLL_M")
+    plln = sym_int(kconf, "STM32_SYSTEM_PLL_N")
+    pllp = int(choice_value(kconf, SYSTEM_PLL_P_CHOICES).rsplit("kDiv", 1)[1])
+    ahb_div = int(choice_value(kconf, SYSTEM_AHB_DIV_CHOICES).rsplit("kDiv", 1)[1])
+
+    vco_in = src_hz / pllm
+    vco_out = vco_in * plln
+    sysclk = vco_out / pllp
+
+    errors: list[str] = []
+    if not PLL_VCO_IN_HZ[0] <= vco_in <= PLL_VCO_IN_HZ[1]:
+        errors.append(
+            f"PLL input is {vco_in / 1e6:.3f} MHz ({src_name} / PLLM {pllm}); "
+            f"RM0090 requires 1..2 MHz"
+        )
+    if not PLL_VCO_OUT_HZ[0] <= vco_out <= PLL_VCO_OUT_HZ[1]:
+        errors.append(
+            f"VCO output is {vco_out / 1e6:.1f} MHz (PLL input x PLLN {plln}); "
+            f"RM0090 requires 100..432 MHz"
+        )
+    if sysclk > SYSCLK_MAX_HZ:
+        errors.append(
+            f"SYSCLK is {sysclk / 1e6:.1f} MHz (VCO / PLLP {pllp}); "
+            f"the STM32F407 maximum is 168 MHz"
+        )
+
+    if errors:
+        raise SystemExit(
+            "system clock configuration is invalid:\n  "
+            + "\n  ".join(errors)
+            + "\n\nCheck CONFIG_STM32_SYSTEM_HSE_HZ matches the crystal actually "
+            "fitted to the board, then the PLL dividers around it."
+        )
+
+    hclk = sysclk / ahb_div
+    if hclk != int(hclk):
+        raise SystemExit(
+            f"HCLK is {hclk} Hz, not a whole number of hertz — "
+            f"the PLL dividers do not divide evenly"
+        )
+    return int(hclk)
+
+
 def _system_clock_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
+        "hclk_hz": _solve_system_clock(kconf),
         "oscillator": choice_value(kconf, SYSTEM_OSC_CHOICES),
         "pllm": sym_int(kconf, "STM32_SYSTEM_PLL_M"),
         "plln": sym_int(kconf, "STM32_SYSTEM_PLL_N"),

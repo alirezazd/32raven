@@ -1485,9 +1485,10 @@ menu "System Clock"
 # patterns inside system.cpp.
 #
 # Not every (PLLM, PLLN, PLLP, AHB/APB div, flash latency, voltage scale)
-# combination is valid — the build does NOT police cross-field constraints
-# (PLL VCO range, max bus frequencies, latency vs SYSCLK, voltage scale vs
-# target clock). Consult RM0090 §6 before changing defaults.
+# combination is valid. The generator checks the PLL VCO ranges and the
+# SYSCLK ceiling and aborts the build; max bus frequencies, latency vs
+# SYSCLK and voltage scale vs target clock are still yours to check.
+# Consult RM0090 §6 before changing defaults.
 
 choice
     prompt "Oscillator source"
@@ -1500,6 +1501,15 @@ config STM32_SYSTEM_OSC_HSI
     bool "HSI (16 MHz internal RC)"
 
 endchoice
+
+config STM32_SYSTEM_HSE_HZ
+    int "HSE crystal frequency (Hz)"
+    range 4000000 26000000
+    default 8000000
+    help
+      The crystal fitted to your board; the DevEBox STM32F4XX_M has 8 MHz. A
+      wrong value still boots — the PLL runs off the real crystal either way —
+      but every clock derived from it is off by the ratio of the two.
 
 config STM32_SYSTEM_PLL_M
     int "PLLM (input divider, 2..63)"
