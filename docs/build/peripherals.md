@@ -163,11 +163,76 @@ White `SCL/SCLK`, green `SDA/MOSI`, yellow `AD0/MISO`, orange `CS`, pink `INT1`.
 nearest the corner, `3V3` and `GND`, are bare.
 ///
 
+## RC receiver — ELRS
+
+`TBD(#4)` — **being written.** ExpressLRS speaks CRSF, which the firmware reads on USART6 at
+420000 baud. Those pins are not in the pin map, so confirm them against your board before
+wiring.
+
 ## GPS
 
-`TBD(#4)` — **being written.** A u-blox M10 module on USART2, `PA2`/`PA3`. The driver
-configures it at runtime, so it needs no pre-programming with u-center; what is left is
-physical — where the antenna sits and how far it can be kept from the power wiring.
+`TBD(#4)` — **being written.** Position, velocity and time. The reference build uses a
+**RushFPV** module built on a u-blox M10 receiver. Below are its key specifications, from
+RushFPV's published figures.
+
+!!! abstract "RushFPV M10"
+
+    | | |
+    |---|---|
+    | Constellations | GPS, GLONASS, Galileo, BeiDou — up to 4 at once, plus SBAS and QZSS |
+    | Receive channels | 72 |
+    | Update rate | 1–10 Hz |
+    | Sensitivity | −162 dBm |
+
+Four wires, on USART2, with the pair crossed: the module's `RX` goes to the STM32's transmit
+pin, and its `TX` to the receive pin.
+
+| GPS pad | Signal | STM32 |
+|---|---|---|
+| `VCC` | Supply | `5V` |
+| `GND` | Ground | `GND` |
+| `RX` | ← STM32 TX | `PA2` |
+| `TX` | → STM32 RX | `PA3` |
+
+!!! note
+
+    **Check what your module wants before you connect it.** Supply voltage is the vendor's
+    choice, not u-blox's — the receiver itself runs at 3.3 V, but most boards carry their own
+    regulator and expect more. The reference module's pad is labelled `5V`, so it goes to the
+    flight computer's 5 V rail.
+
+### Mounting
+
+It goes on the patch of passives between `J4` and the STM32, patch face up. That area is not
+flat. Pack the low ground up with small pieces of duct tape until it is level with the tallest
+parts, then put a piece on the module's own back to stick it down.
+
+<div class="grid" markdown>
+
+![The suggested mounting area on the flight computer, between J4 and the STM32, marked in red](../assets/gps-mount-location.webp){ loading=lazy }
+
+![A piece of duct tape stuck to the back of the GPS module, beside its R, T, V, G pads](../assets/gps-mount-tape-back.webp){ loading=lazy }
+
+![Side view of the mounted module, showing the tape packing filling in around the taller components](../assets/gps-mount-tape-side.webp){ loading=lazy }
+
+</div>
+
+/// caption
+**Left** — the suggested spot. **Centre** — tape on the module's back. **Right** — the packing
+from the side, filling in around the taller parts.
+///
+
+!!! note
+
+    **The patch has to see the sky.** Mount it face up with nothing metallic or carbon above
+    it, and as far from the ESCs and any video transmitter as the frame allows. Switching noise
+    from either is the likeliest reason a fix never arrives.
+
+![The GPS mounted on the flight computer with its TOWARD THE SKY face upward](../assets/gps-mount-fitted.webp){ loading=lazy width="50%" }
+
+/// caption
+The finished mount.
+///
 
 ## Compass
 
@@ -181,12 +246,6 @@ current-carrying wire are what corrupt it.
 `TBD(#4)` — **planned.** Altitude hold and vertical speed need a pressure reference; the IMU
 alone cannot tell a climb from an accelerometer bias. No driver in the firmware yet and no pins
 assigned. The reference build will use a MicoAir module, model `TBD(#4)`.
-
-## RC receiver — ELRS
-
-`TBD(#4)` — **being written.** ExpressLRS speaks CRSF, which the firmware reads on USART6 at
-420000 baud. Those pins are not in the pin map, so confirm them against your board before
-wiring.
 
 ## Telemetry radio
 

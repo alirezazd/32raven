@@ -12,6 +12,7 @@
 | Enamelled wire — *optional* | Thin magnet wire, for the TCXO's three runs | `TBD(#2)` | |
 | Silicone adhesive — *optional* | Beds the TCXO down, and comes off again | `TBD(#2)` | |
 | Kapton tape — *optional* | Polyimide film tape, holds the TCXO's runs flat | ~$1 | Aug 2026 |
+| GPS | `u-blox M10` module — UART, patch antenna | ~$21.50 | Aug 2026 |
 | Mounting | Double-sided **foam** tape, **1.2 mm or thicker** | ~$2 | Aug 2026 |
 
 **Running subtotal: `TBD(#2)`.** This is the whole brain of the aircraft — both
