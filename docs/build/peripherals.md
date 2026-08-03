@@ -101,13 +101,13 @@ where the supply pair lands on `3V3` and `GND`.
 
 ### Mounting
 
-Cut a square of duct tape to the size of the STM32's package, stick it to the top of the chip,
+Cut a square of foam tape to the size of the STM32's package, stick it to the top of the chip,
 and press the sensor breakout down onto it with its `Y` arrow (silkscreened just left of `C1`)
 pointing at the USB/SWD end of the flight computer.
 
 <div class="grid" markdown>
 
-![A square of duct tape cut to the STM32's package and stuck to its lid](../assets/imu-mount-tape.webp){ loading=lazy }
+![A square of foam tape cut to the STM32's package and stuck to its lid](../assets/imu-mount-tape.webp){ loading=lazy }
 
 ![The IMU breakout pressed onto the tape, its Y arrow pointing at the USB-C and SWD end of the board](../assets/imu-mount-fitted.webp){ loading=lazy width="85%" }
 
@@ -127,7 +127,7 @@ down on it, `Y` pointing at the USB/SWD end.
 
 !!! note
 
-    **The tape is a damping layer too, not just adhesive.** Duct tape is compliant, so it takes
+    **The tape is a damping layer too, not just adhesive.** Foam tape is compliant, so it takes
     some of the motor vibration out of the path to the sensor.
 
 ### Wiring
@@ -153,7 +153,7 @@ generously sized, close together and easy to reach. Find each pin on the
     iteration.
 
     **Leave `3V3` and `GND` off for now.** Power delivery is `TBD(#4)`. The IMU is to run from
-    its own **LT3042** low-noise 3.3 V regulator rather than off the flight computer's rail,
+    its own **LT3045** low-noise 3.3 V regulator rather than off the flight computer's rail,
     and that module is not fitted yet.
 
 ![The five signal wires run from the IMU's P1 header across to the STM32, with the 3V3 and GND pads left bare](../assets/imu-wiring.webp){ loading=lazy width="50%" }
@@ -197,7 +197,7 @@ pin, and its `TX` to the receive pin.
 ### Mounting
 
 It goes on the patch of passives between `J4` and the STM32, patch face up. That area is not
-flat. Pack the low ground up with small pieces of duct tape until it is level with the tallest
+flat. Pack the low ground up with small pieces of foam tape until it is level with the tallest
 parts, then put a piece on the module's own back to stick it down.
 
 !!! note
@@ -210,7 +210,7 @@ parts, then put a piece on the module's own back to stick it down.
 
 ![The suggested mounting area on the flight computer, between J4 and the STM32, marked in red](../assets/gps-mount-location.webp){ loading=lazy }
 
-![A piece of duct tape stuck to the back of the GPS module, beside its R, T, V, G pads](../assets/gps-mount-tape-back.webp){ loading=lazy }
+![A piece of foam tape stuck to the back of the GPS module, beside its R, T, V, G pads](../assets/gps-mount-tape-back.webp){ loading=lazy }
 
 ![Side view of the mounted module, showing the tape packing filling in around the taller components](../assets/gps-mount-tape-side.webp){ loading=lazy }
 
@@ -241,7 +241,7 @@ Four wires, on USART6 at 420000 baud, with the pair crossed:
 The link is not receive-only. The firmware sends CRSF telemetry back the other way — GPS,
 battery and a heartbeat — so the STM32's transmit pin has to reach the receiver as well.
 
-It goes on a piece of duct tape in the space left beside the GPS, the same way the other two are
+It goes on a piece of foam tape in the space left beside the GPS, the same way the other two are
 held down. That spot is convenient rather than required — the receiver needs its four wires and
 a clear antenna, and nothing else. Put it wherever the airframe has room.
 
