@@ -163,17 +163,10 @@ White `SCL/SCLK`, green `SDA/MOSI`, yellow `AD0/MISO`, orange `CS`, pink `INT1`.
 nearest the corner, `3V3` and `GND`, are bare.
 ///
 
-## RC receiver — ELRS
-
-`TBD(#4)` — **being written.** ExpressLRS speaks CRSF, which the firmware reads on USART6 at
-420000 baud. Those pins are not in the pin map, so confirm them against your board before
-wiring.
-
 ## GPS
 
-`TBD(#4)` — **being written.** Position, velocity and time. The reference build uses a
-**RushFPV** module built on a u-blox M10 receiver. Below are its key specifications, from
-RushFPV's published figures.
+The reference build uses a **RushFPV** module built on a u-blox M10 receiver. Below are its key
+specifications, from RushFPV's published figures.
 
 !!! abstract "RushFPV M10"
 
@@ -230,6 +223,45 @@ parts, then put a piece on the module's own back to stick it down.
 **Bottom left** — the packing from the side, filling in around the taller parts.
 **Bottom right** — the finished mount.
 ///
+
+## RC receiver — ELRS
+
+Any ExpressLRS receiver will do; they all speak CRSF over a UART. The reference build uses a
+**HappyModel EP1**, a 2.4 GHz receiver.
+
+Four wires, on USART6 at 420000 baud, with the pair crossed:
+
+| Receiver pad | Signal | STM32 |
+|---|---|---|
+| `VCC` | Supply | `5V` |
+| `GND` | Ground | `GND` |
+| `TX` | → STM32 RX | `PC7` |
+| `RX` | ← STM32 TX | `PC6` |
+
+The link is not receive-only. The firmware sends CRSF telemetry back the other way — GPS,
+battery and a heartbeat — so the STM32's transmit pin has to reach the receiver as well.
+
+It goes on a piece of duct tape in the space left beside the GPS, the same way the other two are
+held down. That spot is convenient rather than required — the receiver needs its four wires and
+a clear antenna, and nothing else. Put it wherever the airframe has room.
+
+<div class="grid" markdown>
+
+![The EP1's four pads, labelled RX, TX, 5V and GND along one edge](../assets/rc-ep1-pinout.webp){ loading=lazy }
+
+![The receiver mounted on the flight computer in the gap beside the GPS](../assets/rc-ep1-mounted.webp){ loading=lazy }
+
+</div>
+
+/// caption
+**Left** — the pad order along the edge. **Right** — mounted in the space beside the GPS.
+///
+
+!!! note
+
+    **Only the exposed tip radiates** — the coax feeding it does not. Keep the tip straight and
+    clear of carbon and metal, and never coil it. A dipole is deaf off its ends, so lay the tip
+    across the airframe rather than pointing it at where you stand.
 
 ## Compass
 
