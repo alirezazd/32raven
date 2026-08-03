@@ -1061,6 +1061,39 @@ endmenu
 
 menu "UART"
 
+menu "USART1 (FcLink)"
+
+# The link to the ESP32 bridge. PA9/PA10 is also the pair the STM32's ROM
+# bootloader listens on, which is what lets the bridge flash the flight
+# computer over the same wires it talks to it on. Moving this off the default
+# keeps the link working but costs over-the-air flashing.
+
+choice
+    prompt "TX pin"
+    default STM32_UART1_TX_PIN_PA9
+
+config STM32_UART1_TX_PIN_PA9
+    bool "PA9 (AF7)"
+
+config STM32_UART1_TX_PIN_PB6
+    bool "PB6 (AF7)"
+
+endchoice
+
+choice
+    prompt "RX pin"
+    default STM32_UART1_RX_PIN_PA10
+
+config STM32_UART1_RX_PIN_PA10
+    bool "PA10 (AF7)"
+
+config STM32_UART1_RX_PIN_PB7
+    bool "PB7 (AF7)"
+
+endchoice
+
+endmenu
+
 menu "USART2 (M10 GPS)"
 
 choice
@@ -1107,6 +1140,33 @@ config STM32_ESC_TLM_RX_PIN_PC11
 
 config STM32_ESC_TLM_RX_PIN_PD9
     bool "PD9 (AF7)"
+
+endchoice
+
+endmenu
+
+menu "USART6 (RC Receiver)"
+
+# CRSF from the ELRS receiver. Full-duplex rather than RX-only: the link
+# carries telemetry back to the transmitter, so TX matters as much as RX.
+# PC6/PC7 is the only USART6 pair bonded out on the F407V package — port G,
+# which carries ST's alternative, is not available here.
+
+choice
+    prompt "TX pin"
+    default STM32_UART6_TX_PIN_PC6
+
+config STM32_UART6_TX_PIN_PC6
+    bool "PC6 (AF8)"
+
+endchoice
+
+choice
+    prompt "RX pin"
+    default STM32_UART6_RX_PIN_PC7
+
+config STM32_UART6_RX_PIN_PC7
+    bool "PC7 (AF8)"
 
 endchoice
 

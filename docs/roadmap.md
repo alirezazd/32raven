@@ -67,19 +67,3 @@ section on **Sensors and peripherals** is a `TBD(#6)` stub.
 
 Needed: the part used and whether it is an active or passive type, how it is wired to
 `GPIO10`, where it mounts, and what the firmware actually sounds it for.
-
----
-
-## 2. Firmware
-
-### #5 — USART1 and USART6 are absent from `PINMAP_ENTRIES` — 🟢 SUPPORTING
-
-The inter-MCU link (USART1, `FcLink`) and the RC receiver input (USART6) have no entries in
-`PINMAP_ENTRIES`. Two consequences:
-
-- Their pins are not menuconfig-tunable — they are fixed in `board.hpp`.
-- `scripts/lint/check_pinmap.py` does not validate them against ST's silicon data, so a
-  typo'd alternate function on either would reach hardware without the build objecting.
-
-Every other peripheral in the pin map is validated. The wiring page flags both explicitly
-so the gap does not silently mislead a reader, but the real fix is entries in the pin map.

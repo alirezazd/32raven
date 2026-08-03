@@ -72,8 +72,10 @@ inline constexpr uint32_t GPIO_PULLDOWN = 0x00000002u;
 inline constexpr uint32_t GPIO_AF1_TIM1 = 0x01u;
 inline constexpr uint32_t GPIO_AF5_SPI1 = 0x05u;
 inline constexpr uint32_t GPIO_AF5_SPI2 = 0x05u;
+inline constexpr uint32_t GPIO_AF7_USART1 = 0x07u;
 inline constexpr uint32_t GPIO_AF7_USART2 = 0x07u;
 inline constexpr uint32_t GPIO_AF7_USART3 = 0x07u;
+inline constexpr uint32_t GPIO_AF8_USART6 = 0x08u;
 // NOLINTEND(readability-identifier-naming)
 
 class GPIO {

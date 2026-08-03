@@ -439,6 +439,25 @@ PINMAP_ENTRIES: tuple = (
         active_low_sym="STM32_BUTTON_ACTIVE_LOW",
     ),
     # ---- UART ----------------------------------------------------------
+    # USART1 (FcLink to the ESP32 bridge): full-duplex. PA9/PA10 is also the
+    # pair the ROM bootloader listens on, so moving this off the default keeps
+    # the link but costs over-the-air flashing.
+    _SignalPin(
+        board_const="kUart1Tx",
+        signal="USART1_TX",
+        choice_options={
+            "STM32_UART1_TX_PIN_PA9": "PA9",
+            "STM32_UART1_TX_PIN_PB6": "PB6",
+        },
+    ),
+    _SignalPin(
+        board_const="kUart1Rx",
+        signal="USART1_RX",
+        choice_options={
+            "STM32_UART1_RX_PIN_PA10": "PA10",
+            "STM32_UART1_RX_PIN_PB7": "PB7",
+        },
+    ),
     # USART2 (M10 GPS): full-duplex.
     _SignalPin(
         board_const="kUart2Tx",
@@ -468,6 +487,23 @@ PINMAP_ENTRIES: tuple = (
             "STM32_ESC_TLM_RX_PIN_PD9": "PD9",
         },
         pull="pullup",
+    ),
+    # USART6 (CRSF RC receiver): full-duplex, not RX-only — the link carries
+    # telemetry back to the transmitter, so TX matters as much as RX. PC6/PC7
+    # is the only USART6 pair bonded out on the F407V package.
+    _SignalPin(
+        board_const="kUart6Tx",
+        signal="USART6_TX",
+        choice_options={
+            "STM32_UART6_TX_PIN_PC6": "PC6",
+        },
+    ),
+    _SignalPin(
+        board_const="kUart6Rx",
+        signal="USART6_RX",
+        choice_options={
+            "STM32_UART6_RX_PIN_PC7": "PC7",
+        },
     ),
     # ---- Motors --------------------------------------------------------
     # TIM1 DShot motor outputs. Each channel only routes to PORTA or PORTE

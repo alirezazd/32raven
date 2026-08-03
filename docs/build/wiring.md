@@ -12,14 +12,6 @@ differently, change it in `make 32raven-menuconfig` rather than reworking the PC
 build validates every pin against ST's silicon data and aborts on an impossible
 (pin, alternate-function) pair.
 
-!!! note
-
-    **Two UARTs are not in the pin map.** USART1 (FcLink) and USART6 (RC receiver) have **no
-    entries in `PINMAP_ENTRIES`** (`scripts/generate_stm32_config.py`), so they are neither
-    menuconfig-tunable nor covered by `scripts/lint/check_pinmap.py`. Their framing is
-    configurable; their pins are not. Confirm them against your board before wiring. Tracked
-    as roadmap item #5.
-
 ## Signal overview
 
 ```mermaid
@@ -44,8 +36,8 @@ The one connection that must be right before anything else works. Cross TX to RX
 
 | Signal | ESP32-C3 | STM32F407 |
 |--------|----------|-----------|
-| FcLink TX → FC RX | `GPIO4` | USART1 RX *(not in pin map)* |
-| FcLink RX ← FC TX | `GPIO3` | USART1 TX *(not in pin map)* |
+| FcLink TX → FC RX | `GPIO4` | `PA10` |
+| FcLink RX ← FC TX | `GPIO3` | `PA9` |
 | Ground | `GND` | `GND` |
 
 !!! tip
@@ -106,8 +98,8 @@ pre-programming with u-center.
 
 | Signal | STM32F407 |
 |--------|-----------|
-| RX ← receiver TX | USART6 RX *(not in pin map)* |
-| TX → receiver RX | USART6 TX *(not in pin map)* |
+| RX ← receiver TX | `PC7` |
+| TX → receiver RX | `PC6` |
 
 CRSF runs at **420000 baud** (`CONFIG_STM32_RC_RECEIVER_UART_BAUD_420000`). It is a
 half-duplex-style protocol over two wires; binding and channel mapping are covered in the RC
