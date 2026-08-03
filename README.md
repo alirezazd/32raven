@@ -66,6 +66,7 @@ VSCode users with the **Dev Containers** extension can open the repo directly in
 - **Python 3** and **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — no manual package installs. Every first-party script declares its own dependencies inline ([PEP 723](https://peps.python.org/pep-0723/)) and the build invokes them via `uv run --script`, so uv resolves and caches them on first use.
 - **ripgrep** + **clang-format** (for `make format-cpp`)
 - ESP-IDF host prereqs ([list](https://docs.espressif.com/projects/esp-idf/en/v5.5.3/esp32/get-started/linux-macos-setup.html#install-prerequisites)) for ESP32 builds
+- **Serial port access** for flashing and monitoring — add yourself to the `dialout` group once with `sudo usermod -aG dialout $USER`, then log out and back in. Without it, opening the port fails in a way that looks like the board not being detected.
 
 > ESP-IDF itself is pinned as a submodule at `third_party/esp-idf` (v5.5.3). The toolchain it downloads goes to `~/.espressif` (host mode) or `.docker/home/.espressif` (Docker mode, gitignored).
 
