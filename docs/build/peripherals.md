@@ -109,7 +109,7 @@ pointing at the USB/SWD end of the flight computer.
 
 ![A square of duct tape cut to the STM32's package and stuck to its lid](../assets/imu-mount-tape.webp){ loading=lazy }
 
-![The IMU breakout pressed onto the tape, its Y arrow pointing at the USB-C and SWD end of the board](../assets/imu-mount-fitted.webp){ loading=lazy }
+![The IMU breakout pressed onto the tape, its Y arrow pointing at the USB-C and SWD end of the board](../assets/imu-mount-fitted.webp){ loading=lazy width="85%" }
 
 </div>
 
@@ -207,6 +207,12 @@ It goes on the patch of passives between `J4` and the STM32, patch face up. That
 flat. Pack the low ground up with small pieces of duct tape until it is level with the tallest
 parts, then put a piece on the module's own back to stick it down.
 
+!!! note
+
+    **The patch has to see the sky.** Mount it face up with nothing metallic or carbon above
+    it, and as far from the ESCs and any video transmitter as the frame allows. Switching noise
+    from either is the likeliest reason a fix never arrives.
+
 <div class="grid" markdown>
 
 ![The suggested mounting area on the flight computer, between J4 and the STM32, marked in red](../assets/gps-mount-location.webp){ loading=lazy }
@@ -215,23 +221,14 @@ parts, then put a piece on the module's own back to stick it down.
 
 ![Side view of the mounted module, showing the tape packing filling in around the taller components](../assets/gps-mount-tape-side.webp){ loading=lazy }
 
+![The GPS mounted on the flight computer with its TOWARD THE SKY face upward](../assets/gps-mount-fitted.webp){ loading=lazy }
+
 </div>
 
 /// caption
-**Left** — the suggested spot. **Centre** — tape on the module's back. **Right** — the packing
-from the side, filling in around the taller parts.
-///
-
-!!! note
-
-    **The patch has to see the sky.** Mount it face up with nothing metallic or carbon above
-    it, and as far from the ESCs and any video transmitter as the frame allows. Switching noise
-    from either is the likeliest reason a fix never arrives.
-
-![The GPS mounted on the flight computer with its TOWARD THE SKY face upward](../assets/gps-mount-fitted.webp){ loading=lazy width="50%" }
-
-/// caption
-The finished mount.
+**Top left** — the suggested spot. **Top right** — tape on the module's back.<br>
+**Bottom left** — the packing from the side, filling in around the taller parts.
+**Bottom right** — the finished mount.
 ///
 
 ## Compass

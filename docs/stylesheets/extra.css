@@ -15,17 +15,28 @@
   width: 100%;
 }
 
-/* Material's grid asks for 16rem-wide columns, which is more than three of them
-   fit in the content width — the third cell wraps onto its own row. Where a
-   figure holds exactly three, divide the width evenly instead. */
+/* Material sizes grid columns by auto-fit, so how many land on a row depends on
+   the viewport. Pin the counts a figure's caption refers to by position: three
+   across, or two-by-two for four. */
 .md-typeset figure > .grid:has(> :last-child:nth-child(3)) {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.md-typeset figure > .grid:has(> :last-child:nth-child(4)) {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 @media screen and (max-width: 44.9375em) {
-  .md-typeset figure > .grid:has(> :last-child:nth-child(3)) {
+  .md-typeset figure > .grid:has(> :last-child:nth-child(3)),
+  .md-typeset figure > .grid:has(> :last-child:nth-child(4)) {
     grid-template-columns: 1fr;
   }
+}
+
+/* An image narrowed to match its neighbour's height would otherwise hug the
+   left edge of its cell, leaving the gap all on one side. Centre it. */
+.md-typeset figure > .grid > img[width] {
+  justify-self: center;
 }
 
 /* ANSI Z535 signal words: DANGER (will injure) > WARNING (could injure or
