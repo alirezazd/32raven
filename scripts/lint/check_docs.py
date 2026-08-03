@@ -48,6 +48,7 @@ DOCS = ROOT / "docs"
 KCONFIG = ROOT / "config" / "Kconfig"
 DEFCONFIG = ROOT / "config" / "32raven.config"
 ROADMAP = DOCS / "roadmap.md"
+BOM = DOCS / "build" / "bom.md"
 
 # pymdownx.snippets section syntax: --8<-- "relative/path.hpp:anchor_name"
 SNIPPET_REF = re.compile(r'--8<--\s+"([^"]+)"')
@@ -71,6 +72,12 @@ VALUE_BEARING = re.compile(
     r"(?:_PIN_P[A-Z]\d+|_PORT_[A-Z]|_P[A-Z]\d{1,2}|_BAUD_\d+"
     r"|_PARITY_[A-Z]+|_\d+BITS)$"
 )
+# A priced BOM row — four cells, the last holding `~$N`. Rows still carrying a
+# TBD price simply do not match, so the total covers what is actually known.
+BOM_ROW = re.compile(r"^\|([^|]*)\|[^|]*\|[^|]*\|\s*~\$([\d.]+)\s*\|\s*$", re.M)
+# The stated totals: everything, then everything non-optional.
+BOM_TOTAL = re.compile(r"\*\*Running subtotal: ~\$([\d.]+)\*\*")
+BOM_REQUIRED = re.compile(r"~\$([\d.]+) without the optional")
 
 
 def _markdown_files() -> list[pathlib.Path]:
@@ -152,6 +159,42 @@ def check_tbd_markers(md: pathlib.Path, text: str, tracked: set[str]) -> list[st
     return errors
 
 
+def check_bom_total(md: pathlib.Path, text: str) -> list[str]:
+    """The BOM's stated subtotals must equal the priced rows above them.
+
+    Prices stay hand-written so the page remains plain, editable markdown —
+    this only checks the arithmetic, so a row revised months from now cannot
+    leave a stale total sitting under it.
+    """
+    rows = [(part, float(usd)) for part, usd in BOM_ROW.findall(text)]
+    if not rows:
+        return [f"{md.relative_to(ROOT)}: no priced rows matched — the table format changed"]
+
+    expected = {
+        "Running subtotal": (BOM_TOTAL, round(sum(usd for _, usd in rows), 2)),
+        "without the optional": (
+            BOM_REQUIRED,
+            round(sum(usd for part, usd in rows if "*optional*" not in part), 2),
+        ),
+    }
+
+    errors: list[str] = []
+    for label, (pattern, total) in expected.items():
+        match = pattern.search(text)
+        if match is None:
+            errors.append(
+                f"{md.relative_to(ROOT)}: no `{label}` figure found — "
+                f"expected ~${total:.2f} from {len(rows)} priced row(s)"
+            )
+        elif round(float(match.group(1)), 2) != total:
+            errors.append(
+                f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
+                f"`{label}` says ~${float(match.group(1)):.2f} but the rows sum to "
+                f"~${total:.2f} — a price changed and the total did not"
+            )
+    return errors
+
+
 def main() -> int:
     if not DOCS.is_dir():
         print(f"check_docs: no docs/ directory at {DOCS}", file=sys.stderr)
@@ -178,6 +221,8 @@ def main() -> int:
         errors += check_admonitions(md, text)
         errors += check_config_refs(md, text, known, unset)
         errors += check_tbd_markers(md, text, tracked)
+        if md == BOM:
+            errors += check_bom_total(md, text)
         bare_tbd += len(BARE_TBD.findall(text))
 
     if errors:
