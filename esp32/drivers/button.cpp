@@ -56,12 +56,16 @@ void Button::EnterPressed(TimeMs now_ms) {
   press_started_ms_ = now_ms;
   long_fired_ = false;
   long_long_fired_ = false;
-  ev_press_ = true;
   ESP_LOGI(kTag, "debounced -> 1 at %u ms", (unsigned)now_ms);
 }
 
 void Button::EnterReleased(TimeMs now_ms) {
   phase_ = Phase::kReleased;
+  // Emitting on press-down would make every hold fire a short press first,
+  // so a state that navigates on press moves before the long press lands.
+  if (!long_fired_) {
+    ev_press_ = true;
+  }
   press_started_ms_ = 0;
   long_fired_ = false;
   long_long_fired_ = false;
