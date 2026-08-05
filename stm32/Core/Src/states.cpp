@@ -32,6 +32,10 @@ static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 static constexpr uint32_t kSlowBudgetFromFastUs = 700;
 static constexpr bool kEnableImuDebugLog = false;
 static constexpr bool kEnableEspLogs = false;
+// Bench: 1 Hz raw battery/current dump, for calibrating the voltage
+// multiplier and current scale. Deliberately not gated on kEnableEspLogs —
+// that flag also turns on the IMU and profiling spam, which buries this.
+static constexpr bool kEnableBattDebugLog = true;
 
 // Debug counters (diagnostics only)
 static uint32_t g_dbg_max_gps_bytes = 0;
@@ -320,6 +324,55 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   {
     ctx.sys->Batt().Poll(micros());
     ctx.sys->Vehicle().UpdateBattery(ctx.sys->Batt().GetData());
+
+    if (kEnableBattDebugLog) {
+      static uint32_t last_batt_log_us = 0;
+      const uint32_t batt_now_us = micros();
+      if (last_batt_log_us == 0u ||
+          (batt_now_us - last_batt_log_us) >= SECONDS_TO_MICROS(1)) {
+        last_batt_log_us = batt_now_us;
+
+        auto &batt = ctx.sys->Batt();
+        const BatteryData &batt_data = batt.GetData();
+
+        // What the pins actually see, before the scaling constants.
+        const uint32_t v_pin_mv = (static_cast<uint32_t>(batt.LastVoltageRaw()) *
+                                   kBatteryConfig.adc_reference_mv) /
+                                  stm32_limits::kBatteryAdcMaxRaw;
+        const uint32_t i_pin_mv = (static_cast<uint32_t>(batt.LastCurrentRaw()) *
+                                   kBatteryConfig.adc_reference_mv) /
+                                  stm32_limits::kBatteryAdcMaxRaw;
+
+        // Independent cross-check: the AM32 ESCs report their own current
+        // over USART3, which never passes through the analog scale. Pack
+        // voltage comes in the same CRC-checked frame, three bytes ahead of
+        // current — if that reads true while current does not, the frame is
+        // aligned and the ESC's own current calibration is what is wrong.
+        float esc_current_a = 0.0f;
+        float esc_voltage_v = 0.0f;
+        int esc_temp_c = 0;
+        const auto esc_snapshot = EscTelemetry::GetInstance().GetSnapshot();
+        for (const auto &motor : esc_snapshot.motors) {
+          if (motor.valid) {
+            esc_current_a += static_cast<float>(motor.current_centiamps) * 0.01f;
+            esc_voltage_v = static_cast<float>(motor.voltage_centivolts) * 0.01f;
+            esc_temp_c = motor.temperature_c;
+          }
+        }
+
+        ctx.sys->FcLinkSvc().SendLog(
+            "BATT pin=%lu/%lumV V=%.2f I=%.1f | ESC msk=%02X V=%.2f I=%.1f "
+            "T=%d err=%lu",
+            static_cast<unsigned long>(v_pin_mv),
+            static_cast<unsigned long>(i_pin_mv),
+            static_cast<double>(batt_data.voltage),
+            static_cast<double>(batt_data.current),
+            static_cast<unsigned>(esc_snapshot.valid_mask),
+            static_cast<double>(esc_voltage_v),
+            static_cast<double>(esc_current_a), esc_temp_c,
+            static_cast<unsigned long>(batt.AdcErrorCount()));
+      }
+    }
   }
   if (budget_exhausted()) return;
 

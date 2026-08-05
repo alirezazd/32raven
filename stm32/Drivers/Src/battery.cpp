@@ -143,6 +143,9 @@ Battery::AdcPair Battery::ReadAdcPair() {
 
 void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
                             uint16_t current_raw) {
+  last_voltage_raw_ = voltage_raw;
+  last_current_raw_ = current_raw;
+
   const float voltage_adc_mv =
       (static_cast<float>(voltage_raw) * cfg_.adc_reference_mv) /
       stm32_limits::kBatteryAdcMaxRaw;

@@ -33,6 +33,14 @@ class Battery {
   void Poll(uint32_t now_us);
   const BatteryData &GetData() const { return data_; }
 
+  // Last raw ADC counts, before any scaling. Calibrating the voltage
+  // multiplier / current scale means comparing the pin against a known
+  // reference, and every other output is already derived through the
+  // constants under test.
+  uint16_t LastVoltageRaw() const { return last_voltage_raw_; }
+  uint16_t LastCurrentRaw() const { return last_current_raw_; }
+  uint32_t AdcErrorCount() const { return adc_error_count_; }
+
  private:
   friend class System;
   void Init(const Config &cfg);
@@ -61,6 +69,8 @@ class Battery {
   float filtered_voltage_v_ = 0.0f;
   float filtered_current_a_ = 0.0f;
   float mah_drawn_ = 0.0f;
+  uint16_t last_voltage_raw_ = 0;
+  uint16_t last_current_raw_ = 0;
   bool filter_valid_ = false;
   bool initialized_ = false;
   uint32_t adc_error_count_ = 0;
