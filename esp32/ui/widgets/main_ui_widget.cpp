@@ -14,6 +14,7 @@
 #include "bitmap/gear0_bitmap.hpp"
 #include "bitmap/gear1_bitmap.hpp"
 #include "bitmap/magnifying_glass_bitmap.hpp"
+#include "bitmap/am32_bitmap.hpp"
 #include "bitmap/mavlink0_bitmap.hpp"
 #include "bitmap/mavlink1_bitmap.hpp"
 #include "bitmap/mavlink2_bitmap.hpp"
@@ -45,6 +46,7 @@ constexpr TimeMs kLargeGearRotationPeriodMs = kGearRotationPeriodMs * 2;
 constexpr char kServingStatus[] = "Serving";
 constexpr char kDfuStatus[] = "DFU";
 constexpr char kMavlinkWifiStatus[] = "MAVLink";
+constexpr char kEscConfigStatus[] = "ESC Config";
 constexpr size_t kDfuIconLeftX = 0;
 constexpr size_t kDfuIconRightInsetX = 0;
 constexpr size_t kDfuWifiRightInsetX = 0;
@@ -53,7 +55,8 @@ constexpr int16_t kDfuWifiWarningGapPx = 1;
 constexpr int16_t kDfuLinkGlyphGapPx = 1;
 constexpr int16_t kDfuCredentialLineGapPx = 2;
 constexpr TimeMs kMavlinkIconFramePeriodMs = 250;
-constexpr char kProgrammingViewportSample[] = "1234567";
+constexpr int16_t kStatusRightInsetPx = 1;
+constexpr int16_t kStatusScrollSlackPercent = 10;
 constexpr TimeMs kDefaultDfuLinkStepPeriodMs = 16;
 constexpr uint16_t kDfuLinkSubpixelScale = 256;
 constexpr uint16_t kDfuLinkPixelsPerSecond = 48;
@@ -106,6 +109,8 @@ const char *StatusTextForMode(WidgetMode mode) {
     case WidgetMode::kMavlinkWifiDisconnected:
     case WidgetMode::kMavlinkWifiConnected:
       return kMavlinkWifiStatus;
+    case WidgetMode::kEscConfig:
+      return kEscConfigStatus;
     case WidgetMode::kProgramming:
       return "Programming";
     case WidgetMode::kVerifying:
@@ -115,6 +120,24 @@ const char *StatusTextForMode(WidgetMode mode) {
   }
 }
 
+int16_t StatusViewportWidthPx(DisplayRenderer &renderer) {
+  const DisplayTextBounds prefix_bounds =
+      renderer.MeasureText(">", kStatusStyle);
+  return static_cast<int16_t>(static_cast<int16_t>(renderer.Width()) -
+                              kTextInsetX -
+                              static_cast<int16_t>(prefix_bounds.width) -
+                              kStatusRightInsetPx);
+}
+
+bool StatusLineScrolls(DisplayRenderer &renderer, WidgetMode mode) {
+  const DisplayTextBounds body_bounds =
+      renderer.MeasureText(StatusTextForMode(mode), kStatusStyle);
+  const DisplayTextBounds dot_slot_bounds =
+      renderer.MeasureText("...", kStatusStyle);
+  return static_cast<int16_t>(body_bounds.width + dot_slot_bounds.width) >
+         StatusViewportWidthPx(renderer);
+}
+
 bool IsServingMode(WidgetMode mode) { return mode == WidgetMode::kServing; }
 
 bool IsDfuVisualMode(WidgetMode mode) {
@@ -122,7 +145,12 @@ bool IsDfuVisualMode(WidgetMode mode) {
          mode == WidgetMode::kDfuIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected ||
+         mode == WidgetMode::kEscConfig ||
          mode == WidgetMode::kProgramming || mode == WidgetMode::kVerifying;
+}
+
+bool IsEscConfigMode(WidgetMode mode) {
+  return mode == WidgetMode::kEscConfig;
 }
 
 bool IsScrollableProgressMode(WidgetMode mode) {
@@ -192,7 +220,8 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
 }
 
 bool ShouldShowDfuWifiBadge(WidgetMode mode) {
-  return mode != WidgetMode::kVerifying;
+  // No AP runs in ESC config, so the radio badge would be a lie.
+  return mode != WidgetMode::kVerifying && !IsEscConfigMode(mode);
 }
 
 struct IconAsset {
@@ -202,6 +231,14 @@ struct IconAsset {
 };
 
 IconAsset LeftIconForMode(WidgetMode mode, TimeMs now) {
+  if (IsEscConfigMode(mode)) {
+    return {
+        .data = am32_bitmap::kBitmapData.data(),
+        .width = am32_bitmap::kVisibleWidth,
+        .height = am32_bitmap::kVisibleHeight,
+    };
+  }
+
   if (!IsMavlinkMode(mode)) {
     return {
         .data = pc_bitmap::kBitmapData.data(),
@@ -243,7 +280,8 @@ bool ShouldAnimateEntryText(WidgetMode mode) {
   return mode == WidgetMode::kServing || mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kDfuIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected;
+         mode == WidgetMode::kMavlinkWifiConnected ||
+         mode == WidgetMode::kEscConfig;
 }
 
 template <size_t N>
@@ -416,7 +454,7 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   const Mode mode = CurrentMode();
   AdvanceGearAnimation(ctx, now, IsServingMode(mode));
   const bool dfu_binary_link_active = mode == Mode::kProgramming;
-  const bool progress_status_scroll_active = IsScrollableProgressMode(mode);
+  const bool status_scroll_active = StatusLineScrolls(*ctx.renderer, mode);
   const bool dfu_credentials_animation_active = IsWifiCredentialsMode(mode);
   const TimeMs dfu_link_step_period_ms =
       (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
@@ -452,7 +490,7 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
       last_dot_count_ != DotCount(now) || serving_animation_active ||
       dfu_link_changed || verify_magnifier_changed || mavlink_packet_changed ||
       mavlink_packet_active || dfu_credentials_animation_active ||
-      progress_status_scroll_active) {
+      status_scroll_active) {
     RenderMode(ctx, now, mode);
   }
 }
@@ -829,28 +867,34 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
   };
 
   renderer.Clear();
-  if (IsScrollableProgressMode(mode)) {
+  {
     const DisplayTextBounds prefix_bounds =
         renderer.MeasureText(">", kStatusStyle);
     const DisplayTextBounds body_bounds =
         renderer.MeasureText(animated_status, kStatusStyle);
+    // Always three dots wide, so the label holds still as they animate.
     const DisplayTextBounds dot_slot_bounds =
         renderer.MeasureText("...", kStatusStyle);
-    const DisplayTextBounds viewport_bounds =
-        renderer.MeasureText(kProgrammingViewportSample, kStatusStyle);
     const int16_t line_height = static_cast<int16_t>(status_bounds.height);
     const int16_t prefix_cursor_x =
         static_cast<int16_t>(kTextInsetX - prefix_bounds.x);
     const int16_t viewport_left = static_cast<int16_t>(
         kTextInsetX + static_cast<int16_t>(prefix_bounds.width));
-    const int16_t viewport_width = static_cast<int16_t>(viewport_bounds.width);
+    const int16_t viewport_width = StatusViewportWidthPx(renderer);
     const int16_t viewport_right =
         static_cast<int16_t>(viewport_left + viewport_width);
     const int16_t content_width =
         static_cast<int16_t>(body_bounds.width + dot_slot_bounds.width);
+    // Overscroll past the end so the tail clears the edge before resetting.
+    const int16_t scroll_span =
+        (content_width > viewport_width)
+            ? static_cast<int16_t>(content_width +
+                                   (viewport_width * kStatusScrollSlackPercent) /
+                                       100)
+            : content_width;
     const int16_t body_cursor_x = static_cast<int16_t>(
         viewport_left - body_bounds.x -
-        renderer.ScrollOffsetPx(content_width, viewport_width, now));
+        renderer.ScrollOffsetPx(scroll_span, viewport_width, now));
 
     renderer.DrawText(animated_status, body_cursor_x, status_y, kStatusStyle);
 
@@ -867,13 +911,12 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       renderer.DrawText(dot_text, dot_cursor_x, status_y, kStatusStyle);
     }
 
+    // Mask outside the viewport before the prefix goes down over it.
     renderer.FillRect(0, status_top, viewport_left, line_height, false);
     renderer.FillRect(viewport_right, status_top,
                       static_cast<int16_t>(renderer.Width()) - viewport_right,
                       line_height, false);
     renderer.DrawText(">", prefix_cursor_x, status_y, kStatusStyle);
-  } else {
-    renderer.DrawText(status_line, kTextInsetX, status_y, kStatusStyle);
   }
   if (mode == Mode::kServing) {
     const int16_t center_line_x = static_cast<int16_t>(renderer.Width() / 2);

@@ -90,6 +90,7 @@ class Ui {
     kMavlinkWifi,
     kMavlinkUsb,
     kProgram,
+    kEscConfig,
     kHardError,
   };
 
@@ -102,6 +103,7 @@ class Ui {
     kMavlinkWifiConnected,
     kProgramming,
     kVerifying,
+    kEscConfig,
   };
 
   struct Config {

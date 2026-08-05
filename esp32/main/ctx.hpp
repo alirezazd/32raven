@@ -9,6 +9,7 @@ struct MavlinkWifiState;
 struct MavlinkUsbState;
 struct DfuState;
 struct ProgramState;
+struct EscConfigState;
 
 class System;
 
@@ -23,4 +24,5 @@ struct AppContext {
   MavlinkUsbState *mavlink_usb_state = nullptr;
   DfuState *dfu_state = nullptr;
   ProgramState *program_state = nullptr;
+  EscConfigState *esc_config_state = nullptr;
 };

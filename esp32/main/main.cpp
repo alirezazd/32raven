@@ -18,6 +18,7 @@ AppContext MakeAppContext() {
   static MavlinkUsbState mavlink_usb;
   static DfuState dfu;
   static ProgramState program;
+  static EscConfigState esc_config;
 
   AppContext ctx{};
   ctx.sys = &Sys();
@@ -26,6 +27,7 @@ AppContext MakeAppContext() {
   ctx.mavlink_usb_state = &mavlink_usb;
   ctx.dfu_state = &dfu;
   ctx.program_state = &program;
+  ctx.esc_config_state = &esc_config;
   return ctx;
 }
 

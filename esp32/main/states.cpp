@@ -20,6 +20,15 @@ extern "C" {
 
 static constexpr const char *kTag = "ESP32-SM";
 
+// Navigation model. Two menus, one gesture each:
+//   short press — cycle within the current menu
+//     normal: Serving -> MavlinkWifi -> MavlinkUsb -> Serving
+//     config: Dfu -> EscConfig -> Dfu
+//   hold        — swap menus, from anywhere
+//     normal -> Dfu (config entry point), config -> Serving
+// Program is transient and sits outside the cycle; a hold aborts it back to
+// Dfu rather than leaving the config menu mid-flash.
+
 // Serving State
 void ServingState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
@@ -79,14 +88,14 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
     const bool screen_on = ctx.sys->Ui().IsScreenOn();
     ctx.sys->Ui().NotifyUserActivity();
     if (screen_on) {
-      ESP_LOGI(kTag, "MavlinkWifi -> Serving (press)");
-      ctx.sm->ReqTransition(*ctx.serving_state);
+      ESP_LOGI(kTag, "MavlinkWifi -> MavlinkUsb (press)");
+      ctx.sm->ReqTransition(*ctx.mavlink_usb_state);
       return;
     }
   }
   if (button.ConsumeLongPress()) {
-    ESP_LOGI(kTag, "MavlinkWifi -> MavlinkUsb (long press)");
-    ctx.sm->ReqTransition(*ctx.mavlink_usb_state);
+    ESP_LOGI(kTag, "MavlinkWifi -> Dfu (long press)");
+    ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
   ctx.sys->FcLink().Poll();
@@ -123,8 +132,8 @@ void MavlinkUsbState::OnStep(AppContext &ctx, SmTick now) {
     }
   }
   if (button.ConsumeLongPress()) {
-    ESP_LOGI(kTag, "MavlinkUsb -> MavlinkWifi (long press)");
-    ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
+    ESP_LOGI(kTag, "MavlinkUsb -> Dfu (long press)");
+    ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
   ctx.sys->FcLink().Poll();
@@ -152,10 +161,15 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
     const bool screen_on = ctx.sys->Ui().IsScreenOn();
     ctx.sys->Ui().NotifyUserActivity();
     if (screen_on) {
-      ESP_LOGI(kTag, "DFU -> Serving (press)");
-      ctx.sm->ReqTransition(*ctx.serving_state);
+      ESP_LOGI(kTag, "DFU -> EscConfig (press)");
+      ctx.sm->ReqTransition(*ctx.esc_config_state);
       return;
     }
+  }
+  if (button.ConsumeLongPress()) {
+    ESP_LOGI(kTag, "DFU -> Serving (long press)");
+    ctx.sm->ReqTransition(*ctx.serving_state);
+    return;
   }
 
   ctx.sys->Tcp().Poll(now);
@@ -275,4 +289,37 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
       Panic(ErrorCode::Esp32::kProgrammerTimedOut);
     }
   }
+}
+
+// EscConfig State
+void EscConfigState::OnEnter(AppContext &ctx) {
+  ESP_LOGI(kTag, "entering EscConfig");
+  ctx.sys->Ui().SetAppState(Ui::AppState::kEscConfig);
+  ctx.sys->Mavlink().SetTelemetryLink(false);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
+  // DFU leaves an AP up and nothing here serves it.
+  ctx.sys->StopNetwork();
+}
+
+void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
+  static_cast<void>(now);
+  auto &button = ctx.sys->Button();
+  button.Poll();
+
+  if (button.ConsumePress()) {
+    const bool screen_on = ctx.sys->Ui().IsScreenOn();
+    ctx.sys->Ui().NotifyUserActivity();
+    if (screen_on) {
+      ESP_LOGI(kTag, "EscConfig -> Dfu (press)");
+      ctx.sm->ReqTransition(*ctx.dfu_state);
+      return;
+    }
+  }
+  if (button.ConsumeLongPress()) {
+    ESP_LOGI(kTag, "EscConfig -> Serving (long press)");
+    ctx.sm->ReqTransition(*ctx.serving_state);
+    return;
+  }
+
+  // FcLink is left unpolled, as in DFU; ServingState::OnEnter resyncs it.
 }

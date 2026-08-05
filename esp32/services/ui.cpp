@@ -357,6 +357,8 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
         return MainScreen::kVerifying;
       }
       return MainScreen::kProgramming;
+    case AppState::kEscConfig:
+      return MainScreen::kEscConfig;
     case AppState::kHardError:
     default:
       return MainScreen::kServing;
@@ -376,6 +378,8 @@ uint8_t Ui::ScreenGroup(MainScreen screen) const {
     case MainScreen::kProgramming:
     case MainScreen::kVerifying:
       return 4;
+    case MainScreen::kEscConfig:
+      return 5;
     case MainScreen::kBooting:
     default:
       return 0;
