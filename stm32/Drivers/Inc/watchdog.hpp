@@ -35,13 +35,17 @@ class Watchdog {
   // after every component, so blocking bring-up can't trip it.
   void Init() {
     DBGMCU->APB1FZ |= DBGMCU_APB1_FZ_DBG_IWDG_STOP;
+    // Start first: hardware enables the LSI when the watchdog starts, and the
+    // PR/RLR update flags in SR only clear on LSI ticks — writing PR/RLR with
+    // the LSI stopped spins forever on SR. Until RLR latches, the counter runs
+    // from its reset defaults (/4, 0xFFF ≈ 512 ms), ample for the sync below.
+    IWDG->KR = kKeyStart;      // start (irreversible)
     IWDG->KR = kKeyAccess;     // enable write access to PR/RLR
     IWDG->PR = IWDG_PR_PR_2;   // prescaler /64 -> ~2 ms per tick
     IWDG->RLR = kReloadCount;  // (kReloadCount + 1) ticks ≈ 1.0 s
     while (IWDG->SR != 0u) {   // wait for the PR/RLR write to latch
     }
     Kick();
-    IWDG->KR = kKeyStart;  // start (irreversible)
   }
 
   static constexpr uint32_t kKeyAccess = 0x00005555u;  // unlock PR/RLR
