@@ -90,30 +90,6 @@ add_custom_command(
   VERBATIM
 )
 
-# Repo-wide, so they hang off both firmware targets rather than either one:
-# both walk `git ls-files` and cover scripts/ and config/, which no per-MCU
-# check reaches. The stamp only tracks source files, so a header or comment
-# added to a script is caught on that script's next edit, not never.
-set(REPO_LINT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/repo_lint.stamp")
-add_custom_command(
-  OUTPUT "${REPO_LINT_STAMP}"
-  COMMAND uv run --quiet --script
-          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_license.py
-  COMMAND uv run --quiet --script
-          ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_comments.py
-  COMMAND ${CMAKE_COMMAND} -E touch "${REPO_LINT_STAMP}"
-  DEPENDS
-    ${LINT_ESP32_SOURCE_FILES}
-    ${LINT_STM32_SOURCE_FILES}
-    ${LINT_LIB_SOURCE_FILES}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_license.py
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_comments.py
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/comment_exceptions.txt
-  WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  COMMENT "Running repo-wide lint (licence headers, comment shape)..."
-  VERBATIM
-)
-
 set(FORBIDDEN_CHECK_STM32_STAMP
     "${CMAKE_CURRENT_BINARY_DIR}/forbidden_check_stm32.stamp")
 add_custom_command(
@@ -134,8 +110,8 @@ add_custom_command(
   VERBATIM
 )
 
-add_custom_target(forbidden_check_esp32 DEPENDS "${FORBIDDEN_CHECK_ESP32_STAMP}" "${REPO_LINT_STAMP}")
-add_custom_target(forbidden_check_stm32 DEPENDS "${FORBIDDEN_CHECK_STM32_STAMP}" "${REPO_LINT_STAMP}")
+add_custom_target(forbidden_check_esp32 DEPENDS "${FORBIDDEN_CHECK_ESP32_STAMP}")
+add_custom_target(forbidden_check_stm32 DEPENDS "${FORBIDDEN_CHECK_STM32_STAMP}")
 
 # -----------------------------------------------------------------------------
 # STM32 target

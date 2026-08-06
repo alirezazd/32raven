@@ -31,14 +31,14 @@ class AutoConnector:
         """Returns (ssid, device) if connected to wifi, else (None, None)."""
         if not shutil.which("nmcli"):
             return None, None
-        
+
         try:
             # -t: terse (escaped), -f: fields
             out = subprocess.check_output(
                 ["nmcli", "-t", "-f", "TYPE,STATE,CONNECTION,DEVICE", "device"],
                 stderr=subprocess.DEVNULL
             ).decode("utf-8")
-            
+
             for line in out.splitlines():
                 # wifi:connected:32Raven:wlan0
                 parts = line.strip().split(":")
@@ -72,21 +72,21 @@ class AutoConnector:
         """Gets the default gateway IP for the given interface."""
         if not shutil.which("ip"):
             return None
-        
+
         try:
             # ip route show dev <dev>
             out = subprocess.check_output(
                 ["ip", "route", "show", "dev", device],
                 stderr=subprocess.DEVNULL
             ).decode("utf-8")
-            
+
             # match "default via <IP>"
             for line in out.splitlines():
                 if "default via" in line:
                     match = re.search(r"default via ([\d\.]+)", line)
                     if match:
                         return match.group(1)
-            
+
             # fallback: match "src <IP>" -> assume .1
             for line in out.splitlines():
                 if "src" in line:
@@ -97,7 +97,7 @@ class AutoConnector:
                         parts = ip.split('.')
                         parts[-1] = '1'
                         return ".".join(parts)
-                        
+
         except Exception:
             pass
         return None
@@ -113,7 +113,7 @@ class Esp32Shell(cmd.Cmd):
         self.ctrl_sock = None
         self.data_sock = None
         self.connected = False
-        
+
         # If no IP provided, just prompt updates
         if self.target_ip:
             self.prompt = f"({self.target_ip}) > "
@@ -121,7 +121,7 @@ class Esp32Shell(cmd.Cmd):
     def do_connect(self, arg):
         """Connect to the ESP32. Usage: connect [ip]"""
         ip = arg if arg else self.target_ip
-        
+
         if not ip:
             print("No IP specified and auto-connect not yet run.")
             return
@@ -150,7 +150,7 @@ class Esp32Shell(cmd.Cmd):
     def do_status(self, arg):
         """Get the current status of the ESP32."""
         if not self._ensure_connected(): return
-        
+
         resp = self._send_ctrl("STATUS?")
         if resp:
             print(f"Remote: {resp}")
@@ -178,7 +178,7 @@ class Esp32Shell(cmd.Cmd):
         if not arg:
             print("Error: Usage: flash <path_to_bin>")
             return
-        
+
         filename = arg.strip()
         if not os.path.exists(filename):
             print(f"Error: File '{filename}' not found.")
@@ -209,7 +209,7 @@ class Esp32Shell(cmd.Cmd):
         print("Streaming firmware...")
         total_sent = 0
         start_time = time.time()
-        
+
         try:
             with open(filename, "rb") as f:
                 while True:
@@ -237,7 +237,7 @@ class Esp32Shell(cmd.Cmd):
                 # Short monitoring loop
                 resp = self._send_ctrl("STATUS?")
                 # print(f"DEBUG status: {resp}")
-                
+
                 # Check for explicit done state (state=1) from server
                 # Format: STATUS rx=... total=... state=1 err=0
                 if resp and "state=1" in resp:
@@ -252,7 +252,7 @@ class Esp32Shell(cmd.Cmd):
             except (socket.error, BrokenPipeError):
                 print("\nConnection closed by remote (Success/Reboot).")
                 break
-        
+
         # Don't disconnect here explicitly if we want to keep session open for STM32
         # But for new behavior: STM32 keeps connection. ESP32 reboots.
         # We should check if socket is still alive?
@@ -276,7 +276,7 @@ class Esp32Shell(cmd.Cmd):
         if not arg:
             print("Error: Usage: flash_esp <path_to_bin>")
             return
-        
+
         filename = arg.strip()
         if not os.path.exists(filename):
             print(f"Error: File '{filename}' not found.")
@@ -307,7 +307,7 @@ class Esp32Shell(cmd.Cmd):
         print("Streaming ESP32 firmware...")
         total_sent = 0
         start_time = time.time()
-        
+
         try:
             with open(filename, "rb") as f:
                 while True:
@@ -342,7 +342,7 @@ class Esp32Shell(cmd.Cmd):
             except (socket.error, BrokenPipeError):
                 print("\nConnection closed by remote (Success/Reboot).")
                 break
-        
+
         self.do_disconnect(None)
 
     def do_exit(self, arg):
@@ -357,25 +357,25 @@ class Esp32Shell(cmd.Cmd):
     def do_shell(self, arg):
         """Enter raw interactive shell mode. (Ctrl+C to exit)"""
         if not self._ensure_connected(): return
-        
+
         print(f"--- Entering Interactive Shell ({self.target_ip}) ---")
         print("Type commands directly. Ctrl+C to exit.")
-        
+
         prompt = "32Raven> "
         sys.stdout.write(prompt)
         sys.stdout.flush()
-        
+
         try:
             while self.connected:
                 # Wait for input from stdin or data from socket
                 r, _, _ = select.select([sys.stdin, self.ctrl_sock], [], [])
-                
+
                 if sys.stdin in r:
                     line = sys.stdin.readline()
                     if not line: break # EOF
                     self.ctrl_sock.sendall(line.encode("ascii"))
                     # Don't print prompt here, expect response
-                
+
                 if self.ctrl_sock in r:
                     data = self.ctrl_sock.recv(1024)
                     if not data:
@@ -387,19 +387,19 @@ class Esp32Shell(cmd.Cmd):
                     if text.endswith("\n"):
                         sys.stdout.write(prompt)
                     sys.stdout.flush()
-                    
+
         except KeyboardInterrupt:
             print("\nExiting shell mode.")
         except socket.error as e:
              print(f"\nSocket error: {e}")
              self.do_disconnect(None)
-    
+
     def default(self, line):
         """Send unknown commands directly to ESP32."""
         if not self.connected:
             self.do_connect(self.target_ip)
             if not self.connected: return
-            
+
         try:
             print(f"> {line}")
             self.ctrl_sock.sendall((line + "\n").encode("ascii"))
@@ -442,7 +442,7 @@ class Esp32Shell(cmd.Cmd):
         try:
             msg = cmd.strip() + "\n"
             self.ctrl_sock.sendall(msg.encode("ascii"))
-            
+
             # Read response
             resp = b""
             while True:
@@ -462,13 +462,13 @@ def main():
     parser = argparse.ArgumentParser(description="ESP32/32raven Shell Client")
     parser.add_argument("ip", nargs='?', help="Target IP Address (Empty for auto-connect)")
     parser.add_argument("command", nargs='*', help="Run single command and exit")
-    
+
     args = parser.parse_args()
-    
+
     # Exclusive access check
     # We keep the file open until the process exits
     lock_file = open("/tmp/esp32_client.lock", "a+")
-    
+
     def acquire_lock():
         try:
             lock_file.seek(0)
@@ -497,19 +497,19 @@ def main():
                     pass # Maybe it died already
         except ValueError:
             pass
-            
+
         # Retry lock
         if not acquire_lock():
              print("Error: Could not acquire lock even after kill attempt.")
              sys.exit(1)
 
     target_ip = args.ip
-    
+
     # Auto-Connect Logic if IP not provided
     if not target_ip:
         # print("No IP provided. Checking WiFi...")
         ssid, dev = AutoConnector.get_current_wifi()
-        
+
         if ssid == DEFAULT_SSID:
             print(f"Already connected to {DEFAULT_SSID} on {dev}.")
             ip = AutoConnector.get_gateway_ip(dev)
@@ -539,7 +539,7 @@ def main():
 
     # Check if a command is provided (one or more arguments)
     is_batch_mode = len(args.command) > 0
-    
+
     shell = Esp32Shell(ip=target_ip)
 
     if is_batch_mode:

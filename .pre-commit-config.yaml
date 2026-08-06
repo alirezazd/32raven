@@ -1,0 +1,44 @@
+# Hygiene runs here rather than in CMake: none of it changes a byte of firmware,
+# and a build gate that fails on a dead enum interrupts whatever you were
+# actually debugging. The checks that do decide whether the artifact is correct
+# -- forbidden constructs, the pin map -- stay in the build.
+#
+# Hooks receive the staged paths, so a commit costs one pass over what it
+# touched. CI runs the same scripts with no arguments, where they walk
+# `git ls-files` and cover what a commit happened not to touch.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Vendored and generated files are excluded from both: upstream's
+      # whitespace is upstream's business, and a generator or menuconfig would
+      # just re-dirty what we fixed. The Search Console token is served back
+      # byte-for-byte, so a newline appended to it fails verification.
+      - id: end-of-file-fixer
+        exclude: &not_ours '^(third_party/.*|stm32/lib/CMSIS_F4xx/.*|stm32/Core/(Src|Inc)/(system_)?stm32f4xx.*|docs/google[0-9a-f]+\.html|config/32raven\.config|.*_(config|limits)\.hpp)$'
+      - id: trailing-whitespace
+        # Source only. In a .patch or a fixture, trailing space is content.
+        files: '\.(c|h|cpp|hpp|py|j2|md|ya?ml)$'
+        exclude: *not_ours
+
+  - repo: local
+    hooks:
+      - id: check-license
+        name: SPDX and copyright headers
+        entry: uv run --quiet --script scripts/lint/check_license.py
+        language: system
+        pass_filenames: false
+        files: '\.(c|h|cpp|hpp|py|sh|j2|ya?ml)$'
+
+      - id: check-comments
+        name: Comment shape
+        entry: uv run --quiet --script scripts/lint/check_comments.py
+        language: system
+        files: '\.(c|h|cpp|hpp)$'
+
+      - id: check-error-codes
+        name: Unused error enumerators
+        entry: uv run --quiet --script scripts/lint/check_error_codes.py
+        language: system
+        pass_filenames: false
+        files: '\.(c|h|cpp|hpp)$'

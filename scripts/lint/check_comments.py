@@ -143,6 +143,23 @@ FORMAT_OFF = "clang-format off"
 FORMAT_ON = "clang-format on"
 
 
+def selected_sources(explicit: list[str]) -> list[pathlib.Path]:
+    """The files to check: the ones named, or every tracked source.
+
+    A hook passes the staged paths, so a commit costs one pass over what it
+    touched rather than over the tree. Called with nothing -- CI, or by hand --
+    it walks `git ls-files`, which is what makes it a repo-wide gate.
+    """
+    if explicit:
+        return [
+            pathlib.Path(name)
+            for name in explicit
+            if name.endswith(tuple(SOURCE_SUFFIXES))
+            and not name.startswith(EXEMPT_PREFIXES)
+        ]
+    return tracked_sources()
+
+
 def tracked_sources() -> list[pathlib.Path]:
     out = subprocess.run(
         ["git", "ls-files", "-z"],
@@ -250,6 +267,9 @@ def main() -> int:
         action="store_true",
         help="also flag empty comments and ones that only repeat the declaration",
     )
+    parser.add_argument(
+        "paths", nargs="*", help="files to check; defaults to every tracked source"
+    )
     args = parser.parse_args()
 
     exceptions = load_exceptions()
@@ -257,7 +277,7 @@ def main() -> int:
     fixed = 0
     failures: list[str] = []
 
-    for relative in tracked_sources():
+    for relative in selected_sources(args.paths):
         path = REPO_ROOT / relative
         try:
             lines = path.read_text(encoding="utf-8").splitlines(keepends=True)

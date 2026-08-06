@@ -66,8 +66,7 @@ set(STM32_EE_SCHEMA_HPP
 # boards silently otherwise.
 set(STM32_PIN_CHECKER
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_pinmap.py")
-set(ERROR_CODE_LINTER
-    "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_error_codes.py")
+set(ERROR_CODE_LINTER)
 set(ERROR_CODE_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/../libs/inc/error_code.hpp")
 
@@ -142,6 +141,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/Src/spi.cpp
     Drivers/Src/button.cpp
     Drivers/Src/uart.cpp
+    Drivers/Src/usb_cdc.cpp
     Drivers/Src/m10.cpp
     Drivers/Src/icm42688p.cpp
     Drivers/Src/rc_receiver.cpp
@@ -154,6 +154,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/config_storage.cpp
     Services/Src/dshot_codec.cpp
     Services/Src/esc_service.cpp
+    Services/Src/msp_service.cpp
+    Services/Src/four_way_service.cpp
     Services/Src/stat_publisher.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp

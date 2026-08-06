@@ -1,0 +1,31 @@
+# The backstop for the pre-commit hooks, which are skippable with --no-verify
+# and absent from a fresh clone. Runs the same scripts with no arguments, so
+# they walk `git ls-files` and cover what a commit happened not to touch.
+name: lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      # Every checker discovers its own files through git, so the checkout must
+      # be a real repository, not an export.
+      - name: Licence headers
+        run: uv run --quiet --script scripts/lint/check_license.py
+
+      - name: Comment shape
+        run: uv run --quiet --script scripts/lint/check_comments.py
+
+      - name: Unused error enumerators
+        run: uv run --quiet --script scripts/lint/check_error_codes.py
+
+      - name: Forbidden constructs
+        run: scripts/lint/check_forbidden.sh
