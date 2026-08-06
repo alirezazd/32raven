@@ -51,14 +51,12 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (button.ConsumePress()) {
-    ctx.sys->Ui().NotifyUserActivity();
-    if (ctx.sys->Ui().IsScreenOn()) {
-      ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
-      return;
-    }
+  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+    ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
+    return;
   }
   if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
@@ -84,16 +82,13 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (button.ConsumePress()) {
-    const bool screen_on = ctx.sys->Ui().IsScreenOn();
-    ctx.sys->Ui().NotifyUserActivity();
-    if (screen_on) {
-      ESP_LOGI(kTag, "MavlinkWifi -> MavlinkUsb (press)");
-      ctx.sm->ReqTransition(*ctx.mavlink_usb_state);
-      return;
-    }
+  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+    ESP_LOGI(kTag, "MavlinkWifi -> MavlinkUsb (press)");
+    ctx.sm->ReqTransition(*ctx.mavlink_usb_state);
+    return;
   }
   if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "MavlinkWifi -> Dfu (long press)");
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
@@ -122,16 +117,13 @@ void MavlinkUsbState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (button.ConsumePress()) {
-    const bool screen_on = ctx.sys->Ui().IsScreenOn();
-    ctx.sys->Ui().NotifyUserActivity();
-    if (screen_on) {
-      ESP_LOGI(kTag, "MavlinkUsb -> Serving (press)");
-      ctx.sm->ReqTransition(*ctx.serving_state);
-      return;
-    }
+  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+    ESP_LOGI(kTag, "MavlinkUsb -> Serving (press)");
+    ctx.sm->ReqTransition(*ctx.serving_state);
+    return;
   }
   if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "MavlinkUsb -> Dfu (long press)");
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
@@ -157,16 +149,13 @@ void DfuState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (button.ConsumePress()) {
-    const bool screen_on = ctx.sys->Ui().IsScreenOn();
-    ctx.sys->Ui().NotifyUserActivity();
-    if (screen_on) {
-      ESP_LOGI(kTag, "DFU -> EscConfig (press)");
-      ctx.sm->ReqTransition(*ctx.esc_config_state);
-      return;
-    }
+  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+    ESP_LOGI(kTag, "DFU -> EscConfig (press)");
+    ctx.sm->ReqTransition(*ctx.esc_config_state);
+    return;
   }
   if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "DFU -> Serving (long press)");
     ctx.sm->ReqTransition(*ctx.serving_state);
     return;
@@ -204,6 +193,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sys->Ui().NotifyUserActivity();
   }
   if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "Program -> Dfu (long press)");
     ctx.sys->Programmer().Abort(now);
     ctx.sys->Tcp().StopDownload();
@@ -306,16 +296,13 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
-  if (button.ConsumePress()) {
-    const bool screen_on = ctx.sys->Ui().IsScreenOn();
-    ctx.sys->Ui().NotifyUserActivity();
-    if (screen_on) {
-      ESP_LOGI(kTag, "EscConfig -> Dfu (press)");
-      ctx.sm->ReqTransition(*ctx.dfu_state);
-      return;
-    }
+  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+    ESP_LOGI(kTag, "EscConfig -> Dfu (press)");
+    ctx.sm->ReqTransition(*ctx.dfu_state);
+    return;
   }
   if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "EscConfig -> Serving (long press)");
     ctx.sm->ReqTransition(*ctx.serving_state);
     return;

@@ -130,7 +130,9 @@ class Ui {
 
   DisplayRenderer &Renderer() { return renderer_; }
   const DisplayRenderer &Renderer() const { return renderer_; }
-  void NotifyUserActivity();
+  // Returns whether the screen was already awake; asking afterwards is
+  // useless, since the wake itself makes IsScreenOn() true.
+  bool NotifyUserActivity();
   void SetInactivityTimeoutSeconds(uint8_t timeout_s);
   void DisableInactivityTimeout();
   void SetFadeOut(uint8_t interval);

@@ -593,7 +593,8 @@ void Ui::SyncPresentation(TimeMs now) {
   }
 }
 
-void Ui::NotifyUserActivity() {
+bool Ui::NotifyUserActivity() {
+  const bool was_awake = IsScreenOn();
   last_user_activity_ms_ = Sys().Timebase().NowMs();
 
   if (panel_ != nullptr) {
@@ -605,6 +606,7 @@ void Ui::NotifyUserActivity() {
     }
   }
   WakeTask();
+  return was_awake;
 }
 
 void Ui::SetInactivityTimeoutSeconds(uint8_t timeout_s) {
