@@ -5,6 +5,7 @@
 
 #include <cstring>
 
+#include "checksum.hpp"
 #include "error_code.hpp"
 #include "fc_link.hpp"
 #include "panic.hpp"
@@ -41,18 +42,6 @@ constexpr uint32_t kFcLinkRcForwardIntervalUs =
 constexpr uint8_t kGpsPayloadSize = 15u;
 constexpr uint8_t kHeartbeatPayloadSize = 2u;
 constexpr uint8_t kBatteryPayloadSize = 8u;
-
-uint8_t CrsfCrc8(const uint8_t *data, std::size_t len) {
-  uint8_t crc = 0;
-  for (std::size_t i = 0; i < len; ++i) {
-    crc ^= data[i];
-    for (uint8_t bit = 0; bit < 8u; ++bit) {
-      crc = (crc & 0x80u) != 0u ? (uint8_t)((crc << 1u) ^ 0xD5u)
-                                : (uint8_t)(crc << 1u);
-    }
-  }
-  return crc;
-}
 
 uint8_t CrsfCommandCrc8(const uint8_t *data, std::size_t len) {
   uint8_t crc = 0;
@@ -592,7 +581,7 @@ bool CrsfLinkService::FinishCrsfFrame(uint32_t now_us) {
   const uint8_t *payload = crsf_frame_.data() + 3u;
   const uint8_t expected_crc = crsf_frame_[crsf_frame_pos_ - 1u];
   const uint8_t actual_crc =
-      CrsfCrc8(crsf_frame_.data() + 2u, payload_len + 1u);
+      checksum::Dvbs2(crsf_frame_.data() + 2u, payload_len + 1u);
   if (actual_crc != expected_crc) {
     return false;
   }
@@ -704,7 +693,7 @@ bool CrsfLinkService::SendBroadcastFrame(uint8_t type, const uint8_t *payload,
   for (uint8_t i = 0; i < payload_len; ++i) {
     frame[3u + i] = payload[i];
   }
-  frame[total_len - 1u] = CrsfCrc8(frame + 2u, (size_t)payload_len + 1u);
+  frame[total_len - 1u] = checksum::Dvbs2(frame + 2u, (size_t)payload_len + 1u);
   uart_->Send(frame, total_len);
   return true;
 }
@@ -737,7 +726,7 @@ bool CrsfLinkService::SendDirectCommand(uint8_t destination, uint8_t command_id,
 
   frame[6u + payload_len] =
       CrsfCommandCrc8(frame + 2u, (size_t)command_payload_len + 3u);
-  frame[total_len - 1u] = CrsfCrc8(frame + 2u, (size_t)frame_payload_len + 1u);
+  frame[total_len - 1u] = checksum::Dvbs2(frame + 2u, (size_t)frame_payload_len + 1u);
 
   uart_->Send(frame, total_len);
   return true;

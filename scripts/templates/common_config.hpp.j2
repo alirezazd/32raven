@@ -1,0 +1,22 @@
+{# SPDX-License-Identifier: GPL-3.0-only #}
+{# Copyright (C) 2026 Alireza Azadi #}
+
+{{ autogen_warning }}#pragma once
+
+#include <cstdint>
+
+{# Facts the two MCUs have to agree on. Generated once by the top-level build and
+   included by both firmwares, so each is one constant rather than a pair that
+   happens to match. #}
+namespace common_config {
+
+{# The millisecond form is the authored one; each microsecond constant is derived
+   from it here rather than emitted separately, so the two cannot drift apart.
+   The STM32 counts in microseconds, the ESP32 in milliseconds. #}
+inline constexpr uint32_t kFcLinkExchangeIntervalMs = {{ fclink.exchange_interval_ms }}u;
+inline constexpr uint32_t kFcLinkExchangeIntervalUs = kFcLinkExchangeIntervalMs * 1000u;
+
+inline constexpr uint32_t kFcLinkPeerTimeoutMs = {{ fclink.peer_timeout_ms }}u;
+inline constexpr uint32_t kFcLinkPeerTimeoutUs = kFcLinkPeerTimeoutMs * 1000u;
+
+}  // namespace common_config

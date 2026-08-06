@@ -125,6 +125,14 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "Attitude controller invalid config";
     case ErrorCode::Stm32::kHseClockFailure:
       return "HSE clock failure (CSS): HSI fallback";
+    case ErrorCode::Stm32::kUsbInitFailed:
+      return "USB OTG FS core init failed";
+    case ErrorCode::Stm32::kMspServiceReinit:
+      return "STM32 MSP service re-init";
+    case ErrorCode::Stm32::kFourWayServiceReinit:
+      return "STM32 four-way service re-init";
+    case ErrorCode::Stm32::kUsbReinit:
+      return "USB CDC re-init";
   }
   return "Unknown error";
 }

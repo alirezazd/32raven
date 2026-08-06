@@ -8,11 +8,11 @@
 #include <cstdint>
 #include <cstring>
 
+#include "checksum.hpp"
+
 namespace message {
 
-// ===================================
 //   Inter-Processor Protocol
-// ===================================
 
 // Magic Bytes for Sync (Alt bits for robustness)
 static constexpr uint8_t kMagic1 = 0xAA;
@@ -47,6 +47,13 @@ enum class MsgId : uint8_t {
                           // state. Bypasses any arming state machine. Same
                           // privilege level as kReboot/kBootload — gated only
                           // by FCLink access (which is implicitly trusted).
+
+  // Renewed, not latched: the grant lapses on its own once the ESP32 stops
+  // sending, so a crashed peer or a dropped link cannot leave USB open.
+  kSetEscConfigMode = 0x17,
+
+  // Sent unconditionally, so silence means the STM32 is gone, not merely idle.
+  kUsbStatus = 0x18,
 
   // System
   kReboot = 0xC0,    // 192
@@ -193,6 +200,23 @@ struct PrivilegedArmMsg {
   uint8_t armed;  // 0 = disarm, non-zero = arm
 } __attribute__((packed));
 
+struct SetEscConfigModeMsg {
+  uint8_t enabled;  // 0 = revoke immediately, non-zero = renew the lease
+} __attribute__((packed));
+
+inline constexpr uint8_t kUsbStatusAttached = 1u << 0;   // D+ pull-up driven
+inline constexpr uint8_t kUsbStatusConfigured = 1u << 1;  // host enumerated us
+inline constexpr uint8_t kUsbStatusPortOpen = 1u << 2;    // DTR asserted
+inline constexpr uint8_t kUsbStatusEscConfigGranted = 1u << 3;
+
+struct UsbStatusMsg {
+  uint8_t flags;
+  // Wrapping counts: only their change is read, which is what lets the sender
+  // rate-limit instead of reporting every frame.
+  uint8_t rx_frames;  // configurator -> flight controller
+  uint8_t tx_frames;  // flight controller -> configurator
+} __attribute__((packed));
+
 inline constexpr uint8_t kEscTelemetryMotorCount = 4u;
 
 struct EscTelemetryMsg {
@@ -251,6 +275,8 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kPanic:
     case MsgId::kEscTelemetry:
     case MsgId::kPrivilegedArm:
+    case MsgId::kSetEscConfigMode:
+    case MsgId::kUsbStatus:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
@@ -296,6 +322,10 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<EscTelemetryMsg>();
     case MsgId::kPrivilegedArm:
       return len == PayloadLength<PrivilegedArmMsg>();
+    case MsgId::kSetEscConfigMode:
+      return len == PayloadLength<SetEscConfigModeMsg>();
+    case MsgId::kUsbStatus:
+      return len == PayloadLength<UsbStatusMsg>();
     case MsgId::kLog:
       return len <= kMaxLogTextPayload;
     default:
@@ -361,37 +391,14 @@ static inline bool IsGyroCalibrationIdConfigValid(
   return cfg.cal_gyro0_id != 0u;
 }
 
-// ---------------------------------------------------------
-// Helper: Simple CRC16-CCITT (XMODEM)
-// Poly: 0x1021
-// ---------------------------------------------------------
-static inline uint16_t Crc16(const uint8_t *data, size_t len) {
-  uint16_t crc = 0;
-  for (size_t i = 0; i < len; ++i) {
-    crc ^= (uint16_t)data[i] << 8;
-    for (int j = 0; j < 8; ++j) {
-      if (crc & 0x8000) {
-        crc = (crc << 1) ^ 0x1021;
-      } else {
-        crc <<= 1;
-      }
-    }
-  }
-  return crc;
-}
-
-// ---------------------------------------------------------
 // Helper: Buffer Inference
-// ---------------------------------------------------------
 template <typename T>
 static constexpr std::array<uint8_t, sizeof(T) + kPacketOverhead>
 MakePacketBuffer(const T &) {
   return {};
 }
 
-// ---------------------------------------------------------
 // Helper: Serialize
-// ---------------------------------------------------------
 // Fills the buffer 'out' with the formatted packet.
 // 'out' must be at least 'len' + kPacketOverhead bytes (Header + CRC).
 static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
@@ -410,7 +417,7 @@ static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
     std::memcpy(out + sizeof(Header), payload, len);
   }
 
-  uint16_t crc = Crc16(out, sizeof(Header) + len);
+  uint16_t crc = checksum::XModem(out, sizeof(Header) + len);
 
   // Append CRC (Little Endian)
   out[sizeof(Header) + len] = (uint8_t)(crc & 0xFF);

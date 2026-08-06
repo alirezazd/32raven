@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "checksum.hpp"
 #include "states.hpp"  // For AppContext definition
 #include "system.hpp"
 #include "uart.hpp"
@@ -76,7 +77,7 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
             memcpy(check_buf + sizeof(message::Header),
                    rx_pkt_internal_.payload, rx_len_);
 
-          if (message::Crc16(check_buf, sizeof(message::Header) + rx_len_) ==
+          if (checksum::XModem(check_buf, sizeof(message::Header) + rx_len_) ==
               rx_pkt_internal_.crc) {
             message::Packet pkt;
             pkt.header.id = rx_pkt_internal_.id;
@@ -267,7 +268,7 @@ void FcLink::SendVehicleStatus(const message::VehicleStatusMsg &msg) {
 }
 
 void FcLink::SendLog(const char *format, ...) {
-  char buf[128];
+  char buf[message::kMaxLogTextPayload + 1];
   va_list args;
   va_start(args, format);
   int len = vsnprintf(buf, sizeof(buf), format, args);

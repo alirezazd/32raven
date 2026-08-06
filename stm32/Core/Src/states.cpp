@@ -6,7 +6,9 @@
 #include <cmath>
 #include <cstddef>
 
+#include "error_code.hpp"
 #include "multirotor_mixer.hpp"
+#include "panic.hpp"
 #include "stm32_config.hpp"
 
 namespace {
@@ -454,7 +456,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     if (high_loss_consec == kLossPanicConsecutiveSec ||
         (high_loss_consec > kLossPanicConsecutiveSec &&
          high_loss_consec % 5 == 0)) {
-      // Panic(ErrorCode::Stm32::kImuDroppedFrame);
+      Panic(ErrorCode::Stm32::kImuDroppedFrame);
     }
 
     if (kEnableEspLogs && kEnableImuDebugLog) {

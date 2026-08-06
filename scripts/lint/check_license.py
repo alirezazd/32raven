@@ -76,6 +76,7 @@ EXEMPT_PATTERNS = (
     "stm32/Drivers/Inc/ee_schema.hpp",
     "esp32/main/esp32_config.hpp",
     "esp32/main/esp32_limits.hpp",
+    "libs/inc/common_config.hpp",
 )
 
 # Header lines are matched, not compared, so reformatting or a different year

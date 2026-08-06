@@ -58,9 +58,58 @@ if(DEFINED LINT_EXCEPTIONS)
 endif()
 file(WRITE "${LINT_EXCEPTIONS_FILE}" "${LINT_EXCEPTIONS_CONTENT}")
 
+# -----------------------------------------------------------------------------
+# Shared generated config
+# -----------------------------------------------------------------------------
+# Owned here rather than by either sub-build: those are disjoint CMake instances
+# that 'all_firmware' runs concurrently, so a rule in each would put two writers
+# on this one path.
+find_program(UV_EXECUTABLE NAMES uv)
+if(NOT UV_EXECUTABLE)
+  message(FATAL_ERROR
+    "uv not found; it runs the config generators.\n"
+    "Install it (https://docs.astral.sh/uv/) or build in the container: make enable-docker")
+endif()
+set(UV_RUN ${UV_EXECUTABLE} run --quiet --script)
+find_program(CLANG_FORMAT_EXECUTABLE NAMES clang-format)
+
+set(COMMON_KCONFIG       "${CMAKE_CURRENT_SOURCE_DIR}/config/Kconfig")
+set(COMMON_MASTER_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/config/32raven.config")
+set(COMMON_CONFIG_GENERATOR
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_common_config.py")
+set(COMMON_CONFIG_TEMPLATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripts/templates/common_config.hpp.j2")
+set(COMMON_CONFIG_HPP "${CMAKE_CURRENT_SOURCE_DIR}/libs/inc/common_config.hpp")
+
+set(_FMT_COMMON_CMD)
+if(CLANG_FORMAT_EXECUTABLE)
+  set(_FMT_COMMON_CMD COMMAND ${CLANG_FORMAT_EXECUTABLE} -i ${COMMON_CONFIG_HPP})
+endif()
+
+# DEPENDS stays limited to what the generator reads; anything wider rebuilds both
+# firmwares on changes that cannot affect this header.
+add_custom_command(
+  OUTPUT ${COMMON_CONFIG_HPP}
+  COMMAND ${UV_RUN} ${COMMON_CONFIG_GENERATOR}
+          --kconfig ${COMMON_KCONFIG}
+          --config ${COMMON_MASTER_CONFIG}
+          --out ${COMMON_CONFIG_HPP}
+  ${_FMT_COMMON_CMD}
+  DEPENDS ${COMMON_KCONFIG}
+          ${COMMON_MASTER_CONFIG}
+          ${COMMON_CONFIG_GENERATOR}
+          ${COMMON_CONFIG_TEMPLATE}
+  COMMENT "Generating shared configuration header"
+  VERBATIM)
+
+add_custom_target(generate_common_config DEPENDS ${COMMON_CONFIG_HPP})
+
 file(GLOB_RECURSE LINT_LIB_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.hpp")
+# Appears mid-build the first time, which would change the glob result and force
+# a CMake re-run. The lint stamps name it directly in DEPENDS instead.
+list(REMOVE_ITEM LINT_LIB_SOURCE_FILES "${COMMON_CONFIG_HPP}")
 
 file(GLOB_RECURSE LINT_ESP32_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/esp32/*.cpp"
@@ -82,6 +131,7 @@ add_custom_command(
   DEPENDS
     ${LINT_ESP32_SOURCE_FILES}
     ${LINT_LIB_SOURCE_FILES}
+    ${COMMON_CONFIG_HPP}
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/forbidden_exceptions.txt
     ${LINT_EXCEPTIONS_FILE}
@@ -102,6 +152,7 @@ add_custom_command(
   DEPENDS
     ${LINT_STM32_SOURCE_FILES}
     ${LINT_LIB_SOURCE_FILES}
+    ${COMMON_CONFIG_HPP}
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/forbidden_exceptions.txt
     ${LINT_EXCEPTIONS_FILE}
@@ -122,7 +173,7 @@ add_custom_target(forbidden_check_stm32 DEPENDS "${FORBIDDEN_CHECK_STM32_STAMP}"
 # image (Release: -O2 -flto); 'stm32-debug' is the -O0 -g3 build.
 function(_add_stm32_target name build_type)
   add_custom_target(${name}
-    DEPENDS forbidden_check_stm32
+    DEPENDS forbidden_check_stm32 generate_common_config
     COMMAND ${CMAKE_COMMAND} -E echo "Building STM32 firmware"
     COMMAND ${CMAKE_COMMAND}
             -S ${CMAKE_CURRENT_SOURCE_DIR}/stm32
@@ -149,7 +200,7 @@ _add_stm32_target(stm32       Release)
 _add_stm32_target(stm32-debug Debug)
 
 add_custom_target(esp32
-  DEPENDS forbidden_check_esp32
+  DEPENDS forbidden_check_esp32 generate_common_config
   COMMAND ${CMAKE_COMMAND} -E echo "Building ESP32 firmware"
   COMMAND bash -lc
     "set -euo pipefail; \

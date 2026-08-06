@@ -8,7 +8,6 @@
 // to one side. Numeric ranges are disjoint (Common: 0x0xxxx, Stm32: 0x1xxxx,
 // Esp32: 0x2xxxx) so a uint32_t-on-the-wire panic from one side can be
 // dispatched and decoded on the other via GetMessage(uint32_t).
-//
 // Dead values are pruned aggressively. `scripts/lint/check_error_codes.py` runs at
 // build time and fails the build if any enumerator here has zero callsites
 // (excluding `error_code.cpp` itself, which is required to switch over them).
@@ -78,6 +77,13 @@ enum class Stm32 : uint32_t {
   kAhrsInvalidConfig,
   kAttitudeControllerInvalidConfig,
   kHseClockFailure,  // HSE lost (CSS): fell back to HSI, motors disarmed
+  // Appended only. These values travel in PanicMsg.error_code and are decoded
+  // on the ESP32, which flashes independently of the STM32 — renumbering an
+  // existing entry makes a mismatched pair report the wrong fault.
+  kUsbInitFailed,
+  kUsbReinit,
+  kMspServiceReinit,
+  kFourWayServiceReinit,
 };
 
 enum class Esp32 : uint32_t {

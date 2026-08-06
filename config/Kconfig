@@ -1,5 +1,37 @@
 mainmenu "32Raven Configuration"
 
+# Settings neither board owns: the two have to agree on them or the link does not
+# work. They are rendered once into libs/inc/common_config.hpp and included by
+# both firmwares, so a change here moves both sides together.
+menu "Common"
+
+menu "FcLink"
+
+config COMMON_FCLINK_EXCHANGE_INTERVAL_MS
+    int "Peer exchange interval (ms)"
+    range 50 2000
+    default 300
+    help
+      Cadence at which each side re-asserts itself to the other: the ESP32's
+      ESC-configuration lease renewal and the STM32's USB-state report both
+      ride it. Distinct from the STM32 telemetry rate, which carries the bulk
+      sensor stream -- this one is the liveness and control cadence.
+
+config COMMON_FCLINK_PEER_TIMEOUT_EXCHANGES
+    int "Peer timeout (exchanges)"
+    range 2 20
+    default 5
+    help
+      How many exchanges may be missed before a side declares the other gone.
+      The STM32 then revokes the USB grant, detaches the port and drops any
+      four-way session; the ESP32 stops trusting the USB state it was told.
+      Expressed in exchanges rather than milliseconds so both windows scale
+      with the interval above and neither can end up shorter than it.
+
+endmenu
+
+endmenu
+
 menu "ESP32"
 
 menu "Pin Map"
@@ -1174,6 +1206,37 @@ endmenu
 
 endmenu
 
+menu "USB (OTG FS Device)"
+
+# The USB device port the ESC configurator talks to. PA11/PA12 is the only
+# OTG FS pair on the F407V package, so these choices exist to keep the pins
+# in the generated pin map (and under its collision checks) rather than to
+# offer a real alternative.
+#
+# The other two OTG FS signals are unavailable by design: ID is PA10 and VBUS
+# is PA9, both already spoken for by USART1 to the ESP32. The driver therefore
+# forces device mode and runs with VBUS sensing disabled.
+
+choice
+    prompt "D- pin"
+    default STM32_USB_DM_PIN_PA11
+
+config STM32_USB_DM_PIN_PA11
+    bool "PA11 (AF10)"
+
+endchoice
+
+choice
+    prompt "D+ pin"
+    default STM32_USB_DP_PIN_PA12
+
+config STM32_USB_DP_PIN_PA12
+    bool "PA12 (AF10)"
+
+endchoice
+
+endmenu
+
 menu "Motors (TIM1 DShot)"
 
 # TIM1 has just two pin options per channel on the F407V package: PORTA or
@@ -1539,7 +1602,13 @@ endchoice
 config STM32_SYSTEM_PLL_Q
     int "PLLQ (USB/SDIO divider, 2..15)"
     range 2 15
-    default 4
+    default 7
+    help
+      Divides the PLL VCO to clock USB, SDIO and the RNG. It does not affect
+      the CPU or any bus. USB device mode only works when this lands on
+      exactly 48 MHz: with the stock 8 MHz crystal the VCO is 336 MHz, so
+      PLLQ must be 7. Change it only if you have altered PLLM or PLLN and
+      recomputed VCO / PLLQ = 48000000.
 
 choice
     prompt "AHB divider"
@@ -1616,6 +1685,86 @@ config STM32_SYSTEM_VOLTAGE_SCALE2
     bool "Scale 2 (up to 144 MHz)"
 
 endchoice
+
+endmenu
+
+menu "USB CDC"
+
+# Identity the STM32 presents on its USB device port. Host-side ESC and
+# flight-controller configurators are browser tools that reach the board over
+# Web Serial, which filters the port list by USB vendor ID — so these values
+# decide whether the board is offered to the user at all, not just how it is
+# labelled.
+
+config STM32_USB_VENDOR_ID
+    hex "Vendor ID"
+    default 0x0483
+    help
+      USB idVendor reported in the device descriptor. Defaults to
+      STMicroelectronics (0x0483), the ID whose virtual COM port every
+      mainstream flight-controller configurator already allow-lists. Changing
+      this makes the board invisible to those tools unless their filters are
+      changed to match.
+
+config STM32_USB_PRODUCT_ID
+    hex "Product ID"
+    default 0x5740
+    help
+      USB idProduct reported in the device descriptor. Defaults to ST's
+      virtual COM port (0x5740), which pairs with the default vendor ID to
+      form the identity configurators recognise.
+
+config STM32_USB_MANUFACTURER
+    string "Manufacturer string"
+    default "32Raven"
+    help
+      iManufacturer string descriptor. Cosmetic — shown by lsusb and in the
+      host's device listing.
+
+config STM32_USB_PRODUCT
+    string "Product string"
+    default "32Raven Virtual COM Port"
+    help
+      iProduct string descriptor. Cosmetic — shown by lsusb and in the host's
+      port picker alongside the serial number.
+
+endmenu
+
+menu "MSP"
+
+# Identity reported over MSP on the USB CDC port. A configurator will not admit
+# a board exists until it has read this block back, so these are the strings the
+# user sees once the port is open — distinct from the USB descriptor strings,
+# which only decide whether the port is offered in the first place.
+
+config STM32_MSP_BOARD_IDENTIFIER
+    string "Board identifier"
+    default "RAVN"
+    help
+      Four-character board identifier returned by MSP_BOARD_INFO. Shorter
+      values are space-padded and longer ones truncated, because the field is
+      a fixed four bytes on the wire.
+
+config STM32_MSP_BOARD_NAME
+    string "Board name"
+    default "32Raven"
+    help
+      Human-readable board name returned by MSP_BOARD_INFO, shown in the
+      configurator's board field.
+
+config STM32_MSP_MANUFACTURER_ID
+    string "Manufacturer ID"
+    default "RAVN"
+    help
+      Manufacturer identifier returned by MSP_BOARD_INFO. Cosmetic — displayed
+      alongside the board name.
+
+config STM32_MSP_CRAFT_NAME
+    string "Craft name"
+    default "32Raven"
+    help
+      Craft name returned by MSP_NAME, the user-facing label a configurator
+      shows for this airframe.
 
 endmenu
 

@@ -53,6 +53,7 @@ esp32/main/esp32_limits.hpp
 stm32/Drivers/Inc/stm32_config.hpp
 stm32/Drivers/Inc/stm32_limits.hpp
 stm32/Drivers/Inc/ee_schema.hpp
+libs/inc/common_config.hpp
 
 # Stray in-source CMake output (the real configure goes to build/). CMakeFiles/
 # and cmake_install.cmake are already ignored above; this covers the Makefile a
