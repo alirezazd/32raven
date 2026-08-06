@@ -9,7 +9,7 @@
 // UBX-CFG-VALSET fixed header fields
 constexpr uint8_t kValsetVersion = 0x00;
 
-namespace UBX {  // NOLINT
+namespace UBX {  // NOLINT(readability-identifier-naming)
 static constexpr uint8_t kSync1 = 0xB5;
 static constexpr uint8_t kSync2 = 0x62;
 static constexpr uint8_t kClsNav = 0x01;

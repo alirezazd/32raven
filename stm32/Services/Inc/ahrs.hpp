@@ -2,16 +2,13 @@
 // Copyright (C) 2026 Alireza Azadi
 
 // AHRS — Mahony complementary filter on the unit quaternion.
-//
 // Fuses body-frame gyro (1 kHz prediction) with body-frame accel
 // (gravity reference) into a drift-bounded orientation. Runs once per
 // fast tick.
-//
 // Gains (Config):
 //   - kp_accel = 0 → accel correction off; pure gyro integration.
 //   - kp_accel > 0 → accel pulls the quaternion toward truth.
 //   - ki_bias  > 0 → gyro bias learned alongside the quaternion.
-//
 // Trust attenuation (smoothstep ramps, no boundary chatter):
 //   - Accel correction scaled by a two-sided weight: 1.0 within
 //     ±accel_trust_full_dev_g of |accel|/g == 1.0, → 0.0 by
@@ -21,7 +18,6 @@
 //     Spin-rate gate (cf. PX4/ArduPilot/INAV) keeps the bias estimator
 //     from absorbing transient maneuver errors.
 //   All four band fields 0.0 disables attenuation (weight always 1).
-//
 // Convention (NED world, +Z = down):
 //   q = attitude_world_to_body, propagated by right-multiply with a
 //   body-frame angular increment:

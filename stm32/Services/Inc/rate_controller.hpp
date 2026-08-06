@@ -57,7 +57,6 @@ class RateController {
 
   // Two-call API (preferred): routes the PID back-calc anti-windup
   // through downstream saturation, including mixer-disarm.
-  //
   // 1. ComputeTorque → pre-mixer torque {τR, τP, τY}. Integrator not yet
   //    committed; pending state lives on each axis PID.
   // 2. CommitTorque(applied) — `applied` is what the actuator/mixer chain

@@ -3,14 +3,12 @@
 
 // Widget dependency note:
 // This widget uses FreeRTOS idle run-time stats for CPU%.
-//
 // Required ESP-IDF menuconfig settings:
 //   Component config -> FreeRTOS -> Kernel -> configGENERATE_RUN_TIME_STATS
 //     CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
 //   Component config -> FreeRTOS -> Port -> Choose the clock source for run
 //   time stats
 //     CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
-//
 // Automatically selected by configGENERATE_RUN_TIME_STATS:
 //   Component config -> FreeRTOS -> Kernel -> configUSE_TRACE_FACILITY
 //     CONFIG_FREERTOS_USE_TRACE_FACILITY=y

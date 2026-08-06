@@ -15,7 +15,7 @@ struct Vec3 {
   constexpr Vec3(float xx, float yy, float zz) : x(xx), y(yy), z(zz) {}
 };
 
-// ── component-wise ──────────────────────────────────────────────────
+// component-wise
 
 constexpr Vec3 operator+(const Vec3 &a, const Vec3 &b) {
   return {a.x + b.x, a.y + b.y, a.z + b.z};
@@ -36,7 +36,7 @@ constexpr Vec3 operator/(const Vec3 &a, float s) {
   return {a.x / s, a.y / s, a.z / s};
 }
 
-// ── inner products ──────────────────────────────────────────────────
+// inner products
 
 constexpr float Dot(const Vec3 &a, const Vec3 &b) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -50,7 +50,7 @@ constexpr Vec3 Cross(const Vec3 &a, const Vec3 &b) {
   };
 }
 
-// ── norm ────────────────────────────────────────────────────────────
+// norm
 
 inline float LengthSquared(const Vec3 &a) { return Dot(a, a); }
 inline float Length(const Vec3 &a) { return std::sqrt(LengthSquared(a)); }

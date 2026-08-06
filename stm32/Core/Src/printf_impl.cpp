@@ -2,11 +2,9 @@
 // Copyright (C) 2026 Alireza Azadi
 
 // printf_impl.cpp — replaces newlib's vsnprintf with nanoprintf.
-//
 // newlib-nano vsprintf pulls in _malloc_r / _free_r / _sbrk to support
 // unbounded %s and float formats; the linker can't prove our format
 // strings never allocate, so the heap stays reachable.
-//
 // nanoprintf is a single-header, allocation-free printf (0BSD). Compiled
 // once here, then routed in via `-Wl,--wrap=vsnprintf`. The newlib
 // vsprintf object goes unreferenced → _malloc_r / _free_r / _sbrk drop

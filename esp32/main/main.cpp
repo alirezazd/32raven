@@ -33,7 +33,7 @@ AppContext MakeAppContext() {
 
 }  // namespace
 
-extern "C" void app_main(void) {  // NOLINT as IDF requires app_main
+extern "C" void app_main(void) {  // NOLINT: IDF requires this exact signature
   Sys().Init();
   AppContext ctx = MakeAppContext();
   StateMachine<AppContext> sm(ctx);

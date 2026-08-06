@@ -15,8 +15,7 @@ IDF_PATH_VAR := $(shell grep "IDF_PATH" user_config.cmake 2>/dev/null | grep -v 
 ESP_PORT_VAR := $(shell grep "ESP_PORT" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
 ESP_BAUD_VAR := $(shell grep "ESP_BAUD" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
 
-# Persistent build-mode toggle. `make enable-docker` writes USE_DOCKER=1 here;
-# `make disable-docker` removes it. Override per-invocation with `USE_DOCKER=0 make ...`.
+# Override per-invocation with `USE_DOCKER=0 make ...`.
 -include .build-mode
 
 # If we're already inside a container (e.g. the VSCode devcontainer), force
@@ -88,7 +87,6 @@ help:
 	@echo "  stm32               - Build STM32 firmware (optimized / Release)"
 	@echo "  stm32-debug         - Build STM32 firmware (debug, -O0 -g3)"
 	@echo "  format-cpp          - Run clang-format on STM32/ESP32 C++ source headers"
-	@echo "  lint-license        - Check SPDX/copyright headers (LICENSE_FIX=1 inserts missing ones)"
 	@echo "  clean               - Clean build directory"
 	@echo "  esp32-menuconfig    - Run ESP-IDF menuconfig"
 	@echo "  flash-esp32         - Flash ESP32 via serial"
@@ -138,15 +136,8 @@ format-cpp:
 32raven-menuconfig:
 	$(RUN) uv run --quiet --script scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
 
-# Repo-wide licence header check. Host-side and independent of any firmware
-# target: it walks `git ls-files`, so it also covers scripts/ and tools/, which
-# no per-target lint reaches.
-lint-license:
-	@uv run --quiet --script scripts/lint/check_license.py $(if $(LICENSE_FIX),--fix,)
-
-# Handbook. Runs host-side (no $(RUN)): the build image carries the firmware
-# toolchain, not MkDocs, and the docs read only tracked source. The 'docs' uv
-# group is opt-in — uv resolves it on demand here.
+# Host-side, no $(RUN): the build image carries the firmware toolchain, not
+# MkDocs. The 'docs' uv group is opt-in, so uv resolves it on demand here.
 docs:
 	@uv run --group docs mkdocs build --strict
 	@uv run --quiet --script scripts/lint/check_docs.py
@@ -190,10 +181,8 @@ clean:
 	@echo "Removing clean files"
 	$(RUN) $(RM) -f $(CLEAN_FILES)
 
-# Default ESP32 IP
 ESP_IP ?= 192.168.4.1
 
-# WiFi Flashing
 flash-wifi-stm32: stm32
 	$(RUN) uv run --quiet --script tools/esp32_client.py $(ESP_IP) flash $(BUILD_DIR)/stm32/32Raven_stm32.bin
 
@@ -206,9 +195,8 @@ distclean: clean
 	$(RUN) $(RM) -rf "$(BUILD_ROOT)"
 
 # ---- Docker mode toggle ---------------------------------------------------
-# `make enable-docker` builds the image (if missing) and writes USE_DOCKER=1 to
-# .build-mode so subsequent `make stm32`, `make esp32`, etc. run inside the
-# container. `make disable-docker` removes the file. Both files are gitignored.
+# enable-docker writes USE_DOCKER=1 to .build-mode, so later targets run in the
+# container; disable-docker removes it. Both files are gitignored.
 
 docker-image:
 	@mkdir -p .docker/home

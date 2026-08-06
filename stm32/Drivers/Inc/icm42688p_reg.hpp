@@ -3,13 +3,13 @@
 
 #pragma once
 
-// NOLINTBEGIN
+// NOLINTBEGIN(readability-identifier-naming)
 
 #include <cstdint>
 
 namespace Icm42688pReg {
 
-// ─────────────────────────── Bank 0 registers ───────────────────────────
+// Bank 0 registers
 
 constexpr uint8_t REG_DEVICE_CONFIG = 0x11;
 constexpr uint8_t REG_BANK_SEL = 0x76;
@@ -67,7 +67,7 @@ constexpr uint8_t REG_OFFSET_USER6 = 0x7D;
 constexpr uint8_t REG_OFFSET_USER7 = 0x7E;
 constexpr uint8_t REG_OFFSET_USER8 = 0x7F;
 
-// ─────────────────────────── Bank 1 registers ───────────────────────────
+// Bank 1 registers
 
 constexpr uint8_t REG_GYRO_CONFIG_STATIC2 = 0x0B;
 constexpr uint8_t REG_GYRO_CONFIG_STATIC3 = 0x0C;
@@ -80,13 +80,13 @@ constexpr uint8_t REG_GYRO_CONFIG_STATIC9 = 0x12;
 constexpr uint8_t REG_GYRO_CONFIG_STATIC10 = 0x13;
 constexpr uint8_t REG_INTF_CONFIG5 = 0x7B;
 
-// ─────────────────────────── Bank 2 registers ───────────────────────────
+// Bank 2 registers
 
 constexpr uint8_t REG_ACCEL_CONFIG_STATIC2 = 0x03;
 constexpr uint8_t REG_ACCEL_CONFIG_STATIC3 = 0x04;
 constexpr uint8_t REG_ACCEL_CONFIG_STATIC4 = 0x05;
 
-// ─────────────────────────── Bit definitions ────────────────────────────
+// Bit definitions
 
 // DEVICE_CONFIG (0x11)
 constexpr uint8_t DEVICE_CONFIG_SOFT_RESET = 1u << 0;
@@ -229,12 +229,12 @@ constexpr uint8_t ACCEL_CONFIG_STATIC2_AAF_DIS = 1u << 0;
 // CLKDIV (Bank 3, 0x2A)
 constexpr uint8_t REG_CLKDIV = 0x2A;
 
-// ─────────────────────────── WHO_AM_I values ────────────────────────────
+// WHO_AM_I values
 
 constexpr uint8_t WHO_AM_I_ICM42688P = 0x47;
 constexpr uint8_t WHO_AM_I_ICM42686P = 0x44;
 
-// ─────────────────────────── Enumerations ───────────────────────────────
+// Enumerations
 
 enum class Odr : uint8_t {
   k32kHz = 0x01,
@@ -326,12 +326,11 @@ static constexpr float FifoTemperatureC(int8_t fifo_temp_data) {
   return (static_cast<float>(fifo_temp_data) / 2.07f) + 25.0f;
 }
 
-// ── FIFO sample ranges (datasheet §12.8) ───────────────────────────────
+// FIFO sample ranges (datasheet §12.8)
 // With FIFO_HOLD_LAST_DATA_EN=0 the chip inserts an invalid-sample
 // sentinel when no fresh data is available; parser Panics on detection
 // (Stm32::kImuInvalidSampleDetected). Valid samples stay within the
 // ranges below, never the raw int16/int20 limits.
-//
 // 20-bit mode enforces LSB constraints:
 //   gyro  — LSB[0]   = 0  (even, gap = 2)
 //   accel — LSB[1:0] = 0  (multiple of 4, gap = 4)
@@ -345,12 +344,11 @@ constexpr int32_t kFifo20AccelValidMin = -524256;
 constexpr int32_t kFifo20AccelValidMax = +524284;
 constexpr int32_t kFifo20InvalidSentinel = -524288;
 
-// ── 20-bit HiRes (Packet4) constants ───────────────────────────────────
+// 20-bit HiRes (Packet4) constants
 // FIFO_HIRES_EN=1 forces ±2000 dps + ±16g; other FSR settings ignored
 // (datasheet §6.1). Effective widths 19-bit gyro / 18-bit accel, emitted
 // as 20-bit signed with low LSBs forced 0. Sensitivity is fixed per
 // datasheet §6.1: 131 LSB/dps gyro, 8192 LSB/g accel.
-//
 // AAF + Notch require LN power mode (datasheet §12.4); do not drop to LP
 // while they are enabled.
 constexpr float kHiResGyroLsbPerDps = 131.0f;
@@ -371,7 +369,7 @@ inline constexpr float FifoTemperatureC16(int16_t fifo_temp_data) {
   return (static_cast<float>(fifo_temp_data) / 132.48f) + 25.0f;
 }
 
-// ── FIFO packet sizes (datasheet §6.1, Figure 10) ──────────────────────
+// FIFO packet sizes (datasheet §6.1, Figure 10)
 // Driver sizes DMA + parses by these. Only Packet3/Packet4 are used;
 // Packet1/2 (accel-only / gyro-only) kept for completeness.
 constexpr uint16_t kPacket1Bytes = 8;
@@ -412,4 +410,4 @@ static constexpr uint32_t OdrHz(Odr odr) {
 
 }  // namespace Icm42688pReg
 
-// NOLINTEND
+// NOLINTEND(readability-identifier-naming)

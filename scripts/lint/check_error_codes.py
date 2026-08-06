@@ -55,6 +55,21 @@ def parse_enum_values(text: str) -> dict[str, list[str]]:
     return out
 
 
+# Block comments first, so a // inside one cannot terminate the strip early.
+# String literals are left alone: an error name inside one is still a mention
+# the compiler ships, unlike a comment.
+COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+
+
+def strip_comments(text: str) -> str:
+    """Comments do not use an enumerator, they only name it.
+
+    Without this a commented-out Panic keeps its code alive forever, which is
+    exactly the dead scaffolding this check exists to find.
+    """
+    return COMMENT_RE.sub("", text)
+
+
 def grep_usage(domain: str, name: str) -> int:
     needle = f"ErrorCode::{domain}::{name}"
     pat = re.compile(re.escape(needle) + r"\b")
@@ -71,7 +86,7 @@ def grep_usage(domain: str, name: str) -> int:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            hits += len(pat.findall(text))
+            hits += len(pat.findall(strip_comments(text)))
     return hits
 
 

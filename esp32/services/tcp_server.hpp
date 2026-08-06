@@ -190,6 +190,5 @@ class TcpServer {
   bool download_overflow_ = false;
   bool download_enabled_ = false;
 
-  // status
   Status status_{};
 };

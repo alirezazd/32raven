@@ -1,18 +1,15 @@
 // control::Pid — SISO PID with back-calculation anti-windup.
 // Header-only, no allocations/exceptions/RTTI/deps. Cortex-M4 hard-FPU.
-//
 // Anti-windup uses Kt = Ki/Kp (Aström rule 1): the integrator unwinds as
 // fast as it accumulates. Saturation is detected by comparing the PID's
 // pre-clip output to the actuator's post-clip value passed by the caller,
 // so one mechanism covers output_clamp, downstream clipping (mixer disarm),
 // and actuator saturation (motor at max) without arm-edge resets or hints.
-//
 // Two-call API (committing integrator only after downstream clipping):
 //   float u_pid = pid.Compute(setpoint, measurement, dt_s);
 //   float u_post = downstream.Apply(u_pid);   // mixer / ESC / clip
 //   pid.CommitIntegrator(u_post, dt_s);
 // Update() collapses both for callers with no clipping beyond output_clamp.
-//
 // Design (matches BetaFlight + ArduPilot):
 //   - D on filtered measurement, negated — no setpoint-step kick.
 //   - First-order IIR on the D-input. alpha ∈ (0, 1]; alpha = 1 → off.
@@ -128,7 +125,6 @@ class Pid {
   //   dI/dt = Ki·error − Kt·(u_unsat − u_post)
   // Kt = Ki/Kp from Init/SetGains. Then the hard integrator_clamp (if
   // configured) acts as a safety net on the result.
-  //
   // No-op if Compute() wasn't called since the last commit (or dt_s ≤ 0
   // last time). dt_s must match the dt passed to the paired Compute().
   void CommitIntegrator(float u_post, float dt_s) {

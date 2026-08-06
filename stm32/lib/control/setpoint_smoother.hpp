@@ -1,10 +1,8 @@
 // control::SetpointSmoother — rate-limit + first-order LPF chained.
-//
 // Use anywhere a discontinuous reference signal (RC stick step, mode
 // switch, mission waypoint hand-off) would feed a feedback controller.
 // Shapes the reference into a continuous trajectory before the
 // controller sees it.
-//
 // rate_limit ≤ 0 disables slew limiting. lpf_alpha ≥ 1 disables LPF
 // (pass-through). Both defaults give pass-through.
 

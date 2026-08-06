@@ -115,7 +115,6 @@ ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
     //   err    = v_meas × v_ref           = body-frame angular velocity
     //                                       that would rotate ref onto
     //                                       meas (zero when q correct).
-    //
     // Accel-trust weight decays smoothly from 1.0 inside the
     // ±accel_trust_full_dev_g band to 0.0 at ±accel_trust_zero_dev_g, so
     // no chatter at the gate boundary.

@@ -2,9 +2,7 @@
 // flight stack. Hamilton convention (ij = k, jk = i, ki = j). World ↔
 // body frames; the convention adopted across the codebase is that q
 // rotates a vector from BODY frame to WORLD frame:
-//
 //     v_world = q ⊗ v_body ⊗ q*
-//
 // Initialized to identity (1, 0, 0, 0). Stays on the unit sphere by
 // renormalizing after each integration step. Single-precision; no
 // allocations, no virtuals.
@@ -33,7 +31,7 @@ struct Quaternion {
 
 constexpr Quaternion Identity() { return Quaternion{1.0f, 0.0f, 0.0f, 0.0f}; }
 
-// ── algebraic ───────────────────────────────────────────────────────
+// algebraic
 
 // Hamilton product q1 ⊗ q2. Reads "apply q2 first, then q1" when
 // rotating vectors via v' = q ⊗ v ⊗ q*. Not commutative.
@@ -66,7 +64,7 @@ inline Quaternion Normalize(const Quaternion &q) {
   return Quaternion{q.w * inv, q.x * inv, q.y * inv, q.z * inv};
 }
 
-// ── action on a vector ──────────────────────────────────────────────
+// action on a vector
 
 // Rotate v by q. Equivalent to taking the vector part of q ⊗ (0,v) ⊗ q*
 // but written as the cheaper rearrangement (≈ 15 mul + 9 add).
@@ -76,11 +74,10 @@ inline Vec3 Rotate(const Quaternion &q, const Vec3 &v) {
   return v + q.w * t + Cross(qv, t);
 }
 
-// ── kinematics: integrate body angular rate into attitude ───────────
+// kinematics: integrate body angular rate into attitude
 
 // First-order Euler step of dq/dt = (1/2) q ⊗ (0, ω_b). Renormalizes
 // to absorb the linearization drift. dt_s is in SECONDS.
-//
 // First-order error is < 1e-6 per step at dt = 1 ms for body rates up
 // to a few rad/s. For higher accuracy, call repeatedly with smaller dt.
 inline Quaternion IntegrateBodyRate(const Quaternion &q, const Vec3 &omega_b,
@@ -100,13 +97,12 @@ inline Quaternion IntegrateBodyRate(const Quaternion &q, const Vec3 &omega_b,
   });
 }
 
-// ── attitude error → small-angle rotation vector ────────────────────
+// attitude error → small-angle rotation vector
 
 // Given a setpoint attitude and a measured attitude (both unit
 // quaternions in the same world↔body convention), return the
 // rotation vector (in radians per axis) that would rotate the
 // measured attitude into the setpoint.
-//
 // For a small error this is twice the vector part of (q_sp ⊗ q_m⁻¹).
 // Sign chosen to take the short path: q and -q are the same rotation,
 // pick the one with magnitude < π.
@@ -118,7 +114,7 @@ inline Vec3 ErrorRotationVector(const Quaternion &q_setpoint,
   return Vec3{2.0f * s * q_err.x, 2.0f * s * q_err.y, 2.0f * s * q_err.z};
 }
 
-// ── axis-angle helper (mostly for tests + initial-attitude setup) ───
+// axis-angle helper (mostly for tests + initial-attitude setup)
 
 // Build a quaternion from an axis (must be unit) and an angle in
 // radians. Used in tests to construct known rotations; not on the

@@ -2,14 +2,12 @@
 // Copyright (C) 2026 Alireza Azadi
 
 // AttitudeController — outer loop on SO(3) for Stabilize / Angle modes.
-//
 // Stateless pure-P on the small-angle attitude error; emits a body-frame
 // angular-rate setpoint for the inner rate loop to track. Per Step():
 //   q_err   = q_measured.conjugate() · q_setpoint   (body-frame error)
 //   if q_err.w < 0: negate q_err                    (shortest-arc)
 //   err_vec = 2 · q_err.vec()                        (rotation vector,
 //   small-angle) rate_sp[i] = clamp(kp[i] · err_vec[i], ±rate_clamp[i])
-//
 // Per-axis gains: roll/pitch are typically symmetric, yaw is not. rate_clamp
 // caps slew toward a commanded attitude, independent of the rate loop's
 // own output clamp.

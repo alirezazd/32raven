@@ -1,0 +1,3 @@
+# Files exempt from a comment rule, as "<path>:<rule>", with the reason.
+# Vendored and generated sources only -- a violation here is a cleanup, not an
+# exemption.

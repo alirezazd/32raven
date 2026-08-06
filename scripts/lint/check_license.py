@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 """Verify every first-party source file carries the project's licence header.
 
 The header is two lines, in the file's own comment syntax:
@@ -78,7 +81,9 @@ EXEMPT_PATTERNS = (
 # Header lines are matched, not compared, so reformatting or a different year
 # does not read as a missing licence.
 SPDX_RE = re.compile(r"SPDX-License-Identifier:\s*(?P<id>\S+)")
-COPYRIGHT_RE = re.compile(r"Copyright\s+\(C\)\s+(?P<year>\d{4})\s+(?P<holder>.+?)\s*$")
+COPYRIGHT_RE = re.compile(
+    r"Copyright\s+\(C\)\s+(?P<year>\d{4})\s+(?P<holder>.+?)\s*(?:#\}|\*/)?\s*$"
+)
 
 # How far into the file to look. Generous enough for a shebang plus a PEP 723
 # block, tight enough that a licence buried mid-file still counts as missing.

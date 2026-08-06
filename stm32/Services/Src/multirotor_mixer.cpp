@@ -10,7 +10,6 @@
 #include "panic.hpp"
 
 // PX4 sequential-desaturation port (MC_AIRMODE=0 / "Disabled" variant).
-//
 // Faithful port of
 //   PX4-Autopilot/src/lib/control_allocation/control_allocation/
 //     ControlAllocationSequentialDesaturation.{hpp,cpp}
@@ -18,7 +17,6 @@
 // PX4's pseudo-inverse / trim machinery elided because this codebase already
 // represents motors in the normalized [idle, 1] band — there is no hover
 // trim to subtract.
-//
 // "Disabled" airmode never lifts collective thrust to unsaturate motors, so
 // commanded descent always works: when torque demand saturates the low end of
 // the band, torque axes are scaled down (attitude authority degrades) rather
@@ -43,7 +41,6 @@ bool IsConfigValid(const Mixer::Config &cfg) {
 }
 
 // Port of ControlAllocationSequentialDesaturation::computeDesaturationGain.
-//
 // Gain k to add `desat` to `sp`, driving the worst-saturated actuator back
 // toward [min_lim, max_lim]. k_min/k_max capture both saturation ends; summing
 // centres the result in the residual saturation. Actuators with desat-direction
@@ -70,10 +67,8 @@ float ComputeDesaturationGain(const float desat[4], const float sp[4],
 }
 
 // Port of ControlAllocationSequentialDesaturation::desaturateActuators.
-//
 // Two passes — full gain then half the residual — refines the fit, since the
 // first k_min + k_max overshoots when both band ends saturate.
-//
 // `block_motor_lift` blocks the "raise motors" direction (PX4's
 // `increase_only`). PX4's thrust desat vector is negative per motor; here
 // thrust_z[i] = +1 (motor command rises with thrust), so the equivalent guard
@@ -112,7 +107,6 @@ void Mixer::SetConfig(const Config &cfg) {
 //   6. Yaw desat with upper limit expanded by kMinimumYawMargin.
 //   7. Thrust desat again, BLOCKING lift, restoring the real upper limit.
 //   8. Final clamp to [idle, 1] for FP-noise safety.
-//
 // applied_torque is the orthogonal projection of the motor vector onto each
 // torque axis (factor_axis · motors / 4: QuadX factor columns are mutually
 // orthogonal with ||·||² = 4). Feeds the rate PID's back-calc anti-windup via

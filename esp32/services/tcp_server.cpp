@@ -325,7 +325,6 @@ void TcpServer::PumpCtrlRx() {
   for (int iter = 0; iter < 4; ++iter) {  // bounded work per tick
     int r = recv(ctx_.ctrl_fd, buf, sizeof(buf), 0);
     if (r > 0) {
-      // ESP_LOGI(kTag, "Ctrl rx %d bytes", r);
       // feed bytes into line parser (PART 3 implements linebuf_add_ and
       // HandleLine_)
       for (int i = 0; i < r; i++) {

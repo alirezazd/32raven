@@ -2,12 +2,10 @@
 // Copyright (C) 2026 Alireza Azadi
 
 // Multirotor motor mixer — stateless thrust allocator for a quad-X frame.
-//
 // Maps body-frame torque demands (roll/pitch/yaw) and collective thrust to
 // per-motor normalized thrust in [0, 1]; the caller (EscService / DShotCodec)
 // scales to DShot units. Attitude-representation-agnostic: torques are
 // 3-vectors regardless of the upstream parameterization.
-//
 // PX4 MC_AIRMODE=0 ("Disabled") sequential-desaturation port of
 // ControlAllocationSequentialDesaturation (mixAirmodeDisabled + mixYaw),
 // reduced to the multirotor path; PX4's pseudo-inverse / hover-trim machinery
@@ -24,7 +22,6 @@
 //     RateController::CommitTorque drains integrators by the commanded-vs-
 //     applied gap. (Projection math: see MixOutput / Mix().)
 //   - Disarmed -> all outputs 0.
-//
 // Frame convention (looking down from above, body Z points down):
 //   M1 = front-right (CCW prop)
 //   M2 = back-right  (CW)
@@ -65,7 +62,6 @@ struct Inputs {
 
 // QuadX mix matrix. Rows = motors (M1..M4), cols = (roll, pitch, yaw).
 // Throttle column is implicit +1 for every motor.
-//
 // Sign convention (all NED):
 //   Pitch +1 (nose down): front motors (M1, M4) slow; back motors
 //     (M2, M3) speed up — tail lifts, nose dips.

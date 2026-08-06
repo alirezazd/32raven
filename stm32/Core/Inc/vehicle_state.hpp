@@ -11,9 +11,7 @@
 #include "flight_mode.hpp"
 #include "stm32_limits.hpp"
 
-// ---------------------------------------------------------
 // POD (Plain Old Data) Sensor Packets
-// ---------------------------------------------------------
 
 struct GpsData {
   uint64_t timestamp_us;
@@ -102,9 +100,7 @@ struct RcData {
   bool updated = false;
 };
 
-// ---------------------------------------------------------
 // Central Data Store (Blackboard)
-// ---------------------------------------------------------
 
 class VehicleState {
  public:
