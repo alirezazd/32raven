@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 """Detect (and optionally remove) unused ErrorCode enumerators.
 
 Default mode (used by CMake at build time): scan `libs/inc/error_code.hpp` for

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 """Validate the handbook against the drift `mkdocs build --strict` cannot see.
 
 `--strict` already rejects broken internal links, orphan pages, dangling heading

@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 # Configure VSCode settings for 32Raven development.
 #
 # Merge-aware: deep-merges the managed keys below into any existing

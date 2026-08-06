@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 # check_forbidden.sh
 # Scans source code for forbidden headers, keywords, and dynamic-allocation APIs.
 # Returns 1 (error) if found, 0 (ok) if clean.

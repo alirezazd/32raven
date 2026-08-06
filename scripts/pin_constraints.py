@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 """STM32 silicon-level pin/signal/AF constraint database.
 
 Loads the vendored open-pin-data XML for one MCU + GPIO IP version, exposes

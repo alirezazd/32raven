@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
 """Shared helpers for the per-target Kconfig → header generators.
 
 Both `generate_stm32_config.py` and `generate_esp32_config.py` follow the

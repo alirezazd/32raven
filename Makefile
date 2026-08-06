@@ -88,6 +88,7 @@ help:
 	@echo "  stm32               - Build STM32 firmware (optimized / Release)"
 	@echo "  stm32-debug         - Build STM32 firmware (debug, -O0 -g3)"
 	@echo "  format-cpp          - Run clang-format on STM32/ESP32 C++ source headers"
+	@echo "  lint-license        - Check SPDX/copyright headers (LICENSE_FIX=1 inserts missing ones)"
 	@echo "  clean               - Clean build directory"
 	@echo "  esp32-menuconfig    - Run ESP-IDF menuconfig"
 	@echo "  flash-esp32         - Flash ESP32 via serial"
@@ -136,6 +137,12 @@ format-cpp:
 
 32raven-menuconfig:
 	$(RUN) uv run --quiet --script scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
+
+# Repo-wide licence header check. Host-side and independent of any firmware
+# target: it walks `git ls-files`, so it also covers scripts/ and tools/, which
+# no per-target lint reaches.
+lint-license:
+	@uv run --quiet --script scripts/lint/check_license.py $(if $(LICENSE_FIX),--fix,)
 
 # Handbook. Runs host-side (no $(RUN)): the build image carries the firmware
 # toolchain, not MkDocs, and the docs read only tracked source. The 'docs' uv
