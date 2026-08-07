@@ -135,7 +135,8 @@ class System {
   };
 
   void Init(const Config &config);
-
+  void SuspendFlightComponents();
+  void ResumeFlightComponents();
   LED &Led() { return LED::GetInstance(); }
 
   GPIO &Gpio() { return GPIO::GetInstance(); }
@@ -145,7 +146,7 @@ class System {
   Button &Btn() { return Button::GetInstance(); }
   Uart1 &FcUart() { return Uart1::GetInstance(); }
   Uart2 &GpsUart() { return Uart2::GetInstance(); }
-
+  Uart6 &RcUart() { return Uart6::GetInstance(); }
   RcReceiver &RcRx() { return RcReceiver::GetInstance(); }
   CrsfLinkService &CrsfLinkSvc() { return crsf_link_service_; }
   EscService &EscSvc() { return esc_service_; }

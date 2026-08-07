@@ -22,13 +22,12 @@ namespace {
 // timeouts in InitOscillators/InitClockTree before TimeBase (TIM2) is up.
 volatile uint32_t g_system_tick_ms = 0;
 
-// Clock bring-up timeouts (ms) and PLL-source selector bits.
-constexpr uint32_t kHseTimeoutMs = 100u;  // HSE_STARTUP_TIMEOUT
+constexpr uint32_t kHseTimeoutMs = 100u;
 constexpr uint32_t kHsiTimeoutMs = 2u;
 constexpr uint32_t kPllTimeoutMs = 2u;
 constexpr uint32_t kClockSwitchTimeoutMs = 5000u;
-constexpr uint32_t kPllSourceHse = RCC_PLLCFGR_PLLSRC_HSE;  // PLLSRC bit set
-constexpr uint32_t kPllSourceHsi = 0u;                      // PLLSRC bit clr
+constexpr uint32_t kPllSourceHse = RCC_PLLCFGR_PLLSRC_HSE;
+constexpr uint32_t kPllSourceHsi = 0u;
 constexpr uint32_t kHsiHz = 16000000u;  // fixed silicon, not a Kconfig value
 }  // namespace
 
@@ -60,8 +59,7 @@ extern "C" void SystemOnClockSecurityFailure(void) {
   // USART1 panic-telemetry baud — recompute BRR against the new PCLK2.
   Uart1::GetInstance().SetBaudRate(kUart1Config.baud_rate);
 
-  Panic(
-      ErrorCode::Stm32::kHseClockFailure);  // disarms + screams; never returns
+  Panic(ErrorCode::Stm32::kHseClockFailure);
 }
 
 // Out-of-line so the `static System` lives in this one TU rather than emitting
@@ -112,13 +110,21 @@ void System::Init(const System::Config &config) {
   Wdg().Init();
 }
 
-// Direct-register CPU + clock bring-up helpers
-// Boot-only static methods, invoked from System::Init / ConfigureSystemClock.
-// On failure: Panic, matching the firmware-wide driver/service Init convention.
+void System::SuspendFlightComponents() {
+  // Order matters only in that the sample interrupt goes first: it is the one
+  // that drives the cascade, and the two receive paths merely feed it.
+  Imu().SuspendSampling();
+  GpsUart().SuspendRx();
+  RcUart().SuspendRx();
+  (void)EscSvc().StopAll();
+}
 
-// Cortex / flash / SysTick bring-up: I-cache, D-cache, prefetch buffer, NVIC
-// priority grouping (4 preempt bits, 0 sub), and the 1 kHz SysTick that backs
-// the InitOscillators/InitClockTree spin-wait timeouts.
+void System::ResumeFlightComponents() {
+  GpsUart().ResumeRx();
+  RcUart().ResumeRx();
+  Imu().ResumeSampling();
+}
+
 void System::CoreInit() {
   FLASH->ACR |= FLASH_ACR_ICEN;
   FLASH->ACR |= FLASH_ACR_DCEN;
@@ -129,14 +135,14 @@ void System::CoreInit() {
   NVIC_SetPriority(SysTick_IRQn, irq_priority::kSysTick);
 }
 
-// APB1 clock gate to PWR (RCC_APB1ENR.PWREN). Read-back enforces a bus-retire
-// barrier before the next PWR register access.
+// The read-back is a bus-retire barrier: without it the next PWR access can
+// reach the peripheral before its clock gate has taken effect.
 void System::EnablePwrClock() {
   RCC->APB1ENR |= RCC_APB1ENR_PWREN;
   (void)RCC->APB1ENR;
 }
 
-// PWR_CR.VOS field write. Read-back barrier as in EnablePwrClock.
+// Read-back barrier as in EnablePwrClock.
 void System::SetVoltageScale(VoltageScale scale) {
   PWR->CR = (PWR->CR & ~PWR_CR_VOS) | static_cast<uint32_t>(scale);
   (void)PWR->CR;
