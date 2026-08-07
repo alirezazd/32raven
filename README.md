@@ -122,8 +122,6 @@ make esp32     # ESP32 only
 make flash-esp32
 ```
 
-> In Docker mode, set `ESP_PORT="/dev/ttyUSB0"` (or your device path) in `user_config.cmake` so the USB tty is passed into the container via `--device`. Without it, idf.py auto-detect won't see any host devices.
-
 ### ESP32 (Wireless / OTA)
 
 ```bash

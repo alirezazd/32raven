@@ -14,6 +14,10 @@ BUILD_DIR ?= $(BUILD_ROOT)/$(GEN_DIR)
 IDF_PATH_VAR := $(shell grep "IDF_PATH" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
 ESP_PORT_VAR := $(shell grep "ESP_PORT" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
 ESP_BAUD_VAR := $(shell grep "ESP_BAUD" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
+# Matched by descriptor because the STM32 raises a CDC-ACM port of its own and
+# idf.py's auto-detect can land on that instead. The by-id serial is per-board,
+# hence the glob; a configured ESP_PORT wins only while it still exists.
+ESP_PORT_VAR := $(or $(wildcard $(ESP_PORT_VAR)),$(shell readlink -f /dev/serial/by-id/usb-Espressif_*-if00 2>/dev/null | head -n1))
 
 # Override per-invocation with `USE_DOCKER=0 make ...`.
 -include .build-mode
@@ -50,8 +54,6 @@ ifeq ($(USE_DOCKER),1)
     -w /workspace
   # Extra flags for serial flash/monitor: pass the USB tty into the container,
   # plus the device's group so the in-container user can read/write it.
-  # Set ESP_PORT="/dev/ttyUSB0" (or similar) in user_config.cmake; if unset,
-  # the targets still run but idf.py auto-detect won't see any host devices.
   DOCKER_USB :=
   ifneq ($(ESP_PORT_VAR),)
     DOCKER_USB := --device=$(ESP_PORT_VAR) --group-add $(shell stat -c '%g' $(ESP_PORT_VAR) 2>/dev/null || echo 0)
@@ -164,8 +166,8 @@ idf-install:
 esp32-menuconfig:
 	$(RUN) bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 menuconfig"
 
-# Serial flash/monitor: in Docker mode the USB tty is passed through via
-# --device (set ESP_PORT in user_config.cmake). On host, runs directly.
+# Serial flash/monitor: in Docker mode the resolved USB tty is passed through
+# via --device. On host, runs directly.
 flash-esp32: esp32
 	$(RUN_USB) bash -lc ". \"$(IDF_PATH)/export.sh\" && cd esp32 && idf.py $(IDF_ARGS) -B ../$(BUILD_DIR)/esp32 flash"
 
