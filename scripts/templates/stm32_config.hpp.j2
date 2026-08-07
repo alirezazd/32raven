@@ -26,6 +26,7 @@
 #include "stm32_limits.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
+#include "uart_soft.hpp"
 #include "usb_cdc.hpp"
 
 {# ---- Pin map (from menuconfig + ST silicon data) ------------------------
@@ -345,6 +346,18 @@ inline constexpr UsbCdcConfig kUsbCdcConfig = {
     .product_id = {{ usb_cdc.product_id }},
     .manufacturer = {{ usb_cdc.manufacturer }},
     .product = {{ usb_cdc.product }},
+};
+
+{# Fixed by the ESC bootloader, not by this board: AM32 and BLHeli listen at
+   19200 8N1 and nothing here can negotiate. Spelled out rather than pulled
+   from Kconfig for the same reason the four-way command bytes are -- a knob
+   could only be turned to a value no ESC answers. The timeout is a bootloader
+   that replies within a few bit times against one that is not there at all. #}
+inline constexpr UartSoftConfig kEscBootloaderUartConfig = {
+    .baud_rate = 19200u,
+    .parity = UartParity::kNone,
+    .stop_bits = UartStopBits::k1,
+    .start_bit_timeout_us = 2000u,
 };
 
 inline constexpr MspService::Config kMspServiceConfig = {

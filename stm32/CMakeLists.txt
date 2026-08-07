@@ -145,6 +145,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/Src/spi.cpp
     Drivers/Src/button.cpp
     Drivers/Src/uart.cpp
+    Drivers/Src/uart_soft.cpp
     Drivers/Src/usb_cdc.cpp
     Drivers/Src/m10.cpp
     Drivers/Src/icm42688p.cpp

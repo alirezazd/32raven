@@ -315,6 +315,9 @@ void System::InitComponent(Component c) {
     case Component::kUsbCdc:
       UsbCdc::GetInstance().Init(kUsbCdcConfig);
       break;
+    case Component::kUartSoft:
+      UartSoft::GetInstance().Init(kEscBootloaderUartConfig);
+      break;
     case Component::kFourWayService:
       four_way_service_.Init(UsbCdc::GetInstance());
       break;

@@ -120,6 +120,7 @@ class System {
     kDshot,
     kEscTelemetry,
     kEscService,
+    kUartSoft,
     kFourWayService,
     kMspService,
     kUsbCdc,
