@@ -8,6 +8,7 @@
 
 #include "button.hpp"
 #include "buzzer.hpp"
+#include "common_config.hpp"
 #include "fc_link.hpp"
 #include "i2c.hpp"
 #include "led.hpp"
@@ -168,7 +169,7 @@ inline constexpr UartConfig kFcLinkUartConfig = {
         },
     .line =
         {
-            .baud_rate = {{ fclink_uart.baud_rate }},
+            .baud_rate = common_config::kFcLinkBaud,
             .parity = {{ fclink_uart.parity }},
         },
     .buffers =
@@ -183,6 +184,7 @@ inline constexpr FcLink::Config kFcLinkConfig = {
     .handshake_retry_period_ms = {{ fclink.handshake_retry_period_ms }},
     .invalid_packet_threshold = {{ fclink.invalid_packet_threshold }},
 };
+
 
 inline constexpr Programmer::Config kProgrammerConfig = {
     .boot0_pin = kPinMap.programmer_boot0,
@@ -246,11 +248,6 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
         },
 };
 
-// MAVLink runtime identity / timing.  `kMavlinkSysAutostart` is the
-// `MAV_AUTOPILOT_GENERIC_*` value reported in HEARTBEAT (PX4 frame class,
-// 4001 == "mission-style autostart").  `kMavlinkSystemStatusFreshMs` is
-// how long a SYS_STATUS sample is considered current before we drop the
-// telemetry fields that depend on it.
 inline constexpr std::uint32_t kMavlinkSysAutostart = {{ mavlink.sys_autostart }}u;
 inline constexpr std::uint32_t kMavlinkSystemStatusFreshMs =
     {{ mavlink.system_status_fresh_ms }}u;
@@ -258,7 +255,5 @@ inline constexpr const char *kMavlinkGitHashShort = "{{ mavlink.git_hash }}";
 inline constexpr const char *kMavlinkVersionString = "{{ mavlink.version_string }}";
 inline constexpr std::uint32_t kMavlinkFlightSwVersion = {{ mavlink.flight_sw_version_hex }};
 
-// Panic background task (FreeRTOS).  Stack depth and priority are
-// independent of MCU silicon; tune them as the panic handler grows.
 inline constexpr std::size_t kPanicTaskStackDepthWords = {{ panic.task_stack_depth_words }};
 inline constexpr std::uint32_t kPanicTaskPriority = {{ panic.task_priority }}u;

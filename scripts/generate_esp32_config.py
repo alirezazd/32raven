@@ -152,20 +152,6 @@ WIDGET_BOOT_TIMEOUT_MAX_S = 15
 WIDGET_UI_TIMEOUT_MIN_S = 0
 WIDGET_UI_TIMEOUT_MAX_S = 255
 
-FCLINK_UART_BAUD_RATE_CHOICES = {
-    "ESP32_FCLINK_UART_BAUD_9600": "9600",
-    "ESP32_FCLINK_UART_BAUD_19200": "19200",
-    "ESP32_FCLINK_UART_BAUD_38400": "38400",
-    "ESP32_FCLINK_UART_BAUD_57600": "57600",
-    "ESP32_FCLINK_UART_BAUD_115200": "115200",
-    "ESP32_FCLINK_UART_BAUD_230400": "230400",
-    "ESP32_FCLINK_UART_BAUD_460800": "460800",
-    "ESP32_FCLINK_UART_BAUD_921600": "921600",
-    "ESP32_FCLINK_UART_BAUD_1000000": "1000000",
-    "ESP32_FCLINK_UART_BAUD_2000000": "2000000",
-    "ESP32_FCLINK_UART_BAUD_5000000": "5000000",
-}
-
 FCLINK_UART_PARITY_CHOICES = {
     "ESP32_FCLINK_UART_PARITY_NONE": "UartParity::kNone",
     "ESP32_FCLINK_UART_PARITY_EVEN": "UartParity::kEven",
@@ -539,7 +525,6 @@ def _usb_cdc_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _fclink_uart_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "baud_rate": choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES),
         "parity": choice_value(kconf, FCLINK_UART_PARITY_CHOICES),
         "rx_buf": sym_int(kconf, "ESP32_FCLINK_UART_RX_BUFFER_SIZE"),
         "tx_buf": sym_int(kconf, "ESP32_FCLINK_UART_TX_BUFFER_SIZE"),

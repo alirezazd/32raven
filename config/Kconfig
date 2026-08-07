@@ -7,26 +7,67 @@ menu "Common"
 
 menu "FcLink"
 
+choice
+    prompt "Baud rate"
+    default COMMON_FCLINK_BAUD_5000000
+    help
+      Line rate for the UART between the two MCUs. Both ends are configured
+      from this one symbol; there is no per-board override to fall out of step
+      with.
+
+config COMMON_FCLINK_BAUD_9600
+    bool "9600"
+
+config COMMON_FCLINK_BAUD_19200
+    bool "19200"
+
+config COMMON_FCLINK_BAUD_38400
+    bool "38400"
+
+config COMMON_FCLINK_BAUD_57600
+    bool "57600"
+
+config COMMON_FCLINK_BAUD_115200
+    bool "115200"
+
+config COMMON_FCLINK_BAUD_230400
+    bool "230400"
+
+config COMMON_FCLINK_BAUD_460800
+    bool "460800"
+
+config COMMON_FCLINK_BAUD_921600
+    bool "921600"
+
+config COMMON_FCLINK_BAUD_1000000
+    bool "1000000"
+
+config COMMON_FCLINK_BAUD_2000000
+    bool "2000000"
+
+config COMMON_FCLINK_BAUD_5000000
+    bool "5000000"
+
+endchoice
+
 config COMMON_FCLINK_EXCHANGE_INTERVAL_MS
     int "Peer exchange interval (ms)"
     range 50 2000
     default 300
     help
-      Cadence at which each side re-asserts itself to the other: the ESP32's
-      ESC-configuration lease renewal and the STM32's USB-state report both
-      ride it. Distinct from the STM32 telemetry rate, which carries the bulk
-      sensor stream -- this one is the liveness and control cadence.
+      Cadence of the STM32's USB-state report, and the unit the peer timeout
+      below is counted in. Distinct from the STM32 telemetry rate, which
+      carries the bulk sensor stream.
 
 config COMMON_FCLINK_PEER_TIMEOUT_EXCHANGES
     int "Peer timeout (exchanges)"
     range 2 20
     default 5
     help
-      How many exchanges may be missed before a side declares the other gone.
-      The STM32 then revokes the USB grant, detaches the port and drops any
-      four-way session; the ESP32 stops trusting the USB state it was told.
-      Expressed in exchanges rather than milliseconds so both windows scale
-      with the interval above and neither can end up shorter than it.
+      How many exchanges may be missed before the ESP32 stops trusting the
+      USB state the STM32 last reported, falling back to "unknown" on screen.
+      Expressed in exchanges rather than milliseconds so the window scales
+      with the interval above and cannot end up shorter than it.
 
 endmenu
 
@@ -677,47 +718,7 @@ menu "FcLink"
 
 menu "Uart"
 
-choice
-    prompt "UART baud rate"
-    default ESP32_FCLINK_UART_BAUD_5000000
-    help
-      UART baud rate used by the ESP32 side of FcLink. The STM32 FcLink UART
-      follows this same setting so both ends stay matched.
-
-config ESP32_FCLINK_UART_BAUD_9600
-    bool "9600"
-
-config ESP32_FCLINK_UART_BAUD_19200
-    bool "19200"
-
-config ESP32_FCLINK_UART_BAUD_38400
-    bool "38400"
-
-config ESP32_FCLINK_UART_BAUD_57600
-    bool "57600"
-
-config ESP32_FCLINK_UART_BAUD_115200
-    bool "115200"
-
-config ESP32_FCLINK_UART_BAUD_230400
-    bool "230400"
-
-config ESP32_FCLINK_UART_BAUD_460800
-    bool "460800"
-
-config ESP32_FCLINK_UART_BAUD_921600
-    bool "921600"
-
-config ESP32_FCLINK_UART_BAUD_1000000
-    bool "1000000"
-
-config ESP32_FCLINK_UART_BAUD_2000000
-    bool "2000000"
-
-config ESP32_FCLINK_UART_BAUD_5000000
-    bool "5000000"
-
-endchoice
+comment "Baud rate lives under Common -> FcLink"
 
 choice
     prompt "Parity"
@@ -1784,7 +1785,7 @@ config STM32_FCLINK_TELEMETRY_RATE_HZ
 
 menu "UART"
 
-comment "UART baud rate follows ESP32 -> FcLink"
+comment "Baud rate lives under Common -> FcLink"
 
 choice
     prompt "Word length"

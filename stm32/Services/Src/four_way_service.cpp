@@ -1,0 +1,260 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
+#include "four_way_service.hpp"
+
+#include "checksum.hpp"
+#include "dshot_codec.hpp"
+#include "error_code.hpp"
+#include "panic.hpp"
+
+namespace {
+
+constexpr uint8_t kLocalEscape = 0x2F;   // host  -> flight controller
+constexpr uint8_t kRemoteEscape = 0x2E;  // flight controller -> host
+
+constexpr uint8_t kCmdInterfaceTestAlive = 0x30;
+constexpr uint8_t kCmdProtocolGetVersion = 0x31;
+constexpr uint8_t kCmdInterfaceGetName = 0x32;
+constexpr uint8_t kCmdInterfaceGetVersion = 0x33;
+constexpr uint8_t kCmdInterfaceExit = 0x34;
+constexpr uint8_t kCmdDeviceReset = 0x35;
+constexpr uint8_t kCmdDeviceInitFlash = 0x37;
+constexpr uint8_t kCmdDeviceEraseAll = 0x38;
+constexpr uint8_t kCmdDevicePageErase = 0x39;
+constexpr uint8_t kCmdDeviceRead = 0x3A;
+constexpr uint8_t kCmdDeviceWrite = 0x3B;
+constexpr uint8_t kCmdDeviceReadEeprom = 0x3D;
+constexpr uint8_t kCmdDeviceWriteEeprom = 0x3E;
+constexpr uint8_t kCmdInterfaceSetMode = 0x3F;
+
+constexpr uint8_t kAckOk = 0x00;
+constexpr uint8_t kAckInvalidCommand = 0x02;
+constexpr uint8_t kAckInvalidCrc = 0x03;
+constexpr uint8_t kAckInvalidChannel = 0x08;
+constexpr uint8_t kAckInvalidParam = 0x09;
+constexpr uint8_t kAckDeviceGeneralError = 0x0F;
+
+// Long enough that a host pausing between the bytes of one frame is never
+// mistaken for a dead one, short enough to recover well inside the seconds a
+// configurator waits before giving up on the port.
+constexpr uint32_t kFrameStallTimeoutUs = 250000u;
+
+constexpr uint8_t kProtocolVersion = 107;
+constexpr uint8_t kInterfaceVersionMain = 20;
+constexpr uint8_t kInterfaceVersionSub = 4;
+constexpr char kInterfaceName[] = "m4wFCIntf";
+
+// AM32 runs imARM_BLB. The SiLabs and Atmel modes below it are silicon we will
+// never be wired to, but rejecting them outright confuses the probe.
+constexpr uint8_t kModeArmBlb = 4;
+
+}  // namespace
+
+void FourWayService::Init(UsbCdc &usb) {
+  if (initialized_) {
+    Panic(ErrorCode::Stm32::kFourWayServiceReinit);
+  }
+  initialized_ = true;
+  usb_ = &usb;
+}
+
+void FourWayService::Enter() {
+  active_ = true;
+  Reset();
+}
+
+void FourWayService::Exit() {
+  active_ = false;
+  Reset();
+}
+
+void FourWayService::Reset() {
+  parse_ = Parse::kEscape;
+  param_index_ = 0;
+  crc_ = 0;
+}
+
+void FourWayService::Poll(uint32_t now_us) {
+  // Between frames there is no partial state to lose, and the escape byte
+  // resynchronises on its own.
+  if (parse_ == Parse::kEscape) {
+    return;
+  }
+
+  if (feed_count_ != last_feed_count_) {
+    last_feed_count_ = feed_count_;
+    last_progress_us_ = now_us;
+    return;
+  }
+
+  if ((now_us - last_progress_us_) > kFrameStallTimeoutUs) {
+    ++stall_count_;
+    Reset();
+  }
+}
+
+void FourWayService::Feed(uint8_t byte) {
+  ++feed_count_;
+
+  switch (parse_) {
+    case Parse::kEscape:
+      if (byte == kLocalEscape) {
+        crc_ = checksum::XModemUpdate(0, byte);
+        parse_ = Parse::kCommand;
+      }
+      break;
+
+    case Parse::kCommand:
+      command_ = byte;
+      crc_ = checksum::XModemUpdate(crc_, byte);
+      parse_ = Parse::kAddressHi;
+      break;
+
+    case Parse::kAddressHi:
+      address_ = static_cast<uint16_t>(byte) << 8;
+      crc_ = checksum::XModemUpdate(crc_, byte);
+      parse_ = Parse::kAddressLo;
+      break;
+
+    case Parse::kAddressLo:
+      address_ |= byte;
+      crc_ = checksum::XModemUpdate(crc_, byte);
+      parse_ = Parse::kLength;
+      break;
+
+    case Parse::kLength:
+      // Zero length means a full 256-byte payload.
+      param_count_ = (byte == 0u) ? 256u : byte;
+      crc_ = checksum::XModemUpdate(crc_, byte);
+      param_index_ = 0;
+      parse_ = Parse::kParams;
+      break;
+
+    case Parse::kParams:
+      params_[param_index_++] = byte;
+      crc_ = checksum::XModemUpdate(crc_, byte);
+      if (param_index_ >= param_count_) {
+        parse_ = Parse::kCrcHi;
+      }
+      break;
+
+    case Parse::kCrcHi:
+      crc_received_ = static_cast<uint16_t>(byte) << 8;
+      parse_ = Parse::kCrcLo;
+      break;
+
+    case Parse::kCrcLo:
+      crc_received_ |= byte;
+      if (crc_received_ == crc_) {
+        Dispatch();
+      } else {
+        ++crc_error_count_;
+        reply_len_ = 0;
+        Respond(kAckInvalidCrc);
+      }
+      Reset();
+      break;
+  }
+}
+
+void FourWayService::Dispatch() {
+  ++request_count_;
+  last_command_ = command_;
+  reply_len_ = 0;
+
+  switch (command_) {
+    case kCmdInterfaceTestAlive:
+      Respond(kAckOk);
+      return;
+
+    case kCmdProtocolGetVersion:
+      ReplyBuf()[reply_len_++] = kProtocolVersion;
+      Respond(kAckOk);
+      return;
+
+    case kCmdInterfaceGetName:
+      for (size_t i = 0; i < sizeof(kInterfaceName) - 1u; ++i) {
+        ReplyBuf()[reply_len_++] = static_cast<uint8_t>(kInterfaceName[i]);
+      }
+      Respond(kAckOk);
+      return;
+
+    case kCmdInterfaceGetVersion:
+      ReplyBuf()[reply_len_++] = kInterfaceVersionMain;
+      ReplyBuf()[reply_len_++] = kInterfaceVersionSub;
+      Respond(kAckOk);
+      return;
+
+    case kCmdInterfaceExit:
+      Respond(kAckOk);
+      active_ = false;
+      return;
+
+    case kCmdInterfaceSetMode:
+      if (param_count_ < 1u || params_[0] > kModeArmBlb) {
+        Respond(kAckInvalidParam);
+        return;
+      }
+      Respond(kAckOk);
+      return;
+
+    // Validated even though talking to an ESC is not yet possible: an
+    // out-of-range channel is a protocol error, not an unresponsive ESC.
+    case kCmdDeviceInitFlash:
+      if (param_count_ < 1u || params_[0] >= DShotCodec::kMotorCount) {
+        Respond(kAckInvalidChannel);
+        return;
+      }
+      selected_esc_ = params_[0];
+      Respond(kAckDeviceGeneralError);
+      return;
+
+    case kCmdDeviceReset:
+    case kCmdDeviceEraseAll:
+    case kCmdDevicePageErase:
+    case kCmdDeviceRead:
+    case kCmdDeviceWrite:
+    case kCmdDeviceReadEeprom:
+    case kCmdDeviceWriteEeprom:
+      Respond(kAckDeviceGeneralError);
+      return;
+
+    default:
+      Respond(kAckInvalidCommand);
+      return;
+  }
+}
+
+void FourWayService::Respond(uint8_t ack) {
+  // Zero length means 256 parameters, so an empty reply cannot be encoded --
+  // the host would wait for 256 bytes that never come. Ack-only responses
+  // carry one padding byte, as BLHeli's own implementation does.
+  if (reply_len_ == 0u) {
+    ReplyBuf()[0] = 0u;
+    reply_len_ = 1u;
+  }
+
+  // Dispatch staged the payload at kHeaderBytes already, so only the bytes
+  // around it are written here.
+  frame_[0] = kRemoteEscape;
+  frame_[1] = command_;
+  frame_[2] = static_cast<uint8_t>(address_ >> 8);
+  frame_[3] = static_cast<uint8_t>(address_ & 0xFFu);
+  frame_[4] = static_cast<uint8_t>(reply_len_ & 0xFFu);
+
+  size_t n = kHeaderBytes + reply_len_;
+  frame_[n++] = ack;
+
+  const uint16_t crc = checksum::XModem(frame_, n);
+  frame_[n++] = static_cast<uint8_t>(crc >> 8);
+  frame_[n++] = static_cast<uint8_t>(crc & 0xFFu);
+
+  // A short write would let the host splice the next frame into this one's
+  // payload. Dropping it whole costs a timeout instead of desynchronising the
+  // stream for the rest of the session.
+  ++reply_count_;
+  if (usb_->Send(frame_, n) != n) {
+    ++tx_drop_count_;
+  }
+}

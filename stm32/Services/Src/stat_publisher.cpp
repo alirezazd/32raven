@@ -5,12 +5,17 @@
 
 #include <cstdint>
 
+#include "common_config.hpp"
 #include "ctx.hpp"
 #include "error_code.hpp"
 #include "esc_service.hpp"
+#include "four_way_service.hpp"
 #include "icm42688p.hpp"
 #include "message.hpp"
+#include "msp_service.hpp"
+#include "stm32_config.hpp"
 #include "system.hpp"
+#include "usb_cdc.hpp"
 #include "vehicle_state.hpp"
 
 uint16_t StatPublisher::BatteryVoltageMv(const BatteryData &battery) {
@@ -68,7 +73,8 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
 
   if (gps.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagGps;
-    if (gps.fix_type >= 2u) {
+    if ((now_us - gps.timestamp_us) <= kGpsFreshTimeoutUs &&
+        gps.fix_type >= 2u) {
       sensors_health |= message::kSystemSensorFlagGps;
     }
   }
@@ -113,14 +119,57 @@ message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg(
   msg.armed_state = ctx.sys->EscSvc().IsArmed()
                         ? message::kVehicleArmedStateArmed
                         : message::kVehicleArmedStateDisarmed;
-  // TODO: detect RC-loss, battery, IMU, GPS failsafe conditions
+  // TODO(fc): detect RC-loss, battery, IMU, GPS failsafe conditions
   msg.failsafe_flags = 0u;
   msg.flight_mode = static_cast<uint8_t>(ctx.sys->Vehicle().GetFlightMode());
   return msg;
 }
 
-void StatPublisher::Publish(AppContext &ctx, uint32_t now_us,
-                            uint32_t loop_counter) {
+message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(AppContext &ctx) {
+  const UsbCdc &usb = UsbCdc::GetInstance();
+  const MspService &msp = ctx.sys->MspSvc();
+  const FourWayService &four_way = ctx.sys->FourWaySvc();
+
+  uint8_t flags = 0u;
+  if (usb.IsAttached()) flags |= message::kUsbStatusAttached;
+  if (usb.IsConfigured()) flags |= message::kUsbStatusConfigured;
+  if (usb.IsConnected()) flags |= message::kUsbStatusPortOpen;
+  if (msp.EscConfigGranted()) {
+    flags |= message::kUsbStatusEscConfigGranted;
+  }
+
+  // Both dialects share the port, so their frames share one count -- the
+  // reader is drawing "data moved", not attributing it to a protocol.
+  return message::UsbStatusMsg{
+      .flags = flags,
+      .rx_frames =
+          static_cast<uint8_t>(msp.RequestCount() + four_way.RequestCount()),
+      .tx_frames =
+          static_cast<uint8_t>(msp.ReplyCount() + four_way.ReplyCount()),
+  };
+}
+
+void StatPublisher::PublishUsbStatus(AppContext &ctx, uint32_t now_us) {
+  const message::UsbStatusMsg msg = BuildUsbStatusMsg(ctx);
+  const bool frames_moved = msg.rx_frames != usb_status_rx_frames_ ||
+                            msg.tx_frames != usb_status_tx_frames_;
+  // Faster while frames move, so a burst is not averaged away.
+  const uint32_t interval_us =
+      frames_moved ? (common_config::kFcLinkExchangeIntervalUs / 3u)
+                   : common_config::kFcLinkExchangeIntervalUs;
+  if (usb_status_sent_us_ != 0u &&
+      (now_us - usb_status_sent_us_) < interval_us) {
+    return;
+  }
+
+  usb_status_sent_us_ = now_us;
+  usb_status_rx_frames_ = msg.rx_frames;
+  usb_status_tx_frames_ = msg.tx_frames;
+  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kUsbStatus, msg);
+}
+
+void StatPublisher::PublishTelemetry(AppContext &ctx, uint32_t now_us,
+                                     uint32_t loop_counter) {
   const Icm42688p &imu = ctx.sys->Imu();
   ctx.sys->FcLinkSvc().SendSystemStatus(
       BuildSystemStatusMsg(ctx, now_us, loop_counter, imu));

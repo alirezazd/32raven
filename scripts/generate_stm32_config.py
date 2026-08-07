@@ -24,9 +24,11 @@ from pin_constraints import PinConstraints  # noqa: E402
 from kconfig_gen import (  # noqa: E402
     autogen_warning,
     choice_value,
+    cpp_string_literal,
     sym_bool,
     sym_hex_literal,
     sym_int,
+    sym_str,
 )
 from kconfig_gen import run as run_generator  # noqa: E402
 
@@ -36,6 +38,32 @@ FCLINK_TELEMETRY_RATE_MIN = 1
 FCLINK_TELEMETRY_RATE_MAX = 255
 BATTERY_ADC_RESOLUTION_BITS = 12
 BATTERY_ADC_MAX_RAW = (1 << BATTERY_ADC_RESOLUTION_BITS) - 1
+
+# Largest single frame either USB dialect can emit, taken from the frame buffers
+# in MspService and FourWayService rather than from the wire: both are sized
+# payload + 16, and a static_assert in each service holds this to it. The
+# payload is a 256-byte ESC page for four-way and an MSP v1 maximum for MSP.
+USB_CDC_MAX_PAYLOAD_BYTES = 256
+USB_CDC_FRAME_OVERHEAD_BYTES = 16
+USB_CDC_MAX_FRAME_BYTES = USB_CDC_MAX_PAYLOAD_BYTES + USB_CDC_FRAME_OVERHEAD_BYTES
+# USB 2.0 full-speed endpoint payloads, fixed by the specification and matched
+# by the wMaxPacketSize bytes in the configuration descriptor.
+USB_BULK_MAX_PACKET_BYTES = 64
+USB_EP0_MAX_PACKET_BYTES = 64
+# The serial-number string is the 96-bit device UID rendered as hex, so its
+# length is a property of the silicon rather than of any configured string.
+USB_CDC_SERIAL_CHARS = 24
+# A string descriptor is bLength + bDescriptorType + two bytes per character,
+# and bLength is one byte, so no descriptor can exceed 255.
+USB_STRING_DESCRIPTOR_HEADER_BYTES = 2
+USB_STRING_DESCRIPTOR_MAX_BYTES = 255
+# One slot is spent on RingBuffer's full/empty discrimination, so a ring holds
+# Size - 1 bytes. TX must swallow a whole frame in one push: a short write is
+# dropped rather than truncated, which costs the host a timeout. RX additionally
+# keeps one bulk packet free, because the driver refuses to re-arm the OUT
+# endpoint below that and the host is NAKed until it can.
+USB_CDC_TX_RING_SIZE = USB_CDC_MAX_FRAME_BYTES + 1
+USB_CDC_RX_RING_SIZE = USB_CDC_MAX_FRAME_BYTES + USB_BULK_MAX_PACKET_BYTES + 1
 
 
 SPI_PRESCALER_CHOICES = {
@@ -133,16 +161,6 @@ RC_RECEIVER_UART_OVERSAMPLING_CHOICES = _prefixed(
     "STM32_RC_RECEIVER_UART_OVERSAMPLING", _UART_OVERSAMPLING_VALUES
 )
 
-# FcLink baud rates are owned by the ESP32 side (the link-shared symbol lives
-# under ESP32_FCLINK_UART_BAUD_*); the rest of the framing config lives
-# under STM32_FCLINK_UART_*.
-FCLINK_UART_BAUD_RATE_CHOICES = {
-    f"ESP32_FCLINK_UART_BAUD_{rate}": str(rate)
-    for rate in (
-        9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
-        1000000, 2000000, 5000000,
-    )
-}
 FCLINK_UART_WORD_LENGTH_CHOICES = _prefixed(
     "STM32_FCLINK_UART_WORD_LENGTH", _UART_WORD_LENGTH_VALUES
 )
@@ -506,6 +524,23 @@ PINMAP_ENTRIES: tuple = (
         signal="USART6_RX",
         choice_options={
             "STM32_UART6_RX_PIN_PC7": "PC7",
+        },
+    ),
+    # ---- USB -----------------------------------------------------------
+    # PA11/PA12 is the only pair on this package; these entries exist so the
+    # pins are visible to the collision checker, not to offer a choice.
+    _SignalPin(
+        board_const="kUsbDm",
+        signal="USB_OTG_FS_DM",
+        choice_options={
+            "STM32_USB_DM_PIN_PA11": "PA11",
+        },
+    ),
+    _SignalPin(
+        board_const="kUsbDp",
+        signal="USB_OTG_FS_DP",
+        choice_options={
+            "STM32_USB_DP_PIN_PA12": "PA12",
         },
     ),
     # ---- Motors --------------------------------------------------------
@@ -909,6 +944,30 @@ def _rc_map(kconf: kconfiglib.Kconfig) -> dict[str, int]:
     }
 
 
+def _usb_string_descriptor_bytes(kconf: kconfiglib.Kconfig) -> int:
+    """Size the string-descriptor build buffer to the longest string it encodes.
+
+    Sized rather than clamped: BuildStringDescriptor truncates silently, so a
+    fixed buffer would cut a long product name in the host's port picker with
+    nothing to say it had happened.
+    """
+    longest = USB_CDC_SERIAL_CHARS
+    for name in ("STM32_USB_MANUFACTURER", "STM32_USB_PRODUCT"):
+        value = sym_str(kconf, name)
+        if len(value) > longest:
+            longest = len(value)
+
+    total = USB_STRING_DESCRIPTOR_HEADER_BYTES + (longest * 2)
+    if total > USB_STRING_DESCRIPTOR_MAX_BYTES:
+        raise SystemExit(
+            f"USB string of {longest} characters needs a {total}-byte descriptor, "
+            f"over the {USB_STRING_DESCRIPTOR_MAX_BYTES}-byte limit imposed by a "
+            f"single-byte bLength. Shorten STM32_USB_MANUFACTURER or "
+            f"STM32_USB_PRODUCT."
+        )
+    return total
+
+
 def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str, object]:
     enabled_rc_channels = _enabled_rc_channels(kconf)
     enabled_rc_indices = [
@@ -923,6 +982,12 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
         "rc_enabled_indices": enabled_rc_indices,
         "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
         "battery_adc_max_raw": BATTERY_ADC_MAX_RAW,
+        "usb_cdc_max_frame_bytes": USB_CDC_MAX_FRAME_BYTES,
+        "usb_cdc_rx_ring_size": USB_CDC_RX_RING_SIZE,
+        "usb_cdc_tx_ring_size": USB_CDC_TX_RING_SIZE,
+        "usb_cdc_bulk_max_packet_bytes": USB_BULK_MAX_PACKET_BYTES,
+        "usb_cdc_ep0_max_packet_bytes": USB_EP0_MAX_PACKET_BYTES,
+        "usb_cdc_string_descriptor_bytes": _usb_string_descriptor_bytes(kconf),
     }
 
 
@@ -934,6 +999,7 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
 # RM0090 §6.3.2 PLL limits, plus the F407's SYSCLK ceiling.
 PLL_VCO_IN_HZ = (1_000_000, 2_000_000)
 PLL_VCO_OUT_HZ = (100_000_000, 432_000_000)
+USB_OTG_FS_HZ = 48_000_000
 SYSCLK_MAX_HZ = 168_000_000
 HSI_HZ = 16_000_000
 
@@ -953,6 +1019,7 @@ def _solve_system_clock(kconf: kconfiglib.Kconfig) -> int:
     pllm = sym_int(kconf, "STM32_SYSTEM_PLL_M")
     plln = sym_int(kconf, "STM32_SYSTEM_PLL_N")
     pllp = int(choice_value(kconf, SYSTEM_PLL_P_CHOICES).rsplit("kDiv", 1)[1])
+    pllq = sym_int(kconf, "STM32_SYSTEM_PLL_Q")
     ahb_div = int(choice_value(kconf, SYSTEM_AHB_DIV_CHOICES).rsplit("kDiv", 1)[1])
 
     vco_in = src_hz / pllm
@@ -974,6 +1041,14 @@ def _solve_system_clock(kconf: kconfiglib.Kconfig) -> int:
         errors.append(
             f"SYSCLK is {sysclk / 1e6:.1f} MHz (VCO / PLLP {pllp}); "
             f"the STM32F407 maximum is 168 MHz"
+        )
+    # UsbCdc::CoreInit panics from inside System::Init when the core will not
+    # reset, so an off-spec divider stops the board booting, not just USB.
+    usb_clk = vco_out / pllq
+    if usb_clk != USB_OTG_FS_HZ:
+        errors.append(
+            f"USB clock is {usb_clk / 1e6:.3f} MHz (VCO / PLLQ {pllq}); "
+            f"OTG FS requires exactly 48 MHz"
         )
 
     if errors:
@@ -1032,6 +1107,30 @@ def _esc_telemetry_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "response_timeout_us": sym_int(
             kconf, "STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US"
         ),
+    }
+
+
+def _usb_cdc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "vendor_id": sym_hex_literal(kconf, "STM32_USB_VENDOR_ID"),
+        "product_id": sym_hex_literal(kconf, "STM32_USB_PRODUCT_ID"),
+        "manufacturer": cpp_string_literal(
+            sym_str(kconf, "STM32_USB_MANUFACTURER")
+        ),
+        "product": cpp_string_literal(sym_str(kconf, "STM32_USB_PRODUCT")),
+    }
+
+
+def _msp_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "board_identifier": cpp_string_literal(
+            sym_str(kconf, "STM32_MSP_BOARD_IDENTIFIER")
+        ),
+        "board_name": cpp_string_literal(sym_str(kconf, "STM32_MSP_BOARD_NAME")),
+        "manufacturer_id": cpp_string_literal(
+            sym_str(kconf, "STM32_MSP_MANUFACTURER_ID")
+        ),
+        "craft_name": cpp_string_literal(sym_str(kconf, "STM32_MSP_CRAFT_NAME")),
     }
 
 
@@ -1133,7 +1232,6 @@ def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "telemetry_rate_hz": sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ"),
         "uart": {
-            "baud_rate": choice_value(kconf, FCLINK_UART_BAUD_RATE_CHOICES),
             "word_length": choice_value(kconf, FCLINK_UART_WORD_LENGTH_CHOICES),
             "stop_bits": choice_value(kconf, FCLINK_UART_STOP_BITS_CHOICES),
             "parity": choice_value(kconf, FCLINK_UART_PARITY_CHOICES),
@@ -1367,6 +1465,8 @@ def _runtime_context(
         "timebase": _timebase_context(kconf),
         "esc_telemetry": _esc_telemetry_context(kconf),
         "esc_service": _esc_service_context(kconf),
+        "usb_cdc": _usb_cdc_context(kconf),
+        "msp": _msp_context(kconf),
         "fclink": _fclink_context(kconf),
         "m10": _m10_context(kconf),
         "icm42688p": _icm42688p_context(kconf),

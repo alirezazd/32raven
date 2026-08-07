@@ -160,11 +160,28 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
   const auto *req =
       reinterpret_cast<const message::PrivilegedArmMsg *>(pkt.payload);
   const bool armed = req->armed != 0u;
+  // Tearing the port down mid-write is how an ESC gets bricked, so an arm
+  // during a configuration session is refused rather than allowed to revoke.
+  if (armed && ctx.sys->MspSvc().EscConfigGranted()) {
+    ctx.sys->FcLinkSvc().SendPacket(
+        message::MsgId::kTone, message::ToneMsg{.tone = message::kToneWarning});
+    return;
+  }
   // Reset on every arm transition: a wound-up controller from a prior
   // session must not kick the next arm.
   ctx.sys->RateControllerSvc().Reset();
   ctx.sys->EscSvc().SetArmed(armed);
   ctx.sys->MixerSvc().SetArmed(armed);
+}
+
+static void OnSetEscConfigMode(AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kSetEscConfigMode,
+                                     pkt.header.len)) {
+    return;
+  }
+  const auto *req =
+      reinterpret_cast<const message::SetEscConfigModeMsg *>(pkt.payload);
+  ctx.sys->MspSvc().SetEscConfigMode(req->enabled != 0u);
 }
 
 static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
@@ -177,6 +194,7 @@ static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
+    {message::MsgId::kSetEscConfigMode, OnSetEscConfigMode},
 };
 
 static const Epistole::Dispatcher<AppContext> kDispatcher(

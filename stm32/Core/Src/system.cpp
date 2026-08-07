@@ -14,6 +14,7 @@
 #include "stm32_config.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
+#include "usb_cdc.hpp"
 #include "watchdog.hpp"
 
 namespace {
@@ -94,6 +95,9 @@ void System::Init(const System::Config &config) {
   InitComponent(Component::kDshot);
   InitComponent(Component::kEscTelemetry);
   InitComponent(Component::kEscService);
+  InitComponent(Component::kUsbCdc);
+  InitComponent(Component::kFourWayService);
+  InitComponent(Component::kMspService);
   InitComponent(Component::kButton);
   InitComponent(Component::kUart2);
   InitComponent(Component::kM10);
@@ -108,7 +112,7 @@ void System::Init(const System::Config &config) {
   Wdg().Init();
 }
 
-// ─── Direct-register CPU + clock bring-up helpers ────────────────────
+// Direct-register CPU + clock bring-up helpers
 // Boot-only static methods, invoked from System::Init / ConfigureSystemClock.
 // On failure: Panic, matching the firmware-wide driver/service Init convention.
 
@@ -307,6 +311,16 @@ void System::InitComponent(Component c) {
     case Component::kEscService:
       esc_service_.Init(kEscServiceConfig, EscTelemetry::GetInstance(),
                         vehicle_state_);
+      break;
+    case Component::kUsbCdc:
+      UsbCdc::GetInstance().Init(kUsbCdcConfig);
+      break;
+    case Component::kFourWayService:
+      four_way_service_.Init(UsbCdc::GetInstance());
+      break;
+    case Component::kMspService:
+      msp_service_.Init(kMspServiceConfig, UsbCdc::GetInstance(),
+                        vehicle_state_, four_way_service_, esc_service_);
       break;
     case Component::kButton:
       Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);

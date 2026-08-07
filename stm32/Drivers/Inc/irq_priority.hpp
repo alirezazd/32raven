@@ -6,13 +6,10 @@
 #include <cstdint>
 
 // Centralized NVIC priorities for every interrupt the firmware enables.
-//
 // Cortex-M priority is "lower number = higher preemption priority." With the
 // default STM32 HAL grouping (NVIC_PRIORITYGROUP_4) all four implemented bits
 // are preempt — every IRQ here can interrupt every other lower-priority IRQ.
-//
 // Ordering invariant (must hold; nothing enforces it at compile time):
-//
 //   IMU SPI DMA (2)            express lane: finish before next sample
 //   IMU EXTI INT (3)           kicks the SPI DMA above
 //   PendSV (4)                 express bottom-half, just under the IMU path
@@ -20,7 +17,6 @@
 //   DShot TIM1 DMA (6)         motor frame DMA, kicked by the slow tick
 //   TIM5 slow tick (7)         1 kHz scheduler tick
 //   USART1 / FcLink + DMA (10) ESP32 link, fully background
-//
 // The IMU path is the only thing that can preempt PendSV and starts the chain
 // every other deadline depends on; re-check the sample budget before
 // reordering.
@@ -46,6 +42,7 @@ inline constexpr uint32_t kDshotTim1Dma = 6;  // DMA2 Stream5
 inline constexpr uint32_t kTimeBaseTim5 = 7;  // 1 kHz slow tick scheduler
 inline constexpr uint32_t kUart1 = 10;        // FcLink USART1
 inline constexpr uint32_t kUart1Dma = 10;     // DMA2 Stream2/7
+inline constexpr uint32_t kUsbOtgFs = 11;     // ESC config CDC; host-paced
 inline constexpr uint32_t kSysTick = 15;      // coarse boot ms-tick; lowest
                                               // (was HAL's TICK_INT_PRIORITY)
 

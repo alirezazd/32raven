@@ -10,16 +10,7 @@
 # ]
 # ///
 
-"""Generate the config header both firmwares include.
-
-The FC link only works if the two MCUs agree on its exchange cadence and the
-timeout derived from it. Emitting those from the per-target generators would
-give each side its own constant, in its own units, under its own name -- which
-is what this replaces. One header, included by both.
-
-Deliberately not built on kconfig_gen.run(): that runner is fixed to the
-runtime/limits output pair, a shape only the per-target generators have.
-generate_ee_schema.py sets the precedent for a single-output generator.
+"""Generate libs/inc/common_config.hpp, included by both firmwares.
 
 Run (normally invoked by the top-level CMake, which owns this output):
   uv run --quiet --script scripts/generate_common_config.py \
@@ -39,6 +30,7 @@ import kconfiglib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from kconfig_gen import (  # noqa: E402
     autogen_warning,
+    choice_value,
     render_template,
     sym_int,
     template_env,
@@ -46,15 +38,30 @@ from kconfig_gen import (  # noqa: E402
 
 TEMPLATE_NAME = "common_config.hpp.j2"
 
+FCLINK_BAUD_CHOICES = {
+    f"COMMON_FCLINK_BAUD_{rate}": str(rate)
+    for rate in (
+        9600,
+        19200,
+        38400,
+        57600,
+        115200,
+        230400,
+        460800,
+        921600,
+        1000000,
+        2000000,
+        5000000,
+    )
+}
+
 
 def fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     exchange_interval_ms = sym_int(kconf, "COMMON_FCLINK_EXCHANGE_INTERVAL_MS")
     return {
+        "baud": choice_value(kconf, FCLINK_BAUD_CHOICES),
         "exchange_interval_ms": exchange_interval_ms,
-        # Expressed as a count of missed exchanges rather than authored directly,
-        # so the window can never end up shorter than the cadence the far side
-        # renews at -- which would revoke a lease its holder still believed in,
-        # mid ESC flash.
+        # Derived, so the window can never be shorter than the renewal cadence.
         "peer_timeout_ms": exchange_interval_ms
         * sym_int(kconf, "COMMON_FCLINK_PEER_TIMEOUT_EXCHANGES"),
     }

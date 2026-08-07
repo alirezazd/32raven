@@ -9,6 +9,7 @@
 #include "attitude_controller.hpp"
 #include "battery.hpp"
 #include "button.hpp"
+#include "common_config.hpp"
 #include "crsf_link_service.hpp"
 #include "dshot_tim1.hpp"
 #include "esc_service.hpp"
@@ -17,6 +18,7 @@
 #include "icm42688p.hpp"
 #include "led.hpp"
 #include "m10.hpp"
+#include "msp_service.hpp"
 #include "multirotor_mixer.hpp"
 #include "rate_controller.hpp"
 #include "rc_receiver.hpp"
@@ -24,14 +26,15 @@
 #include "stm32_limits.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
+#include "usb_cdc.hpp"
 
-// ---- Pin map (from menuconfig + ST silicon data) ------------------------
-// Single source of truth for this PCB's pin assignments. Each entry below
-// is a Kconfig-tunable pin; the (pin, AF) / (pin, ADC channel) / EXTI IRQn
-// combo was validated against ST's open-pin-data at generation time, so
-// invalid picks can't reach this header. Emitted before any consumer
-// (kButtonConfig, kLedConfig, kGpioDefault) so the constants are visible
-// at point of use.
+{# ---- Pin map (from menuconfig + ST silicon data) ------------------------
+   Single source of truth for this PCB's pin assignments. Each entry below
+   is a Kconfig-tunable pin; the (pin, AF) / (pin, ADC channel) / EXTI IRQn
+   combo was validated against ST's open-pin-data at generation time, so
+   invalid picks can't reach this header. Emitted before any consumer
+   (kButtonConfig, kLedConfig, kGpioDefault) so the constants are visible
+   at point of use. #}
 namespace board {
 
 struct BoardPin {
@@ -49,8 +52,8 @@ inline const BoardPin {{ p.name }} = {
 inline constexpr uint8_t {{ p.adc_const }} = {{ p.adc_channel }}u;
 {% endif %}
 {% endfor %}
-// SYSCLK after the AHB divider: what System::Init() publishes as CMSIS's
-// SystemCoreClock, in place of SystemCoreClockUpdate() reading it back.
+{# SYSCLK after the AHB divider: what System::Init() publishes as CMSIS's
+   SystemCoreClock, in place of SystemCoreClockUpdate() reading it back. #}
 inline constexpr uint32_t kHclkHz = {{ system_clock.hclk_hz }}u;
 
 }  // namespace board
@@ -70,9 +73,9 @@ inline constexpr System::Config kSystemDefault = {
     .voltage_scale = {{ system_clock.voltage_scale }},
 };
 
-// GPIO programming for every pin in the pin map. Mode / pull / speed /
-// active_low follow from the entry's role in PINMAP_ENTRIES; there is no
-// hand-wired override layer. Consumed by GPIO::Init() at bring-up.
+{# GPIO programming for every pin in the pin map. Mode / pull / speed /
+   active_low follow from the entry's role in PINMAP_ENTRIES; there is no
+   hand-wired override layer. Consumed by GPIO::Init() at bring-up. #}
 inline const std::array kGpioDefault = {
 {% for p in pinmap %}
     GPIO::PinConfig{board::{{ p.name }}.port,
@@ -86,7 +89,7 @@ inline constexpr auto kFcLinkTelemetryRateHz = {{ fclink.telemetry_rate_hz }}u;
 inline constexpr auto kFcLinkTelemetryIntervalMs = 1000u / kFcLinkTelemetryRateHz;
 
 inline constexpr UartConfig kUart1Config = {
-    .baud_rate = {{ fclink.uart.baud_rate }},
+    .baud_rate = common_config::kFcLinkBaud,
     .word_length = {{ fclink.uart.word_length }},
     .stop_bits = {{ fclink.uart.stop_bits }},
     .parity = {{ fclink.uart.parity }},
@@ -173,12 +176,12 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .overrun_window_s = {{ icm42688p.recovery.overrun_window_s }},
         .fault_led_period_ms = {{ icm42688p.recovery.fault_led_period_ms }},
     },
-    // Chip-frame -> body-NED axis remap. Identity: this board mounts the
-    // ICM-42688P with its native axes already aligned to body-NED (chip
-    // +X = body North, +Y = body East, +Z = body Down). The single
-    // axis-conversion boundary lives in the driver's ScaleSample --
-    // everything downstream is body-NED with no flips. If a future
-    // board rotates/flips the chip, promote these to Kconfig.
+{# Chip-frame -> body-NED axis remap. Identity: this board mounts the
+   ICM-42688P with its native axes already aligned to body-NED (chip
+   +X = body North, +Y = body East, +Z = body Down). The single
+   axis-conversion boundary lives in the driver's ScaleSample --
+   everything downstream is body-NED with no flips. If a future
+   board rotates/flips the chip, promote these to Kconfig. #}
     .axis_map = {
         .x_from = 0,
         .x_neg = false,
@@ -234,10 +237,12 @@ inline constexpr RcReceiver::Config kRcReceiverConfig = {
     .throttle_channel = {{ rc_receiver.rc_map.throttle }},
 };
 
+inline constexpr uint32_t kGpsFreshTimeoutUs =
+    {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u;
+
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     .max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
-    .gps_fresh_timeout_us =
-        {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u,
+    .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
     .heartbeat = {
         .period_us = {{ rc_receiver.crsf.heartbeat.period_ms }}u * 1000u,
         .start_delay_us =
@@ -335,6 +340,21 @@ inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
     .response_timeout_us = {{ esc_telemetry.response_timeout_us }},
 };
 
+inline constexpr UsbCdcConfig kUsbCdcConfig = {
+    .vendor_id = {{ usb_cdc.vendor_id }},
+    .product_id = {{ usb_cdc.product_id }},
+    .manufacturer = {{ usb_cdc.manufacturer }},
+    .product = {{ usb_cdc.product }},
+};
+
+inline constexpr MspService::Config kMspServiceConfig = {
+    .board_identifier = {{ msp.board_identifier }},
+    .board_name = {{ msp.board_name }},
+    .manufacturer_id = {{ msp.manufacturer_id }},
+    .craft_name = {{ msp.craft_name }},
+    .motor_pole_count = {{ esc_telemetry.motor_pole_count }},
+};
+
 inline constexpr EscService::Config kEscServiceConfig = {
     .dshot = {
         .gap_bits = {{ esc_service.dshot_gap_bits }},
@@ -349,19 +369,19 @@ inline constexpr multirotor_mixer::Mixer::Config kMultirotorMixerConfig = {
     .idle = {{ multirotor_mixer.idle_milli }} * 0.001f,
 };
 
-// Pilot stick at 0 maps to this fraction of full thrust, not literal zero.
-// states.cpp linearly remaps NormalizedThrottle() in [0, 1] to
-// [kPilotThrottleMin, 1] before feeding the mixer, so the mixer always
-// has a workable motor band around the pilot's commanded thrust.
-// PX4 equivalent: MPC_MANTHR_MIN.
+{# Pilot stick at 0 maps to this fraction of full thrust, not literal zero.
+   states.cpp linearly remaps NormalizedThrottle() in [0, 1] to
+   [kPilotThrottleMin, 1] before feeding the mixer, so the mixer always
+   has a workable motor band around the pilot's commanded thrust.
+   PX4 equivalent: MPC_MANTHR_MIN. #}
 inline constexpr float kPilotThrottleMin =
     {{ multirotor_mixer.pilot_throttle_min_milli }} * 0.001f;
 
-// Per-axis PID gains and shared limits/filter come from the Rate Controller
-// menu. Kconfig stores integers (millis for kp/ki, micros for kd) so the
-// `make 32raven-menuconfig` UI stays sane; the template scales each value
-// to its float representation at the point of use - the compiler folds
-// these constexpr multiplications.
+{# Per-axis PID gains and shared limits/filter come from the Rate Controller
+   menu. Kconfig stores integers (millis for kp/ki, micros for kd) so the
+   `make 32raven-menuconfig` UI stays sane; the template scales each value
+   to its float representation at the point of use - the compiler folds
+   these constexpr multiplications. #}
 inline constexpr RateController::Config kRateControllerConfig = {
     .smoothing_enabled = {{ rate_controller.smoothing_enabled | cpp_bool }},
 {% for axis_name in ["roll", "pitch", "yaw"] %}
@@ -388,12 +408,12 @@ inline constexpr RateController::Config kRateControllerConfig = {
     .yaw_output_lpf_alpha = {{ rate_controller.yaw_output_lpf_alpha_milli }} * 0.001f,
 };
 
-// Mahony complementary-filter gains for the AHRS. All six knobs are
-// scaled by 1000 in Kconfig (so menuconfig deals in integers); the
-// template folds each into its float representation at the point of
-// use. Soft attenuation: accel correction full-trust inside +/-full_dev,
-// smooth decay to zero by +/-zero_dev; bias updates full-weight when
-// |gyro| <= quiescent_full, smooth decay to zero by quiescent_zero.
+{# Mahony complementary-filter gains for the AHRS. All six knobs are
+   scaled by 1000 in Kconfig (so menuconfig deals in integers); the
+   template folds each into its float representation at the point of
+   use. Soft attenuation: accel correction full-trust inside +/-full_dev,
+   smooth decay to zero by +/-zero_dev; bias updates full-weight when
+   |gyro| <= quiescent_full, smooth decay to zero by quiescent_zero. #}
 inline constexpr Ahrs::Config kAhrsConfig = {
     .kp_accel                  = {{ ahrs.kp_accel_milli }} * 0.001f,
     .ki_bias                   = {{ ahrs.ki_bias_milli }} * 0.001f,
@@ -403,9 +423,9 @@ inline constexpr Ahrs::Config kAhrsConfig = {
     .gyro_quiescent_zero_rad_s = {{ ahrs.gyro_quiescent_zero_milli }} * 0.001f,
 };
 
-// Outer attitude loop gains (Stage-2 Stabilize mode). Kconfig stores
-// kp scaled by 1000 and rate_clamp in milli-rad/s; the template folds
-// each into its float representation at the point of use.
+{# Outer attitude loop gains (Stage-2 Stabilize mode). Kconfig stores
+   kp scaled by 1000 and rate_clamp in milli-rad/s; the template folds
+   each into its float representation at the point of use. #}
 inline constexpr AttitudeController::Config kAttitudeControllerConfig = {
 {% for axis_name in ["roll", "pitch", "yaw"] %}
 {% set axis = attitude_controller[axis_name] %}

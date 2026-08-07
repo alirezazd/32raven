@@ -12,6 +12,7 @@ struct BatteryData;
 
 namespace message {
 struct SystemStatusMsg;
+struct UsbStatusMsg;
 struct VehicleStatusMsg;
 }  // namespace message
 
@@ -22,7 +23,12 @@ class StatPublisher {
     return instance;
   }
 
-  void Publish(AppContext &ctx, uint32_t now_us, uint32_t loop_counter);
+  void PublishTelemetry(AppContext &ctx, uint32_t now_us,
+                        uint32_t loop_counter);
+
+  // Rate-limits itself on the link's exchange cadence, faster while frames
+  // are moving.
+  void PublishUsbStatus(AppContext &ctx, uint32_t now_us);
 
  private:
   StatPublisher() = default;
@@ -38,4 +44,9 @@ class StatPublisher {
                                                        uint32_t loop_counter,
                                                        const Icm42688p &imu);
   static message::VehicleStatusMsg BuildVehicleStatusMsg(AppContext &ctx);
+  static message::UsbStatusMsg BuildUsbStatusMsg(AppContext &ctx);
+
+  uint32_t usb_status_sent_us_ = 0;
+  uint8_t usb_status_rx_frames_ = 0;
+  uint8_t usb_status_tx_frames_ = 0;
 };

@@ -85,6 +85,7 @@ extern void Spi2DmaError(uint32_t isr);
 extern void Uart1OnUartInterrupt(void);
 extern void Uart2OnUartInterrupt(void);
 extern void Uart6OnUartInterrupt(void);
+extern void UsbCdcOnIrq(void);
 extern void Uart1OnRxHalfCplt(void);
 extern void Uart1OnRxCplt(void);
 extern void Uart2OnRxHalfCplt(void);
@@ -507,6 +508,8 @@ void TIM5_IRQHandler(void) {
 }
 
 void USART6_IRQHandler(void) { Uart6OnUartInterrupt(); }
+
+void OTG_FS_IRQHandler(void) { UsbCdcOnIrq(); }
 
 /* USER CODE BEGIN 1 */
 

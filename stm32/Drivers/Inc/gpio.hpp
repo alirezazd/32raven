@@ -76,6 +76,7 @@ inline constexpr uint32_t GPIO_AF7_USART1 = 0x07u;
 inline constexpr uint32_t GPIO_AF7_USART2 = 0x07u;
 inline constexpr uint32_t GPIO_AF7_USART3 = 0x07u;
 inline constexpr uint32_t GPIO_AF8_USART6 = 0x08u;
+inline constexpr uint32_t GPIO_AF10_OTG_FS = 0x0Au;
 // NOLINTEND(readability-identifier-naming)
 
 class GPIO {

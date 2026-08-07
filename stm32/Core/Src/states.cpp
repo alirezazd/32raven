@@ -38,6 +38,9 @@ static constexpr bool kEnableEspLogs = false;
 // multiplier and current scale. Deliberately not gated on kEnableEspLogs —
 // that flag also turns on the IMU and profiling spam, which buries this.
 static constexpr bool kEnableBattDebugLog = true;
+// The host side has no readable kernel log, so these counters are the only
+// visibility into a configurator session.
+static constexpr bool kEnableUsbLog = true;
 
 // Debug counters (diagnostics only)
 static uint32_t g_dbg_max_gps_bytes = 0;
@@ -199,7 +202,6 @@ void IdleState::OnFastTick(AppContext &ctx,
       // yaw drift (no mag, rate-bypassed yaw) bleeds into the roll/pitch
       // error and the cascade injects cross-axis torque after any heading
       // change.
-      //
       // Swing-twist about world-Z: unit q = (w,x,y,z) factors as
       // q_twist·q_swing with twist = (w,0,0,z)/sqrt(w²+z²) — one sqrt +
       // one div, no atan2/trig. Avoids the ZYX-Euler gimbal-lock at pitch
@@ -275,6 +277,14 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     return (uint32_t)(micros() - g_fast_last_us) >= kSlowBudgetFromFastUs;
   };
 
+  // Ahead of the budget check, like the button below: a skipped poll stalls the
+  // frame counter that stands in for cable detection, a skipped arm check
+  // leaves passthrough live on an armed vehicle, and a skipped report flaps the
+  // UI to "no USB" while the port is healthy.
+  UsbCdc::GetInstance().Poll(micros());
+  ctx.sys->MspSvc().CheckArmed();
+  ctx.sys->StatPubSvc().PublishUsbStatus(ctx, micros());
+
   // Polled BEFORE the budget check so Button::Poll's debounce SM always
   // sees ticks; budget-exhausted gaps would stretch the window and drop
   // fast presses.
@@ -338,12 +348,14 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
         const BatteryData &batt_data = batt.GetData();
 
         // What the pins actually see, before the scaling constants.
-        const uint32_t v_pin_mv = (static_cast<uint32_t>(batt.LastVoltageRaw()) *
-                                   kBatteryConfig.adc_reference_mv) /
-                                  stm32_limits::kBatteryAdcMaxRaw;
-        const uint32_t i_pin_mv = (static_cast<uint32_t>(batt.LastCurrentRaw()) *
-                                   kBatteryConfig.adc_reference_mv) /
-                                  stm32_limits::kBatteryAdcMaxRaw;
+        const uint32_t v_pin_mv =
+            (static_cast<uint32_t>(batt.LastVoltageRaw()) *
+             kBatteryConfig.adc_reference_mv) /
+            stm32_limits::kBatteryAdcMaxRaw;
+        const uint32_t i_pin_mv =
+            (static_cast<uint32_t>(batt.LastCurrentRaw()) *
+             kBatteryConfig.adc_reference_mv) /
+            stm32_limits::kBatteryAdcMaxRaw;
 
         // Independent cross-check: the AM32 ESCs report their own current
         // over USART3, which never passes through the analog scale. Pack
@@ -356,8 +368,10 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
         const auto esc_snapshot = EscTelemetry::GetInstance().GetSnapshot();
         for (const auto &motor : esc_snapshot.motors) {
           if (motor.valid) {
-            esc_current_a += static_cast<float>(motor.current_centiamps) * 0.01f;
-            esc_voltage_v = static_cast<float>(motor.voltage_centivolts) * 0.01f;
+            esc_current_a +=
+                static_cast<float>(motor.current_centiamps) * 0.01f;
+            esc_voltage_v =
+                static_cast<float>(motor.voltage_centivolts) * 0.01f;
             esc_temp_c = motor.temperature_c;
           }
         }
@@ -374,6 +388,44 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
             static_cast<double>(esc_current_a), esc_temp_c,
             static_cast<unsigned long>(batt.AdcErrorCount()));
       }
+    }
+  }
+  if (budget_exhausted()) return;
+
+  // 2b. Serve MSP on the USB CDC port.
+  ctx.sys->MspSvc().Poll(micros());
+  if (kEnableUsbLog && ctx.sys->MspSvc().EscConfigGranted()) {
+    auto &usb = UsbCdc::GetInstance();
+    static uint32_t last_usb_log_us = 0;
+    const uint32_t usb_now_us = micros();
+    if (last_usb_log_us == 0u ||
+        (usb_now_us - last_usb_log_us) >= SECONDS_TO_MICROS(1)) {
+      last_usb_log_us = usb_now_us;
+      const MspService &msp = ctx.sys->MspSvc();
+      const FourWayService &fw = ctx.sys->FourWaySvc();
+      // Both protocols are reported: the port switches between them
+      // mid-session, and reading only the MSP counters makes a live four-way
+      // session look like a link that stopped receiving.
+      ctx.sys->FcLinkSvc().SendLog(
+          "USB cfg=%u dtr=%u host=%u rst=%lu | MSP req=%lu crc=%lu unk=%lu "
+          "drop=%lu cmd=%u | 4W act=%u req=%lu crc=%lu drop=%lu stall=%lu "
+          "cmd=%02X esc=%u",
+          static_cast<unsigned>(usb.IsConfigured()),
+          static_cast<unsigned>(usb.IsConnected()),
+          static_cast<unsigned>(usb.IsHostPresent()),
+          static_cast<unsigned long>(usb.ResetCount()),
+          static_cast<unsigned long>(msp.RequestCount()),
+          static_cast<unsigned long>(msp.CrcErrorCount()),
+          static_cast<unsigned long>(msp.UnknownCommandCount()),
+          static_cast<unsigned long>(msp.TxDropCount()),
+          static_cast<unsigned>(msp.LastCommand()),
+          static_cast<unsigned>(fw.IsActive()),
+          static_cast<unsigned long>(fw.RequestCount()),
+          static_cast<unsigned long>(fw.CrcErrorCount()),
+          static_cast<unsigned long>(fw.TxDropCount()),
+          static_cast<unsigned long>(fw.StallCount()),
+          static_cast<unsigned>(fw.LastCommand()),
+          static_cast<unsigned>(fw.SelectedEsc()));
     }
   }
   if (budget_exhausted()) return;
@@ -437,7 +489,8 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   if (last_status_send_us_ == 0u ||
       current_time - last_status_send_us_ >= 1000000u) {
     last_status_send_us_ = current_time;
-    ctx.sys->StatPubSvc().Publish(ctx, current_time, slow_loop_counter_);
+    ctx.sys->StatPubSvc().PublishTelemetry(ctx, current_time,
+                                           slow_loop_counter_);
   }
 
   if (current_time - last_diag_print >= 1000000) {
@@ -456,6 +509,9 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     if (high_loss_consec == kLossPanicConsecutiveSec ||
         (high_loss_consec > kLossPanicConsecutiveSec &&
          high_loss_consec % 5 == 0)) {
+      // TODO(fc): halting is the wrong answer once this flies with props --
+      // report through SystemStatusMsg::error_code and raise the IMU failsafe
+      // flag instead, and keep the halt for the disarmed case only.
       Panic(ErrorCode::Stm32::kImuDroppedFrame);
     }
 
