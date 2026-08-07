@@ -10,6 +10,7 @@
 #include "multirotor_mixer.hpp"
 #include "panic.hpp"
 #include "stm32_config.hpp"
+#include "system.hpp"
 
 namespace {
 
@@ -58,22 +59,19 @@ static uint32_t g_fast_last_us = 0;
 static uint32_t g_fault_led_last_toggle_us = 0;
 static uint32_t g_fault_log_last_us = 0;
 
-// --- IdleState (Main State) ---
+static uint64_t g_last_imu_send_us = 0;
+static uint32_t g_last_status_send_us = 0;
+static uint32_t g_slow_loop_counter = 0;
 
-void IdleState::OnEnter(AppContext &ctx) {
-  ctx.sys->Led().Set(false);
-  ctx.fast_tick_state = this;
+static void StepSlow(AppContext &ctx, SmTick now);
 
-  ctx.sys->GetCommandHandler().Init();
-  ctx.sys->FcLinkSvc().Init(&ctx);
-
-  last_imu_send_us_ = 0;
-  last_status_send_us_ = 0;
-  slow_loop_counter_ = 0;
+static void EnterFlightLoop(AppContext &ctx, IFastTickState *state) {
+  ctx.fast_tick_state = state;
+  ctx.sys->ResumeFlightComponents();
   g_fast_last_us = 0;
 }
 
-void IdleState::OnStep(AppContext &ctx, SmTick now) {
+static void StepFlightLoop(AppContext &ctx, SmTick now) {
   // Slow path is best-effort: never let backlog starve IMU fast loop.
   uint32_t ticks = ctx.sys->Time().ConsumeTim5Ticks();
   if (ticks == 0) return;
@@ -88,8 +86,8 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
   if (step_dt > g_prof_step_us) g_prof_step_us = step_dt;
 }
 
-void IdleState::OnFastTick(AppContext &ctx,
-                           const Icm42688p::SampleBatch &batch) {
+static void FastTickFlightLoop(AppContext &ctx,
+                               const Icm42688p::SampleBatch &batch) {
   uint32_t fast_t0 = ctx.sys->Time().Micros();
   g_fast_last_us = fast_t0;
 
@@ -270,7 +268,7 @@ void IdleState::OnFastTick(AppContext &ctx,
   if (fast_dt > g_prof_fast_us) g_prof_fast_us = fast_dt;
 }
 
-void IdleState::StepSlow(AppContext &ctx, SmTick now) {
+static void StepSlow(AppContext &ctx, SmTick now) {
   auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
   auto budget_exhausted = [&]() -> bool {
     if (g_fast_last_us == 0u) return false;
@@ -297,7 +295,7 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   }
 
   if (budget_exhausted()) return;
-  slow_loop_counter_++;
+  g_slow_loop_counter++;
 
   auto &imu = Icm42688p::GetInstance();
 
@@ -453,8 +451,8 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
         Icm42688p::GetInstance().GetLatestBatch();
     if (batch.count > 0) {
       const Icm42688p::Sample &latest = batch.samples[batch.count - 1u];
-      if (latest.timestamp_us - last_imu_send_us_ >= 20000) {
-        last_imu_send_us_ = latest.timestamp_us;
+      if (latest.timestamp_us - g_last_imu_send_us >= 20000) {
+        g_last_imu_send_us = latest.timestamp_us;
         const Icm42688p::ScaledSample scaled = imu.ScaleSample(latest);
         ctx.sys->FcLinkSvc().SendImu(scaled.timestamp_us, scaled.accel_mps2,
                                      scaled.gyro_rad_s);
@@ -486,11 +484,11 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
   static uint32_t high_loss_consec = 0;
 
   uint32_t current_time = micros();
-  if (last_status_send_us_ == 0u ||
-      current_time - last_status_send_us_ >= 1000000u) {
-    last_status_send_us_ = current_time;
+  if (g_last_status_send_us == 0u ||
+      current_time - g_last_status_send_us >= 1000000u) {
+    g_last_status_send_us = current_time;
     ctx.sys->StatPubSvc().PublishTelemetry(ctx, current_time,
-                                           slow_loop_counter_);
+                                           g_slow_loop_counter);
   }
 
   if (current_time - last_diag_print >= 1000000) {
@@ -548,5 +546,91 @@ void IdleState::StepSlow(AppContext &ctx, SmTick now) {
     g_prof_gpspub_us = 0;
     g_prof_step_us = 0;
     g_prof_fast_us = 0;
+  }
+}
+
+void IdleState::OnFastTick(AppContext &ctx,
+                           const Icm42688p::SampleBatch &batch) {
+  FastTickFlightLoop(ctx, batch);
+}
+
+void ArmedState::OnFastTick(AppContext &ctx,
+                            const Icm42688p::SampleBatch &batch) {
+  FastTickFlightLoop(ctx, batch);
+}
+
+void IdleState::OnEnter(AppContext &ctx) {
+  EnterFlightLoop(ctx, this);
+  ctx.sys->Led().Set(false);
+}
+
+void IdleState::OnStep(AppContext &ctx, SmTick now) {
+  StepFlightLoop(ctx, now);
+
+  // ESC configuration is reachable only from here. That is what makes the
+  // interlock structural: there is no edge from Armed, so a session cannot
+  // start on a vehicle whose motors are live.
+  if (ctx.sys->MspSvc().EscConfigGranted()) {
+    ctx.sm->ReqTransition(*ctx.esc_config_state);
+    return;
+  }
+
+  if (ctx.sys->EscSvc().IsArmed()) {
+    ctx.sm->ReqTransition(*ctx.armed_state);
+  }
+}
+
+void ArmedState::OnEnter(AppContext &ctx) {
+  EnterFlightLoop(ctx, this);
+  ctx.sys->Led().Set(true);
+}
+
+void ArmedState::OnStep(AppContext &ctx, SmTick now) {
+  StepFlightLoop(ctx, now);
+
+  if (!ctx.sys->EscSvc().IsArmed()) {
+    ctx.sm->ReqTransition(*ctx.idle_state);
+  }
+}
+
+void EscConfigState::OnEnter(AppContext &ctx) {
+  // Stop the cascade in both directions. Clearing the hook stops the work --
+  // ExpressMain returns immediately -- and masking the interrupt stops the
+  // thing that would otherwise tear a bit-banged byte apart 520 us at a time.
+  ctx.fast_tick_state = nullptr;
+  ctx.sys->SuspendFlightComponents();
+  ctx.sys->Led().Set(true);
+  last_status_send_us_ = 0;
+}
+
+void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
+  (void)now;
+  if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
+    return;
+  }
+
+  const uint32_t current_time = ctx.sys->Time().Micros();
+
+  UsbCdc::GetInstance().Poll(current_time);
+  ctx.sys->MspSvc().Poll(current_time);
+  ctx.sys->StatPubSvc().PublishUsbStatus(ctx, current_time);
+
+  // Disarmed ESCs still need to hear zero throttle every millisecond or they
+  // start their signal-lost alarm. It stops once four-way claims the pins,
+  // which is the point the ESC stops being a DShot listener at all.
+  if (!ctx.sys->FourWaySvc().IsActive()) {
+    ctx.sys->EscSvc().Poll(current_time);
+  }
+
+  ctx.sys->FcLinkSvc().Poll();
+
+  if (last_status_send_us_ == 0u ||
+      (current_time - last_status_send_us_) >= SECONDS_TO_MICROS(1)) {
+    last_status_send_us_ = current_time;
+    ctx.sys->StatPubSvc().PublishTelemetry(ctx, current_time, 0u);
+  }
+
+  if (!ctx.sys->MspSvc().EscConfigGranted()) {
+    ctx.sm->ReqTransition(*ctx.idle_state);
   }
 }

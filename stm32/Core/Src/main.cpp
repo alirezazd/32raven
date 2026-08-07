@@ -10,7 +10,10 @@ namespace {
 
 AppContext app{};
 StateMachine<AppContext> sm(app);
-IdleState idle;
+
+IdleState idle_state;
+ArmedState armed_state;
+EscConfigState esc_config_state;
 
 }  // namespace
 
@@ -25,8 +28,15 @@ extern "C" void ExpressMain(void) {
 
 int main(void) {
   System::GetInstance().Init(kSystemDefault);
+  app.sys = &System::GetInstance();
   app.sm = &sm;
-  sm.Start(idle);
+  app.idle_state = &idle_state;
+  app.armed_state = &armed_state;
+  app.esc_config_state = &esc_config_state;
+  System::GetInstance().GetCommandHandler().Init();
+  System::GetInstance().FcLinkSvc().Init(&app);
+
+  sm.Start(idle_state);
   while (1) {
     app.sm->Step(app.sys->Time().Micros());
     app.sys->Wdg().Kick();  // main-loop liveness; wedged loop -> reset

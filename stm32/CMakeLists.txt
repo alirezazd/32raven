@@ -132,7 +132,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/stm32f4xx_it.c
     Core/Src/syscalls.c
     Core/Src/sysmem.c
-    Core/Src/ctx.cpp
     Core/Src/main.cpp
     Core/Src/system.cpp
     Drivers/Src/gpio.cpp

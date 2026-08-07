@@ -3,10 +3,8 @@
 
 #pragma once
 #include "ctx.hpp"
+#include "icm42688p.hpp"
 #include "state_machine.hpp"
-#include "system.hpp"
-
-struct IdleState;
 
 struct IFastTickState {
   virtual ~IFastTickState() = default;
@@ -20,10 +18,21 @@ struct IdleState : public IState<AppContext>, public IFastTickState {
   void OnStep(AppContext &ctx, SmTick now) override;
   void OnFastTick(AppContext &ctx,
                   const Icm42688p::SampleBatch &batch) override;
-  void StepSlow(AppContext &ctx, SmTick now);
+};
+
+struct ArmedState : public IState<AppContext>, public IFastTickState {
+  const char *Name() const override { return "Armed"; }
+  void OnEnter(AppContext &ctx) override;
+  void OnStep(AppContext &ctx, SmTick now) override;
+  void OnFastTick(AppContext &ctx,
+                  const Icm42688p::SampleBatch &batch) override;
+};
+
+struct EscConfigState : public IState<AppContext> {
+  const char *Name() const override { return "EscConfig"; }
+  void OnEnter(AppContext &ctx) override;
+  void OnStep(AppContext &ctx, SmTick now) override;
 
  private:
-  uint64_t last_imu_send_us_ = 0;
   uint32_t last_status_send_us_ = 0;
-  uint32_t slow_loop_counter_ = 0;
 };
