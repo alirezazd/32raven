@@ -74,13 +74,13 @@ struct M10CkBState : public M10BaseState {
 
 static M10Sync1State s_sync1;
 static M10Sync2State s_sync2;
-static M10ClassState s_cls;
-static M10IdState s_id;
-static M10LengthLState s_len_l;
-static M10LengthHState s_len_h;
-static M10PayloadState s_payload;
-static M10CkAState s_ck_a;
-static M10CkBState s_ck_b;
+static M10ClassState s_class_state;
+static M10IdState s_id_state;
+static M10LengthLState s_len_l_state;
+static M10LengthHState s_len_h_state;
+static M10PayloadState s_payload_state;
+static M10CkAState s_ck_a_state;
+static M10CkBState s_ck_b_state;
 
 void M10Sync1State::OnStep(M10ParserContext &ctx, SmTick) {
   if (ctx.current_byte == UBX::kSync1) {
@@ -90,7 +90,7 @@ void M10Sync1State::OnStep(M10ParserContext &ctx, SmTick) {
 
 void M10Sync2State::OnStep(M10ParserContext &ctx, SmTick) {
   if (ctx.current_byte == UBX::kSync2) {
-    ctx.sm->ReqTransition(s_cls);
+    ctx.sm->ReqTransition(s_class_state);
   } else if (ctx.current_byte == UBX::kSync1) {
     ctx.sm->ReqTransition(s_sync2);
   } else {
@@ -105,7 +105,7 @@ void M10ClassState::OnStep(M10ParserContext &ctx, SmTick) {
   ctx.ck_a_calc += ctx.cls;
   ctx.ck_b_calc += ctx.ck_a_calc;
 
-  ctx.sm->ReqTransition(s_id);
+  ctx.sm->ReqTransition(s_id_state);
 }
 
 void M10IdState::OnStep(M10ParserContext &ctx, SmTick) {
@@ -113,7 +113,7 @@ void M10IdState::OnStep(M10ParserContext &ctx, SmTick) {
   ctx.ck_a_calc += ctx.id;
   ctx.ck_b_calc += ctx.ck_a_calc;
 
-  ctx.sm->ReqTransition(s_len_l);
+  ctx.sm->ReqTransition(s_len_l_state);
 }
 
 void M10LengthLState::OnStep(M10ParserContext &ctx, SmTick) {
@@ -121,7 +121,7 @@ void M10LengthLState::OnStep(M10ParserContext &ctx, SmTick) {
   ctx.ck_a_calc += ctx.current_byte;
   ctx.ck_b_calc += ctx.ck_a_calc;
 
-  ctx.sm->ReqTransition(s_len_h);
+  ctx.sm->ReqTransition(s_len_h_state);
 }
 
 void M10LengthHState::OnStep(M10ParserContext &ctx, SmTick) {
@@ -135,9 +135,9 @@ void M10LengthHState::OnStep(M10ParserContext &ctx, SmTick) {
     ctx.oversize_len_count++;
     ctx.sm->ReqTransition(s_sync1);
   } else if (ctx.len == 0) {
-    ctx.sm->ReqTransition(s_ck_a);
+    ctx.sm->ReqTransition(s_ck_a_state);
   } else {
-    ctx.sm->ReqTransition(s_payload);
+    ctx.sm->ReqTransition(s_payload_state);
   }
 }
 
@@ -150,14 +150,14 @@ void M10PayloadState::OnStep(M10ParserContext &ctx, SmTick) {
   }
 
   if (ctx.payload_idx >= ctx.len) {
-    ctx.sm->ReqTransition(s_ck_a);
+    ctx.sm->ReqTransition(s_ck_a_state);
   }
 }
 
 void M10CkAState::OnStep(M10ParserContext &ctx, SmTick) {
   ctx.ck_a = ctx.current_byte;
   if (ctx.ck_a == ctx.ck_a_calc) {
-    ctx.sm->ReqTransition(s_ck_b);
+    ctx.sm->ReqTransition(s_ck_b_state);
   } else {
     ctx.checksum_fail_count++;
     ctx.sm->ReqTransition(s_sync1);

@@ -13,21 +13,21 @@ extern "C" {
 namespace {
 
 AppContext MakeAppContext() {
-  static ServingState serving;
-  static MavlinkWifiState mavlink_wifi;
-  static MavlinkUsbState mavlink_usb;
-  static DfuState dfu;
-  static ProgramState program;
-  static EscConfigState esc_config;
+  static ServingState serving_state;
+  static MavlinkWifiState mavlink_wifi_state;
+  static MavlinkUsbState mavlink_usb_state;
+  static DfuState dfu_state;
+  static ProgramState program_state;
+  static EscConfigState esc_config_state;
 
   AppContext ctx{};
   ctx.sys = &Sys();
-  ctx.serving_state = &serving;
-  ctx.mavlink_wifi_state = &mavlink_wifi;
-  ctx.mavlink_usb_state = &mavlink_usb;
-  ctx.dfu_state = &dfu;
-  ctx.program_state = &program;
-  ctx.esc_config_state = &esc_config;
+  ctx.serving_state = &serving_state;
+  ctx.mavlink_wifi_state = &mavlink_wifi_state;
+  ctx.mavlink_usb_state = &mavlink_usb_state;
+  ctx.dfu_state = &dfu_state;
+  ctx.program_state = &program_state;
+  ctx.esc_config_state = &esc_config_state;
   return ctx;
 }
 
