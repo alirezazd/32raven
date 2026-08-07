@@ -32,7 +32,8 @@ void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport) {
 
   // `transport_` is a required dependency after initialization; service code
   // assumes this assignment succeeded and does not re-check for null on every
-  // tick. Selected at boot in system.cpp (see kEsp32MavlinkTransportUsbCdc).
+  // tick. SetTransport swaps it as the state machine moves between the telemetry,
+  // UDP and USB paths.
   transport_ = transport;
   ResetParamState();
   SetTelemetryLink(false);
