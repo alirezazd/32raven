@@ -75,7 +75,7 @@ class Programmer {
  private:
   friend class System;
   void Init(const Config &cfg, UartFcLink *uart);
-  // ---- Internal context used by StateMachine<Ctx> ----
+  // Internal context used by StateMachine<Ctx>
   struct Ctx {
     UartFcLink *uart = nullptr;
     Config cfg{};

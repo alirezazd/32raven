@@ -175,7 +175,7 @@ int _execve(char *name, char **argv, char **env)
   return -1;
 }
 
-// --- Picolibc Specific Section ---
+// Picolibc Specific Section
 #if defined(__PICOLIBC__)
 
 /**

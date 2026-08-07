@@ -213,7 +213,7 @@ void MspService::Feed(uint8_t byte) {
       }
       break;
 
-    // ---- v1 ----
+    // v1
     case Parse::kV1Size:
       payload_size_ = byte;
       payload_index_ = 0;
@@ -248,7 +248,7 @@ void MspService::Feed(uint8_t byte) {
       Reset();
       break;
 
-    // ---- v2 ----
+    // v2
     case Parse::kV2Flag:
       v2_flag_ = byte;
       checksum_ = checksum::Dvbs2Update(0, byte);

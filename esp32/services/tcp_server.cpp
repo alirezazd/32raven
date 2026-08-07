@@ -22,7 +22,7 @@ extern "C" {
 
 static constexpr const char *kTag = "tcp_server";
 
-// ----- ring buffer helpers -----
+// ring buffer helpers
 static inline size_t RbUsed(size_t head, size_t tail, size_t cap) {
   return (tail >= head) ? (tail - head) : (cap - head + tail);
 }
@@ -31,7 +31,7 @@ static inline size_t RbFree(size_t head, size_t tail, size_t cap) {
   return (cap - 1) - RbUsed(head, tail, cap);
 }
 
-// ---------------- TcpServer core ----------------
+// TcpServer core
 
 void TcpServer::Init(const Config &cfg) {
   cfg_ = cfg;
@@ -63,7 +63,7 @@ void TcpServer::Poll(SmTick now) {
   sm_.Step(now);
 }
 
-// ---------------- SM-facing API (queue/buffer/status) ----------------
+// SM-facing API (queue/buffer/status)
 
 std::optional<TcpServer::Event> TcpServer::PopEvent() {
   if (evt_head_ == evt_tail_) {
@@ -194,7 +194,7 @@ bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port, int backlog,
   return true;
 }
 
-// ---------------- Close helpers ----------------
+// Close helpers
 
 void TcpServer::CloseCtrl() {
   if (ctx_.ctrl_fd >= 0) {
@@ -236,7 +236,7 @@ void TcpServer::CloseAll() {
   }
 }
 
-// ---------------- Accept helpers ----------------
+// Accept helpers
 
 void TcpServer::AcceptCtrl() {
   if (ctx_.ctrl_listen_fd < 0) return;
@@ -316,7 +316,7 @@ void TcpServer::AcceptData() {
   (void)PushEvent(e);
 }
 
-// ---------------- RX pumps ----------------
+// RX pumps
 
 void TcpServer::PumpCtrlRx() {
   if (ctx_.ctrl_fd < 0) return;
@@ -412,7 +412,7 @@ void TcpServer::PumpDataRx() {
   }
 }
 
-// ---------------- CTRL TX ----------------
+// CTRL TX
 
 esp_err_t TcpServer::SendCtrlLine(const char *line) {
   if (!line || ctx_.ctrl_fd < 0) return ESP_FAIL;
@@ -450,7 +450,7 @@ static inline const char *SkipSpace(const char *p) {
   return p;
 }
 
-// ---------------- Control line buffer helpers ----------------
+// Control line buffer helpers
 
 void TcpServer::ResetLinebuf() { ctx_.line_len = 0; }
 
@@ -568,7 +568,7 @@ static bool StartsWithCI(const char *s, const char *prefix) {
   return true;
 }
 
-// ---------------- Command handling ----------------
+// Command handling
 
 void TcpServer::HandleLine(const char *line) {
   if (!line) return;
@@ -646,7 +646,7 @@ void TcpServer::HandleLine(const char *line) {
   (void)SendCtrlLine("ERR unknown_cmd\n");
 }
 
-// ---------------- Internal SM states ----------------
+// Internal SM states
 
 class TcpServer::StStopped : public IState<Ctx> {
  public:
@@ -777,7 +777,7 @@ class TcpServer::StCtrlData : public IState<Ctx> {
   IState<Ctx> *ctrl_ = nullptr;
 };
 
-// ---------------- Finish Start(): wire states + start SM ----------------
+// Finish Start(): wire states + start SM
 
 esp_err_t TcpServer::Start() {
   if (running_) return ESP_OK;

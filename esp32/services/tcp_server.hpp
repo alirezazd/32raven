@@ -107,7 +107,7 @@ class TcpServer {
   TcpServer(const TcpServer &) = delete;
   TcpServer &operator=(const TcpServer &) = delete;
 
-  // ---------- Internal SM wiring ----------
+  // Internal SM wiring
   struct Ctx {
     TcpServer *self = nullptr;
     StateMachine<Ctx> *sm = nullptr;
@@ -175,13 +175,13 @@ class TcpServer {
   StCtrl *s_ctrl_ = nullptr;
   StCtrlData *s_ctrldata_ = nullptr;
 
-  // ---- event queue (tiny, bounded) ----
+  // event queue (tiny, bounded)
   static constexpr size_t kEvtCap = esp32_limits::kTcpServerEventQueueDepth;
   Event evt_q_[kEvtCap]{};
   size_t evt_head_ = 0;
   size_t evt_tail_ = 0;
 
-  // ---- download ring buffer ----
+  // download ring buffer
   static constexpr size_t kDownCap =
       esp32_limits::kTcpServerDownloadBufferBytes;
   uint8_t down_[kDownCap]{};

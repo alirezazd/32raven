@@ -10,7 +10,7 @@
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
-// ---------- local helpers ----------
+// local helpers
 
 static uint16_t DivRoundU16(uint32_t num, uint32_t den) {
   return static_cast<uint16_t>((num + (den / 2u)) / den);
@@ -57,7 +57,7 @@ static inline void Dma2Stream5ClearFlags() {
                 DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5;
 }
 
-// ---------- driver init ----------
+// driver init
 
 void DShotTim1::Init(const Config &config) {
   if (initialized_) {
@@ -90,7 +90,7 @@ void DShotTim1::Init(const Config &config) {
   busy_ = false;
 }
 
-// ---------- peripheral setup (direct register) ----------
+// peripheral setup (direct register)
 
 void DShotTim1::DmaInit() {
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
@@ -131,7 +131,7 @@ void DShotTim1::Tim1Init(uint16_t period) {
   TIM1->EGR = TIM_EGR_UG;
 }
 
-// ---------- runtime ----------
+// runtime
 
 void DShotTim1::StartOutputsOnce() {
   // Outputs idle low (CCRx = 0); start the counter free-running. DShot frames
@@ -208,7 +208,7 @@ void DShotTim1::FinishAndIdle() {
   busy_ = false;
 }
 
-// ---------- DMA completion (called from DMA2_Stream5_IRQHandler) ----------
+// DMA completion (called from DMA2_Stream5_IRQHandler)
 
 extern "C" void DshotTim1DmaComplete(void) {
   DShotTim1::GetInstance().FinishAndIdle();

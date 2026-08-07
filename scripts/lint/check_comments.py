@@ -11,9 +11,11 @@ compiling, or is a marker nobody can act on. Those are the rules here.
 
 Rules, all whole-line or line-local:
 
-  banner        A comment that is only a rule of dashes, equals signs or
-                box-drawing characters. It never moves when the code under it
-                does, so it ends up separating things it no longer describes.
+  banner        A rule of dashes, equals signs or box-drawing characters,
+                either bare or wrapped around a label. It never moves when the
+                code under it does, so it ends up separating things it no
+                longer describes -- and the labelled form is the worse of the
+                two, since the label is the part that goes stale.
   todo-owner    TODO/FIXME/XXX/HACK with no owner or issue in parentheses. An
                 unattributed marker is a wish, not a task.
   commented-code
@@ -75,9 +77,15 @@ EXEMPT_PREFIXES = (
     "esp32/ui/assets/bitmap/",
 )
 
-# A rule of six or more, and nothing else. Six is above any plausible run in
-# prose ("----" as an em-dash stand-in) and below every banner in the tree.
-BANNER_RE = re.compile(r"^\s*//\s*[-=_*#~─━│┃—]{6,}\s*$")
+# Two shapes. Bare: a rule of six or more and nothing else -- six sits above
+# any plausible run in prose ("----" as an em-dash stand-in). Labelled: a run
+# of three or more on both sides of a label, which is the form banners actually
+# take. The pair of anchors is what makes the shorter run safe, since prose
+# that uses -- mid-sentence never also opens and closes with it.
+FILL = r"[-=_*#~─━│┃—]"
+BANNER_RE = re.compile(
+    rf"^\s*//\s*(?:{FILL}{{6,}}|{FILL}{{3,}}\s*\S.*?\s*{FILL}{{3,}})\s*$"
+)
 EMPTY_RE = re.compile(r"^\s*//+\s*$")
 TODO_RE = re.compile(r"//\s*(TODO|FIXME|XXX|HACK)(?!\s*\()", re.IGNORECASE)
 # Assistant and tool attribution. Authorship belongs in git history, not in the
@@ -241,18 +249,42 @@ def check_file(lines: list[str], strict: bool) -> list[tuple[int, str, str]]:
     return findings
 
 
-# Only the two rules with one correct fix: delete the line. Everything else
-# needs a human to say what the comment should have been.
+# Only the rules with one correct fix. Everything else needs a human to say
+# what the comment should have been.
 FIXABLE = {"banner", "empty"}
+
+# A labelled banner has two defects and only one of them is certain: the rules
+# are always wrong, the label may be the sole thing naming a block. Stripping
+# to the label is the edit that cannot lose information; whether the label then
+# earns its line is a review question.
+LABELLED_BANNER_RE = re.compile(rf"^(\s*//\s*){FILL}{{3,}}\s*(\S.*?)\s*{FILL}{{3,}}\s*$")
 
 
 def fix_file(path: pathlib.Path, lines: list[str], findings) -> int:
-    drop = {number for number, rule, _ in findings if rule in FIXABLE}
-    if not drop:
+    edited = list(lines)
+    drop: set[int] = set()
+    changed = 0
+
+    for number, rule, _ in findings:
+        if rule not in FIXABLE:
+            continue
+        labelled = LABELLED_BANNER_RE.match(edited[number - 1].rstrip("\n"))
+        if rule == "banner" and labelled is not None:
+            edited[number - 1] = f"{labelled.group(1)}{labelled.group(2)}\n"
+        else:
+            drop.add(number)
+        changed += 1
+
+    if changed == 0:
         return 0
-    kept = [line for number, line in enumerate(lines, start=1) if number not in drop]
-    path.write_text("".join(kept), encoding="utf-8")
-    return len(drop)
+
+    path.write_text(
+        "".join(
+            line for number, line in enumerate(edited, start=1) if number not in drop
+        ),
+        encoding="utf-8",
+    )
+    return changed
 
 
 def main() -> int:
@@ -260,7 +292,8 @@ def main() -> int:
     parser.add_argument(
         "--fix",
         action="store_true",
-        help="delete banner and empty comment lines (other rules are reported only)",
+        help="strip banner rules and delete empty comment lines "
+        "(other rules are reported only)",
     )
     parser.add_argument(
         "--strict",

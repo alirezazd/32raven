@@ -104,7 +104,7 @@ struct RcData {
 
 class VehicleState {
  public:
-  // --- WRITERS (Called by Drivers) ---
+  // WRITERS (Called by Drivers)
 
   void UpdateGps(const GpsData &data) {
     gps_ = data;
@@ -120,7 +120,7 @@ class VehicleState {
   void UpdateImu(const ImuState &data) { imu_ = data; }
   void SetFlightMode(FlightMode mode) { mode_ = mode; }
 
-  // --- READERS (Called by Logic/Consumers) ---
+  // READERS (Called by Logic/Consumers)
 
   // Fast access for Control Loop (High Frequency)
   const GpsData &GetGps() const { return gps_; }

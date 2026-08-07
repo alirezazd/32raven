@@ -876,7 +876,7 @@ bool Programmer::ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset,
   return true;
 }
 
-// ---- State implementations ----
+// State implementations
 
 void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
   (void)now;

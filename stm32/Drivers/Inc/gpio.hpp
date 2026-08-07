@@ -26,7 +26,7 @@ struct GpioInit {
   uint32_t Alternate;
 };
 
-// --- Pin bitmask (GPIO_pins_define) --------------------------------------
+// Pin bitmask (GPIO_pins_define)
 inline constexpr uint32_t GPIO_PIN_0 = 0x0001u;
 inline constexpr uint32_t GPIO_PIN_1 = 0x0002u;
 inline constexpr uint32_t GPIO_PIN_2 = 0x0004u;
@@ -44,7 +44,7 @@ inline constexpr uint32_t GPIO_PIN_13 = 0x2000u;
 inline constexpr uint32_t GPIO_PIN_14 = 0x4000u;
 inline constexpr uint32_t GPIO_PIN_15 = 0x8000u;
 
-// --- Mode (GPIO_mode_define) ---------------------------------------------
+// Mode (GPIO_mode_define)
 // Encoding 0x00WX00YZ: W = EXTI trigger (bit20+), X = EXTI mode (bit16+),
 // Y = output type (bit4: 0=PP, 1=OD), Z = base mode (bits1:0). gpio.cpp's
 // DecodeMode() relies on exactly this layout.
@@ -57,18 +57,18 @@ inline constexpr uint32_t GPIO_MODE_ANALOG = 0x00000003u;
 inline constexpr uint32_t GPIO_MODE_IT_RISING =
     0x00110000u;  // MODE_INPUT | EXTI_IT | TRIGGER_RISING
 
-// --- Output speed (GPIO_speed_define) ------------------------------------
+// Output speed (GPIO_speed_define)
 inline constexpr uint32_t GPIO_SPEED_FREQ_LOW = 0x00000000u;
 inline constexpr uint32_t GPIO_SPEED_FREQ_MEDIUM = 0x00000001u;
 inline constexpr uint32_t GPIO_SPEED_FREQ_HIGH = 0x00000002u;
 inline constexpr uint32_t GPIO_SPEED_FREQ_VERY_HIGH = 0x00000003u;
 
-// --- Pull resistors (GPIO_pull_define) -----------------------------------
+// Pull resistors (GPIO_pull_define)
 inline constexpr uint32_t GPIO_NOPULL = 0x00000000u;
 inline constexpr uint32_t GPIO_PULLUP = 0x00000001u;
 inline constexpr uint32_t GPIO_PULLDOWN = 0x00000002u;
 
-// --- Alternate functions (value = AF index) ------------------------------
+// Alternate functions (value = AF index)
 inline constexpr uint32_t GPIO_AF1_TIM1 = 0x01u;
 inline constexpr uint32_t GPIO_AF5_SPI1 = 0x05u;
 inline constexpr uint32_t GPIO_AF5_SPI2 = 0x05u;
