@@ -7,6 +7,7 @@
 #include <cmath>
 
 #include "boot_widget.hpp"
+#include "common_config.hpp"
 #include "error_code.hpp"
 #include "error_widget.hpp"
 #include "main_ui_widget.hpp"
@@ -226,6 +227,36 @@ void WidgetContext::LoadWidget(IWidget *widget) const {
   }
 }
 
+// Packed into one word because two volatile stores are all the ordering there
+// is: the timestamp publishes the report. The layout is private to this pair.
+void Ui::UpdatePeerUsb(const PeerUsbState &state, uint32_t now_ms) {
+  const uint32_t report = (state.attached ? 1u : 0u) |
+                          (state.configured ? 2u : 0u) |
+                          (state.port_open ? 4u : 0u) |
+                          (state.esc_config_granted ? 8u : 0u) |
+                          (static_cast<uint32_t>(state.rx_frames) << 8) |
+                          (static_cast<uint32_t>(state.tx_frames) << 16);
+  peer_usb_report_ = report;
+  peer_usb_update_ms_ = (now_ms == 0u) ? 1u : now_ms;
+}
+
+std::optional<Ui::PeerUsbState> Ui::PeerUsb(uint32_t now_ms) const {
+  const uint32_t update_ms = peer_usb_update_ms_;
+  if (update_ms == 0u ||
+      (now_ms - update_ms) > common_config::kFcLinkPeerTimeoutMs) {
+    return std::nullopt;
+  }
+  const uint32_t report = peer_usb_report_;
+  return PeerUsbState{
+      .attached = (report & 1u) != 0u,
+      .configured = (report & 2u) != 0u,
+      .port_open = (report & 4u) != 0u,
+      .esc_config_granted = (report & 8u) != 0u,
+      .rx_frames = static_cast<uint8_t>(report >> 8),
+      .tx_frames = static_cast<uint8_t>(report >> 16),
+  };
+}
+
 void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   static StaticTask_t task_buffer;
   static StackType_t task_stack[kTaskStackDepthWords];
@@ -345,7 +376,7 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
     case AppState::kMavlinkUsb:
-      // TODO: Placeholder: re-uses the WiFi MAVLink screen until a USB-specific
+      // TODO(ui): Placeholder: re-uses the WiFi MAVLink screen until a USB-specific
       // widget lands. The text path is the same; only the underlying
       // transport differs.
       return MainScreen::kMavlinkWifiDisconnected;
@@ -357,8 +388,15 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
         return MainScreen::kVerifying;
       }
       return MainScreen::kProgramming;
-    case AppState::kEscConfig:
-      return MainScreen::kEscConfig;
+    case AppState::kEscConfig: {
+      // Not being told USB is up differs from being told it is down.
+      const auto usb = PeerUsb(Sys().Timebase().NowMs());
+      if (!usb.has_value() || !usb->configured) {
+        return MainScreen::kEscConfigDisconnected;
+      }
+      return usb->port_open ? MainScreen::kEscConfigConnected
+                            : MainScreen::kEscConfigIdleConnected;
+    }
     case AppState::kHardError:
     default:
       return MainScreen::kServing;
@@ -378,7 +416,9 @@ uint8_t Ui::ScreenGroup(MainScreen screen) const {
     case MainScreen::kProgramming:
     case MainScreen::kVerifying:
       return 4;
-    case MainScreen::kEscConfig:
+    case MainScreen::kEscConfigDisconnected:
+    case MainScreen::kEscConfigIdleConnected:
+    case MainScreen::kEscConfigConnected:
       return 5;
     case MainScreen::kBooting:
     default:

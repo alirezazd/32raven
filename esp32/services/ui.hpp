@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "display_renderer.hpp"
 #include "error_code.hpp"
@@ -103,7 +104,10 @@ class Ui {
     kMavlinkWifiConnected,
     kProgramming,
     kVerifying,
-    kEscConfig,
+    // Three stages of one screen; the STM32's USB report picks between them.
+    kEscConfigDisconnected,   // no host has enumerated the port
+    kEscConfigIdleConnected,  // enumerated, no configurator attached yet
+    kEscConfigConnected,      // configurator opened the port
   };
 
   struct Config {
@@ -121,6 +125,24 @@ class Ui {
     static Ui instance;
     return instance;
   }
+
+  // Lives here because the display is its only consumer. Decoding the wire
+  // message into this shape is the dispatcher's job.
+  struct PeerUsbState {
+    bool attached = false;
+    bool configured = false;
+    bool port_open = false;
+    bool esc_config_granted = false;
+    // Wrapping: compare against what you saw last, never read as a total.
+    uint8_t rx_frames = 0;
+    uint8_t tx_frames = 0;
+  };
+
+  void UpdatePeerUsb(const PeerUsbState &state, uint32_t now_ms);
+
+  // nullopt once the STM32 has gone quiet -- silence is not evidence that USB
+  // came up.
+  std::optional<PeerUsbState> PeerUsb(uint32_t now_ms) const;
 
   void Init(const Config &cfg, Ssd1306Panel *panel);
   void LoadWidget(IWidget *widget);
@@ -152,6 +174,12 @@ class Ui {
 
  private:
   friend class System;
+
+  // Written by the state-machine task, read by the UI task. volatile is for
+  // ordering, not tearing: PeerUsb must load the timestamp first or it pairs a
+  // fresh one with the previous report. Zero means nothing heard yet.
+  volatile uint32_t peer_usb_report_ = 0;
+  volatile uint32_t peer_usb_update_ms_ = 0;
 
   Ui();
   static void TaskEntry(void *param);

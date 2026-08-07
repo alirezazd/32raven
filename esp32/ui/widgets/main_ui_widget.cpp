@@ -9,17 +9,18 @@
 #include <cstdio>
 #include <cstring>
 
+#include "bitmap/am32_bitmap.hpp"
 #include "bitmap/chip_bitmap.hpp"
 #include "bitmap/chip_verify_bitmap.hpp"
 #include "bitmap/gear0_bitmap.hpp"
 #include "bitmap/gear1_bitmap.hpp"
 #include "bitmap/magnifying_glass_bitmap.hpp"
-#include "bitmap/am32_bitmap.hpp"
 #include "bitmap/mavlink0_bitmap.hpp"
 #include "bitmap/mavlink1_bitmap.hpp"
 #include "bitmap/mavlink2_bitmap.hpp"
 #include "bitmap/mavlink3_bitmap.hpp"
 #include "bitmap/pc_bitmap.hpp"
+#include "bitmap/usb_bitmap.hpp"
 #include "bitmap/wifi_bitmap.hpp"
 #include "system.hpp"
 
@@ -49,13 +50,14 @@ constexpr char kMavlinkWifiStatus[] = "MAVLink";
 constexpr char kEscConfigStatus[] = "ESC Config";
 constexpr size_t kDfuIconLeftX = 0;
 constexpr size_t kDfuIconRightInsetX = 0;
-constexpr size_t kDfuWifiRightInsetX = 0;
-constexpr size_t kDfuWifiTopY = 0;
-constexpr int16_t kDfuWifiWarningGapPx = 1;
+constexpr size_t kCornerBadgeRightInsetX = 0;
+constexpr size_t kCornerBadgeTopY = 0;
+constexpr int16_t kCornerBadgeWarningGapPx = 1;
 constexpr int16_t kDfuLinkGlyphGapPx = 1;
-constexpr int16_t kDfuCredentialLineGapPx = 2;
+constexpr int16_t kBodyTextLineGapPx = 2;
 constexpr TimeMs kMavlinkIconFramePeriodMs = 250;
 constexpr int16_t kStatusRightInsetPx = 1;
+constexpr int16_t kStatusBadgeGapPx = 2;
 constexpr int16_t kStatusScrollSlackPercent = 10;
 constexpr TimeMs kDefaultDfuLinkStepPeriodMs = 16;
 constexpr uint16_t kDfuLinkSubpixelScale = 256;
@@ -67,8 +69,8 @@ constexpr int16_t kProgressBarWhiteWidthPx = kProgressBarBlackWidthPx * 3;
 constexpr int16_t kProgressBarPitchPx =
     kProgressBarBlackWidthPx + kProgressBarWhiteWidthPx;
 constexpr uint16_t kProgressBarPixelsPerSecond = 28;
-constexpr uint16_t kMavlinkPacketSubpixelScale = 256;
-constexpr uint16_t kMavlinkPacketPixelsPerSecond = 36;
+constexpr uint16_t kLinkPacketSubpixelScale = 256;
+constexpr uint16_t kLinkPacketPixelsPerSecond = 36;
 constexpr uint16_t kVerifyMagnifierSubpixelScale = 256;
 constexpr uint16_t kVerifyMagnifierPixelsPerSecond = 12;
 constexpr int16_t kVerifyMagnifierLensCenterX = 8;
@@ -90,9 +92,22 @@ constexpr std::array<uint8_t, kVerifyDigitGlyphHeightPx> kVerifyDigitOne = {
     0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
 };
 
+constexpr uint8_t kMaxDotCount = 3;
+
 uint8_t DotCount(TimeMs now) {
   const uint8_t phase = static_cast<uint8_t>((now / kDotStepPeriodMs) % 4u);
   return (phase == 3u) ? 0u : static_cast<uint8_t>(phase + 1u);
+}
+
+// Padded to full width because the scroller derives its cycle length from the
+// measured text: a string that grew and shrank with the dots would restart the
+// cycle at an unrelated phase on every tick.
+void AppendDots(char *buffer, size_t size, uint8_t dot_count) {
+  size_t len = std::strlen(buffer);
+  for (uint8_t index = 0; index < kMaxDotCount && (len + 1) < size; ++index) {
+    buffer[len++] = (index < dot_count) ? '.' : ' ';
+  }
+  buffer[len] = '\0';
 }
 
 char RandomBinaryGlyph() { return ((esp_random() & 0x1u) != 0u) ? '1' : '0'; }
@@ -109,7 +124,9 @@ const char *StatusTextForMode(WidgetMode mode) {
     case WidgetMode::kMavlinkWifiDisconnected:
     case WidgetMode::kMavlinkWifiConnected:
       return kMavlinkWifiStatus;
-    case WidgetMode::kEscConfig:
+    case WidgetMode::kEscConfigDisconnected:
+    case WidgetMode::kEscConfigIdleConnected:
+    case WidgetMode::kEscConfigConnected:
       return kEscConfigStatus;
     case WidgetMode::kProgramming:
       return "Programming";
@@ -120,46 +137,46 @@ const char *StatusTextForMode(WidgetMode mode) {
   }
 }
 
-int16_t StatusViewportWidthPx(DisplayRenderer &renderer) {
-  const DisplayTextBounds prefix_bounds =
-      renderer.MeasureText(">", kStatusStyle);
-  return static_cast<int16_t>(static_cast<int16_t>(renderer.Width()) -
-                              kTextInsetX -
-                              static_cast<int16_t>(prefix_bounds.width) -
-                              kStatusRightInsetPx);
-}
-
-bool StatusLineScrolls(DisplayRenderer &renderer, WidgetMode mode) {
-  const DisplayTextBounds body_bounds =
-      renderer.MeasureText(StatusTextForMode(mode), kStatusStyle);
-  const DisplayTextBounds dot_slot_bounds =
-      renderer.MeasureText("...", kStatusStyle);
-  return static_cast<int16_t>(body_bounds.width + dot_slot_bounds.width) >
-         StatusViewportWidthPx(renderer);
-}
-
 bool IsServingMode(WidgetMode mode) { return mode == WidgetMode::kServing; }
+
+bool IsEscConfigMode(WidgetMode mode) {
+  return mode == WidgetMode::kEscConfigDisconnected ||
+         mode == WidgetMode::kEscConfigIdleConnected ||
+         mode == WidgetMode::kEscConfigConnected;
+}
 
 bool IsDfuVisualMode(WidgetMode mode) {
   return mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kDfuIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected ||
-         mode == WidgetMode::kEscConfig ||
-         mode == WidgetMode::kProgramming || mode == WidgetMode::kVerifying;
-}
-
-bool IsEscConfigMode(WidgetMode mode) {
-  return mode == WidgetMode::kEscConfig;
+         IsEscConfigMode(mode) || mode == WidgetMode::kProgramming ||
+         mode == WidgetMode::kVerifying;
 }
 
 bool IsScrollableProgressMode(WidgetMode mode) {
   return mode == WidgetMode::kProgramming || mode == WidgetMode::kVerifying;
 }
 
-bool IsWifiCredentialsMode(WidgetMode mode) {
+// The transport this screen needs is not up: badge blinks with a "!".
+bool ShouldBlinkCornerBadge(WidgetMode mode) {
   return mode == WidgetMode::kDfuDisconnected ||
-         mode == WidgetMode::kMavlinkWifiDisconnected;
+         mode == WidgetMode::kMavlinkWifiDisconnected ||
+         mode == WidgetMode::kEscConfigDisconnected;
+}
+
+// Guidance text instead of the icon row. A superset of the blinking modes:
+// the ESC idle stage has a steady badge but still needs telling.
+bool IsBodyTextMode(WidgetMode mode) {
+  return ShouldBlinkCornerBadge(mode) ||
+         mode == WidgetMode::kEscConfigIdleConnected;
+}
+
+// Screens that show binary glyphs travelling between the two icons.
+bool HasPacketLanes(WidgetMode mode) {
+  return mode == WidgetMode::kMavlinkWifiDisconnected ||
+         mode == WidgetMode::kMavlinkWifiConnected ||
+         mode == WidgetMode::kEscConfigConnected;
 }
 
 bool IsMavlinkMode(WidgetMode mode) {
@@ -219,16 +236,56 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
   }
 }
 
-bool ShouldShowDfuWifiBadge(WidgetMode mode) {
-  // No AP runs in ESC config, so the radio badge would be a lie.
-  return mode != WidgetMode::kVerifying && !IsEscConfigMode(mode);
-}
-
 struct IconAsset {
   const uint8_t *data = nullptr;
   size_t width = 0;
   size_t height = 0;
 };
+
+// Names the transport the mode is reachable on. Verifying gets none: it runs
+// off the link that brought it here.
+IconAsset CornerBadgeForMode(WidgetMode mode) {
+  if (IsEscConfigMode(mode)) {
+    return {
+        .data = usb_bitmap::kBitmapData.data(),
+        .width = usb_bitmap::kVisibleWidth,
+        .height = usb_bitmap::kVisibleHeight,
+    };
+  }
+  if (IsDfuVisualMode(mode) && mode != WidgetMode::kVerifying) {
+    return {
+        .data = wifi_bitmap::kBitmapData.data(),
+        .width = wifi_bitmap::kVisibleWidth,
+        .height = wifi_bitmap::kVisibleHeight,
+    };
+  }
+  return {};
+}
+
+int16_t StatusViewportWidthPx(DisplayRenderer &renderer, WidgetMode mode) {
+  const DisplayTextBounds prefix_bounds =
+      renderer.MeasureText(">", kStatusStyle);
+  // The badge shares this band, so the text stops at its edge rather than
+  // scrolling underneath it.
+  const IconAsset badge = CornerBadgeForMode(mode);
+  const int16_t badge_reserve =
+      (badge.data != nullptr)
+          ? static_cast<int16_t>(badge.width + kStatusBadgeGapPx)
+          : 0;
+  return static_cast<int16_t>(
+      static_cast<int16_t>(renderer.Width()) - kTextInsetX -
+      static_cast<int16_t>(prefix_bounds.width) - kStatusRightInsetPx -
+      badge_reserve);
+}
+
+bool StatusLineScrolls(DisplayRenderer &renderer, WidgetMode mode) {
+  const DisplayTextBounds body_bounds =
+      renderer.MeasureText(StatusTextForMode(mode), kStatusStyle);
+  const DisplayTextBounds dot_slot_bounds =
+      renderer.MeasureText("...", kStatusStyle);
+  return static_cast<int16_t>(body_bounds.width + dot_slot_bounds.width) >
+         StatusViewportWidthPx(renderer, mode);
+}
 
 IconAsset LeftIconForMode(WidgetMode mode, TimeMs now) {
   if (IsEscConfigMode(mode)) {
@@ -280,8 +337,46 @@ bool ShouldAnimateEntryText(WidgetMode mode) {
   return mode == WidgetMode::kServing || mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kDfuIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected ||
-         mode == WidgetMode::kEscConfig;
+         mode == WidgetMode::kMavlinkWifiConnected || IsEscConfigMode(mode);
+}
+
+// Shared by the AP credentials and the ESC-config guidance, which differ only
+// in their strings and whether a second line exists to centre against.
+void DrawBodyTextLines(DisplayRenderer &renderer, TimeMs now,
+                       int16_t status_height, const char *line1,
+                       const char *line2 = nullptr) {
+  const DisplayTextBounds bounds1 = renderer.MeasureText(line1, kDfuSleepStyle);
+  int16_t line_height = static_cast<int16_t>(bounds1.height);
+  if (line2 != nullptr) {
+    const DisplayTextBounds bounds2 =
+        renderer.MeasureText(line2, kDfuSleepStyle);
+    line_height =
+        static_cast<int16_t>(std::max(bounds1.height, bounds2.height));
+  }
+  if (line_height <= 0) {
+    return;
+  }
+
+  const int16_t total_height =
+      (line2 != nullptr)
+          ? static_cast<int16_t>((2 * line_height) + kBodyTextLineGapPx)
+          : line_height;
+  const int16_t top = static_cast<int16_t>(
+      status_height +
+      std::max<int16_t>(0, (static_cast<int16_t>(renderer.Height()) -
+                            status_height - total_height) /
+                               2));
+  const int16_t line_width = static_cast<int16_t>(
+      renderer.Width() - static_cast<size_t>(kTextInsetX));
+
+  renderer.DrawScrollingText(line1, kTextInsetX, top, line_width, now,
+                             kDfuSleepStyle);
+  if (line2 != nullptr) {
+    renderer.DrawScrollingText(
+        line2, kTextInsetX,
+        static_cast<int16_t>(top + line_height + kBodyTextLineGapPx),
+        line_width, now, kDfuSleepStyle);
+  }
 }
 
 template <size_t N>
@@ -434,8 +529,8 @@ void MainUiWidget::OnEnter(WidgetContext &ctx) {
   dfu_link_last_step_ms_ = now;
   dfu_link_subpixel_offset_ = 0;
   dfu_link_initialized_ = false;
-  mavlink_packet_last_step_ms_ = now;
-  ResetMavlinkPacketAnimation();
+  link_packet_last_step_ms_ = now;
+  ResetLinkPacketAnimation(PacketSourceForMode(CurrentMode(), now));
   ResetVerifyMagnifierAnimation(now);
   last_mode_ = CurrentMode();
 
@@ -455,24 +550,26 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   AdvanceGearAnimation(ctx, now, IsServingMode(mode));
   const bool dfu_binary_link_active = mode == Mode::kProgramming;
   const bool status_scroll_active = StatusLineScrolls(*ctx.renderer, mode);
-  const bool dfu_credentials_animation_active = IsWifiCredentialsMode(mode);
+  const bool body_text_animation_active = IsBodyTextMode(mode);
   const TimeMs dfu_link_step_period_ms =
       (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
           ? ctx.ui->GetFrameIntervalMs()
           : kDefaultDfuLinkStepPeriodMs;
   const bool verify_magnifier_changed = AdvanceVerifyMagnifierAnimation(
       now, mode == Mode::kVerifying, dfu_link_step_period_ms);
-  const bool mavlink_packet_changed = AdvanceMavlinkPacketAnimation(
-      *ctx.renderer, now, IsMavlinkMode(mode), dfu_link_step_period_ms);
-  const bool mavlink_packet_active =
-      mavlink_tx_lane_.active_count > 0 || mavlink_rx_lane_.active_count > 0;
+  const LinkPacketSource packet_source = PacketSourceForMode(mode, now);
+  const bool link_packet_changed = AdvanceLinkPacketAnimation(
+      *ctx.renderer, now, packet_source, dfu_link_step_period_ms);
+  const bool link_packet_active =
+      link_tx_lane_.active_count > 0 || link_rx_lane_.active_count > 0;
   const bool mode_changed = mode != last_mode_;
   const bool dfu_link_changed = AdvanceDfuLinkAnimation(
       *ctx.renderer, now, dfu_binary_link_active, dfu_link_step_period_ms);
 
   if (mode_changed) {
-    if (IsMavlinkMode(mode) != IsMavlinkMode(last_mode_)) {
-      ResetMavlinkPacketAnimation();
+    if (HasPacketLanes(mode) != HasPacketLanes(last_mode_) ||
+        IsMavlinkMode(mode) != IsMavlinkMode(last_mode_)) {
+      ResetLinkPacketAnimation(packet_source);
     }
     const bool status_changed = std::strcmp(StatusTextForMode(last_mode_),
                                             StatusTextForMode(mode)) != 0;
@@ -488,8 +585,8 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   const bool serving_animation_active = IsServingMode(mode);
   if (!has_rendered_ || text_animation_active_ ||
       last_dot_count_ != DotCount(now) || serving_animation_active ||
-      dfu_link_changed || verify_magnifier_changed || mavlink_packet_changed ||
-      mavlink_packet_active || dfu_credentials_animation_active ||
+      dfu_link_changed || verify_magnifier_changed || link_packet_changed ||
+      link_packet_active || body_text_animation_active ||
       status_scroll_active) {
     RenderMode(ctx, now, mode);
   }
@@ -606,28 +703,50 @@ bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
   return true;
 }
 
-void MainUiWidget::ResetMavlinkPacketAnimation() {
-  mavlink_tx_lane_ = {};
-  mavlink_rx_lane_ = {};
-  mavlink_tx_lane_.last_seen_packet_count =
-      Sys().Mavlink().GetUdpTxPacketCount();
-  mavlink_rx_lane_.last_seen_packet_count =
-      Sys().Mavlink().GetUdpRxPacketCount();
-  mavlink_packet_last_step_ms_ = Sys().Timebase().NowMs();
+// MAVLink counts UDP packets locally; ESC config has to be told, since those
+// frames are on the STM32's USB port and never touch this MCU.
+MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(Mode mode,
+                                                                 TimeMs now) {
+  if (mode == Mode::kEscConfigConnected) {
+    const auto usb = Sys().Ui().PeerUsb(now);
+    return {
+        .active = usb.has_value(),
+        .left_icon_width = am32_bitmap::kVisibleWidth,
+        .rx_count = usb.has_value() ? usb->rx_frames : 0u,
+        .tx_count = usb.has_value() ? usb->tx_frames : 0u,
+    };
+  }
+  if (IsMavlinkMode(mode)) {
+    return {
+        .active = true,
+        .left_icon_width = mavlink0_bitmap::kVisibleWidth,
+        .rx_count = Sys().Mavlink().GetUdpRxPacketCount(),
+        .tx_count = Sys().Mavlink().GetUdpTxPacketCount(),
+    };
+  }
+  return {};
 }
 
-bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
-                                                 TimeMs now, bool active,
-                                                 TimeMs step_period_ms) {
-  if (!active) {
+void MainUiWidget::ResetLinkPacketAnimation(const LinkPacketSource &source) {
+  link_tx_lane_ = {};
+  link_rx_lane_ = {};
+  link_tx_lane_.last_seen_packet_count = source.tx_count;
+  link_rx_lane_.last_seen_packet_count = source.rx_count;
+  link_packet_last_step_ms_ = Sys().Timebase().NowMs();
+}
+
+bool MainUiWidget::AdvanceLinkPacketAnimation(DisplayRenderer &renderer,
+                                              TimeMs now,
+                                              const LinkPacketSource &source,
+                                              TimeMs step_period_ms) {
+  if (!source.active) {
     return false;
   }
 
   EnsureLinkGlyphMetrics(renderer);
 
-  const int16_t gap_width =
-      static_cast<int16_t>(renderer.Width() - chip_bitmap::kVisibleWidth -
-                           mavlink0_bitmap::kVisibleWidth);
+  const int16_t gap_width = static_cast<int16_t>(
+      renderer.Width() - chip_bitmap::kVisibleWidth - source.left_icon_width);
   const int16_t travel_px =
       std::max<int16_t>(0, gap_width - dfu_link_glyph_width_px_);
   if (travel_px <= 0) {
@@ -635,30 +754,30 @@ bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
   }
 
   const uint32_t travel_subpixels =
-      static_cast<uint32_t>(travel_px) * kMavlinkPacketSubpixelScale;
+      static_cast<uint32_t>(travel_px) * kLinkPacketSubpixelScale;
   const uint32_t min_spawn_progress_subpx =
       static_cast<uint32_t>(std::max<int16_t>(1, dfu_link_glyph_pitch_px_)) *
-      kMavlinkPacketSubpixelScale;
+      kLinkPacketSubpixelScale;
   const TimeMs effective_step_period_ms =
       (step_period_ms > 0) ? step_period_ms : kDefaultDfuLinkStepPeriodMs;
-  const TimeMs previous_step_ms = mavlink_packet_last_step_ms_;
-  mavlink_packet_last_step_ms_ = now;
+  const TimeMs previous_step_ms = link_packet_last_step_ms_;
+  link_packet_last_step_ms_ = now;
 
   uint32_t advanced_subpixels = 0;
   if (previous_step_ms != 0 && now > previous_step_ms) {
     const TimeMs step_ms =
         std::min(now - previous_step_ms, effective_step_period_ms);
     advanced_subpixels =
-        (static_cast<uint32_t>(step_ms) * kMavlinkPacketPixelsPerSecond *
-         kMavlinkPacketSubpixelScale) /
+        (static_cast<uint32_t>(step_ms) * kLinkPacketPixelsPerSecond *
+         kLinkPacketSubpixelScale) /
         1000u;
   }
 
   bool changed = false;
-  const auto advance_lane = [&](MavlinkPacketLane &lane) {
+  const auto advance_lane = [&](LinkPacketLane &lane) {
     size_t write_index = 0;
     for (size_t read_index = 0; read_index < lane.active_count; ++read_index) {
-      MavlinkPacketGlyph glyph = lane.packets[read_index];
+      LinkPacketGlyph glyph = lane.packets[read_index];
       glyph.progress_subpx = static_cast<uint16_t>(std::min<uint32_t>(
           travel_subpixels, glyph.progress_subpx + advanced_subpixels));
       if (glyph.progress_subpx >= travel_subpixels) {
@@ -674,15 +793,15 @@ bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
   };
 
   if (advanced_subpixels > 0) {
-    advance_lane(mavlink_tx_lane_);
-    advance_lane(mavlink_rx_lane_);
-    if (mavlink_tx_lane_.active_count > 0 ||
-        mavlink_rx_lane_.active_count > 0) {
+    advance_lane(link_tx_lane_);
+    advance_lane(link_rx_lane_);
+    if (link_tx_lane_.active_count > 0 ||
+        link_rx_lane_.active_count > 0) {
       changed = true;
     }
   }
 
-  const auto maybe_spawn = [&](MavlinkPacketLane &lane, uint32_t packet_count) {
+  const auto maybe_spawn = [&](LinkPacketLane &lane, uint32_t packet_count) {
     if (packet_count == lane.last_seen_packet_count) {
       return;
     }
@@ -700,8 +819,8 @@ bool MainUiWidget::AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer,
     lane.last_seen_packet_count = packet_count;
   };
 
-  maybe_spawn(mavlink_tx_lane_, Sys().Mavlink().GetUdpTxPacketCount());
-  maybe_spawn(mavlink_rx_lane_, Sys().Mavlink().GetUdpRxPacketCount());
+  maybe_spawn(link_tx_lane_, source.tx_count);
+  maybe_spawn(link_rx_lane_, source.rx_count);
 
   return changed;
 }
@@ -828,14 +947,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     return;
   }
 
-  const size_t base_len =
-      std::min<size_t>(static_cast<size_t>(written), sizeof(status_line) - 1);
-  for (uint8_t index = 0;
-       index < dot_count && (base_len + index + 1) < sizeof(status_line);
-       ++index) {
-    status_line[base_len + index] = '.';
-    status_line[base_len + index + 1] = '\0';
-  }
+  AppendDots(status_line, sizeof(status_line), dot_count);
 
   const DisplayTextBounds status_bounds =
       renderer.MeasureText(status_line, kStatusStyle);
@@ -880,7 +992,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         static_cast<int16_t>(kTextInsetX - prefix_bounds.x);
     const int16_t viewport_left = static_cast<int16_t>(
         kTextInsetX + static_cast<int16_t>(prefix_bounds.width));
-    const int16_t viewport_width = StatusViewportWidthPx(renderer);
+    const int16_t viewport_width = StatusViewportWidthPx(renderer, mode);
     const int16_t viewport_right =
         static_cast<int16_t>(viewport_left + viewport_width);
     const int16_t content_width =
@@ -888,9 +1000,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     // Overscroll past the end so the tail clears the edge before resetting.
     const int16_t scroll_span =
         (content_width > viewport_width)
-            ? static_cast<int16_t>(content_width +
-                                   (viewport_width * kStatusScrollSlackPercent) /
-                                       100)
+            ? static_cast<int16_t>(
+                  content_width +
+                  (viewport_width * kStatusScrollSlackPercent) / 100)
             : content_width;
     const int16_t body_cursor_x = static_cast<int16_t>(
         viewport_left - body_bounds.x -
@@ -898,8 +1010,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
 
     renderer.DrawText(animated_status, body_cursor_x, status_y, kStatusStyle);
 
-    char dot_text[4]{};
-    for (uint8_t index = 0; index < dot_count && index < 3; ++index) {
+    char dot_text[kMaxDotCount + 1]{};
+    for (uint8_t index = 0; index < dot_count && index < kMaxDotCount;
+         ++index) {
       dot_text[index] = '.';
     }
     if (dot_text[0] != '\0') {
@@ -949,33 +1062,38 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                          static_cast<size_t>(left_gear_x), left_gear_y, false,
                          kLargeGearRotationPeriodMs);
     }
-  } else if (IsDfuVisualMode(mode) &&
-             wifi_bitmap::kVisibleWidth <= renderer.Width() &&
-             wifi_bitmap::kVisibleHeight <= renderer.Height()) {
-    const bool show_warning_icon = ShouldShowDfuWifiBadge(mode) &&
-                                   (!IsWifiCredentialsMode(mode) ||
-                                    (((now / kDotStepPeriodMs) % 2u) == 0u));
+  } else if (IsDfuVisualMode(mode)) {
+    // Not the entry condition: the verify screen is here and has no badge.
+    const IconAsset badge = CornerBadgeForMode(mode);
+    const bool badge_fits = badge.data != nullptr &&
+                            badge.width <= renderer.Width() &&
+                            badge.height <= renderer.Height();
+    // Blinks while the transport is missing, steady once it is up.
+    const bool show_warning_icon =
+        badge_fits && (!ShouldBlinkCornerBadge(mode) ||
+                       (((now / kDotStepPeriodMs) % 2u) == 0u));
     if (show_warning_icon) {
-      const int16_t dfu_wifi_icon_x = static_cast<int16_t>(
-          renderer.Width() - wifi_bitmap::kVisibleWidth - kDfuWifiRightInsetX);
-      const int16_t dfu_wifi_icon_y = static_cast<int16_t>(kDfuWifiTopY);
-      renderer.DrawBitmap(
-          wifi_bitmap::kBitmapData.data(), wifi_bitmap::kVisibleWidth,
-          wifi_bitmap::kVisibleHeight, static_cast<size_t>(dfu_wifi_icon_x),
-          static_cast<size_t>(dfu_wifi_icon_y));
+      const int16_t badge_x = static_cast<int16_t>(
+          static_cast<int16_t>(renderer.Width()) -
+          static_cast<int16_t>(badge.width) -
+          static_cast<int16_t>(kCornerBadgeRightInsetX));
+      const int16_t badge_y = static_cast<int16_t>(kCornerBadgeTopY);
+      renderer.DrawBitmap(badge.data, badge.width, badge.height,
+                          static_cast<size_t>(badge_x),
+                          static_cast<size_t>(badge_y));
 
-      if (IsWifiCredentialsMode(mode)) {
+      if (ShouldBlinkCornerBadge(mode)) {
         const DisplayTextBounds exclamation_bounds =
             renderer.MeasureText("!", kDfuSleepStyle);
         if (exclamation_bounds.width > 0 && exclamation_bounds.height > 0) {
           const int16_t exclamation_top = static_cast<int16_t>(
-              dfu_wifi_icon_y +
+              badge_y +
               std::max<int16_t>(
-                  0, (static_cast<int16_t>(wifi_bitmap::kVisibleHeight) -
+                  0, (static_cast<int16_t>(badge.height) -
                       static_cast<int16_t>(exclamation_bounds.height)) /
                          2));
           const int16_t exclamation_x = static_cast<int16_t>(
-              dfu_wifi_icon_x - kDfuWifiWarningGapPx -
+              badge_x - kCornerBadgeWarningGapPx -
               static_cast<int16_t>(exclamation_bounds.width) -
               exclamation_bounds.x);
           const int16_t exclamation_y =
@@ -984,40 +1102,25 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         }
       }
     }
-    if (IsWifiCredentialsMode(mode)) {
-      char ssid_line[96]{};
-      char password_line[96]{};
-      std::snprintf(ssid_line, sizeof(ssid_line), "AP: %s",
-                    Sys().Wifi().ApSsid());
-      std::snprintf(password_line, sizeof(password_line), "Password: %s",
-                    Sys().Wifi().ApPassword());
-
-      const DisplayTextBounds ssid_bounds =
-          renderer.MeasureText(ssid_line, kDfuSleepStyle);
-      const DisplayTextBounds password_bounds =
-          renderer.MeasureText(password_line, kDfuSleepStyle);
-      const int16_t line_height = static_cast<int16_t>(
-          std::max(ssid_bounds.height, password_bounds.height));
-      if (line_height > 0) {
-        const int16_t lines_total_height =
-            static_cast<int16_t>((2 * line_height) + kDfuCredentialLineGapPx);
-        const int16_t credentials_top = static_cast<int16_t>(
-            status_bounds.height +
-            std::max<int16_t>(0, (static_cast<int16_t>(renderer.Height()) -
-                                  static_cast<int16_t>(status_bounds.height) -
-                                  lines_total_height) /
-                                     2));
-        const int16_t line1_top = credentials_top;
-        const int16_t line2_top = static_cast<int16_t>(line1_top + line_height +
-                                                       kDfuCredentialLineGapPx);
-        const int16_t line_left = kTextInsetX;
-        const int16_t line_width = static_cast<int16_t>(
-            renderer.Width() - static_cast<size_t>(kTextInsetX));
-
-        renderer.DrawScrollingText(ssid_line, line_left, line1_top, line_width,
-                                   now, kDfuSleepStyle);
-        renderer.DrawScrollingText(password_line, line_left, line2_top,
-                                   line_width, now, kDfuSleepStyle);
+    if (IsBodyTextMode(mode)) {
+      const int16_t body_top = static_cast<int16_t>(status_bounds.height);
+      if (IsEscConfigMode(mode)) {
+        // Enumerated, so the missing piece is the configurator opening it.
+        char guidance[kStatusLineBufferSize]{};
+        std::snprintf(guidance, sizeof(guidance), "%s",
+                      mode == Mode::kEscConfigDisconnected
+                          ? "Waiting for USB"
+                          : "Waiting for command");
+        AppendDots(guidance, sizeof(guidance), dot_count);
+        DrawBodyTextLines(renderer, now, body_top, guidance);
+      } else {
+        char ssid_line[96];
+        char password_line[96];
+        std::snprintf(ssid_line, sizeof(ssid_line), "AP: %s",
+                      Sys().Wifi().ApSsid());
+        std::snprintf(password_line, sizeof(password_line), "Password: %s",
+                      Sys().Wifi().ApPassword());
+        DrawBodyTextLines(renderer, now, body_top, ssid_line, password_line);
       }
       finish_render();
       return;
@@ -1137,7 +1240,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               glyph, static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
               link_cursor_y, kDfuSleepStyle);
         }
-      } else if (IsMavlinkMode(mode) && gap_left < gap_right) {
+      } else if (HasPacketLanes(mode) && gap_left < gap_right) {
         EnsureLinkGlyphMetrics(renderer);
         const int16_t travel_px = std::max<int16_t>(
             0, gap_right - gap_left - dfu_link_glyph_width_px_);
@@ -1150,15 +1253,15 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                      chip_icon_y +
                          static_cast<int16_t>(chip_bitmap::kVisibleHeight)) -
                      dfu_link_glyph_height_px_);
-          const auto draw_lane = [&](const MavlinkPacketLane &lane,
+          const auto draw_lane = [&](const LinkPacketLane &lane,
                                      int16_t start_x, int16_t direction_sign,
                                      int16_t lane_y) {
             const int16_t cursor_y =
                 static_cast<int16_t>(lane_y - dfu_link_glyph_y_);
             for (size_t index = 0; index < lane.active_count; ++index) {
-              const MavlinkPacketGlyph &glyph = lane.packets[index];
+              const LinkPacketGlyph &glyph = lane.packets[index];
               const int16_t progress_px = static_cast<int16_t>(
-                  glyph.progress_subpx / kMavlinkPacketSubpixelScale);
+                  glyph.progress_subpx / kLinkPacketSubpixelScale);
               const int16_t glyph_left = static_cast<int16_t>(
                   start_x + (direction_sign * progress_px));
               const char text[2] = {glyph.glyph, '\0'};
@@ -1168,10 +1271,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
             }
           };
 
-          draw_lane(mavlink_tx_lane_,
+          draw_lane(link_tx_lane_,
                     static_cast<int16_t>(gap_right - dfu_link_glyph_width_px_),
                     -1, lane_top_y);
-          draw_lane(mavlink_rx_lane_, gap_left, 1, lane_bottom_y);
+          draw_lane(link_rx_lane_, gap_left, 1, lane_bottom_y);
         }
       }
 

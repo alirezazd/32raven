@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 
 #include "esp32_limits.hpp"
@@ -27,6 +28,15 @@ class FcLink {
   void Poll();
   void ResetRxState(bool flush_uart = true);
   void SendPacket(const message::Packet &pkt);
+
+  template <typename T>
+  void SendPacket(message::MsgId id, const T &body) {
+    message::Packet pkt{};
+    pkt.header.id = static_cast<uint8_t>(id);
+    pkt.header.len = message::PayloadLength<T>();
+    std::memcpy(pkt.payload, &body, sizeof(T));
+    SendPacket(pkt);
+  }
 
   std::optional<message::Packet> PopPacket();
 

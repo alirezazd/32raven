@@ -63,8 +63,10 @@ static void OnUnknown(AppContext &, const message::Packet &pkt) {
 static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
   const uint32_t error_code = PayloadAs<message::PanicMsg>(pkt).error_code;
 
-  // In DFU mode, we ignore the panic to allow for flashing/debugging
-  if (ctx.sm->CurrentState() == ctx.dfu_state) {
+  // Killing the bridge mid-write is worse than carrying on with a faulted
+  // STM32, and a four-way session is writing ESC firmware.
+  if (ctx.sm->CurrentState() == ctx.dfu_state ||
+      ctx.sm->CurrentState() == ctx.esc_config_state) {
     static int64_t last_log_us = 0;
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_log_us >= 5000000) {
@@ -121,6 +123,22 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
       ctx.sys->Mavlink().UpdateTelemetryCache(
           PayloadAs<message::SystemStatusMsg>(pkt), now_ms);
       break;
+    case message::MsgId::kUsbStatus: {
+      const auto &msg = PayloadAs<message::UsbStatusMsg>(pkt);
+      ctx.sys->Ui().UpdatePeerUsb(
+          {
+              .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
+              .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
+              .port_open = (msg.flags & message::kUsbStatusPortOpen) != 0u,
+              .esc_config_granted =
+                  (msg.flags & message::kUsbStatusEscConfigGranted) != 0u,
+              .rx_frames = msg.rx_frames,
+              .tx_frames = msg.tx_frames,
+          },
+          now_ms);
+      break;
+    }
+
     case message::MsgId::kVehicleStatus:
       ctx.sys->Mavlink().UpdateTelemetryCache(
           PayloadAs<message::VehicleStatusMsg>(pkt), now_ms);

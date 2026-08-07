@@ -50,12 +50,13 @@ class ProgramState : public IState<AppContext> {
   uint32_t last_written_ = 0;
 };
 
-// Inert for now — owns the screen only. The AM32 passthrough lands here once
-// the STM32 one-wire layer exists.
 class EscConfigState : public IState<AppContext> {
  public:
   const char *Name() const override { return "EscConfig"; }
 
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
+
+ private:
+  SmTick last_lease_ms_ = 0;
 };

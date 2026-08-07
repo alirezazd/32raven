@@ -5,8 +5,10 @@
 
 #include <cstdio>
 
+#include "common_config.hpp"
 #include "ctx.hpp"
 #include "error_code.hpp"
+#include "esp32_config.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
@@ -19,6 +21,15 @@ extern "C" {
 }
 
 static constexpr const char *kTag = "ESP32-SM";
+
+// Mavlink().Poll stays at the call sites: ESC config drains the link but runs
+// with the telemetry link off.
+static void DrainFcLink(AppContext &ctx) {
+  ctx.sys->FcLink().Poll();
+  while (auto packet = ctx.sys->FcLink().PopPacket()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
+  }
+}
 
 // Navigation model. Two menus, one gesture each:
 //   short press — cycle within the current menu
@@ -60,10 +71,7 @@ void ServingState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
-  ctx.sys->FcLink().Poll();
-  while (auto packet = ctx.sys->FcLink().PopPacket()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
-  }
+  DrainFcLink(ctx);
   ctx.sys->Mavlink().Poll(now);
 }
 
@@ -93,10 +101,7 @@ void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
-  ctx.sys->FcLink().Poll();
-  while (auto packet = ctx.sys->FcLink().PopPacket()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
-  }
+  DrainFcLink(ctx);
   ctx.sys->Mavlink().Poll(now);
 }
 
@@ -108,7 +113,7 @@ void MavlinkUsbState::OnEnter(AppContext &ctx) {
   ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkUsb);
   ctx.sys->Mavlink().SetTransport(&ctx.sys->UsbCdc());
   ctx.sys->Mavlink().SetTelemetryLink(true);
-  // No AP / UDP socket needed for USB CDC; tear them down so a previously
+  // No AP / UDP socket needed for USB CDC; tear them down so an already
   // associated WiFi peer doesn't keep consuming radio.
   ctx.sys->StopNetwork();
 }
@@ -128,10 +133,7 @@ void MavlinkUsbState::OnStep(AppContext &ctx, SmTick now) {
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
-  ctx.sys->FcLink().Poll();
-  while (auto packet = ctx.sys->FcLink().PopPacket()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
-  }
+  DrainFcLink(ctx);
   ctx.sys->Mavlink().Poll(now);
 }
 
@@ -287,26 +289,38 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->Ui().SetAppState(Ui::AppState::kEscConfig);
   ctx.sys->Mavlink().SetTelemetryLink(false);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
-  // DFU leaves an AP up and nothing here serves it.
   ctx.sys->StopNetwork();
+  ctx.sys->FcLink().ResetRxState();
+  last_lease_ms_ = 0;  // re-entry renews at once, not one interval late
 }
 
 void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
-  static_cast<void>(now);
   auto &button = ctx.sys->Button();
   button.Poll();
 
   if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
     ESP_LOGI(kTag, "EscConfig -> Dfu (press)");
+    ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
+                                 message::SetEscConfigModeMsg{.enabled = 0u});
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
   if (button.ConsumeLongPress()) {
     ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "EscConfig -> Serving (long press)");
+    ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
+                                 message::SetEscConfigModeMsg{.enabled = 0u});
     ctx.sm->ReqTransition(*ctx.serving_state);
     return;
   }
 
-  // FcLink is left unpolled, as in DFU; ServingState::OnEnter resyncs it.
+  // Renewed, not latched: whatever stops the renewals closes the STM32's gate.
+  if (last_lease_ms_ == 0 ||
+      (now - last_lease_ms_) >= common_config::kFcLinkExchangeIntervalMs) {
+    last_lease_ms_ = now;
+    ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
+                                 message::SetEscConfigModeMsg{.enabled = 1u});
+  }
+
+  DrainFcLink(ctx);
 }

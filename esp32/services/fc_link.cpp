@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "checksum.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -174,22 +175,13 @@ void FcLink::FinishRxPacket() {
     return;
   }
 
-  const auto crc16_update = [](uint16_t crc, uint8_t byte) {
-    crc ^= static_cast<uint16_t>(byte) << 8;
-    for (int j = 0; j < 8; ++j) {
-      crc = (crc & 0x8000u) ? static_cast<uint16_t>((crc << 1) ^ 0x1021u)
-                            : static_cast<uint16_t>(crc << 1);
-    }
-    return crc;
-  };
-
   uint16_t crc = 0;
-  crc = crc16_update(crc, message::kMagic1);
-  crc = crc16_update(crc, message::kMagic2);
-  crc = crc16_update(crc, rx_pkt_internal_.id);
-  crc = crc16_update(crc, rx_len_);
+  crc = checksum::XModemUpdate(crc, message::kMagic1);
+  crc = checksum::XModemUpdate(crc, message::kMagic2);
+  crc = checksum::XModemUpdate(crc, rx_pkt_internal_.id);
+  crc = checksum::XModemUpdate(crc, rx_len_);
   for (uint8_t i = 0; i < rx_len_; ++i) {
-    crc = crc16_update(crc, rx_pkt_internal_.payload[i]);
+    crc = checksum::XModemUpdate(crc, rx_pkt_internal_.payload[i]);
   }
 
   if (crc != rx_pkt_internal_.crc) {

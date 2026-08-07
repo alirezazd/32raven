@@ -24,15 +24,15 @@ class MainUiWidget : public IWidget {
 
  private:
   static constexpr size_t kStatusBufferSize = 24;
-  static constexpr size_t kMavlinkLaneCapacity = 4;
+  static constexpr size_t kLinkLaneCapacity = 4;
 
-  struct MavlinkPacketGlyph {
+  struct LinkPacketGlyph {
     char glyph = '0';
     uint16_t progress_subpx = 0;
   };
 
-  struct MavlinkPacketLane {
-    std::array<MavlinkPacketGlyph, kMavlinkLaneCapacity> packets{};
+  struct LinkPacketLane {
+    std::array<LinkPacketGlyph, kLinkLaneCapacity> packets{};
     size_t active_count = 0;
     uint32_t last_seen_packet_count = 0;
   };
@@ -45,9 +45,18 @@ class MainUiWidget : public IWidget {
                                   TimeMs step_period_ms);
   bool AdvanceDfuLinkAnimation(DisplayRenderer &renderer, TimeMs now,
                                bool active, TimeMs step_period_ms);
-  void ResetMavlinkPacketAnimation();
-  bool AdvanceMavlinkPacketAnimation(DisplayRenderer &renderer, TimeMs now,
-                                     bool active, TimeMs step_period_ms);
+  struct LinkPacketSource {
+    bool active = false;
+    size_t left_icon_width = 0;
+    uint32_t rx_count = 0;
+    uint32_t tx_count = 0;
+  };
+
+  static LinkPacketSource PacketSourceForMode(Mode mode, TimeMs now);
+  void ResetLinkPacketAnimation(const LinkPacketSource &source);
+  bool AdvanceLinkPacketAnimation(DisplayRenderer &renderer, TimeMs now,
+                                  const LinkPacketSource &source,
+                                  TimeMs step_period_ms);
   void RandomizeVerifyDigits();
   void ResetVerifyMagnifierAnimation(TimeMs now);
   bool AdvanceVerifyMagnifierAnimation(TimeMs now, bool active,
@@ -61,7 +70,7 @@ class MainUiWidget : public IWidget {
   mutable TimeMs last_gear_step_ms_ = 0;
   mutable TimeMs gear_animation_ms_ = 0;
   mutable TimeMs dfu_link_last_step_ms_ = 0;
-  mutable TimeMs mavlink_packet_last_step_ms_ = 0;
+  mutable TimeMs link_packet_last_step_ms_ = 0;
   mutable TimeMs verify_magnifier_last_step_ms_ = 0;
   mutable uint8_t last_dot_count_ = 0;
   mutable uint8_t dfu_link_offset_px_ = 0;
@@ -70,8 +79,8 @@ class MainUiWidget : public IWidget {
   mutable uint16_t verify_magnifier_subpixel_offset_ = 0;
   mutable std::array<char, kDfuLinkGlyphCapacity> dfu_link_glyphs_{};
   mutable std::array<char, 3> verify_digits_{};
-  mutable MavlinkPacketLane mavlink_tx_lane_{};
-  mutable MavlinkPacketLane mavlink_rx_lane_{};
+  mutable LinkPacketLane link_tx_lane_{};
+  mutable LinkPacketLane link_rx_lane_{};
   mutable size_t dfu_link_glyph_count_ = 0;
   mutable int16_t dfu_link_glyph_x_ = 0;
   mutable int16_t dfu_link_glyph_y_ = 0;
