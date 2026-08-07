@@ -141,7 +141,7 @@ void DShotTim1::StartOutputsOnce() {
 
 bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
                              uint16_t total_bits) {
-  if (!initialized_ || !interleaved_ccr || total_bits == 0) {
+  if (!interleaved_ccr || total_bits == 0) {
     return false;
   }
 

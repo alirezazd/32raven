@@ -114,7 +114,7 @@ void EscTelemetry::StartRxDma() {
 }
 
 void EscTelemetry::ExpectMotor(uint8_t motor_index, uint32_t now_us) {
-  if (!initialized_ || motor_index >= kMotorCount) {
+  if (motor_index >= kMotorCount) {
     return;
   }
   expected_motor_ = motor_index;
@@ -122,10 +122,6 @@ void EscTelemetry::ExpectMotor(uint8_t motor_index, uint32_t now_us) {
 }
 
 void EscTelemetry::Poll(uint32_t now_us) {
-  if (!initialized_) {
-    return;
-  }
-
   DrainRx();
 
   uint8_t byte = 0;

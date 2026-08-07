@@ -73,10 +73,6 @@ void Battery::Init(const Config &cfg) {
 }
 
 void Battery::Poll(uint32_t now_us) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kAdcInitFailed);
-  }
-
   if (last_sample_us_ != 0u &&
       static_cast<uint32_t>(now_us - last_sample_us_) < cfg_.sample_period_us) {
     return;

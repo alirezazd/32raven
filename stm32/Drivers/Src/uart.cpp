@@ -215,8 +215,6 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
     uint32_t baud_rate) {
-  if (!initialized_) return;
-
   USART_TypeDef *uart = UartReg();
   uint32_t pclk_hz = 0;
   if constexpr (Inst == UartInstance::kUart1 || Inst == UartInstance::kUart6) {

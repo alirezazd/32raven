@@ -234,7 +234,7 @@ bool RcReceiver::PublishIfChanged(const RcData &previous) {
 
 void RcReceiver::ProcessRawState(const message::RcChannelsMsg &msg,
                                  uint32_t now_us) {
-  if (!initialized_ || vehicle_state_ == nullptr) {
+  if (vehicle_state_ == nullptr) {
     return;
   }
 
@@ -254,7 +254,7 @@ void RcReceiver::ProcessRawState(const message::RcChannelsMsg &msg,
 }
 
 void RcReceiver::Poll(uint32_t now_us) {
-  if (!initialized_ || vehicle_state_ == nullptr) {
+  if (vehicle_state_ == nullptr) {
     return;
   }
 
@@ -264,21 +264,21 @@ void RcReceiver::Poll(uint32_t now_us) {
 }
 
 bool RcReceiver::SaveCalibration() {
-  if (!initialized_ || ee_ == nullptr) {
+  if (ee_ == nullptr) {
     return false;
   }
   return ConfigStorage::SaveRcCalibration(*ee_, calibration_);
 }
 
 bool RcReceiver::SaveRcMap(const Config &cfg) {
-  if (!initialized_ || ee_ == nullptr) {
+  if (ee_ == nullptr) {
     return false;
   }
   return ConfigStorage::SaveRcMap(*ee_, MakeRcMapBlob(cfg));
 }
 
 bool RcReceiver::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
-  if (!initialized_ || !message::IsRcMapConfigValid(cfg)) {
+  if (!message::IsRcMapConfigValid(cfg)) {
     return false;
   }
 
@@ -304,7 +304,7 @@ bool RcReceiver::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
 
 bool RcReceiver::SetCalibrationConfig(
     const message::RcCalibrationConfigMsg &cfg) {
-  if (!initialized_ || !message::IsRcCalibrationConfigValid(cfg)) {
+  if (!message::IsRcCalibrationConfigValid(cfg)) {
     return false;
   }
 

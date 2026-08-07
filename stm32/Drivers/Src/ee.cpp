@@ -766,7 +766,7 @@ bool EE::CompareLogical(uint32_t offset, const uint8_t *data,
 }
 
 bool EE::CheckRange(size_t len, size_t offset) const {
-  if (!initialized_ || offset > kCapacity) {
+  if (offset > kCapacity) {
     return false;
   }
   return len <= (kCapacity - offset);
