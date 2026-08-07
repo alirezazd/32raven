@@ -124,6 +124,7 @@ const char *StatusTextForMode(WidgetMode mode) {
     case WidgetMode::kMavlinkWifiDisconnected:
     case WidgetMode::kMavlinkWifiConnected:
       return kMavlinkWifiStatus;
+    case WidgetMode::kEscConfigArmed:
     case WidgetMode::kEscConfigDisconnected:
     case WidgetMode::kEscConfigIdleConnected:
     case WidgetMode::kEscConfigConnected:
@@ -140,7 +141,8 @@ const char *StatusTextForMode(WidgetMode mode) {
 bool IsServingMode(WidgetMode mode) { return mode == WidgetMode::kServing; }
 
 bool IsEscConfigMode(WidgetMode mode) {
-  return mode == WidgetMode::kEscConfigDisconnected ||
+  return mode == WidgetMode::kEscConfigArmed ||
+         mode == WidgetMode::kEscConfigDisconnected ||
          mode == WidgetMode::kEscConfigIdleConnected ||
          mode == WidgetMode::kEscConfigConnected;
 }
@@ -162,7 +164,8 @@ bool IsScrollableProgressMode(WidgetMode mode) {
 bool ShouldBlinkCornerBadge(WidgetMode mode) {
   return mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kEscConfigDisconnected;
+         mode == WidgetMode::kEscConfigDisconnected ||
+         mode == WidgetMode::kEscConfigArmed;
 }
 
 // Guidance text instead of the icon row. A superset of the blinking modes:
@@ -1107,12 +1110,16 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       if (IsEscConfigMode(mode)) {
         // Enumerated, so the missing piece is the configurator opening it.
         char guidance[kStatusLineBufferSize]{};
-        std::snprintf(guidance, sizeof(guidance), "%s",
-                      mode == Mode::kEscConfigDisconnected
-                          ? "Waiting for USB"
-                          : "Waiting for command");
-        AppendDots(guidance, sizeof(guidance), dot_count);
-        DrawBodyTextLines(renderer, now, body_top, guidance);
+        if (mode == Mode::kEscConfigArmed) {
+          DrawBodyTextLines(renderer, now, body_top, "Disarm first");
+        } else {
+          std::snprintf(guidance, sizeof(guidance), "%s",
+                        mode == Mode::kEscConfigDisconnected
+                            ? "Waiting for USB"
+                            : "Waiting for command");
+          AppendDots(guidance, sizeof(guidance), dot_count);
+          DrawBodyTextLines(renderer, now, body_top, guidance);
+        }
       } else {
         char ssid_line[96];
         char password_line[96];

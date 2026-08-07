@@ -44,6 +44,20 @@ const T &PayloadAs(const message::Packet &pkt) {
   Panic(ErrorCode::Common::kUnknownCommand);
 }
 
+static ::TonePlayer::BuiltinTone ToneFor(uint8_t tone) {
+  switch (tone) {
+    case message::kToneConfirm:
+      return ::TonePlayer::BuiltinTone::kConfirm;
+    case message::kToneWarning:
+      return ::TonePlayer::BuiltinTone::kWarning;
+    case message::kToneError:
+      return ::TonePlayer::BuiltinTone::kError;
+    case message::kToneBeep:
+    default:
+      return ::TonePlayer::BuiltinTone::kBeep;
+  }
+}
+
 static void OnLog(AppContext &, const message::Packet &pkt) {
   if (!message::IsPayloadValid(message::MsgId::kLog, pkt.payload,
                                pkt.header.len) ||
@@ -123,19 +137,38 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
       ctx.sys->Mavlink().UpdateTelemetryCache(
           PayloadAs<message::SystemStatusMsg>(pkt), now_ms);
       break;
+    case message::MsgId::kTone:
+      ctx.sys->TonePlayer().PlayBuiltin(
+          ToneFor(PayloadAs<message::ToneMsg>(pkt).tone));
+      ctx.sys->Ui().NotifyUserActivity();
+      break;
+
     case message::MsgId::kUsbStatus: {
       const auto &msg = PayloadAs<message::UsbStatusMsg>(pkt);
+      const bool granted =
+          (msg.flags & message::kUsbStatusEscConfigGranted) != 0u;
       ctx.sys->Ui().UpdatePeerUsb(
           {
               .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
               .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
               .port_open = (msg.flags & message::kUsbStatusPortOpen) != 0u,
-              .esc_config_granted =
-                  (msg.flags & message::kUsbStatusEscConfigGranted) != 0u,
+              .esc_config_granted = granted,
               .rx_frames = msg.rx_frames,
               .tx_frames = msg.tx_frames,
           },
           now_ms);
+
+      // The STM32 latches the grant, so correcting drift is this side's job.
+      // Answering the report that carries it covers a command lost in either
+      // direction, and a reboot that left the port open. Armed is excluded
+      // because the STM32 refuses then, and asking anyway just loops.
+      const bool want = ctx.sm->CurrentState() == ctx.esc_config_state &&
+                        !ctx.sys->Mavlink().PeerArmed().value_or(false);
+      if (granted != want) {
+        ctx.sys->FcLink().SendPacket(
+            message::MsgId::kSetEscConfigMode,
+            message::SetEscConfigModeMsg{.enabled = static_cast<uint8_t>(want)});
+      }
       break;
     }
 

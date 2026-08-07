@@ -12,17 +12,13 @@
 
 namespace message {
 
-//   Inter-Processor Protocol
-
-// Magic Bytes for Sync (Alt bits for robustness)
+// Alternating bit patterns, so a run of either value cannot look like sync.
 static constexpr uint8_t kMagic1 = 0xAA;
 static constexpr uint8_t kMagic2 = 0x55;
 
-// Maximum payload size
 static constexpr size_t kMaxPayload = 0xFFu;
 static constexpr uint8_t kMaxLogTextPayload = 200u;
 
-// Message Identifiers
 enum class MsgId : uint8_t {
   kPing = 0x01,
   kLog = 0x02,
@@ -43,30 +39,21 @@ enum class MsgId : uint8_t {
   kVehicleStatus = 0x13,
   kPanic = 0x14,
   kEscTelemetry = 0x15,
-  kPrivilegedArm = 0x16,  // Test-only: directly toggle EscService + Mixer arm
-                          // state. Bypasses any arming state machine. Same
-                          // privilege level as kReboot/kBootload — gated only
-                          // by FCLink access (which is implicitly trusted).
-
-  // Renewed, not latched: the grant lapses on its own once the ESP32 stops
-  // sending, so a crashed peer or a dropped link cannot leave USB open.
+  kPrivilegedArm = 0x16,  // Override the main arming state machine
   kSetEscConfigMode = 0x17,
-
-  // Sent unconditionally, so silence means the STM32 is gone, not merely idle.
   kUsbStatus = 0x18,
-
-  // System
-  kReboot = 0xC0,    // 192
-  kBootload = 0xC1,  // 193
-  kError = 0xEE      // 238
+  kTone = 0x19,
+  kReboot = 0xC0,
+  kBootload = 0xC1,
+  kError = 0xEE
 };
 
 #pragma pack(push, 1)
 
 struct Header {
-  uint8_t magic[2];  // {0xAA, 0x55}
-  uint8_t id;        // MsgId
-  uint8_t len;       // Payload Length
+  uint8_t magic[2];
+  uint8_t id;
+  uint8_t len;
 };
 
 struct RcChannelsMsg {
@@ -97,7 +84,6 @@ struct GyroCalibrationIdConfigMsg {
 } __attribute__((packed));
 
 struct GpsData {
-  // Time
   uint16_t year;
   uint8_t month;
   uint8_t day;
@@ -105,51 +91,43 @@ struct GpsData {
   uint8_t min;
   uint8_t sec;
 
-  // Status
   uint8_t fixType;
   uint8_t numSV;
 
-  // Position
   int32_t lon;   // deg*1e7
   int32_t lat;   // deg*1e7
   int32_t hMSL;  // mm
 
-  // Motion
   uint16_t vel;  // cm/s
   uint16_t hdg;  // cdeg
 
-  // Accuracy
   uint32_t hAcc;  // mm
   uint32_t vAcc;  // mm
 
-  // Quality Metrics (DOP)
-  uint16_t gDOP;  // Geometric DOP [0.01]
-  uint16_t pDOP;  // Position DOP [0.01]
-  uint16_t hDOP;  // Horizontal DOP [0.01] //TO DO: Use for arming safety
-  uint16_t vDOP;  // Vertical DOP [0.01]
+  uint16_t gDOP;  // [0.01]
+  uint16_t pDOP;  // [0.01]
+  uint16_t hDOP;  // [0.01]  TODO(fc): gate arming on this
+  uint16_t vDOP;  // [0.01]
 
-  // Covariance (for Kalman filtering) - simplified
-  uint8_t posCovValid;  // Position covariance valid flag
-  uint8_t velCovValid;  // Velocity covariance valid flag
-  float posCovNN;       // Position covariance North-North [m²]
-  float posCovEE;       // Position covariance East-East [m²]
-  float posCovDD;       // Position covariance Down-Down [m²]
+  uint8_t posCovValid;
+  uint8_t velCovValid;
+  float posCovNN;  // [m²]
+  float posCovEE;  // [m²]
+  float posCovDD;  // [m²]
 
-  // Attitude (New)
   int16_t roll;   // cdeg
   int16_t pitch;  // cdeg
   int16_t yaw;    // cdeg
 
-  // Battery (New)
   uint16_t batt_voltage;  // mV
   int16_t batt_current;   // cA
   int8_t batt_remaining;  // %
 } __attribute__((packed));
 
 struct ImuData {
-  uint64_t timestamp_us;  // Local monotonic microseconds
-  float accel[3];         // m/s²  (X, Y, Z)
-  float gyro[3];          // rad/s (X, Y, Z)
+  uint64_t timestamp_us;
+  float accel[3];  // m/s²  (X, Y, Z)
+  float gyro[3];   // rad/s (X, Y, Z)
 } __attribute__((packed));
 
 inline constexpr uint8_t kSystemBootStateBooting = 0u;
@@ -188,7 +166,7 @@ inline constexpr uint32_t kVehicleFailsafeFlagGps = 1u << 3;
 struct VehicleStatusMsg {
   uint8_t armed_state;
   uint32_t failsafe_flags;
-  uint8_t flight_mode;  // matches FlightMode's underlying uint8_t
+  uint8_t flight_mode;
   uint8_t reserved[2];
 } __attribute__((packed));
 
@@ -201,18 +179,25 @@ struct PrivilegedArmMsg {
 } __attribute__((packed));
 
 struct SetEscConfigModeMsg {
-  uint8_t enabled;  // 0 = revoke immediately, non-zero = renew the lease
+  uint8_t enabled;  // 0 = revoke, non-zero = grant
 } __attribute__((packed));
 
-inline constexpr uint8_t kUsbStatusAttached = 1u << 0;   // D+ pull-up driven
+inline constexpr uint8_t kUsbStatusAttached = 1u << 0;    // D+ pull-up driven
 inline constexpr uint8_t kUsbStatusConfigured = 1u << 1;  // host enumerated us
 inline constexpr uint8_t kUsbStatusPortOpen = 1u << 2;    // DTR asserted
 inline constexpr uint8_t kUsbStatusEscConfigGranted = 1u << 3;
 
+inline constexpr uint8_t kToneBeep = 0u;
+inline constexpr uint8_t kToneConfirm = 1u;
+inline constexpr uint8_t kToneWarning = 2u;
+inline constexpr uint8_t kToneError = 3u;
+
+struct ToneMsg {
+  uint8_t tone;
+} __attribute__((packed));
+
 struct UsbStatusMsg {
   uint8_t flags;
-  // Wrapping counts: only their change is read, which is what lets the sender
-  // rate-limit instead of reporting every frame.
   uint8_t rx_frames;  // configurator -> flight controller
   uint8_t tx_frames;  // flight controller -> configurator
 } __attribute__((packed));
@@ -244,7 +229,6 @@ struct Packet {
 
 #pragma pack(pop)
 
-// Overhead: Header(4) + CRC(2)
 static constexpr size_t kPacketOverhead = sizeof(Header) + 2;
 
 template <typename T>
@@ -277,6 +261,7 @@ static constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kPrivilegedArm:
     case MsgId::kSetEscConfigMode:
     case MsgId::kUsbStatus:
+    case MsgId::kTone:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
@@ -326,6 +311,8 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<SetEscConfigModeMsg>();
     case MsgId::kUsbStatus:
       return len == PayloadLength<UsbStatusMsg>();
+    case MsgId::kTone:
+      return len == PayloadLength<ToneMsg>();
     case MsgId::kLog:
       return len <= kMaxLogTextPayload;
     default:
@@ -391,16 +378,13 @@ static inline bool IsGyroCalibrationIdConfigValid(
   return cfg.cal_gyro0_id != 0u;
 }
 
-// Helper: Buffer Inference
 template <typename T>
 static constexpr std::array<uint8_t, sizeof(T) + kPacketOverhead>
 MakePacketBuffer(const T &) {
   return {};
 }
 
-// Helper: Serialize
-// Fills the buffer 'out' with the formatted packet.
-// 'out' must be at least 'len' + kPacketOverhead bytes (Header + CRC).
+// 'out' must be at least 'len' + kPacketOverhead bytes.
 static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
                                uint8_t *out) {
   if (out == nullptr || !IsPayloadValid(id, payload, len)) {
@@ -419,7 +403,7 @@ static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
 
   uint16_t crc = checksum::XModem(out, sizeof(Header) + len);
 
-  // Append CRC (Little Endian)
+  // Little endian.
   out[sizeof(Header) + len] = (uint8_t)(crc & 0xFF);
   out[sizeof(Header) + len + 1] = (uint8_t)((crc >> 8) & 0xFF);
 

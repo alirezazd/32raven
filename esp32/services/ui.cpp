@@ -394,6 +394,10 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
       if (!usb.has_value() || !usb->configured) {
         return MainScreen::kEscConfigDisconnected;
       }
+      // Checked after USB: an unreported link is the more useful thing to say.
+      if (Sys().Mavlink().PeerArmed().value_or(false)) {
+        return MainScreen::kEscConfigArmed;
+      }
       return usb->port_open ? MainScreen::kEscConfigConnected
                             : MainScreen::kEscConfigIdleConnected;
     }
@@ -416,6 +420,7 @@ uint8_t Ui::ScreenGroup(MainScreen screen) const {
     case MainScreen::kProgramming:
     case MainScreen::kVerifying:
       return 4;
+    case MainScreen::kEscConfigArmed:
     case MainScreen::kEscConfigDisconnected:
     case MainScreen::kEscConfigIdleConnected:
     case MainScreen::kEscConfigConnected:

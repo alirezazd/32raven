@@ -58,5 +58,5 @@ class EscConfigState : public IState<AppContext> {
   void OnStep(AppContext &ctx, SmTick now) override;
 
  private:
-  SmTick last_lease_ms_ = 0;
+  bool warned_armed_ = false;
 };

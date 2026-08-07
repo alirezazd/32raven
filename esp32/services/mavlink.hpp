@@ -129,6 +129,9 @@ class Mavlink {
   uint32_t GetUdpRxPacketCount() const;
   uint32_t GetUdpTxPacketCount() const;
   std::optional<LatestRcChannelsData> GetLatestRcChannelsData() const;
+  // nullopt until the STM32 has said, so callers cannot read "not armed" out
+  // of never having been told.
+  std::optional<bool> PeerArmed() const;
 
  private:
   template <typename T>

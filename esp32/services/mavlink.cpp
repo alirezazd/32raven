@@ -87,6 +87,13 @@ uint32_t Mavlink::GetUdpTxPacketCount() const {
   return udp_tx_packet_count_.load(std::memory_order_relaxed);
 }
 
+std::optional<bool> Mavlink::PeerArmed() const {
+  if (!vehicle_status_.have_data) {
+    return std::nullopt;
+  }
+  return vehicle_status_.value.armed_state == message::kVehicleArmedStateArmed;
+}
+
 std::optional<Mavlink::LatestRcChannelsData> Mavlink::GetLatestRcChannelsData()
     const {
   if (!rc_channels_.have_data) {

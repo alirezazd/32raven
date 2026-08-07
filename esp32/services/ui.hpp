@@ -105,6 +105,7 @@ class Ui {
     kProgramming,
     kVerifying,
     // Three stages of one screen; the STM32's USB report picks between them.
+    kEscConfigArmed,          // refused: the vehicle is armed
     kEscConfigDisconnected,   // no host has enumerated the port
     kEscConfigIdleConnected,  // enumerated, no configurator attached yet
     kEscConfigConnected,      // configurator opened the port
@@ -143,6 +144,7 @@ class Ui {
   // nullopt once the STM32 has gone quiet -- silence is not evidence that USB
   // came up.
   std::optional<PeerUsbState> PeerUsb(uint32_t now_ms) const;
+
 
   void Init(const Config &cfg, Ssd1306Panel *panel);
   void LoadWidget(IWidget *widget);

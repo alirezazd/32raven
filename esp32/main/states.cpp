@@ -291,10 +291,13 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
   ctx.sys->StopNetwork();
   ctx.sys->FcLink().ResetRxState();
-  last_lease_ms_ = 0;  // re-entry renews at once, not one interval late
+  ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
+                               message::SetEscConfigModeMsg{.enabled = 1u});
+  warned_armed_ = false;
 }
 
 void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
+  (void)now;
   auto &button = ctx.sys->Button();
   button.Poll();
 
@@ -314,13 +317,15 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
     return;
   }
 
-  // Renewed, not latched: whatever stops the renewals closes the STM32's gate.
-  if (last_lease_ms_ == 0 ||
-      (now - last_lease_ms_) >= common_config::kFcLinkExchangeIntervalMs) {
-    last_lease_ms_ = now;
-    ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
-                                 message::SetEscConfigModeMsg{.enabled = 1u});
-  }
-
   DrainFcLink(ctx);
+
+  // The port stays shut while armed, and the screen says so -- but the screen
+  // may well be asleep, so say it out loud too. Edge-triggered: the condition
+  // holds for as long as the vehicle stays armed.
+  const bool armed = ctx.sys->Mavlink().PeerArmed().value_or(false);
+  if (armed && !warned_armed_) {
+    ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+    ctx.sys->Ui().NotifyUserActivity();
+  }
+  warned_armed_ = armed;
 }
