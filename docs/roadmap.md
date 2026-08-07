@@ -153,3 +153,46 @@ past a threshold, and queues rather than dispatching.
 Deferred rather than supporting because it rewrites the receive hot path on both firmwares. Do
 it once the ESC configurator work has been confirmed on hardware, so that a misbehaving bench
 session has one candidate cause instead of two.
+
+### #10 — Derive the motor count from the airframe — 🧊 DEFERRED
+
+The airframe is one physical fact about the vehicle, and it is declared in two places that
+cannot see each other.
+
+The ESP32 has the choice: `ESP32_MAVLINK_SYS_AUTOSTART` offers `QUAD_X` (4001) and `QUAD_PLUS`
+(4002), emitted as `kMavlinkSysAutostart` and advertised to the ground station. The STM32 has no
+choice at all — `multirotor_mixer.cpp` references `QuadX::kFactors` directly at six sites. Select
+`QUAD_PLUS` today and the ground station is told it is looking at a + quad while the STM32 keeps
+mixing X, with nothing anywhere comparing the two.
+
+The damage today is a mislabelled airframe in the GCS, not a vehicle that flies wrong — the
+ESP32 only advertises the number, it does not act on it. What makes this worth recording is that
+the inconsistency stops being cosmetic the moment the STM32 gains a real geometry selection: at
+that point there are two sources for one truth, on two MCUs that flash independently. This is
+the same shape as the FcLink baud and exchange interval, and it wants the same answer — one
+airframe choice in Kconfig, with motor count *and* geometry table derived from it into
+`common_config`, rather than a standalone motor-count integer that can disagree with the frame
+it describes.
+
+Three things resist a motor count that is not 4:
+
+- **TIM1 has four compare channels.** DShot is one burst-DMA transfer per bit, `DCR` configured
+  with base `CCR1` and length 4 (`DBL`), so all four motors are driven from one stream and stay
+  perfectly synchronised. Six motors needs TIM8 and a second DMA stream, with both bursts
+  started together — two frames arriving at different times reads as a yaw bias.
+- **`MotorThrust = std::array<float, 4>`** threads through `Mix`, `MixOutput`,
+  `EscService::WriteMotorsThrust`, and back into the rate controller's anti-windup via
+  `applied_torque`. Widening it touches the whole cascade signature.
+- **The literal 4 is written five times** with nothing checking that they agree:
+  `dshot_codec.hpp:11`, `esc_telemetry.hpp:13`, `dshot_tim1.hpp:54` (`kMotors`), and
+  `multirotor_mixer.hpp` twice (the `MotorThrust` alias and `kFactors[4][3]`).
+
+What already scales without change: `FourWayService` validates its channel against
+`DShotCodec::kMotorCount` and stores one `selected_esc_`, MSP already reports eight motor slots,
+and `EscTelemetry` round-robins `expected_motor_` over a single USART. Fewer motors than four is
+also cheap — leave the unused channels configured and idle, which costs a pin and some DMA
+bandwidth but changes no structure.
+
+Deferred because no non-quad airframe is planned. Unifying the declaration is the half worth
+doing first if the mixer is being touched anyway; the timer work only becomes real when a frame
+with more than four motors does.
