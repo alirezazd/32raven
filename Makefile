@@ -219,4 +219,4 @@ disable-docker:
 # ---- VSCode Setup -------------------------------------------------------
 
 setup-vscode:
-	@bash scripts/setup-vscode.sh
+	@uv run --quiet --script scripts/setup-vscode.py
