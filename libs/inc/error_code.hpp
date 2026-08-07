@@ -85,6 +85,7 @@ enum class Stm32 : uint32_t {
   kMspServiceReinit,
   kFourWayServiceReinit,
   kUartSoftReinit,
+  kEscBootloaderReinit,
 };
 
 enum class Esp32 : uint32_t {

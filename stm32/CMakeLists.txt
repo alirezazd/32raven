@@ -161,6 +161,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/Src/esc_service.cpp
     Services/Src/msp_service.cpp
     Services/Src/four_way_service.cpp
+    Services/Src/esc_bootloader.cpp
     Services/Src/stat_publisher.cpp
     Services/Src/fc_link.cpp
     Services/Src/command_handler.cpp

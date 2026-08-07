@@ -133,6 +133,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 four-way service re-init";
     case ErrorCode::Stm32::kUartSoftReinit:
       return "STM32 soft UART re-init or unusable baud";
+    case ErrorCode::Stm32::kEscBootloaderReinit:
+      return "STM32 ESC bootloader re-init";
     case ErrorCode::Stm32::kUsbReinit:
       return "USB CDC re-init";
   }
