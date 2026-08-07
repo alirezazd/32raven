@@ -588,6 +588,37 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::DrainRx() {
 }
 
 // Explicit instantiations
+template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
+          size_t RxRingSize>
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SuspendRx() {
+  if constexpr (Inst == UartInstance::kUart1) {
+    NVIC_DisableIRQ(USART1_IRQn);
+    NVIC_DisableIRQ(DMA2_Stream2_IRQn);
+  } else if constexpr (Inst == UartInstance::kUart2) {
+    NVIC_DisableIRQ(USART2_IRQn);
+    NVIC_DisableIRQ(DMA1_Stream5_IRQn);
+  } else if constexpr (Inst == UartInstance::kUart6) {
+    NVIC_DisableIRQ(USART6_IRQn);
+    NVIC_DisableIRQ(DMA2_Stream1_IRQn);
+  }
+}
+
+template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
+          size_t RxRingSize>
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::ResumeRx() {
+  if constexpr (Inst == UartInstance::kUart1) {
+    NVIC_EnableIRQ(USART1_IRQn);
+    NVIC_EnableIRQ(DMA2_Stream2_IRQn);
+  } else if constexpr (Inst == UartInstance::kUart2) {
+    NVIC_EnableIRQ(USART2_IRQn);
+    NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  } else if constexpr (Inst == UartInstance::kUart6) {
+    NVIC_EnableIRQ(USART6_IRQn);
+    NVIC_EnableIRQ(DMA2_Stream1_IRQn);
+  }
+  FlushRx();
+}
+
 template class Uart<UartInstance::kUart1, kUartTxBufSize, kUartRxDmaSize,
                     kUartRxRingSize>;
 template class Uart<UartInstance::kUart2, kUartTxBufSize, kUartRxDmaSize,

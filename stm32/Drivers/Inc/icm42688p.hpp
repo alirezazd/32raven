@@ -114,6 +114,8 @@ class Icm42688pT {
 
   void Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg);
   void OnIrq();
+  void SuspendSampling();
+  void ResumeSampling();
   bool WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out);
   SampleBatch GetLatestBatch() const;
   void CalibrateGyro();

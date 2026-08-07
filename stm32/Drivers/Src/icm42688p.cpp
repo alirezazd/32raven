@@ -1056,4 +1056,19 @@ void Icm42688pT<HiRes>::CsHigh() {
 }
 
 // Explicit instantiation
+template <bool HiRes>
+void Icm42688pT<HiRes>::SuspendSampling() {
+  NVIC_DisableIRQ(board::kImuInt.exti_irqn);
+}
+
+template <bool HiRes>
+void Icm42688pT<HiRes>::ResumeSampling() {
+  // The chip never stopped sampling into its own FIFO, so what is in there is
+  // a backlog rather than the present. Discarded instead of parsed: a stale
+  // burst would be integrated by the AHRS as if it had just happened.
+  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(REG_INT_STATUS);
+  NVIC_EnableIRQ(board::kImuInt.exti_irqn);
+}
+
 template class Icm42688pT<stm32_limits::kImuHiResEn>;

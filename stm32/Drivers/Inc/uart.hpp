@@ -76,6 +76,8 @@ class Uart {
   void Send(const uint8_t *data, size_t len);
   bool Read(uint8_t &out);
   void FlushRx();
+  void SuspendRx();
+  void ResumeRx();
   void SetBaudRate(uint32_t baud_rate);
   size_t TxFree() const {
     return tx_buffer_.Capacity() - tx_buffer_.Available();
