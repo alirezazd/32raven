@@ -5,7 +5,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <optional>
 
 #include "esp32_limits.hpp"
@@ -31,11 +30,7 @@ class FcLink {
 
   template <typename T>
   void SendPacket(message::MsgId id, const T &body) {
-    message::Packet pkt{};
-    pkt.header.id = static_cast<uint8_t>(id);
-    pkt.header.len = message::PayloadLength<T>();
-    std::memcpy(pkt.payload, &body, sizeof(T));
-    SendPacket(pkt);
+    SendPacket(message::MakePacket(id, body));
   }
 
   std::optional<message::Packet> PopPacket();

@@ -384,6 +384,17 @@ MakePacketBuffer(const T &) {
   return {};
 }
 
+// Takes the length from the payload type, so the declared length cannot
+// disagree with the bytes actually copied.
+template <typename T>
+static inline Packet MakePacket(MsgId id, const T &body) {
+  Packet pkt{};
+  pkt.header.id = static_cast<uint8_t>(id);
+  pkt.header.len = PayloadLength<T>();
+  std::memcpy(pkt.payload, &body, sizeof(T));
+  return pkt;
+}
+
 // 'out' must be at least 'len' + kPacketOverhead bytes.
 static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
                                uint8_t *out) {

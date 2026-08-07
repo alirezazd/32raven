@@ -43,6 +43,11 @@ class FcLink {
   void SendSystemStatus(const message::SystemStatusMsg &msg);
   void SendVehicleStatus(const message::VehicleStatusMsg &msg);
 
+  template <typename T>
+  void SendPacket(message::MsgId id, const T &body) {
+    Send(message::MakePacket(id, body));
+  }
+
   // Send Log Message
   void SendLog(const char *format, ...);
 
