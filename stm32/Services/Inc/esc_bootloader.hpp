@@ -47,6 +47,8 @@ class EscBootloader {
 
   bool ReadFlash(uint16_t address, uint8_t *out, uint16_t len);
 
+  bool Reset(uint8_t motor_index, bool reboot);
+
   void Disconnect();
 
   bool IsConnected() const { return connected_; }

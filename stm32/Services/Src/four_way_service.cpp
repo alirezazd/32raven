@@ -225,12 +225,18 @@ void FourWayService::Dispatch() {
       return;
     }
 
-    // A reset leaves the bootloader, so the borrowed pin goes back to DShot
-    // whether or not the ESC acknowledges.
-    case kCmdDeviceReset:
-      bootloader_->Disconnect();
-      Respond(kAckDeviceGeneralError);
+    case kCmdDeviceReset: {
+      if (param_count_ < 1u || params_[0] >= DShotCodec::kMotorCount) {
+        Respond(kAckInvalidChannel);
+        return;
+      }
+      selected_esc_ = params_[0];
+      // A 1 in the address low byte asks for the line to be pulled down as
+      // well, which is how the host power-cycles an ESC it has just flashed.
+      bootloader_->Reset(selected_esc_, (address_ & 0xFFu) == 1u);
+      Respond(kAckOk);
       return;
+    }
     case kCmdDeviceRead: {
       const uint16_t len = (params_[0] == 0u) ? kMaxParams : params_[0];
       if (!bootloader_->ReadFlash(address_, ReplyBuf(), len)) {

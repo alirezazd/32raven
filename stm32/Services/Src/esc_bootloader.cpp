@@ -9,6 +9,7 @@
 #include "gpio.hpp"
 #include "panic.hpp"
 #include "stm32_config.hpp"
+#include "system.hpp"
 
 namespace {
 
@@ -18,6 +19,10 @@ void DriveOutputHigh(const board::BoardPin &pin) {
   pin.port->OSPEEDR |= (GPIO_SPEED_FREQ_VERY_HIGH << shift);
   pin.port->MODER =
       (pin.port->MODER & ~(0x3u << shift)) | (GPIO_MODE_OUTPUT_PP << shift);
+}
+
+void DriveOutputLow(const board::BoardPin &pin) {
+  pin.port->BSRR = static_cast<uint32_t>(pin.pin) << 16u;
 }
 
 void RestoreAlternate(const board::BoardPin &pin) {
@@ -46,8 +51,13 @@ constexpr uint8_t kBootMsg[] = {'4', '7', '1'};
 // host sees.
 constexpr uint8_t kBlbSuccess = 0x30;
 
+constexpr uint8_t kCmdRun = 0x00;
 constexpr uint8_t kCmdReadFlash = 0x03;
 constexpr uint8_t kCmdSetAddress = 0xFF;
+
+// Held low, the inverse of HoldAll: a bootloader sampling a low line hands over
+// to firmware instead of staying resident.
+constexpr uint32_t kRebootPulseUs = 300000;
 
 // Set-address is the longest command, at four bytes plus its CRC.
 constexpr size_t kMaxCommandBytes = 6;
@@ -209,6 +219,35 @@ bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
   // range-checked into a byte.
   const uint8_t cmd[] = {kCmdReadFlash, static_cast<uint8_t>(len & 0xFFu)};
   return SendCommand(cmd, sizeof(cmd)) && ReadFramed(out, len);
+}
+
+// Nothing acknowledges the run command, so a false return means only that the
+// channel was not one of ours. `reboot` power-cycles the ESC the crude way the
+// host asks for after a flash; without it the ESC simply resumes firmware.
+bool EscBootloader::Reset(uint8_t motor_index, bool reboot) {
+  const board::BoardPin *pin = MotorPin(motor_index);
+  if (pin == nullptr) {
+    return false;
+  }
+
+  if (!uart_->IsOpen() || motor_index_ != motor_index) {
+    Disconnect();
+    uart_->Open(pin->port, pin->pin, pin->af);
+    motor_index_ = motor_index;
+  }
+
+  const uint8_t cmd[] = {kCmdRun, 0};
+  SendCommand(cmd, sizeof(cmd));
+
+  if (reboot) {
+    // Shorter than the watchdog's worst-case 681 ms, so it needs no feeding.
+    DriveOutputLow(*pin);
+    System::GetInstance().Time().DelayMicros(kRebootPulseUs);
+    DriveOutputHigh(*pin);
+  }
+
+  Disconnect();
+  return true;
 }
 
 // High, not idle: AM32's bootloader stays resident while its signal line reads
