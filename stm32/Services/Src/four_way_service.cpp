@@ -191,10 +191,11 @@ void FourWayService::Dispatch() {
       Respond(kAckOk);
       return;
 
+    // Acknowledged before the teardown, because Exit hands the motor pins back
+    // to TIM1 and the reply has nothing to do with them.
     case kCmdInterfaceExit:
-      bootloader_->Disconnect();
       Respond(kAckOk);
-      active_ = false;
+      Exit();
       return;
 
     case kCmdInterfaceSetMode:
