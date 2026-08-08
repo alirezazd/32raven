@@ -79,9 +79,14 @@ constexpr uint16_t kAckBuffer = 40;
 constexpr uint16_t kAckProgram = 250;
 constexpr uint16_t kAckErase = 1500;
 
-// AM32 and BLHeli_32 are ARM parts, and imARM_BLB is the only mode this
-// firmware offers; the host is told so in the fourth DeviceInfo byte.
 constexpr uint8_t kInterfaceModeArmBlb = 4;
+
+// The ARM family marker in the bootloader signature. SiLabs sits in
+// 0xE801..0xF8FF and Atmel at 0x93xx/0x95xx, so a part failing this test speaks
+// a dialect none of the commands below are written in.
+bool IsArmSignature(uint8_t signature_lo, uint8_t signature_hi) {
+  return signature_lo == 0x06u && signature_hi > 0x00u && signature_hi < 0x90u;
+}
 
 const board::BoardPin *MotorPin(uint8_t index) {
   switch (index) {
@@ -135,6 +140,9 @@ bool EscBootloader::ReadBootInfo(DeviceInfo &out) {
   out.signature_lo = info[5];
   out.signature_hi = info[4];
   out.boot_version = info[3];
+  if (!IsArmSignature(out.signature_lo, out.signature_hi)) {
+    return false;
+  }
   out.interface_mode = kInterfaceModeArmBlb;
   return true;
 }
@@ -233,7 +241,12 @@ bool EscBootloader::ReadFramed(uint8_t *out, uint16_t len) {
   return received == crc && ack == kBlbSuccess;
 }
 
+// 0xFFFF is the protocol's "no address", sent by hosts whose command operates
+// on whatever the previous one selected.
 bool EscBootloader::SetAddress(uint16_t address) {
+  if (address == 0xFFFFu) {
+    return true;
+  }
   const uint8_t cmd[] = {
       kCmdSetAddress,
       0,
