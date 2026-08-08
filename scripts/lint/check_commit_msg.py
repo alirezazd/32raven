@@ -2,13 +2,18 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Alireza Azadi
 
-"""Check a commit message against the shape this history already uses.
+"""Check a commit message against the template in .gitmessage.
 
-The rules are read off `git log`, not imported from a style guide: every type
-and scope below is one the tree already commits under. What the check adds is
-a closed set, because the drift is always the same -- `tools:` and `lint:` and
-`config:` appeared as types when they are places, and a type that exists once
-is a type nobody can grep for.
+A message states what changed and why. It is not a record of how the change
+was arrived at, what was tried first, or what the author thought along the
+way -- `git log` is read by someone deciding whether a commit is the one they
+are looking for, and prose buries that.
+
+Template:
+
+    type(scope): what changed
+
+    Why, in at most BODY_MAX_LINES lines. Facts only.
 
 Rules:
 
@@ -24,6 +29,12 @@ Rules:
   body-blank      A blank line between subject and body, or `git log --format`
                   and every other tool treats the whole thing as the subject.
   body-width      Body lines <= 80 characters.
+  body-length     <= BODY_MAX_LINES non-blank lines. A subject that needs more
+                  than that to justify it is usually more than one commit.
+  body-person     No first person. The commit is the subject of the sentence,
+                  not its author.
+  body-narrative  No storytelling markers. These only ever introduce the
+                  process, and the process is not the change.
   attribution     No tool or assistant trailers. Authorship belongs in the
                   author field, and this project does not carry them.
 
@@ -73,8 +84,41 @@ SCOPES = (
 
 SUBJECT_MAX = 72
 BODY_MAX = 80
+BODY_MAX_LINES = 5
 
 SUBJECT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?: (?P<desc>.+)$")
+
+# Git trailers: `Key: value` at the foot of a message. Exempt from the prose
+# rules and from the line budget, which is there to bound explanation.
+TRAILER_RE = re.compile(r"^[A-Z][A-Za-z-]*(-[A-Za-z]+)*: \S")
+
+# The author is never the subject of a commit message. Bare `I` is excluded
+# from the pattern: it collides with identifiers and Roman numerals, and a
+# message written in the first person always trips one of the others too.
+# `us` needs the lookbehinds -- unqualified it matches microseconds, which
+# outnumber the pronoun by a wide margin in firmware.
+FIRST_PERSON_RE = re.compile(
+    r"\b(we|our|ours|(?<!\d)(?<!\d )us|my|mine|i'(m|ve|d|ll))\b", re.I
+)
+
+# Phrases that exist to narrate. Each one introduces the route to the change
+# rather than the change, which is the failure this check is here to stop.
+NARRATIVE_RE = re.compile(
+    r"\b("
+    r"turn(s|ed) out"
+    r"|as it happen(s|ed)"
+    r"|it seems"
+    r"|worth (noting|reading|a|the|it)"
+    r"|note that"
+    r"|found in this order"
+    r"|interestingly|unfortunately|sadly|happily|admittedly|frankly|honestly"
+    r"|of course|obviously|naturally"
+    r"|earlier (note|estimate|assumption|claim)"
+    r"|older note"
+    r"|this session"
+    r")\b",
+    re.I,
+)
 
 # Rebase helpers and reverts git writes itself. Rejecting these fails a
 # `git rebase -i` mid-flight, which is never what the rule is for.
@@ -144,11 +188,26 @@ def check(message: str) -> list[str]:
     if len(lines) > 1 and lines[1].strip():
         problems.append("[body-blank] no blank line between subject and body")
 
-    for number, line in enumerate(lines[1:], start=2):
+    body = lines[1:]
+    for number, line in enumerate(body, start=2):
         if len(line) > BODY_MAX:
             problems.append(
                 f"[body-width] line {number}: {len(line)} > {BODY_MAX} characters"
             )
+        # Trailers carry addresses and issue links, which are not prose and
+        # are not the author writing about themselves.
+        if TRAILER_RE.match(line):
+            continue
+        if FIRST_PERSON_RE.search(line):
+            problems.append(f"[body-person] line {number}: {line.strip()}")
+        if NARRATIVE_RE.search(line):
+            problems.append(f"[body-narrative] line {number}: {line.strip()}")
+
+    filled = [line for line in body if line.strip() and not TRAILER_RE.match(line)]
+    if len(filled) > BODY_MAX_LINES:
+        problems.append(
+            f"[body-length] {len(filled)} > {BODY_MAX_LINES} non-blank body lines"
+        )
 
     return problems
 
@@ -202,9 +261,15 @@ def main() -> int:
     for problem in problems:
         print(f"  {problem}", file=sys.stderr)
     print(
+        f"\n    type(scope): what changed"
+        f"\n"
+        f"\n    Why, in at most {BODY_MAX_LINES} lines. Facts only."
+        f"\n"
         f"\nTypes:  {', '.join(TYPES)}"
         f"\nScopes: {', '.join(SCOPES)} (optional)"
-        f"\nShape:  type(scope): lower-case description, <= {SUBJECT_MAX} chars",
+        f"\nSubject <= {SUBJECT_MAX} chars, lower-case, no trailing period."
+        f"\nBody states what was wrong and why this fixes it -- not how it was"
+        f"\nfound, what was tried first, or what the author thought about it.",
         file=sys.stderr,
     )
     return 1

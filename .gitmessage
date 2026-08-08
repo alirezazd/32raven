@@ -1,0 +1,11 @@
+# type(scope): what changed
+#
+# Why, in at most 5 lines. What was wrong, and why this is the fix.
+# Not how it was found, what was tried first, or what you thought about it.
+# Omit the body entirely when the subject already says it.
+#
+# types:  feat fix refactor perf docs test build chore revert
+# scopes: stm32 esp32 libs tools scripts config docs site build  (optional)
+#
+# Subject <= 72 chars, lower-case, no trailing period.
+# Enforced by scripts/lint/check_commit_msg.py via the commit-msg hook.
