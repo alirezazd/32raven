@@ -50,8 +50,14 @@ class EscService {
   // off). >0 → linearly into [kThrottleMin, kThrottleMax]. Saturates.
   static uint16_t ThrustToDshot(float thrust);
   static float DshotToThrust(uint16_t value);
+  static constexpr uint8_t kAllMotors = 0xFF;
+
   bool StopAll();
-  bool QueueCommand(uint16_t command, bool telemetry = false);
+  // A command aimed at one motor leaves the others at kMotorStop, which is what
+  // they are already being sent while disarmed. Anything read back arrives on
+  // the telemetry line all four share, so a broadcast would collide.
+  bool QueueCommand(uint16_t command, uint8_t motor_index = kAllMotors,
+                    bool telemetry = false);
   void SetTestThrottle(const std::array<float, 4> &thrust);
 
   // What actually went out on the wire, not what was asked for: a dropped
@@ -66,13 +72,21 @@ class EscService {
  private:
   struct PendingCommand {
     uint16_t value = 0;
+    uint8_t motor = kAllMotors;
     uint8_t repeats_remaining = 0;
     uint32_t next_send_us = 0;
     bool telemetry = false;
     bool active = false;
   };
 
+  // Telemetry proves an ESC is powered, not that it has armed -- AM32 needs
+  // about a second of zero throttle for that, and refuses commands until then.
+  // The budget spans that gap rather than trying to detect it.
+  static constexpr uint8_t kInfoMaxAttempts = 6;
+  static constexpr uint32_t kInfoRetryPeriodUs = 250000u;
+
   static uint16_t NormalizeMotorValue(uint16_t value);
+  void PollEscInfo(uint32_t now_us);
   bool StopAll(uint32_t now_us);
   bool SendIdleFrame(uint32_t now_us);
   bool WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
@@ -91,5 +105,8 @@ class EscService {
   uint32_t last_idle_send_us_ = 0;
   uint32_t last_telemetry_request_us_ = 0;
   uint32_t dropped_write_count_ = 0;
+  uint32_t info_last_attempt_us_ = 0;
+  uint8_t info_attempts_[DShotCodec::kMotorCount] = {};
+  uint8_t info_cursor_ = 0;
   uint8_t next_telemetry_motor_ = 0;
 };

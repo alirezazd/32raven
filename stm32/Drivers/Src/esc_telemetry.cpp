@@ -119,6 +119,29 @@ void EscTelemetry::ExpectMotor(uint8_t motor_index, uint32_t now_us) {
   }
   expected_motor_ = motor_index;
   expected_since_us_ = now_us;
+  if (expected_frame_size_ != kKissFrameSize) {
+    expected_frame_size_ = kKissFrameSize;
+    frame_len_ = 0;
+  }
+}
+
+// The reply is 49 bytes rather than 10, so the sliding window has to be resized
+// before it arrives; a partial frame from the old size would never match again.
+void EscTelemetry::ExpectInfo(uint8_t motor_index, uint32_t now_us) {
+  if (motor_index >= kMotorCount) {
+    return;
+  }
+  expected_motor_ = motor_index;
+  expected_since_us_ = now_us;
+  expected_frame_size_ = kInfoFrameSize;
+  frame_len_ = 0;
+}
+
+EscTelemetry::Info EscTelemetry::GetInfo(uint8_t motor_index) const {
+  if (motor_index >= kMotorCount) {
+    return Info{};
+  }
+  return info_[motor_index];
 }
 
 void EscTelemetry::Poll(uint32_t now_us) {
@@ -127,6 +150,15 @@ void EscTelemetry::Poll(uint32_t now_us) {
   uint8_t byte = 0;
   while (rx_ring_.Pop(byte)) {
     ProcessByte(byte, now_us);
+  }
+
+  // A reply that never came would otherwise leave the window sized for info,
+  // and no telemetry frame would ever match again.
+  if (expected_frame_size_ == kInfoFrameSize &&
+      static_cast<uint32_t>(now_us - expected_since_us_) > kInfoTimeoutUs) {
+    expected_motor_ = kNoMotor;
+    expected_frame_size_ = kKissFrameSize;
+    frame_len_ = 0;
   }
 }
 
@@ -216,24 +248,28 @@ void EscTelemetry::DrainRx() {
 }
 
 void EscTelemetry::ProcessByte(uint8_t byte, uint32_t now_us) {
-  if (frame_len_ < kKissFrameSize) {
+  const uint8_t size = expected_frame_size_;
+  if (frame_len_ < size) {
     frame_buf_[frame_len_++] = byte;
   } else {
-    std::memmove(frame_buf_, frame_buf_ + 1u, kKissFrameSize - 1u);
-    frame_buf_[kKissFrameSize - 1u] = byte;
+    std::memmove(frame_buf_, frame_buf_ + 1u, size - 1u);
+    frame_buf_[size - 1u] = byte;
   }
 
-  if (frame_len_ != kKissFrameSize) {
+  if (frame_len_ != size) {
     return;
   }
 
-  if (KissCrc8(frame_buf_, kKissFrameSize - 1u) !=
-      frame_buf_[kKissFrameSize - 1u]) {
+  if (KissCrc8(frame_buf_, size - 1u) != frame_buf_[size - 1u]) {
     crc_error_count_++;
     return;
   }
 
-  PublishFrame(now_us);
+  if (size == kInfoFrameSize) {
+    PublishInfo();
+  } else {
+    PublishFrame(now_us);
+  }
   frame_len_ = 0;
 }
 
@@ -243,6 +279,51 @@ bool EscTelemetry::ExpectedMotorActive(uint32_t now_us) const {
   }
   return static_cast<uint32_t>(now_us - expected_since_us_) <=
          cfg_.response_timeout_us;
+}
+
+// Byte offsets into AM32's settings page. Everything below 17 was reshuffled
+// when the layout went from 2 to 3 -- these four did not move, which is the
+// whole reason only these four are read.
+namespace {
+constexpr uint8_t kInfoEepromVersion = 1;
+constexpr uint8_t kInfoVersionMajor = 3;
+constexpr uint8_t kInfoVersionMinor = 4;
+constexpr uint8_t kInfoDirReversed = 17;
+constexpr uint8_t kInfoBiDirection = 18;
+constexpr uint8_t kInfoMotorKv = 26;
+constexpr uint8_t kInfoMotorPoles = 27;
+
+constexpr uint8_t kLayoutVersionMin = 2;
+constexpr uint8_t kLayoutVersionMax = 3;
+}  // namespace
+
+void EscTelemetry::PublishInfo() {
+  const uint8_t motor = expected_motor_;
+  expected_motor_ = kNoMotor;
+  expected_frame_size_ = kKissFrameSize;
+  if (motor >= kMotorCount) {
+    unassigned_frame_count_++;
+    return;
+  }
+
+  Info info{};
+  info.eeprom_version = frame_buf_[kInfoEepromVersion];
+  info.firmware_major = frame_buf_[kInfoVersionMajor];
+  info.firmware_minor = frame_buf_[kInfoVersionMinor];
+
+  // A layout we have not checked the offsets against is reported without them
+  // rather than decoded on faith; a wrong pole count is worse than none.
+  if (info.eeprom_version >= kLayoutVersionMin &&
+      info.eeprom_version <= kLayoutVersionMax) {
+    info.reversed = frame_buf_[kInfoDirReversed] != 0u;
+    info.bidirectional = frame_buf_[kInfoBiDirection] != 0u;
+    info.motor_kv_raw = frame_buf_[kInfoMotorKv];
+    info.motor_poles = frame_buf_[kInfoMotorPoles];
+    info.valid = true;
+  }
+
+  info_[motor] = info;
+  frame_count_++;
 }
 
 void EscTelemetry::PublishFrame(uint32_t now_us) {

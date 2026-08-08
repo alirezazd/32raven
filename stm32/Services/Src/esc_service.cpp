@@ -72,12 +72,13 @@ void EscService::Poll(uint32_t now_us) {
   if (command_.active &&
       (command_.next_send_us == 0u ||
        static_cast<int32_t>(now_us - command_.next_send_us) >= 0)) {
-    const DShotCodec::MotorValues command_values = {
-        command_.value,
-        command_.value,
-        command_.value,
-        command_.value,
-    };
+    DShotCodec::MotorValues command_values{};
+    for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
+      command_values[i] =
+          (command_.motor == kAllMotors || command_.motor == i)
+              ? command_.value
+              : DShotCodec::kMotorStop;
+    }
 
     if (!WriteRaw(command_values, now_us, command_.telemetry)) {
       return;
@@ -91,12 +92,53 @@ void EscService::Poll(uint32_t now_us) {
     return;
   }
 
+  PollEscInfo(now_us);
+
   if (!armed_ && (last_idle_send_us_ == 0u ||
                   static_cast<int32_t>(now_us - last_idle_send_us_) >=
                       static_cast<int32_t>(cfg_.idle_period_us))) {
     if (SendIdleFrame(now_us)) {
       last_idle_send_us_ = now_us;
     }
+  }
+}
+
+// Telemetry arriving from a motor is the proof the info request needs: only a
+// powered, armed, stopped ESC answers, which is exactly what AM32 requires
+// before it will act on a command. It also covers a battery arriving long after
+// boot, with no timer to get wrong.
+void EscService::PollEscInfo(uint32_t now_us) {
+  if (armed_ || command_.active || telemetry_ == nullptr ||
+      !telemetry_->IsInitialized()) {
+    return;
+  }
+  if (info_last_attempt_us_ != 0u &&
+      static_cast<uint32_t>(now_us - info_last_attempt_us_) <
+          kInfoRetryPeriodUs) {
+    return;
+  }
+
+  const uint8_t seen = telemetry_->ValidMask();
+  for (uint8_t n = 0; n < DShotCodec::kMotorCount; ++n) {
+    // Round robin rather than draining one motor first. AM32 needs about a
+    // second of zero throttle to arm, and telemetry starts before that, so
+    // whoever is asked first spends its whole budget too early.
+    const uint8_t i = static_cast<uint8_t>((info_cursor_ + n) %
+                                           DShotCodec::kMotorCount);
+    if ((seen & (1u << i)) == 0u || telemetry_->GetInfo(i).valid ||
+        info_attempts_[i] >= kInfoMaxAttempts) {
+      continue;
+    }
+    info_cursor_ = static_cast<uint8_t>((i + 1u) % DShotCodec::kMotorCount);
+    if (QueueCommand(kDshotCommandEscInfo, i)) {
+      // Opened with the first frame, not the last. AM32 acts on the sixth of
+      // ten, so the reply lands mid-burst -- a window opened at the end has
+      // already missed it.
+      telemetry_->ExpectInfo(i, now_us);
+      info_attempts_[i]++;
+      info_last_attempt_us_ = (now_us == 0u) ? 1u : now_us;
+    }
+    return;
   }
 }
 
@@ -179,17 +221,22 @@ bool EscService::StopAll(uint32_t now_us) {
   return WriteRaw(stop, now_us, false);
 }
 
-bool EscService::QueueCommand(uint16_t command, bool telemetry) {
+bool EscService::QueueCommand(uint16_t command, uint8_t motor_index,
+                              bool telemetry) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
-  if (armed_ || command > DShotCodec::kCommandMax) {
+  if (armed_ || command_.active || command > DShotCodec::kCommandMax) {
+    return false;
+  }
+  if (motor_index != kAllMotors && motor_index >= DShotCodec::kMotorCount) {
     return false;
   }
 
   command_ = PendingCommand{
       .value = command,
+      .motor = motor_index,
       .repeats_remaining = cfg_.command_repeat_count,
       .next_send_us = 0,
       .telemetry = telemetry,
@@ -220,7 +267,11 @@ bool EscService::WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
   requests.fill(false);
 
   uint8_t telemetry_motor = DShotCodec::kMotorCount;
+  // AM32 answers a telemetry request in preference to the info packet, and a
+  // request also re-aims the shared line and resizes the parser. The window is
+  // open for the whole command burst, so testing it covers both.
   if (telemetry_ != nullptr && telemetry_->IsInitialized() && now_us != 0u &&
+      !telemetry_->IsExpectingInfo() &&
       (force_telemetry || last_telemetry_request_us_ == 0u ||
        static_cast<uint32_t>(now_us - last_telemetry_request_us_) >=
            cfg_.telemetry_request_period_us)) {
