@@ -24,6 +24,8 @@ DEFAULT_SSID = "32Raven"
 DEFAULT_PASS = "32Raven@1234"
 DEFAULT_FALLBACK_IP = "192.168.4.1"
 CHUNK_SIZE = 4096
+DFU_WAIT_SECONDS = 60
+DFU_POLL_SECONDS = 1.0
 
 class AutoConnector:
     @staticmethod
@@ -106,10 +108,13 @@ class Esp32Shell(cmd.Cmd):
     intro = 'Welcome to the ESP32/32raven Shell. Type help or ? to list commands.\n'
     prompt = '(disconnected) > '
 
-    def __init__(self, ip=None, timeout=10):
+    def __init__(self, ip=None, timeout=10, wait_for_dfu=False):
         super().__init__()
         self.target_ip = ip
         self.timeout = timeout
+        # Only the one-shot flash waits: an interactive session has a human
+        # who can read the message and retry.
+        self.wait_for_dfu = wait_for_dfu
         self.ctrl_sock = None
         self.data_sock = None
         self.connected = False
@@ -132,13 +137,48 @@ class Esp32Shell(cmd.Cmd):
             return
 
         print(f"Connecting to {self.target_ip}...")
-        try:
-            self.ctrl_sock = socket.create_connection((self.target_ip, CTRL_PORT), timeout=self.timeout)
+        if self._open_ctrl(retry=self.wait_for_dfu):
             self.connected = True
             self.prompt = f"({self.target_ip}) > "
             print("Connected.")
-        except socket.error as e:
-            print(f"Connection failed: {e}")
+
+    def _open_ctrl(self, retry=False):
+        """Open the control socket, explaining a refusal rather than echoing errno.
+
+        ECONNREFUSED here is not ambiguous: MavlinkWifiState calls Tcp().Stop()
+        but leaves the AP up, so the host still associates and routes. A closed
+        port 9000 with a reachable host means the ESP32 is running, just not in
+        DFU mode. Anything else -- timeout, unreachable -- is a network fault
+        and is reported as-is.
+        """
+        deadline = time.time() + DFU_WAIT_SECONDS if retry else None
+        announced = False
+        while True:
+            try:
+                self.ctrl_sock = socket.create_connection(
+                    (self.target_ip, CTRL_PORT), timeout=self.timeout)
+                if announced:
+                    print("\nDFU mode detected.")
+                return True
+            except ConnectionRefusedError:
+                if not announced:
+                    print()
+                    print(f"  CONNECTION REFUSED   {self.target_ip}:{CTRL_PORT}")
+                    print("  ESP32 is up, DFU server is not.")
+                    print("  Put it in DFU mode: press the button until the OLED reads DFU.")
+                    if not retry:
+                        print()
+                        return False
+                    print(f"  Waiting {DFU_WAIT_SECONDS}s...  ^C aborts.")
+                    print()
+                    announced = True
+                if time.time() > deadline:
+                    print("Gave up waiting for DFU mode.")
+                    return False
+                time.sleep(DFU_POLL_SECONDS)
+            except socket.error as e:
+                print(f"Connection failed: {e}")
+                return False
 
     def do_disconnect(self, arg):
         """Disconnect from the ESP32."""
@@ -540,7 +580,7 @@ def main():
     # Check if a command is provided (one or more arguments)
     is_batch_mode = len(args.command) > 0
 
-    shell = Esp32Shell(ip=target_ip)
+    shell = Esp32Shell(ip=target_ip, wait_for_dfu=is_batch_mode)
 
     if is_batch_mode:
         line = " ".join(args.command)
