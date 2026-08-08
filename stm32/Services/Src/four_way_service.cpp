@@ -27,10 +27,12 @@ constexpr uint8_t kCmdDeviceWrite = 0x3B;
 constexpr uint8_t kCmdDeviceReadEeprom = 0x3D;
 constexpr uint8_t kCmdDeviceWriteEeprom = 0x3E;
 constexpr uint8_t kCmdInterfaceSetMode = 0x3F;
+constexpr uint8_t kCmdDeviceVerify = 0x40;
 
 constexpr uint8_t kAckOk = 0x00;
 constexpr uint8_t kAckInvalidCommand = 0x02;
 constexpr uint8_t kAckInvalidCrc = 0x03;
+constexpr uint8_t kAckVerifyError = 0x04;
 constexpr uint8_t kAckInvalidChannel = 0x08;
 constexpr uint8_t kAckInvalidParam = 0x09;
 constexpr uint8_t kAckDeviceGeneralError = 0x0F;
@@ -232,7 +234,7 @@ void FourWayService::Dispatch() {
       }
       selected_esc_ = params_[0];
       // A 1 in the address low byte asks for the line to be pulled down as
-      // well, which is how the host power-cycles an ESC it has just flashed.
+      // well, which is what stops the ESC re-entering its bootloader.
       bootloader_->Reset(selected_esc_, (address_ & 0xFFu) == 1u);
       Respond(kAckOk);
       return;
@@ -248,10 +250,62 @@ void FourWayService::Dispatch() {
       return;
     }
 
-    case kCmdDeviceEraseAll:
-    case kCmdDevicePageErase:
+    case kCmdDevicePageErase: {
+      if (param_count_ < 1u) {
+        Respond(kAckInvalidParam);
+        return;
+      }
+      const uint8_t page = params_[0];
+      if (page < EscBootloader::kFirstErasablePage) {
+        Respond(kAckInvalidParam);
+        return;
+      }
+      if (!bootloader_->PageErase(page)) {
+        Respond(kAckDeviceGeneralError);
+        return;
+      }
+      ReplyBuf()[reply_len_++] = page;
+      Respond(kAckOk);
+      return;
+    }
+
     case kCmdDeviceWrite:
+      // Erasing the bootloader is not the only way to lose it: flash writes
+      // clear bits, so programming over a live page corrupts it just as well.
+      if (address_ < EscBootloader::kFirstWritableAddress) {
+        Respond(kAckInvalidParam);
+        return;
+      }
+      if (!bootloader_->WriteFlash(address_, params_, param_count_)) {
+        Respond(kAckDeviceGeneralError);
+        return;
+      }
+      Respond(kAckOk);
+      return;
+
+    case kCmdDeviceVerify:
+      switch (bootloader_->VerifyFlash(address_, params_, param_count_)) {
+        case EscBootloader::VerifyResult::kOk:
+          Respond(kAckOk);
+          return;
+        case EscBootloader::VerifyResult::kMismatch:
+          Respond(kAckVerifyError);
+          return;
+        case EscBootloader::VerifyResult::kFailed:
+          Respond(kAckDeviceGeneralError);
+          return;
+      }
+      return;
+
+    // SiLabs and Atmel paths. The two eeprom commands answer differently
+    // because the reference does: it writes no ARM case for either, so the read
+    // lands on an invalid-command default and the write on a device-error
+    // preset. Matching that matters more than the pair looking consistent.
+    case kCmdDeviceEraseAll:
     case kCmdDeviceReadEeprom:
+      Respond(kAckInvalidCommand);
+      return;
+
     case kCmdDeviceWriteEeprom:
       Respond(kAckDeviceGeneralError);
       return;

@@ -45,7 +45,19 @@ class EscBootloader {
   void HoldAll();
   void ReleaseAll();
 
+  enum class VerifyResult : uint8_t { kOk, kMismatch, kFailed };
+
+  // Every AM32 target links its firmware at 0x08001000, reserving the four 1 KB
+  // pages below it for the bootloader. Erasing one of those is the only failure
+  // on this interface that a second attempt cannot undo -- it destroys the
+  // thing the second attempt would arrive through.
+  static constexpr uint8_t kFirstErasablePage = 4;
+  static constexpr uint16_t kFirstWritableAddress = kFirstErasablePage * 1024u;
+
   bool ReadFlash(uint16_t address, uint8_t *out, uint16_t len);
+  bool PageErase(uint8_t page);
+  bool WriteFlash(uint16_t address, const uint8_t *data, uint16_t len);
+  VerifyResult VerifyFlash(uint16_t address, const uint8_t *data, uint16_t len);
 
   bool Reset(uint8_t motor_index, bool reboot);
 
@@ -62,9 +74,11 @@ class EscBootloader {
   bool SendWake();
   bool ReadBootInfo(DeviceInfo &out);
   bool SendCommand(const uint8_t *cmd, size_t len);
+  bool SendPayload(const uint8_t *data, uint16_t len);
   bool ReadFramed(uint8_t *out, uint16_t len);
-  bool GetAck(uint8_t attempts);
+  uint8_t ReadAck(uint16_t attempts);
   bool SetAddress(uint16_t address);
+  bool SetBuffer(const uint8_t *data, uint16_t len);
 
   UartSoft *uart_ = nullptr;
   bool initialized_ = false;

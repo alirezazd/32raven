@@ -10,6 +10,7 @@
 #include "panic.hpp"
 #include "stm32_config.hpp"
 #include "system.hpp"
+#include "watchdog.hpp"
 
 namespace {
 
@@ -48,11 +49,17 @@ constexpr size_t kBootInfoBytes = 8;
 constexpr uint8_t kBootMsg[] = {'4', '7', '1'};
 
 // The bootloader's own ACK vocabulary, distinct from the four-way acks the
-// host sees.
+// host sees. kBlbNone is not a reply but the absence of one.
 constexpr uint8_t kBlbSuccess = 0x30;
+constexpr uint8_t kBlbVerifyError = 0xC0;
+constexpr uint8_t kBlbNone = 0xFF;
 
 constexpr uint8_t kCmdRun = 0x00;
+constexpr uint8_t kCmdProgFlash = 0x01;
+constexpr uint8_t kCmdEraseFlash = 0x02;
 constexpr uint8_t kCmdReadFlash = 0x03;
+constexpr uint8_t kCmdVerifyFlash = 0x04;
+constexpr uint8_t kCmdSetBuffer = 0xFE;
 constexpr uint8_t kCmdSetAddress = 0xFF;
 
 // Held low, the inverse of HoldAll: a bootloader sampling a low line hands over
@@ -62,7 +69,13 @@ constexpr uint32_t kRebootPulseUs = 300000;
 // Set-address is the longest command, at four bytes plus its CRC.
 constexpr size_t kMaxCommandBytes = 6;
 
-constexpr uint8_t kAckAttempts = 2;
+// Ack budgets in attempts, each one start-bit timeout long. Erase and program
+// run the ESC's flash controller, so they outlast the link by orders of
+// magnitude.
+constexpr uint16_t kAckImmediate = 2;
+constexpr uint16_t kAckBuffer = 40;
+constexpr uint16_t kAckProgram = 250;
+constexpr uint16_t kAckErase = 1500;
 
 // AM32 and BLHeli_32 are ARM parts, and imARM_BLB is the only mode this
 // firmware offers; the host is told so in the fourth DeviceInfo byte.
@@ -146,8 +159,6 @@ bool EscBootloader::Connect(uint8_t motor_index, DeviceInfo &out) {
   return true;
 }
 
-// One write, not two: Send hands the wire back on return, so a split payload
-// and CRC would read as two frames.
 bool EscBootloader::SendCommand(const uint8_t *cmd, size_t len) {
   uint8_t frame[kMaxCommandBytes];
   if (len + 2u > sizeof(frame)) {
@@ -166,14 +177,37 @@ bool EscBootloader::SendCommand(const uint8_t *cmd, size_t len) {
   return true;
 }
 
-bool EscBootloader::GetAck(uint8_t attempts) {
-  uint8_t ack = 0;
-  for (uint8_t i = 0; i < attempts; ++i) {
+// Fed per attempt: an erase waits three seconds here, several times the
+// watchdog's worst-case 681 ms window. The loop is bounded and runs from the
+// main loop, so a genuinely wedged one is still caught.
+uint8_t EscBootloader::ReadAck(uint16_t attempts) {
+  uint8_t ack = kBlbNone;
+  for (uint16_t i = 0; i < attempts; ++i) {
+    Watchdog::GetInstance().Kick();
     if (uart_->Read(ack)) {
-      return ack == kBlbSuccess;
+      return ack;
     }
   }
-  return false;
+  return kBlbNone;
+}
+
+bool EscBootloader::SendPayload(const uint8_t *data, uint16_t len) {
+  if (data == nullptr || len == 0u) {
+    return false;
+  }
+
+  uint16_t crc = 0;
+  for (uint16_t i = 0; i < len; ++i) {
+    crc = checksum::Arc16Update(crc, data[i]);
+  }
+  const uint8_t trailer[] = {
+      static_cast<uint8_t>(crc & 0xFFu),
+      static_cast<uint8_t>(crc >> 8),
+  };
+
+  uart_->Send(data, len);
+  uart_->Send(trailer, sizeof(trailer));
+  return true;
 }
 
 bool EscBootloader::ReadFramed(uint8_t *out, uint16_t len) {
@@ -204,7 +238,24 @@ bool EscBootloader::SetAddress(uint16_t address) {
       static_cast<uint8_t>(address >> 8),
       static_cast<uint8_t>(address & 0xFFu),
   };
-  return SendCommand(cmd, sizeof(cmd)) && GetAck(kAckAttempts);
+  return SendCommand(cmd, sizeof(cmd)) &&
+         ReadAck(kAckImmediate) == kBlbSuccess;
+}
+
+// The one command answered with silence: a byte back means the bootloader
+// rejected the header, so anything other than a timeout is the failure.
+bool EscBootloader::SetBuffer(const uint8_t *data, uint16_t len) {
+  const uint8_t cmd[] = {
+      kCmdSetBuffer,
+      0,
+      static_cast<uint8_t>(len >> 8),
+      static_cast<uint8_t>(len & 0xFFu),
+  };
+  if (!SendCommand(cmd, sizeof(cmd)) ||
+      ReadAck(kAckImmediate) != kBlbNone) {
+    return false;
+  }
+  return SendPayload(data, len) && ReadAck(kAckBuffer) == kBlbSuccess;
 }
 
 bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
@@ -221,9 +272,61 @@ bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
   return SendCommand(cmd, sizeof(cmd)) && ReadFramed(out, len);
 }
 
-// Nothing acknowledges the run command, so a false return means only that the
-// channel was not one of ours. `reboot` power-cycles the ESC the crude way the
-// host asks for after a flash; without it the ESC simply resumes firmware.
+// ARM pages are 1 KB and the erase takes a page number, not a byte offset.
+bool EscBootloader::PageErase(uint8_t page) {
+  if (!connected_) {
+    return false;
+  }
+  if (!SetAddress(static_cast<uint16_t>(static_cast<uint16_t>(page) << 10u))) {
+    return false;
+  }
+
+  const uint8_t cmd[] = {kCmdEraseFlash, 0x01};
+  return SendCommand(cmd, sizeof(cmd)) && ReadAck(kAckErase) == kBlbSuccess;
+}
+
+bool EscBootloader::WriteFlash(uint16_t address, const uint8_t *data,
+                               uint16_t len) {
+  if (!connected_ || len == 0u || len > kMaxTransferBytes) {
+    return false;
+  }
+  if (!SetAddress(address) || !SetBuffer(data, len)) {
+    return false;
+  }
+
+  const uint8_t cmd[] = {kCmdProgFlash, 0x01};
+  return SendCommand(cmd, sizeof(cmd)) && ReadAck(kAckProgram) == kBlbSuccess;
+}
+
+// A mismatch is kept apart from a failure: the link worked and the flash does
+// not hold what was written, which is the one outcome retrying cannot fix.
+EscBootloader::VerifyResult EscBootloader::VerifyFlash(uint16_t address,
+                                                       const uint8_t *data,
+                                                       uint16_t len) {
+  if (!connected_ || len == 0u || len > kMaxTransferBytes) {
+    return VerifyResult::kFailed;
+  }
+  if (!SetAddress(address) || !SetBuffer(data, len)) {
+    return VerifyResult::kFailed;
+  }
+
+  const uint8_t cmd[] = {kCmdVerifyFlash, 0x01};
+  if (!SendCommand(cmd, sizeof(cmd))) {
+    return VerifyResult::kFailed;
+  }
+
+  switch (ReadAck(kAckBuffer)) {
+    case kBlbSuccess:
+      return VerifyResult::kOk;
+    case kBlbVerifyError:
+      return VerifyResult::kMismatch;
+    default:
+      return VerifyResult::kFailed;
+  }
+}
+
+// Nothing acknowledges the run command, so false means only that the channel
+// was not one of ours.
 bool EscBootloader::Reset(uint8_t motor_index, bool reboot) {
   const board::BoardPin *pin = MotorPin(motor_index);
   if (pin == nullptr) {
