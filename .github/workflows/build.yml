@@ -23,7 +23,7 @@ jobs:
             third_party/eigen third_party/nanoprintf \
             third_party/stm32_open_pin_data
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
 
       # Mirrors the Dockerfile: gcc-arm-none-eabi ships neither the C++ headers
       # nor newlib, so <atomic>, <complex> and <sys/stat.h> are absent without
@@ -54,7 +54,7 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: astral-sh/setup-uv@v9
+      - uses: astral-sh/setup-uv@v9.0.0
 
       - name: Cache ESP-IDF tools
         uses: actions/cache@v6
