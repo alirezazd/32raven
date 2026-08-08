@@ -49,9 +49,15 @@ class EscService {
   // Map normalized thrust [0, 1] → DShot wire units. 0 → kMotorStop (motor
   // off). >0 → linearly into [kThrottleMin, kThrottleMax]. Saturates.
   static uint16_t ThrustToDshot(float thrust);
+  static float DshotToThrust(uint16_t value);
   bool StopAll();
   bool QueueCommand(uint16_t command, bool telemetry = false);
   void SetTestThrottle(const std::array<float, 4> &thrust);
+
+  // What actually went out on the wire, not what was asked for: a dropped
+  // write leaves this at the previous frame, and the test deadman shows up
+  // here as a return to stop without anyone clearing it.
+  const DShotCodec::MotorValues &Outputs() const { return outputs_; }
 
   bool IsArmed() const { return armed_; }
   bool HasPendingCommand() const { return command_.active; }
@@ -80,6 +86,7 @@ class EscService {
   bool initialized_ = false;
   bool armed_ = false;
   DShotCodec::MotorValues test_values_{};
+  DShotCodec::MotorValues outputs_{};
   uint32_t test_set_us_ = 0;
   uint32_t last_idle_send_us_ = 0;
   uint32_t last_telemetry_request_us_ = 0;

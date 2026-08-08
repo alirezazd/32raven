@@ -21,6 +21,14 @@ uint16_t EscService::ThrustToDshot(float thrust) {
   return static_cast<uint16_t>(scaled);
 }
 
+float EscService::DshotToThrust(uint16_t value) {
+  if (value < DShotCodec::kThrottleMin) return 0.0f;
+  if (value >= DShotCodec::kThrottleMax) return 1.0f;
+  return static_cast<float>(value - DShotCodec::kThrottleMin) /
+         static_cast<float>(DShotCodec::kThrottleMax -
+                            DShotCodec::kThrottleMin);
+}
+
 bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust) {
   return WriteMotors({ThrustToDshot(thrust[0]), ThrustToDshot(thrust[1]),
                       ThrustToDshot(thrust[2]), ThrustToDshot(thrust[3])});
@@ -224,6 +232,7 @@ bool EscService::WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
     dropped_write_count_++;
     return false;
   }
+  outputs_ = motor;
 
   if (telemetry_motor < DShotCodec::kMotorCount) {
     telemetry_->ExpectMotor(telemetry_motor, now_us);

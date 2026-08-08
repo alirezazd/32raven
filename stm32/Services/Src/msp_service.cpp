@@ -628,11 +628,19 @@ bool MspService::BuildReply(uint16_t command) {
       Push8(1);  // ESC sensor present
       return true;
 
+    // The inverse of MSP_SET_MOTOR, so the configurator's slider reads back
+    // what it set -- and reads back stopped once the test deadman expires.
     case kMspMotor: {
-      const EscTelemetryData &esc = vehicle_state_->GetEscTelemetry();
+      const DShotCodec::MotorValues &outputs = esc_->Outputs();
       for (size_t i = 0; i < kMotorReportCount; ++i) {
-        const bool present = i < esc.motors.size();
-        Push16(present && ((esc.valid_mask >> i) & 1u) ? 1000u : 0u);
+        if (i >= outputs.size()) {
+          Push16(0);
+          continue;
+        }
+        const float thrust = EscService::DshotToThrust(outputs[i]);
+        const float span = static_cast<float>(kMaxThrottle - kMinCommand);
+        Push16(static_cast<uint16_t>(static_cast<float>(kMinCommand) +
+                                     thrust * span));
       }
       return true;
     }
