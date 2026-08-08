@@ -94,9 +94,13 @@ void EscService::Poll(uint32_t now_us) {
 
   PollEscInfo(now_us);
 
-  if (!armed_ && (last_idle_send_us_ == 0u ||
-                  static_cast<int32_t>(now_us - last_idle_send_us_) >=
-                      static_cast<int32_t>(cfg_.idle_period_us))) {
+  // AM32 counts six identical frames before acting and resets that count on
+  // any zero, so an idle frame landing between two command frames -- which the
+  // shorter idle period guarantees -- makes every command unreachable.
+  if (!armed_ && !command_.active &&
+      (last_idle_send_us_ == 0u ||
+       static_cast<int32_t>(now_us - last_idle_send_us_) >=
+           static_cast<int32_t>(cfg_.idle_period_us))) {
     if (SendIdleFrame(now_us)) {
       last_idle_send_us_ = now_us;
     }
