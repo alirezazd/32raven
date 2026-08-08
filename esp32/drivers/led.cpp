@@ -21,9 +21,6 @@ static constexpr uint32_t kLedcFreq = 5000;
 // 13-bit => max duty is 8191
 static constexpr uint32_t kDutyMax = 8191;
 
-// Internal definitions for static steps if needed, but we use dynamic
-// generation now.
-
 void LED::Init(const Config &cfg) {
   static constexpr uint32_t kTaskStackBytes = 2048;
   static StaticTask_t task_buffer;

@@ -266,16 +266,7 @@ bool Programmer::GetStm32BootloaderInfo() {
 
   ESP_LOGI(kTag, "STM32 Bootloader v%X.%X", ver >> 4, ver & 0xF);
 
-  // Read supported commands
-  // We need to read 'len' bytes. Since 'ver' was one of the bytes (protocol
-  // says N = number of bytes - 1) Wait, AN3155 says: ACK N = number of bytes -
-  // 1 Version CMD1 CMD2
-  // ...
-  // CMDn
-  // ACK
-  // Total bytes to read after N is N + 1. Version is the first one.
-  // So we have N more bytes to read after version.
-
+  // Version was the first of the N + 1 bytes N counts, so N remain.
   uint8_t cmds[256];
   // uint8_t len cannot exceed 255, so it fits in cmds
 
@@ -893,10 +884,6 @@ void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
   // If buffer overflow happened, error out
   if (c.overflow) {
     c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerBufferOverflow);
-    // Transition to error is handled by the SM check?
-    // Actually, we need to request it. Since we can't easily request from here
-    // without the parent SM pointer passed down or stored in Ctx differently
-    // (Ctx has sm*), we use that.
     if (c.sm && c.st_error) {
       c.sm->ReqTransition(*c.st_error);
     }

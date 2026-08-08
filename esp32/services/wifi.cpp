@@ -207,7 +207,7 @@ void WifiController::Stop() {
   esp_err_t e = esp_wifi_stop();
   if (e != ESP_OK) ESP_LOGW(kTag, "esp_wifi_stop: %s", esp_err_to_name(e));
 
-  // No need to deinit, we usually keep driver alive
+  // Driver stays initialised, so a later Start() skips esp_wifi_init.
   wifi_on_ = false;
   associated_station_count_ = 0;
   ESP_LOGI(kTag, "stopped");
