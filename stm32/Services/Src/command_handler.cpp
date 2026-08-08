@@ -164,7 +164,8 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
   // during a configuration session is refused rather than allowed to revoke.
   if (armed && ctx.sys->MspSvc().EscConfigGranted()) {
     ctx.sys->FcLinkSvc().SendPacket(
-        message::MsgId::kTone, message::ToneMsg{.tone = message::kToneWarning});
+        message::MsgId::kTone, message::ToneMsg{.tone = static_cast<uint8_t>(
+                                                    message::Tone::kWarning)});
     return;
   }
   // Reset on every arm transition: a wound-up controller from a prior

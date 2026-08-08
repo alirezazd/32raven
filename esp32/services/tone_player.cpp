@@ -5,10 +5,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
+#include "tone_scores.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -22,24 +24,10 @@ constexpr const char *kTag = "tone_player";
 constexpr uint32_t kMinBpm = 1;
 constexpr uint32_t kDefaultWholeNoteMs = 1000;
 
-constexpr const char kBeepRtttl[] = "Beep:d=16,o=6,b=240:c";
-constexpr const char kConfirmRtttl[] = "Confirm:d=32,o=6,b=200:g,c7,16e7";
-constexpr const char kWarningRtttl[] = "Warning:d=32,o=6,b=180:c,p,e,p,c5";
-constexpr const char kErrorRtttl[] = "Error:d=32,o=6,b=180:a,p,a,p,a,p,a,p,a";
-
 const char *BuiltinToneToRtttl(TonePlayer::BuiltinTone tone) {
-  switch (tone) {
-    case TonePlayer::BuiltinTone::kBeep:
-      return kBeepRtttl;
-    case TonePlayer::BuiltinTone::kConfirm:
-      return kConfirmRtttl;
-    case TonePlayer::BuiltinTone::kWarning:
-      return kWarningRtttl;
-    case TonePlayer::BuiltinTone::kError:
-      return kErrorRtttl;
-    default:
-      return nullptr;
-  }
+  const auto index = static_cast<std::size_t>(tone);
+  return (index < std::size(tone_scores::kAll)) ? tone_scores::kAll[index]
+                                                : nullptr;
 }
 }  // namespace
 

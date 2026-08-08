@@ -8,6 +8,7 @@
 
 #include "buzzer.hpp"
 #include "esp32_limits.hpp"
+#include "message.hpp"
 #include "timebase.hpp"
 
 class TonePlayer {
@@ -16,12 +17,7 @@ class TonePlayer {
   static constexpr std::size_t kPendingRequestQueueDepth =
       esp32_limits::kTonePlayerPendingRequestQueueDepth;
 
-  enum class BuiltinTone {
-    kBeep,
-    kConfirm,
-    kWarning,
-    kError,
-  };
+  using BuiltinTone = message::Tone;
 
   struct Config {
     uint8_t volume = 3;  // 0..10

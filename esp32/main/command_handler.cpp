@@ -44,20 +44,6 @@ const T &PayloadAs(const message::Packet &pkt) {
   Panic(ErrorCode::Common::kUnknownCommand);
 }
 
-static ::TonePlayer::BuiltinTone ToneFor(uint8_t tone) {
-  switch (tone) {
-    case message::kToneConfirm:
-      return ::TonePlayer::BuiltinTone::kConfirm;
-    case message::kToneWarning:
-      return ::TonePlayer::BuiltinTone::kWarning;
-    case message::kToneError:
-      return ::TonePlayer::BuiltinTone::kError;
-    case message::kToneBeep:
-    default:
-      return ::TonePlayer::BuiltinTone::kBeep;
-  }
-}
-
 static void OnLog(AppContext &, const message::Packet &pkt) {
   if (!message::IsPayloadValid(message::MsgId::kLog, pkt.payload,
                                pkt.header.len) ||
@@ -139,7 +125,7 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
       break;
     case message::MsgId::kTone:
       ctx.sys->TonePlayer().PlayBuiltin(
-          ToneFor(PayloadAs<message::ToneMsg>(pkt).tone));
+          static_cast<message::Tone>(PayloadAs<message::ToneMsg>(pkt).tone));
       ctx.sys->Ui().NotifyUserActivity();
       break;
 
@@ -167,7 +153,8 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
       if (granted != want) {
         ctx.sys->FcLink().SendPacket(
             message::MsgId::kSetEscConfigMode,
-            message::SetEscConfigModeMsg{.enabled = static_cast<uint8_t>(want)});
+            message::SetEscConfigModeMsg{.enabled =
+                                             static_cast<uint8_t>(want)});
       }
       break;
     }

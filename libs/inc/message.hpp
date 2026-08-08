@@ -187,10 +187,25 @@ inline constexpr uint8_t kUsbStatusConfigured = 1u << 1;  // host enumerated us
 inline constexpr uint8_t kUsbStatusPortOpen = 1u << 2;    // DTR asserted
 inline constexpr uint8_t kUsbStatusEscConfigGranted = 1u << 3;
 
-inline constexpr uint8_t kToneBeep = 0u;
-inline constexpr uint8_t kToneConfirm = 1u;
-inline constexpr uint8_t kToneWarning = 2u;
-inline constexpr uint8_t kToneError = 3u;
+// ToneMsg carries this value directly, so the enumerators are the wire
+// format: append only, never renumber. kCount bounds the ESP32's score table
+// and is never transmitted.
+enum class Tone : uint8_t {
+  kBeep = 0,
+  kConfirm,
+  kWarning,
+  kError,
+  kAm32Startup,
+  kAm32Brushed,
+  kAm32Dusking,
+  kAm32Input,
+  kAm32Input2,
+  kAm32Default,
+  kAm32Changed,
+  kDoom,
+  kDoomShort,
+  kCount,
+};
 
 struct ToneMsg {
   uint8_t tone;
