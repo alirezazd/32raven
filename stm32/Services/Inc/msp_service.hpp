@@ -108,6 +108,7 @@ class MspService {
   bool passthrough_pending_ = false;
 
   uint32_t last_usb_reset_ = 0;
+  bool last_usb_connected_ = false;
   bool esc_config_granted_ = false;
 
   Parse parse_ = Parse::kIdle;

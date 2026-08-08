@@ -154,6 +154,17 @@ void MspService::Poll(uint32_t now_us) {
     Reset();
   }
 
+  // Closing the port drops DTR without resetting the bus, so the check above
+  // never fires for a host that simply goes away mid-session. Without this the
+  // interface stays latched and the next session's MSP probes are eaten by a
+  // parser that only recognises 0x2F.
+  const bool connected = usb_->IsConnected();
+  if (last_usb_connected_ && !connected) {
+    four_way_->Exit();
+    Reset();
+  }
+  last_usb_connected_ = connected;
+
   // Detached means there is no session to serve. Dropping any half-parsed
   // frame here stops a truncated request from splicing onto the first bytes of
   // the next session.
