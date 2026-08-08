@@ -6,6 +6,10 @@
 # Hooks receive the staged paths, so a commit costs one pass over what it
 # touched. CI runs the same scripts with no arguments, where they walk
 # `git ls-files` and cover what a commit happened not to touch.
+# The commit-msg hook only runs once `pre-commit install` has created it, so
+# the hook types are declared here rather than left to whoever cloned last.
+default_install_hook_types: [pre-commit, commit-msg]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -35,6 +39,12 @@ repos:
         entry: uv run --quiet --script scripts/lint/check_comments.py
         language: system
         files: '\.(c|h|cpp|hpp)$'
+
+      - id: check-commit-msg
+        name: Commit message shape
+        entry: uv run --quiet --script scripts/lint/check_commit_msg.py
+        language: system
+        stages: [commit-msg]
 
       - id: check-error-codes
         name: Unused error enumerators
