@@ -59,6 +59,7 @@ class EscBootloader {
   bool WriteFlash(uint16_t address, const uint8_t *data, uint16_t len);
   VerifyResult VerifyFlash(uint16_t address, const uint8_t *data, uint16_t len);
 
+  bool KeepAlive();
   bool Reset(uint8_t motor_index, bool reboot);
 
   void Disconnect();

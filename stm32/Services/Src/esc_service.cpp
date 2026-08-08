@@ -7,6 +7,11 @@
 #include "panic.hpp"
 #include "system.hpp"
 
+// A configurator that vanishes mid-test must not leave a motor turning, so the
+// commanded values carry their own expiry rather than trusting anyone to clear
+// them.
+static constexpr uint32_t kTestThrottleTimeoutUs = 500000u;
+
 uint16_t EscService::ThrustToDshot(float thrust) {
   if (thrust <= 0.0f) return DShotCodec::kMotorStop;
   if (thrust >= 1.0f) return DShotCodec::kThrottleMax;
@@ -81,10 +86,36 @@ void EscService::Poll(uint32_t now_us) {
   if (!armed_ && (last_idle_send_us_ == 0u ||
                   static_cast<int32_t>(now_us - last_idle_send_us_) >=
                       static_cast<int32_t>(cfg_.idle_period_us))) {
-    if (StopAll(now_us)) {
+    if (SendIdleFrame(now_us)) {
       last_idle_send_us_ = now_us;
     }
   }
+}
+
+// Test values ride the idle path rather than being written straight out: they
+// inherit its rate, and going stale is what stops the motors.
+bool EscService::SendIdleFrame(uint32_t now_us) {
+  if (test_set_us_ != 0u &&
+      static_cast<uint32_t>(now_us - test_set_us_) < kTestThrottleTimeoutUs) {
+    return WriteRaw(test_values_, now_us, false);
+  }
+  test_set_us_ = 0;
+  return StopAll(now_us);
+}
+
+void EscService::SetTestThrottle(const std::array<float, 4> &thrust) {
+  if (!initialized_) {
+    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
+  }
+  if (armed_) {
+    return;
+  }
+
+  for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
+    test_values_[i] = ThrustToDshot(thrust[i]);
+  }
+  const uint32_t now_us = System::GetInstance().Time().Micros();
+  test_set_us_ = (now_us == 0u) ? 1u : now_us;
 }
 
 void EscService::SetArmed(bool armed) {
@@ -93,6 +124,7 @@ void EscService::SetArmed(bool armed) {
   }
 
   command_ = PendingCommand{};
+  test_set_us_ = 0;
   armed_ = armed;
   if (!armed_) {
     (void)StopAll();

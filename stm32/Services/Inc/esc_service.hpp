@@ -51,6 +51,7 @@ class EscService {
   static uint16_t ThrustToDshot(float thrust);
   bool StopAll();
   bool QueueCommand(uint16_t command, bool telemetry = false);
+  void SetTestThrottle(const std::array<float, 4> &thrust);
 
   bool IsArmed() const { return armed_; }
   bool HasPendingCommand() const { return command_.active; }
@@ -67,6 +68,7 @@ class EscService {
 
   static uint16_t NormalizeMotorValue(uint16_t value);
   bool StopAll(uint32_t now_us);
+  bool SendIdleFrame(uint32_t now_us);
   bool WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
                 bool force_telemetry);
   void PublishTelemetryState();
@@ -77,6 +79,8 @@ class EscService {
   VehicleState *vehicle_state_ = nullptr;
   bool initialized_ = false;
   bool armed_ = false;
+  DShotCodec::MotorValues test_values_{};
+  uint32_t test_set_us_ = 0;
   uint32_t last_idle_send_us_ = 0;
   uint32_t last_telemetry_request_us_ = 0;
   uint32_t dropped_write_count_ = 0;

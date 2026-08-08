@@ -29,6 +29,7 @@ constexpr uint16_t kMspAnalog = 110;
 constexpr uint16_t kMspBatteryState = 130;
 constexpr uint16_t kMspMotorConfig = 131;
 constexpr uint16_t kMspUid = 160;
+constexpr uint16_t kMspSetMotor = 214;
 constexpr uint16_t kMspSetPassthrough = 245;
 
 // Only four-way is offered; anything else is answered with a count of zero.
@@ -573,6 +574,33 @@ bool MspService::BuildReply(uint16_t command) {
         Push8(0);  // battery state: OK
         Push16(centivolts);
       }
+      return true;
+    }
+
+    // Spins props on command, so it is refused unless the ESC config lease is
+    // held -- that is granted only to a disarmed vehicle and revoked the moment
+    // it arms. Passthrough excludes it too: the pins belong to the bit-banged
+    // link by then, not the timer.
+    case kMspSetMotor: {
+      if (!esc_config_granted_ || four_way_->IsActive()) {
+        return false;
+      }
+
+      std::array<float, 4> thrust{};
+      for (size_t i = 0; i < thrust.size(); ++i) {
+        const size_t lo = i * 2u;
+        if (lo + 1u >= payload_size_) {
+          break;
+        }
+        const uint16_t pulse_us = static_cast<uint16_t>(
+            payload_[lo] | (static_cast<uint16_t>(payload_[lo + 1u]) << 8));
+        if (pulse_us > kMinCommand) {
+          const float span = static_cast<float>(kMaxThrottle - kMinCommand);
+          const float value = static_cast<float>(pulse_us - kMinCommand) / span;
+          thrust[i] = (value > 1.0f) ? 1.0f : value;
+        }
+      }
+      esc_->SetTestThrottle(thrust);
       return true;
     }
 

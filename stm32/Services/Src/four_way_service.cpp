@@ -169,7 +169,14 @@ void FourWayService::Dispatch() {
   reply_len_ = 0;
 
   switch (command_) {
+    // Only meaningful once a device is attached; before that the host is
+    // asking whether this interface answers, which it just did.
     case kCmdInterfaceTestAlive:
+      if (bootloader_->IsConnected() && !bootloader_->KeepAlive()) {
+        bootloader_->Disconnect();
+        Respond(kAckDeviceGeneralError);
+        return;
+      }
       Respond(kAckOk);
       return;
 

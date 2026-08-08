@@ -52,6 +52,7 @@ constexpr uint8_t kBootMsg[] = {'4', '7', '1'};
 // host sees. kBlbNone is not a reply but the absence of one.
 constexpr uint8_t kBlbSuccess = 0x30;
 constexpr uint8_t kBlbVerifyError = 0xC0;
+constexpr uint8_t kBlbErrorCommand = 0xC1;
 constexpr uint8_t kBlbNone = 0xFF;
 
 constexpr uint8_t kCmdRun = 0x00;
@@ -59,6 +60,7 @@ constexpr uint8_t kCmdProgFlash = 0x01;
 constexpr uint8_t kCmdEraseFlash = 0x02;
 constexpr uint8_t kCmdReadFlash = 0x03;
 constexpr uint8_t kCmdVerifyFlash = 0x04;
+constexpr uint8_t kCmdKeepAlive = 0xFD;
 constexpr uint8_t kCmdSetBuffer = 0xFE;
 constexpr uint8_t kCmdSetAddress = 0xFF;
 
@@ -323,6 +325,18 @@ EscBootloader::VerifyResult EscBootloader::VerifyFlash(uint16_t address,
     default:
       return VerifyResult::kFailed;
   }
+}
+
+// "Unknown command" is the success case. The bootloader has no keep-alive
+// opcode, so the probe is a command it must reject, and rejecting it is what
+// proves something is still listening.
+bool EscBootloader::KeepAlive() {
+  if (!connected_) {
+    return false;
+  }
+  const uint8_t cmd[] = {kCmdKeepAlive, 0};
+  return SendCommand(cmd, sizeof(cmd)) &&
+         ReadAck(kAckImmediate) == kBlbErrorCommand;
 }
 
 // Nothing acknowledges the run command, so false means only that the channel
