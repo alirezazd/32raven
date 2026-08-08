@@ -42,7 +42,9 @@ class EscBootloader {
   // takes it.
   bool Connect(uint8_t motor_index, DeviceInfo &out);
 
-  // Returns the pin to TIM1. Safe to call when not connected.
+  void HoldAll();
+  void ReleaseAll();
+
   void Disconnect();
 
   bool IsConnected() const { return connected_; }
@@ -57,6 +59,7 @@ class EscBootloader {
   UartSoft *uart_ = nullptr;
   bool initialized_ = false;
   bool connected_ = false;
+  bool held_ = false;
   uint8_t motor_index_ = 0;
 
   uint32_t connect_fail_count_ = 0;

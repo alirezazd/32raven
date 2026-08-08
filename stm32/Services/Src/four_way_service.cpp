@@ -62,11 +62,12 @@ void FourWayService::Init(UsbCdc &usb, EscBootloader &bootloader) {
 
 void FourWayService::Enter() {
   active_ = true;
+  bootloader_->HoldAll();
   Reset();
 }
 
 void FourWayService::Exit() {
-  bootloader_->Disconnect();
+  bootloader_->ReleaseAll();
   active_ = false;
   Reset();
 }
@@ -214,8 +215,10 @@ void FourWayService::Dispatch() {
         Respond(kAckDeviceGeneralError);
         return;
       }
-      ReplyBuf()[reply_len_++] = info.signature_hi;
+      // Low byte first. Transposed, this is not a corrupt reply but a valid one
+      // naming an MCU that does not exist, and the host drops the ESC silently.
       ReplyBuf()[reply_len_++] = info.signature_lo;
+      ReplyBuf()[reply_len_++] = info.signature_hi;
       ReplyBuf()[reply_len_++] = info.boot_version;
       ReplyBuf()[reply_len_++] = info.interface_mode;
       Respond(kAckOk);

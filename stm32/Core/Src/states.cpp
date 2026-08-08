@@ -392,40 +392,6 @@ static void StepSlow(AppContext &ctx, SmTick now) {
 
   // 2b. Serve MSP on the USB CDC port.
   ctx.sys->MspSvc().Poll(micros());
-  if (kEnableUsbLog && ctx.sys->MspSvc().EscConfigGranted()) {
-    auto &usb = UsbCdc::GetInstance();
-    static uint32_t last_usb_log_us = 0;
-    const uint32_t usb_now_us = micros();
-    if (last_usb_log_us == 0u ||
-        (usb_now_us - last_usb_log_us) >= SECONDS_TO_MICROS(1)) {
-      last_usb_log_us = usb_now_us;
-      const MspService &msp = ctx.sys->MspSvc();
-      const FourWayService &fw = ctx.sys->FourWaySvc();
-      // Both protocols are reported: the port switches between them
-      // mid-session, and reading only the MSP counters makes a live four-way
-      // session look like a link that stopped receiving.
-      ctx.sys->FcLinkSvc().SendLog(
-          "USB cfg=%u dtr=%u host=%u rst=%lu | MSP req=%lu crc=%lu unk=%lu "
-          "drop=%lu cmd=%u | 4W act=%u req=%lu crc=%lu drop=%lu stall=%lu "
-          "cmd=%02X esc=%u",
-          static_cast<unsigned>(usb.IsConfigured()),
-          static_cast<unsigned>(usb.IsConnected()),
-          static_cast<unsigned>(usb.IsHostPresent()),
-          static_cast<unsigned long>(usb.ResetCount()),
-          static_cast<unsigned long>(msp.RequestCount()),
-          static_cast<unsigned long>(msp.CrcErrorCount()),
-          static_cast<unsigned long>(msp.UnknownCommandCount()),
-          static_cast<unsigned long>(msp.TxDropCount()),
-          static_cast<unsigned>(msp.LastCommand()),
-          static_cast<unsigned>(fw.IsActive()),
-          static_cast<unsigned long>(fw.RequestCount()),
-          static_cast<unsigned long>(fw.CrcErrorCount()),
-          static_cast<unsigned long>(fw.TxDropCount()),
-          static_cast<unsigned long>(fw.StallCount()),
-          static_cast<unsigned>(fw.LastCommand()),
-          static_cast<unsigned>(fw.SelectedEsc()));
-    }
-  }
   if (budget_exhausted()) return;
 
   // 3. Poll GPS (UART2 <-> M10)
@@ -615,12 +581,53 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->MspSvc().Poll(current_time);
   ctx.sys->StatPubSvc().PublishUsbStatus(ctx, current_time);
 
+  // AM32 reboots itself half a second after the DShot stream stops, replaying
+  // its startup tune for as long as the mode is held. Passthrough is where the
+  // pins change hands; until then they are still TIM1's.
+  if (!ctx.sys->FourWaySvc().IsActive()) {
+    ctx.sys->EscSvc().Poll(current_time);
+  }
+
   ctx.sys->FcLinkSvc().Poll();
 
   if (last_status_send_us_ == 0u ||
       (current_time - last_status_send_us_) >= SECONDS_TO_MICROS(1)) {
     last_status_send_us_ = current_time;
     ctx.sys->StatPubSvc().PublishTelemetry(ctx, current_time, 0u);
+
+    if (kEnableUsbLog) {
+      const auto &usb = UsbCdc::GetInstance();
+      const MspService &msp = ctx.sys->MspSvc();
+      const FourWayService &fw = ctx.sys->FourWaySvc();
+      const UartSoft &su = UartSoft::GetInstance();
+      // Both protocols are reported: the port switches between them
+      // mid-session, and reading only the MSP counters makes a live four-way
+      // session look like a link that stopped receiving.
+      ctx.sys->FcLinkSvc().SendLog(
+          "USB cfg=%u dtr=%u host=%u rst=%lu | MSP req=%lu crc=%lu unk=%lu "
+          "drop=%lu cmd=%u | 4W act=%u req=%lu crc=%lu drop=%lu stall=%lu "
+          "cmd=%02X esc=%u | BL fail=%lu | SU to=%lu fr=%lu pa=%lu",
+          static_cast<unsigned>(usb.IsConfigured()),
+          static_cast<unsigned>(usb.IsConnected()),
+          static_cast<unsigned>(usb.IsHostPresent()),
+          static_cast<unsigned long>(usb.ResetCount()),
+          static_cast<unsigned long>(msp.RequestCount()),
+          static_cast<unsigned long>(msp.CrcErrorCount()),
+          static_cast<unsigned long>(msp.UnknownCommandCount()),
+          static_cast<unsigned long>(msp.TxDropCount()),
+          static_cast<unsigned>(msp.LastCommand()),
+          static_cast<unsigned>(fw.IsActive()),
+          static_cast<unsigned long>(fw.RequestCount()),
+          static_cast<unsigned long>(fw.CrcErrorCount()),
+          static_cast<unsigned long>(fw.TxDropCount()),
+          static_cast<unsigned long>(fw.StallCount()),
+          static_cast<unsigned>(fw.LastCommand()),
+          static_cast<unsigned>(fw.SelectedEsc()),
+          static_cast<unsigned long>(ctx.sys->EscBootSvc().ConnectFailCount()),
+          static_cast<unsigned long>(su.RxTimeoutCount()),
+          static_cast<unsigned long>(su.RxFramingCount()),
+          static_cast<unsigned long>(su.RxParityCount()));
+    }
   }
 
   if (!ctx.sys->MspSvc().EscConfigGranted()) {
