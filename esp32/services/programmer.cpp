@@ -750,6 +750,15 @@ bool Programmer::ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len) {
   return ReadStm32Block(flash_addr, data, *len);
 }
 
+// Reached only by the STM32: an ESP32 image reboots out of
+// CompleteSuccessfulProgram before this state exists. Both branches of
+// verify.EnabledFor() funnel here, so one tone covers write-only and
+// write-then-verify without either path knowing which ran.
+void Programmer::DoneState::OnEnter(Ctx &c) {
+  (void)c;
+  Sys().TonePlayer().PlayBuiltin(message::Tone::kConfirm);
+}
+
 bool Programmer::CompleteSuccessfulProgram(Ctx &c) {
   if (c.target == Target::kEsp32) {
     if (!ActivateEsp32Ota(c)) {

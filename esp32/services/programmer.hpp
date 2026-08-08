@@ -145,6 +145,7 @@ class Programmer {
   class DoneState : public IState<Ctx> {
    public:
     const char *Name() const override { return "P.Done"; }
+    void OnEnter(Ctx &c) override;
     void OnStep(Ctx &, SmTick) override {}
   };
 
