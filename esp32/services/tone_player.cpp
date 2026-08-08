@@ -10,7 +10,7 @@
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
-#include "tone_scores.hpp"
+#include "rtttl/tone_scores.hpp"
 
 extern "C" {
 #include "esp_log.h"
