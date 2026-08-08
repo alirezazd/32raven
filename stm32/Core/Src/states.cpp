@@ -615,13 +615,6 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->MspSvc().Poll(current_time);
   ctx.sys->StatPubSvc().PublishUsbStatus(ctx, current_time);
 
-  // Disarmed ESCs still need to hear zero throttle every millisecond or they
-  // start their signal-lost alarm. It stops once four-way claims the pins,
-  // which is the point the ESC stops being a DShot listener at all.
-  if (!ctx.sys->FourWaySvc().IsActive()) {
-    ctx.sys->EscSvc().Poll(current_time);
-  }
-
   ctx.sys->FcLinkSvc().Poll();
 
   if (last_status_send_us_ == 0u ||
