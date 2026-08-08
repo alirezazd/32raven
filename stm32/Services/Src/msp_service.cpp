@@ -623,7 +623,7 @@ bool MspService::BuildReply(uint16_t command) {
       Push16(kMaxThrottle);
       Push16(kMinCommand);
       Push8(DShotCodec::kMotorCount);
-      Push8(cfg_.motor_pole_count);
+      Push8(esc_->MotorPoles());
       Push8(0);  // bidirectional DShot: telemetry arrives on its own UART
       Push8(1);  // ESC sensor present
       return true;

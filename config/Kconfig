@@ -3332,14 +3332,6 @@ config STM32_ESC_TELEMETRY_BAUD_RATE
     help
       Baud rate for the ESC KISS telemetry UART link.
 
-config STM32_ESC_TELEMETRY_MOTOR_POLE_COUNT
-    int "Motor pole count"
-    range 2 64
-    default 14
-    help
-      Number of magnetic poles on each motor. Used to convert eRPM telemetry
-      into mechanical RPM.
-
 config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
     int "Response timeout (us)"
     range 100 100000

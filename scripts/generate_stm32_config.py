@@ -1103,7 +1103,6 @@ def _timebase_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 def _esc_telemetry_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "baud_rate": sym_int(kconf, "STM32_ESC_TELEMETRY_BAUD_RATE"),
-        "motor_pole_count": sym_int(kconf, "STM32_ESC_TELEMETRY_MOTOR_POLE_COUNT"),
         "response_timeout_us": sym_int(
             kconf, "STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US"
         ),

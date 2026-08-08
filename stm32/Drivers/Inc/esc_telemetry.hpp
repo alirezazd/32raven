@@ -14,7 +14,6 @@ class EscTelemetry {
 
   struct Config {
     uint32_t baud_rate;
-    uint8_t motor_pole_count;
     uint32_t response_timeout_us;
   };
 

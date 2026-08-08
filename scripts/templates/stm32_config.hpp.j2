@@ -337,7 +337,6 @@ inline constexpr TimeBaseConfig kTimeBaseConfig = {
 
 inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
     .baud_rate = {{ esc_telemetry.baud_rate }},
-    .motor_pole_count = {{ esc_telemetry.motor_pole_count }},
     .response_timeout_us = {{ esc_telemetry.response_timeout_us }},
 };
 
@@ -365,7 +364,6 @@ inline constexpr MspService::Config kMspServiceConfig = {
     .board_name = {{ msp.board_name }},
     .manufacturer_id = {{ msp.manufacturer_id }},
     .craft_name = {{ msp.craft_name }},
-    .motor_pole_count = {{ esc_telemetry.motor_pole_count }},
 };
 
 inline constexpr EscService::Config kEscServiceConfig = {

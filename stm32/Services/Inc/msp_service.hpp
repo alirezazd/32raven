@@ -27,7 +27,6 @@ class MspService {
     const char *board_name;
     const char *manufacturer_id;
     const char *craft_name;
-    uint8_t motor_pole_count;
   };
 
   void Init(const Config &cfg, UsbCdc &usb, VehicleState &vehicle_state,

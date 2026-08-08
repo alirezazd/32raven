@@ -172,6 +172,19 @@ void EscService::SetTestThrottle(const std::array<float, 4> &thrust) {
   test_set_us_ = (now_us == 0u) ? 1u : now_us;
 }
 
+uint8_t EscService::MotorPoles() const {
+  if (telemetry_ == nullptr) {
+    return 0;
+  }
+  for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
+    const EscTelemetry::Info info = telemetry_->GetInfo(i);
+    if (info.valid) {
+      return info.motor_poles;
+    }
+  }
+  return 0;
+}
+
 void EscService::SetArmed(bool armed) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);

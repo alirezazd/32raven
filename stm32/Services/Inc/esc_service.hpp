@@ -65,6 +65,10 @@ class EscService {
   // here as a return to stop without anyone clearing it.
   const DShotCodec::MotorValues &Outputs() const { return outputs_; }
 
+  // Zero until an ESC has answered. The motors are identical in practice, so
+  // the first one to report speaks for all of them.
+  uint8_t MotorPoles() const;
+
   bool IsArmed() const { return armed_; }
   bool HasPendingCommand() const { return command_.active; }
   uint32_t DroppedWriteCount() const { return dropped_write_count_; }

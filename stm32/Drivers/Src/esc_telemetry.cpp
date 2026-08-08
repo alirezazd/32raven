@@ -60,8 +60,7 @@ void EscTelemetry::Init(const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
-  if (cfg.baud_rate == 0u || cfg.motor_pole_count < 2u ||
-      cfg.response_timeout_us == 0u) {
+  if (cfg.baud_rate == 0u || cfg.response_timeout_us == 0u) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
   cfg_ = cfg;
@@ -341,7 +340,12 @@ void EscTelemetry::PublishFrame(uint32_t now_us) {
   sample.consumption_mah = LoadBe16(&frame_buf_[5]);
   sample.erpm_hundreds = LoadBe16(&frame_buf_[7]);
   sample.electrical_rpm = static_cast<uint32_t>(sample.erpm_hundreds) * 100u;
-  const uint8_t pole_pairs = cfg_.motor_pole_count / 2u;
+  // Only the ESC knows its pole count, and it is asked for it at startup. Until
+  // that lands there is no honest conversion, so rpm stays zero rather than
+  // carrying a guess that nothing downstream could tell apart from a reading.
+  const Info &info = info_[expected_motor_];
+  const uint8_t pole_pairs =
+      info.valid ? static_cast<uint8_t>(info.motor_poles / 2u) : 0u;
   sample.rpm = pole_pairs == 0u ? 0u : sample.electrical_rpm / pole_pairs;
   sample.valid = true;
 
