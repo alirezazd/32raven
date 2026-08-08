@@ -5,9 +5,7 @@
 
 #include <cstring>
 
-#include "error_code.hpp"
 #include "irq_priority.hpp"
-#include "panic.hpp"
 #include "stm32f4xx.h"
 #include "system.hpp"
 

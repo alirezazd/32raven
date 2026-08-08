@@ -8,7 +8,7 @@
 #include <cstring>
 
 #include "checksum.hpp"
-#include "states.hpp"  // For AppContext definition
+#include "ctx.hpp"
 #include "system.hpp"
 #include "uart.hpp"
 

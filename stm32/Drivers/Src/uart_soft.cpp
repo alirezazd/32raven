@@ -6,7 +6,6 @@
 #include "error_code.hpp"
 #include "gpio.hpp"
 #include "panic.hpp"
-#include "system.hpp"
 
 namespace {
 

@@ -3,7 +3,6 @@
 
 #include "panic.hpp"
 
-#include <cstdarg>
 #include <cstdio>
 #include <cstring>
 
