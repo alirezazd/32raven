@@ -7,6 +7,7 @@
 #include "panic.hpp"
 #include "stm32_limits.hpp"
 #include "stm32f4xx.h"
+#include "system.hpp"
 
 namespace {
 
@@ -26,9 +27,10 @@ void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
 }
 
 bool WaitForEoc(uint16_t timeout_us) {
-  const uint32_t start_us = TIM2->CNT;
+  const TimeBase &time = System::GetInstance().Time();
+  const uint32_t start_us = time.Micros();
   while ((ADC1->SR & ADC_SR_EOC) == 0u) {
-    if (static_cast<uint32_t>(TIM2->CNT - start_us) >= timeout_us) {
+    if (static_cast<uint32_t>(time.Micros() - start_us) >= timeout_us) {
       return false;
     }
   }

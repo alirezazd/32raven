@@ -52,3 +52,9 @@ repos:
         language: system
         pass_filenames: false
         files: '\.(c|h|cpp|hpp)$'
+
+      - id: check-timer-access
+        name: Direct timer access
+        entry: uv run --quiet --script scripts/lint/check_timer_access.py
+        language: system
+        files: '\.(c|h|cpp|hpp)$'

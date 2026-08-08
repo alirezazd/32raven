@@ -15,6 +15,10 @@ inline bool Reached(uint32_t now, uint32_t deadline) {
   return static_cast<int32_t>(now - deadline) >= 0;
 }
 
+// The one place that reads the timer rather than going through TimeBase. This
+// is called several times per bit with interrupts masked, and reaching the
+// driver means a System singleton access whose guard check does not belong in
+// that loop. Same register, same 1 MHz tick.
 inline uint32_t Micros() { return TIM2->CNT; }
 
 constexpr uint32_t kDataBits = 8u;
