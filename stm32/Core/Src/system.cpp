@@ -94,6 +94,8 @@ void System::Init(const System::Config &config) {
   InitComponent(Component::kEscTelemetry);
   InitComponent(Component::kEscService);
   InitComponent(Component::kUsbCdc);
+  InitComponent(Component::kUartSoft);
+  InitComponent(Component::kEscBootloader);
   InitComponent(Component::kFourWayService);
   InitComponent(Component::kMspService);
   InitComponent(Component::kButton);
@@ -324,8 +326,11 @@ void System::InitComponent(Component c) {
     case Component::kUartSoft:
       UartSoft::GetInstance().Init(kEscBootloaderUartConfig);
       break;
+    case Component::kEscBootloader:
+      esc_bootloader_.Init(UartSoft::GetInstance());
+      break;
     case Component::kFourWayService:
-      four_way_service_.Init(UsbCdc::GetInstance());
+      four_way_service_.Init(UsbCdc::GetInstance(), esc_bootloader_);
       break;
     case Component::kMspService:
       msp_service_.Init(kMspServiceConfig, UsbCdc::GetInstance(),

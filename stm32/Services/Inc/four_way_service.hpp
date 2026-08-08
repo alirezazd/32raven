@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "esc_bootloader.hpp"
 #include "usb_cdc.hpp"
 
 // BLHeli four-way interface, spoken once MSP hands the port over. The flight
@@ -23,7 +24,7 @@
 
 class FourWayService {
  public:
-  void Init(UsbCdc &usb);
+  void Init(UsbCdc &usb, EscBootloader &bootloader);
 
   // While active the CDC byte stream belongs to this parser, not MSP's.
   void Enter();
@@ -76,6 +77,7 @@ class FourWayService {
   uint8_t *ReplyBuf() { return &frame_[kHeaderBytes]; }
 
   UsbCdc *usb_ = nullptr;
+  EscBootloader *bootloader_ = nullptr;
   bool initialized_ = false;
   bool active_ = false;
 

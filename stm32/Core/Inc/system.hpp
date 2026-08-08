@@ -9,6 +9,7 @@
 #include "button.hpp"
 #include "command_handler.hpp"
 #include "crsf_link_service.hpp"
+#include "esc_bootloader.hpp"
 #include "esc_service.hpp"
 #include "fc_link.hpp"
 #include "four_way_service.hpp"
@@ -121,6 +122,7 @@ class System {
     kEscTelemetry,
     kEscService,
     kUartSoft,
+    kEscBootloader,
     kFourWayService,
     kMspService,
     kUsbCdc,
@@ -152,6 +154,7 @@ class System {
   EscService &EscSvc() { return esc_service_; }
   MspService &MspSvc() { return msp_service_; }
   FourWayService &FourWaySvc() { return four_way_service_; }
+  EscBootloader &EscBootSvc() { return esc_bootloader_; }
   M10Service &GpsSvc() { return gps_service_; }
   Icm42688p &Imu() { return Icm42688p::GetInstance(); }
   multirotor_mixer::Mixer &MixerSvc() { return mixer_; }
@@ -179,6 +182,7 @@ class System {
   EscService esc_service_;
   MspService msp_service_;
   FourWayService four_way_service_;
+  EscBootloader esc_bootloader_;
   multirotor_mixer::Mixer mixer_;
   Ahrs ahrs_;
   RateController rate_controller_;

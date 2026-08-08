@@ -51,12 +51,13 @@ constexpr uint8_t kModeArmBlb = 4;
 
 }  // namespace
 
-void FourWayService::Init(UsbCdc &usb) {
+void FourWayService::Init(UsbCdc &usb, EscBootloader &bootloader) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kFourWayServiceReinit);
   }
   initialized_ = true;
   usb_ = &usb;
+  bootloader_ = &bootloader;
 }
 
 void FourWayService::Enter() {
@@ -65,6 +66,7 @@ void FourWayService::Enter() {
 }
 
 void FourWayService::Exit() {
+  bootloader_->Disconnect();
   active_ = false;
   Reset();
 }
@@ -187,6 +189,7 @@ void FourWayService::Dispatch() {
       return;
 
     case kCmdInterfaceExit:
+      bootloader_->Disconnect();
       Respond(kAckOk);
       active_ = false;
       return;
@@ -199,18 +202,32 @@ void FourWayService::Dispatch() {
       Respond(kAckOk);
       return;
 
-    // Validated even though talking to an ESC is not yet possible: an
-    // out-of-range channel is a protocol error, not an unresponsive ESC.
-    case kCmdDeviceInitFlash:
+    case kCmdDeviceInitFlash: {
       if (param_count_ < 1u || params_[0] >= DShotCodec::kMotorCount) {
         Respond(kAckInvalidChannel);
         return;
       }
       selected_esc_ = params_[0];
+
+      EscBootloader::DeviceInfo info{};
+      if (!bootloader_->Connect(selected_esc_, info)) {
+        Respond(kAckDeviceGeneralError);
+        return;
+      }
+      ReplyBuf()[reply_len_++] = info.signature_hi;
+      ReplyBuf()[reply_len_++] = info.signature_lo;
+      ReplyBuf()[reply_len_++] = info.boot_version;
+      ReplyBuf()[reply_len_++] = info.interface_mode;
+      Respond(kAckOk);
+      return;
+    }
+
+    // A reset leaves the bootloader, so the borrowed pin goes back to DShot
+    // whether or not the ESC acknowledges.
+    case kCmdDeviceReset:
+      bootloader_->Disconnect();
       Respond(kAckDeviceGeneralError);
       return;
-
-    case kCmdDeviceReset:
     case kCmdDeviceEraseAll:
     case kCmdDevicePageErase:
     case kCmdDeviceRead:
