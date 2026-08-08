@@ -47,8 +47,11 @@ constexpr uint8_t kInterfaceVersionMain = 20;
 constexpr uint8_t kInterfaceVersionSub = 4;
 constexpr char kInterfaceName[] = "m4wFCIntf";
 
-// AM32 runs imARM_BLB. The SiLabs and Atmel modes below it are silicon we will
-// never be wired to, but rejecting them outright confuses the probe.
+// The bootloader dialects, of which only imARM_BLB is implemented here. The
+// value is accepted and dropped because Connect derives the real mode from the
+// device signature, exactly as the reference does; narrowing the range further
+// would reject modes every shipping flight controller accepts.
+constexpr uint8_t kModeSilBlb = 1;
 constexpr uint8_t kModeArmBlb = 4;
 
 }  // namespace
@@ -206,7 +209,8 @@ void FourWayService::Dispatch() {
       return;
 
     case kCmdInterfaceSetMode:
-      if (param_count_ < 1u || params_[0] > kModeArmBlb) {
+      if (param_count_ < 1u || params_[0] < kModeSilBlb ||
+          params_[0] > kModeArmBlb) {
         Respond(kAckInvalidParam);
         return;
       }
