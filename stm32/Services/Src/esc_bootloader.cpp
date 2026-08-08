@@ -3,6 +3,7 @@
 
 #include "esc_bootloader.hpp"
 
+#include "checksum.hpp"
 #include "dshot_codec.hpp"
 #include "error_code.hpp"
 #include "gpio.hpp"
@@ -44,6 +45,14 @@ constexpr uint8_t kBootMsg[] = {'4', '7', '1'};
 // The bootloader's own ACK vocabulary, distinct from the four-way acks the
 // host sees.
 constexpr uint8_t kBlbSuccess = 0x30;
+
+constexpr uint8_t kCmdReadFlash = 0x03;
+constexpr uint8_t kCmdSetAddress = 0xFF;
+
+// Set-address is the longest command, at four bytes plus its CRC.
+constexpr size_t kMaxCommandBytes = 6;
+
+constexpr uint8_t kAckAttempts = 2;
 
 // AM32 and BLHeli_32 are ARM parts, and imARM_BLB is the only mode this
 // firmware offers; the host is told so in the fourth DeviceInfo byte.
@@ -125,6 +134,81 @@ bool EscBootloader::Connect(uint8_t motor_index, DeviceInfo &out) {
 
   connected_ = true;
   return true;
+}
+
+// One write, not two: Send hands the wire back on return, so a split payload
+// and CRC would read as two frames.
+bool EscBootloader::SendCommand(const uint8_t *cmd, size_t len) {
+  uint8_t frame[kMaxCommandBytes];
+  if (len + 2u > sizeof(frame)) {
+    return false;
+  }
+
+  uint16_t crc = 0;
+  for (size_t i = 0; i < len; ++i) {
+    frame[i] = cmd[i];
+    crc = checksum::Arc16Update(crc, cmd[i]);
+  }
+  frame[len] = static_cast<uint8_t>(crc & 0xFFu);
+  frame[len + 1u] = static_cast<uint8_t>(crc >> 8);
+
+  uart_->Send(frame, len + 2u);
+  return true;
+}
+
+bool EscBootloader::GetAck(uint8_t attempts) {
+  uint8_t ack = 0;
+  for (uint8_t i = 0; i < attempts; ++i) {
+    if (uart_->Read(ack)) {
+      return ack == kBlbSuccess;
+    }
+  }
+  return false;
+}
+
+bool EscBootloader::ReadFramed(uint8_t *out, uint16_t len) {
+  uint16_t crc = 0;
+  for (uint16_t i = 0; i < len; ++i) {
+    if (!uart_->Read(out[i])) {
+      return false;
+    }
+    crc = checksum::Arc16Update(crc, out[i]);
+  }
+
+  uint8_t crc_lo = 0;
+  uint8_t crc_hi = 0;
+  uint8_t ack = 0;
+  if (!uart_->Read(crc_lo) || !uart_->Read(crc_hi) || !uart_->Read(ack)) {
+    return false;
+  }
+
+  const uint16_t received = static_cast<uint16_t>(
+      crc_lo | (static_cast<uint16_t>(crc_hi) << 8));
+  return received == crc && ack == kBlbSuccess;
+}
+
+bool EscBootloader::SetAddress(uint16_t address) {
+  const uint8_t cmd[] = {
+      kCmdSetAddress,
+      0,
+      static_cast<uint8_t>(address >> 8),
+      static_cast<uint8_t>(address & 0xFFu),
+  };
+  return SendCommand(cmd, sizeof(cmd)) && GetAck(kAckAttempts);
+}
+
+bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
+  if (!connected_ || out == nullptr || len == 0u || len > kMaxTransferBytes) {
+    return false;
+  }
+  if (!SetAddress(address)) {
+    return false;
+  }
+
+  // A full 256 travels as a zero count, so the length is masked rather than
+  // range-checked into a byte.
+  const uint8_t cmd[] = {kCmdReadFlash, static_cast<uint8_t>(len & 0xFFu)};
+  return SendCommand(cmd, sizeof(cmd)) && ReadFramed(out, len);
 }
 
 // High, not idle: AM32's bootloader stays resident while its signal line reads

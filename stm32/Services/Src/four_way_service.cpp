@@ -231,9 +231,19 @@ void FourWayService::Dispatch() {
       bootloader_->Disconnect();
       Respond(kAckDeviceGeneralError);
       return;
+    case kCmdDeviceRead: {
+      const uint16_t len = (params_[0] == 0u) ? kMaxParams : params_[0];
+      if (!bootloader_->ReadFlash(address_, ReplyBuf(), len)) {
+        Respond(kAckDeviceGeneralError);
+        return;
+      }
+      reply_len_ = len;
+      Respond(kAckOk);
+      return;
+    }
+
     case kCmdDeviceEraseAll:
     case kCmdDevicePageErase:
-    case kCmdDeviceRead:
     case kCmdDeviceWrite:
     case kCmdDeviceReadEeprom:
     case kCmdDeviceWriteEeprom:

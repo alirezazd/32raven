@@ -47,4 +47,16 @@ inline uint16_t XModem(const uint8_t *data, size_t len) {
   return crc;
 }
 
+// CRC-16/ARC, poly 0xA001 reflected, init 0. An ESC config session runs two
+// CRC16s that are not interchangeable: XModem above for the host's four-way
+// frames, this one for the bytes past the flight controller.
+inline uint16_t Arc16Update(uint16_t crc, uint8_t byte) {
+  for (uint8_t i = 0; i < 8u; ++i) {
+    crc = ((crc ^ byte) & 1u) ? static_cast<uint16_t>((crc >> 1) ^ 0xA001u)
+                              : static_cast<uint16_t>(crc >> 1);
+    byte = static_cast<uint8_t>(byte >> 1);
+  }
+  return crc;
+}
+
 }  // namespace checksum

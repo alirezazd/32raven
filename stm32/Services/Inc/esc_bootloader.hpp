@@ -45,6 +45,8 @@ class EscBootloader {
   void HoldAll();
   void ReleaseAll();
 
+  bool ReadFlash(uint16_t address, uint8_t *out, uint16_t len);
+
   void Disconnect();
 
   bool IsConnected() const { return connected_; }
@@ -52,9 +54,15 @@ class EscBootloader {
 
   uint32_t ConnectFailCount() const { return connect_fail_count_; }
 
+  static constexpr uint16_t kMaxTransferBytes = 256;
+
  private:
   bool SendWake();
   bool ReadBootInfo(DeviceInfo &out);
+  bool SendCommand(const uint8_t *cmd, size_t len);
+  bool ReadFramed(uint8_t *out, uint16_t len);
+  bool GetAck(uint8_t attempts);
+  bool SetAddress(uint16_t address);
 
   UartSoft *uart_ = nullptr;
   bool initialized_ = false;
