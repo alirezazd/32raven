@@ -1,0 +1,36 @@
+# Copy to user_config.cmake, which is gitignored, and edit. The top-level
+# CMakeLists.txt includes it before anything else if it exists.
+#
+# Only the four variables below are read. GEN, USE_DOCKER, ESP_IP and BUILD_DIR
+# look like they belong here but are Make-level and would be silently ignored --
+# override those on the command line instead (`USE_DOCKER=0 make stm32`).
+#
+# Keep commented examples flush against the left margin. The Makefile scrapes
+# this file with `grep -v "^#"`, which is anchored at column 0, so an indented
+# comment still has its value read out of it.
+
+# Flash configuration
+# The build resolves the ESP32 by USB descriptor, so this is only needed for a
+# board on a CP2102/FTDI bridge or a second Espressif device on the bus. A fixed
+# ttyACM path goes stale as soon as enumeration order changes.
+# set(ESP_PORT "/dev/ttyACM0")
+# set(ESP_BAUD "921600")        # 460800 or 921600 recommended
+
+# ESP-IDF location
+# Only for an IDF outside third_party/esp-idf. Setting it here beats the
+# environment: this file is included ahead of the IDF_PATH cache entry, and a
+# plain variable shadows the cache, including the FORCE'd $ENV{IDF_PATH} branch.
+# set(IDF_PATH "/opt/esp-idf")
+
+# Toolchain
+# Only for an arm-none-eabi outside the tree; stm32/cmake/gcc-arm-none-eabi.cmake
+# is used when this is unset.
+# set(STM32_TOOLCHAIN_FILE "/opt/toolchains/gcc-arm-none-eabi.cmake")
+
+# Lint configuration
+# Appended to scripts/lint/forbidden_exceptions.txt for check_forbidden.sh. Each
+# entry is a literal the checker stops rejecting, so keep them narrow.
+# set(LINT_EXCEPTIONS
+#     "#include <vector>"
+#     "placement new"
+# )

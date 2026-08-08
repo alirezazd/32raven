@@ -128,6 +128,11 @@ make esp32     # ESP32 only
 
 ## Flashing & Deployment
 
+Port and baud are resolved from the USB descriptor, so neither normally needs
+setting. To pin them anyway — or to point at an out-of-tree ESP-IDF or ARM
+toolchain — copy `user_config.cmake.example` to `user_config.cmake`, which is
+gitignored and read by the build if present.
+
 ### ESP32 (Serial)
 
 ```bash
