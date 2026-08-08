@@ -13,6 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The message check walks every commit, not the worktree.
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v9.0.0
 
@@ -29,3 +32,10 @@ jobs:
 
       - name: Forbidden constructs
         run: scripts/lint/check_forbidden.sh
+
+      # Whole history rather than the pushed range: a range has edge cases
+      # (first push, force push, a `before` that no longer exists) and each one
+      # is a way for a bad message to arrive unchecked. Scanning everything has
+      # none, and also fails a force-push that puts an old one back.
+      - name: Commit message shape
+        run: uv run --quiet --script scripts/lint/check_commit_msg.py --range HEAD
