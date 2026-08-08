@@ -6,6 +6,18 @@
 
 [![Firmware Version](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Falirezazd%2F32raven%2Fbadge-data%2Ffirmware-version-badge.json)](https://github.com/alirezazd/32raven/tags)
 
+<p align="center">
+  <img src="docs/assets/protocols/mavlink.png" alt="MAVLink" height="48">
+  &nbsp;&nbsp;
+  <img src="docs/assets/protocols/crsf.png" alt="CRSF" height="48">
+  &nbsp;&nbsp;
+  <img src="docs/assets/protocols/expresslrs.png" alt="ExpressLRS" height="48">
+  &nbsp;&nbsp;
+  <img src="docs/assets/protocols/ublox.png" alt="u-blox" height="48">
+  &nbsp;&nbsp;
+  <img src="docs/assets/protocols/am32.png" alt="AM32" height="48">
+</p>
+
 📖 **[Build one yourself — the 32Raven Handbook](https://alirezazd.github.io/32raven/)** — bill of materials, wiring, flashing, and bring-up for the prototype.
 
 ## Overview
