@@ -1,0 +1,67 @@
+# The linters never compile anything, so a CMakeLists that names a file which
+# is not in the tree passes every gate and still fails a clean clone.
+#
+# USE_DOCKER=0: the runner is already the environment the Dockerfile builds.
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  stm32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Recursive would fetch ESP-IDF and its own submodules for a build that
+      # never reads them.
+      - name: Submodules
+        run: |
+          git submodule update --init --depth 1 \
+            third_party/eigen third_party/nanoprintf \
+            third_party/stm32_open_pin_data
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-arm-none-eabi binutils-arm-none-eabi cmake ninja-build
+
+      - name: Build
+        run: make stm32 USE_DOCKER=0
+
+      - name: Size
+        run: arm-none-eabi-size build/Ninja/stm32/32Raven_stm32.elf
+
+      # The Kconfig generators run during the build. A diff here means the
+      # committed headers disagree with the config they came from.
+      - name: Generated files match the tree
+        run: git diff --exit-code -- . ':(exclude)third_party'
+
+  esp32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Cache ESP-IDF tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.espressif
+          key: espressif-${{ hashFiles('third_party/esp-idf/version.txt') }}
+
+      - name: Install ESP-IDF tools
+        run: make idf-install USE_DOCKER=0
+
+      - name: Build
+        run: make esp32 USE_DOCKER=0
+
+      - name: Generated files match the tree
+        run: git diff --exit-code -- . ':(exclude)third_party'
