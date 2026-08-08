@@ -35,13 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: false      # handbook transcludes only tracked source
 
       # Exact tag on purpose: setup-uv publishes no moving major past v7, so
       # `@v9` does not resolve. Same pinning philosophy as uv in the Dockerfile.
-      - uses: astral-sh/setup-uv@v9.0.0
+      - uses: astral-sh/setup-uv@v9
         with:
           enable-cache: true
 
