@@ -168,12 +168,7 @@ bool ShouldBlinkCornerBadge(WidgetMode mode) {
          mode == WidgetMode::kEscConfigArmed;
 }
 
-// Guidance text instead of the icon row. A superset of the blinking modes:
-// the ESC idle stage has a steady badge but still needs telling.
-bool IsBodyTextMode(WidgetMode mode) {
-  return ShouldBlinkCornerBadge(mode) ||
-         mode == WidgetMode::kEscConfigIdleConnected;
-}
+bool IsBodyTextMode(WidgetMode mode) { return ShouldBlinkCornerBadge(mode); }
 
 // Screens that show binary glyphs travelling between the two icons.
 bool HasPacketLanes(WidgetMode mode) {
@@ -1292,7 +1287,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                           chip_bitmap::kVisibleHeight, right_icon_x,
                           static_cast<size_t>(chip_icon_y));
 
-      if (mode == Mode::kDfuIdleConnected && dot_count > 0 &&
+      if ((mode == Mode::kDfuIdleConnected ||
+           mode == Mode::kEscConfigIdleConnected) &&
+          dot_count > 0 &&
           (kDfuIconLeftX + left_icon.width) <= right_icon_x) {
         constexpr char sleep_char[] = "z";
         const DisplayTextBounds z_bounds =

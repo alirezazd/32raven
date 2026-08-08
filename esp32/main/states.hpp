@@ -59,4 +59,5 @@ class EscConfigState : public IState<AppContext> {
 
  private:
   bool warned_armed_ = false;
+  uint16_t last_usb_frames_ = 0;
 };

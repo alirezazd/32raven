@@ -293,10 +293,10 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
                                message::SetEscConfigModeMsg{.enabled = 1u});
   warned_armed_ = false;
+  last_usb_frames_ = 0;
 }
 
 void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
-  (void)now;
   auto &button = ctx.sys->Button();
   button.Poll();
 
@@ -317,6 +317,17 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   DrainFcLink(ctx);
+
+  // Edge triggered because the report arrives every second either way, so
+  // anything less would hold the screen awake for the whole session.
+  if (const auto usb = ctx.sys->Ui().PeerUsb(now)) {
+    const uint16_t frames = static_cast<uint16_t>(
+        (static_cast<uint16_t>(usb->rx_frames) << 8) | usb->tx_frames);
+    if (frames != last_usb_frames_) {
+      last_usb_frames_ = frames;
+      ctx.sys->Ui().NotifyUserActivity();
+    }
+  }
 
   // The port stays shut while armed, and the screen says so -- but the screen
   // may well be asleep, so say it out loud too. Edge-triggered: the condition
