@@ -55,7 +55,6 @@ void ServingState::OnEnter(AppContext &ctx) {
   ctx.sys->FcLink().ResetRxState();
   ctx.sys->StopNetwork();
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
-  ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kConfirm);
 }
 
 void ServingState::OnStep(AppContext &ctx, SmTick now) {

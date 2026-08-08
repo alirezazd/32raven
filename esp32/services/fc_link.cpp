@@ -107,6 +107,9 @@ void FcLink::PerformHandshake() {
 
     if (got_pong) {
       ESP_LOGI(kTag, "Handshake Success!");
+      // A pong is the STM32 answering, so this reports both MCUs up and the
+      // link carrying traffic each way -- not merely that this one booted.
+      Sys().TonePlayer().PlayBuiltin(message::Tone::kDoomShort);
       return;
     }
   }
