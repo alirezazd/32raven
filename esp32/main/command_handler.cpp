@@ -4,7 +4,6 @@
 #include "command_handler.hpp"
 
 #include <cstring>
-#include <type_traits>
 
 #include "ctx.hpp"
 #include "error_code.hpp"
@@ -20,24 +19,10 @@ extern "C" {
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
-#include "panic.hpp"
 }
 
 static constexpr const char *kTag = "cmd";
 #include "esp_timer.h"  // Added for esp_timer_get_time
-
-template <typename T>
-const T &PayloadAs(const message::Packet &pkt) {
-  static_assert(std::is_trivially_copyable<T>::value,
-                "packet payload type must be trivially copyable");
-  static_assert(alignof(T) == 1,
-                "packet payload type must be packed for zero-copy decode");
-  static_assert(sizeof(T) <= message::kMaxPayload,
-                "packet payload type exceeds wire payload limit");
-  // Dispatch validates id/length first; protocol structs are packed so this
-  // zero-copy view avoids another telemetry payload copy.
-  return *reinterpret_cast<const T *>(pkt.payload);
-}
 
 [[noreturn]] static void PanicUnknownCommand(uint8_t id) {
   ESP_LOGE(kTag, "Unknown Command ID: 0x%02X (%u)", (unsigned)id, (unsigned)id);
@@ -61,7 +46,8 @@ static void OnUnknown(AppContext &, const message::Packet &pkt) {
 }
 
 static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
-  const uint32_t error_code = PayloadAs<message::PanicMsg>(pkt).error_code;
+  const uint32_t error_code =
+      message::PayloadAs<message::PanicMsg>(pkt).error_code;
 
   // Killing the bridge mid-write is worse than carrying on with a faulted
   // STM32, and a four-way session is writing ESC firmware.
@@ -101,36 +87,36 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
     case message::MsgId::kPong:
       break;
     case message::MsgId::kGpsData:
-      ctx.sys->Mavlink().UpdateTelemetryCache(PayloadAs<message::GpsData>(pkt),
-                                              now_ms);
+      ctx.sys->Mavlink().UpdateTelemetryCache(
+          message::PayloadAs<message::GpsData>(pkt), now_ms);
       break;
     case message::MsgId::kLog:
       OnLog(ctx, pkt);
       break;
     case message::MsgId::kRcMapConfig:
       ctx.sys->Mavlink().UpdateConfigCache(
-          PayloadAs<message::RcMapConfigMsg>(pkt), now_ms);
+          message::PayloadAs<message::RcMapConfigMsg>(pkt), now_ms);
       break;
     case message::MsgId::kRcCalibrationConfig:
       ctx.sys->Mavlink().UpdateConfigCache(
-          PayloadAs<message::RcCalibrationConfigMsg>(pkt), now_ms);
+          message::PayloadAs<message::RcCalibrationConfigMsg>(pkt), now_ms);
       break;
     case message::MsgId::kRcChannels:
       ctx.sys->Mavlink().UpdateTelemetryCache(
-          PayloadAs<message::RcChannelsMsg>(pkt), now_ms);
+          message::PayloadAs<message::RcChannelsMsg>(pkt), now_ms);
       break;
     case message::MsgId::kSystemStatus:
       ctx.sys->Mavlink().UpdateTelemetryCache(
-          PayloadAs<message::SystemStatusMsg>(pkt), now_ms);
+          message::PayloadAs<message::SystemStatusMsg>(pkt), now_ms);
       break;
     case message::MsgId::kTone:
-      ctx.sys->TonePlayer().PlayBuiltin(
-          static_cast<message::Tone>(PayloadAs<message::ToneMsg>(pkt).tone));
+      ctx.sys->TonePlayer().PlayBuiltin(static_cast<message::Tone>(
+          message::PayloadAs<message::ToneMsg>(pkt).tone));
       ctx.sys->Ui().NotifyUserActivity();
       break;
 
     case message::MsgId::kUsbStatus: {
-      const auto &msg = PayloadAs<message::UsbStatusMsg>(pkt);
+      const auto &msg = message::PayloadAs<message::UsbStatusMsg>(pkt);
       const bool granted =
           (msg.flags & message::kUsbStatusEscConfigGranted) != 0u;
       ctx.sys->Ui().UpdatePeerUsb(
@@ -161,15 +147,15 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
 
     case message::MsgId::kVehicleStatus:
       ctx.sys->Mavlink().UpdateTelemetryCache(
-          PayloadAs<message::VehicleStatusMsg>(pkt), now_ms);
+          message::PayloadAs<message::VehicleStatusMsg>(pkt), now_ms);
       break;
     case message::MsgId::kEscTelemetry:
       ctx.sys->Mavlink().UpdateTelemetryCache(
-          PayloadAs<message::EscTelemetryMsg>(pkt), now_ms);
+          message::PayloadAs<message::EscTelemetryMsg>(pkt), now_ms);
       break;
     case message::MsgId::kGyroCalibrationIdConfig:
       ctx.sys->Mavlink().UpdateConfigCache(
-          PayloadAs<message::GyroCalibrationIdConfigMsg>(pkt), now_ms);
+          message::PayloadAs<message::GyroCalibrationIdConfigMsg>(pkt), now_ms);
       break;
     case message::MsgId::kImuData:
       break;

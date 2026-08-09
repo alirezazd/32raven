@@ -2,9 +2,8 @@
 // Copyright (C) 2026 Alireza Azadi
 
 #pragma once
-#include <array>
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "stm32f4xx.h"
 
@@ -92,12 +91,7 @@ class GPIO {
 
  private:
   friend class System;
-  template <size_t N>
-  void Init(const std::array<PinConfig, N> &pins) {
-    Init(pins.data(), N);
-  }
-
-  void Init(const PinConfig *pins, size_t count);
+  void Init(std::span<const PinConfig> pins);
 
   static GPIO &GetInstance() {
     static GPIO instance;

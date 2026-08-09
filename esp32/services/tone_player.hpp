@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "buzzer.hpp"
 #include "esp32_limits.hpp"
@@ -36,10 +37,11 @@ class TonePlayer {
   bool IsPlaying() const { return playing_; }
 
  private:
+  enum class Accidental : uint8_t { kNatural, kSharp, kFlat };
+
   struct NoteEvent {
     uint32_t freq_hz = 0;
     TimeMs duration_ms = 0;
-    bool valid = false;
   };
 
   struct PendingRequest {
@@ -55,13 +57,13 @@ class TonePlayer {
   static void TaskEntry(void *param);
   void Task();
   bool ParseHeader(const char *rtttl);
-  NoteEvent ParseNextNote();
+  std::optional<NoteEvent> ParseNextNote();
   void StartEvent(const NoteEvent &event, TimeMs now);
   float DutyCycleForVolume(uint8_t volume) const;
 
   static void SkipSeparators(const char *&p);
   static uint32_t ParseNumber(const char *&p);
-  static uint32_t NoteToFrequencyHz(char note, bool sharp, bool flat,
+  static uint32_t NoteToFrequencyHz(char note, Accidental accidental,
                                     uint32_t octave);
 
   Buzzer *buzzer_ = nullptr;

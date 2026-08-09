@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 
 extern "C" {
 #include "esp_err.h"
@@ -35,7 +36,7 @@ class TcpServer {
     int keepalive_cnt = 3;
   };
 
-  esp_err_t Start();
+  [[nodiscard]] esp_err_t Start();
   void Stop();
 
   bool Running() const { return running_; }
@@ -78,7 +79,7 @@ class TcpServer {
   bool DownloadEnabled() const { return download_enabled_; }
 
   // Binary bytes buffered from DATA socket
-  int ReadDownload(uint8_t *dst, size_t max_len);
+  [[nodiscard]] size_t ReadDownload(std::span<uint8_t> dst);
 
   bool DownloadOverflowed() const { return download_overflow_; }
   void ClearDownloadOverflow() { download_overflow_ = false; }

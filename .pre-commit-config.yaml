@@ -58,3 +58,11 @@ repos:
         entry: uv run --quiet --script scripts/lint/check_timer_access.py
         language: system
         files: '\.(c|h|cpp|hpp)$'
+
+      # Needs a compilation database and clang-tidy, so it skips rather than
+      # fails when either is missing -- see the script's docstring.
+      - id: check-unused-includes
+        name: Unused includes
+        entry: uv run --quiet --script scripts/lint/check_unused_includes.py
+        language: system
+        files: '\.(c|cpp)$'

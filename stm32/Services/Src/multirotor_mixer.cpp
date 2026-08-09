@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 #include "error_code.hpp"
 #include "panic.hpp"
@@ -66,17 +67,19 @@ float ComputeDesaturationGain(const float desat[4], const float sp[4],
   return k_min + k_max;
 }
 
+// kBlockLift blocks the "raise motors" direction (PX4's `increase_only`). PX4's
+// thrust desat vector is negative per motor; here thrust_z[i] = +1 (motor
+// command rises with thrust), so the equivalent guard is `gain > 0`.
+enum class LiftPolicy : uint8_t { kAllowLift, kBlockLift };
+
 // Port of ControlAllocationSequentialDesaturation::desaturateActuators.
 // Two passes — full gain then half the residual — refines the fit, since the
 // first k_min + k_max overshoots when both band ends saturate.
-// `block_motor_lift` blocks the "raise motors" direction (PX4's
-// `increase_only`). PX4's thrust desat vector is negative per motor; here
-// thrust_z[i] = +1 (motor command rises with thrust), so the equivalent guard
-// is `gain > 0`.
 void DesaturateActuators(float sp[4], const float desat[4], float min_lim,
-                         float max_lim, bool block_motor_lift = false) {
+                         float max_lim,
+                         LiftPolicy lift = LiftPolicy::kAllowLift) {
   float gain = ComputeDesaturationGain(desat, sp, min_lim, max_lim);
-  if (block_motor_lift && gain > 0.0f) return;
+  if (lift != LiftPolicy::kAllowLift && gain > 0.0f) return;
   for (int i = 0; i < 4; ++i) sp[i] += gain * desat[i];
   gain = 0.5f * ComputeDesaturationGain(desat, sp, min_lim, max_lim);
   for (int i = 0; i < 4; ++i) sp[i] += gain * desat[i];
@@ -144,8 +147,7 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   const float max_lim = 1.0f;
 
   // Steps 2-4: PX4 mixAirmodeDisabled.
-  DesaturateActuators(sp, thrust_z, min_lim, max_lim,
-                      /*block_motor_lift=*/true);
+  DesaturateActuators(sp, thrust_z, min_lim, max_lim, LiftPolicy::kBlockLift);
   DesaturateActuators(sp, roll, min_lim, max_lim);
   DesaturateActuators(sp, pitch, min_lim, max_lim);
 
@@ -159,8 +161,7 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   DesaturateActuators(sp, yaw, min_lim, max_expanded);
 
   // Step 7: thrust desat with the real upper limit, decrease-only.
-  DesaturateActuators(sp, thrust_z, min_lim, max_lim,
-                      /*block_motor_lift=*/true);
+  DesaturateActuators(sp, thrust_z, min_lim, max_lim, LiftPolicy::kBlockLift);
 
   // Step 8: emit. Clamp guards FP noise and any residual kMinimumYawMargin
   // overshoot step 7 left unabsorbed; algorithm is otherwise in-band.

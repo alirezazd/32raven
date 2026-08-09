@@ -5,10 +5,10 @@
 
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 #include "state_machine.hpp"
-
-struct GpsData;
+#include "vehicle_state.hpp"
 
 struct M10PVTData {
   uint32_t iTOW;
@@ -133,7 +133,7 @@ class M10Service {
   const M10COVData &GetCOV() const { return cov_data_; }
   bool NewDataAvailable() const { return new_data_; }
   void ClearNewDataFlag() { new_data_ = false; }
-  bool PopGpsData(uint64_t timestamp_us, GpsData &out);
+  [[nodiscard]] std::optional<GpsData> PopGpsData(uint64_t timestamp_us);
 
   uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
   uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }

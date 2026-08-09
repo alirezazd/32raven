@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "uart_soft.hpp"
 
@@ -56,8 +56,8 @@ class EscBootloader {
 
   bool ReadFlash(uint16_t address, uint8_t *out, uint16_t len);
   bool PageErase(uint8_t page);
-  bool WriteFlash(uint16_t address, const uint8_t *data, uint16_t len);
-  VerifyResult VerifyFlash(uint16_t address, const uint8_t *data, uint16_t len);
+  bool WriteFlash(uint16_t address, std::span<const uint8_t> data);
+  VerifyResult VerifyFlash(uint16_t address, std::span<const uint8_t> data);
 
   bool KeepAlive();
   bool Reset(uint8_t motor_index, bool reboot);
@@ -74,12 +74,12 @@ class EscBootloader {
  private:
   bool SendWake();
   bool ReadBootInfo(DeviceInfo &out);
-  bool SendCommand(const uint8_t *cmd, size_t len);
-  bool SendPayload(const uint8_t *data, uint16_t len);
+  bool SendCommand(std::span<const uint8_t> cmd);
+  bool SendPayload(std::span<const uint8_t> data);
   bool ReadFramed(uint8_t *out, uint16_t len);
   uint8_t ReadAck(uint16_t attempts);
   bool SetAddress(uint16_t address);
-  bool SetBuffer(const uint8_t *data, uint16_t len);
+  bool SetBuffer(std::span<const uint8_t> data);
 
   UartSoft *uart_ = nullptr;
   bool initialized_ = false;

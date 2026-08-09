@@ -150,16 +150,17 @@ void UdpServer::Stop() {
   running_ = false;
 }
 
-int UdpServer::Receive(uint8_t *dst, size_t max_len) {
-  if (!running_ || fd_ < 0 || dst == nullptr || max_len == 0) {
+int UdpServer::Receive(std::span<uint8_t> dst) {
+  if (!running_ || fd_ < 0 || dst.empty()) {
     return 0;
   }
 
   if (!upload_cap_enabled_) {
     sockaddr_in peer{};
     socklen_t peer_len = sizeof(peer);
-    const int received = recvfrom(
-        fd_, dst, max_len, 0, reinterpret_cast<sockaddr *>(&peer), &peer_len);
+    const int received =
+        recvfrom(fd_, dst.data(), dst.size(), 0,
+                 reinterpret_cast<sockaddr *>(&peer), &peer_len);
     if (received > 0) {
       peer_ipv4_ = peer.sin_addr.s_addr;
       peer_port_ = peer.sin_port;
@@ -236,17 +237,17 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
     return 0;
   }
 
-  const size_t out_budget = std::min(
-      max_len, std::min(buffered, static_cast<size_t>(upload_tokens_bytes_)));
+  const size_t out_budget =
+      std::min(dst.size(),
+               std::min(buffered, static_cast<size_t>(upload_tokens_bytes_)));
   size_t copied = 0;
   while (copied < out_budget) {
-    const uint8_t *ptr = nullptr;
-    const size_t contiguous = upload_shaper_buffer_.ContiguousReadable(ptr);
-    if (contiguous == 0 || ptr == nullptr) {
+    const auto chunk = upload_shaper_buffer_.ContiguousReadable();
+    if (chunk.empty()) {
       break;
     }
-    const size_t take = std::min(contiguous, out_budget - copied);
-    std::memcpy(dst + copied, ptr, take);
+    const size_t take = std::min(chunk.size(), out_budget - copied);
+    std::memcpy(dst.data() + copied, chunk.data(), take);
     upload_shaper_buffer_.Consume(take);
     copied += take;
   }
@@ -255,8 +256,8 @@ int UdpServer::Receive(uint8_t *dst, size_t max_len) {
   return static_cast<int>(copied);
 }
 
-int UdpServer::Send(const uint8_t *data, size_t len) {
-  if (!running_ || fd_ < 0 || data == nullptr || len == 0) {
+int UdpServer::Send(std::span<const uint8_t> data) {
+  if (!running_ || fd_ < 0 || data.empty()) {
     return 0;
   }
 
@@ -283,14 +284,13 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
 
   const auto flush_download_buffer = [&]() {
     while (download_tokens_bytes_ > 0 && !download_shaper_buffer_.IsEmpty()) {
-      const uint8_t *ptr = nullptr;
-      const size_t contiguous = download_shaper_buffer_.ContiguousReadable(ptr);
-      if (contiguous == 0 || ptr == nullptr) {
+      const auto chunk = download_shaper_buffer_.ContiguousReadable();
+      if (chunk.empty()) {
         break;
       }
       const size_t budget =
-          std::min(contiguous, static_cast<size_t>(download_tokens_bytes_));
-      const size_t sent = send_chunk(ptr, budget);
+          std::min(chunk.size(), static_cast<size_t>(download_tokens_bytes_));
+      const size_t sent = send_chunk(chunk.data(), budget);
       if (sent == 0) {
         break;
       }
@@ -300,7 +300,7 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
   };
 
   if (!download_cap_enabled_) {
-    return static_cast<int>(send_chunk(data, len));
+    return static_cast<int>(send_chunk(data.data(), data.size()));
   }
 
   const auto on_download_overflow = [this](unsigned dropped_bytes) {
@@ -324,19 +324,20 @@ int UdpServer::Send(const uint8_t *data, size_t len) {
       (buffered < kDownloadBufferBytes)
           ? (static_cast<size_t>(kDownloadBufferBytes) - buffered)
           : 0;
-  if (len > free_bytes) {
-    on_download_overflow(static_cast<unsigned>(len));
+  if (data.size() > free_bytes) {
+    on_download_overflow(static_cast<unsigned>(data.size()));
     return 0;
   }
 
-  const size_t wrote = download_shaper_buffer_.PushBlock(data, len);
-  if (wrote != len) {
-    on_download_overflow(static_cast<unsigned>(len - wrote));
+  const size_t wrote =
+      download_shaper_buffer_.PushBlock(data.data(), data.size());
+  if (wrote != data.size()) {
+    on_download_overflow(static_cast<unsigned>(data.size() - wrote));
     return 0;
   }
   download_overflow_count_ = 0;
 
   flush_download_buffer();
 
-  return static_cast<int>(len);
+  return static_cast<int>(data.size());
 }

@@ -31,8 +31,8 @@ static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  const auto *rc = (const message::RcChannelsMsg *)pkt.payload;
-  ctx.sys->RcRx().ProcessRawState(*rc, ctx.sys->Time().Micros());
+  const auto &rc = message::PayloadAs<message::RcChannelsMsg>(pkt);
+  ctx.sys->RcRx().ProcessRawState(rc, ctx.sys->Time().Micros());
 }
 
 static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
@@ -91,9 +91,9 @@ static void OnSetRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  const auto *req = (const message::RcMapConfigMsg *)pkt.payload;
-  if (message::IsRcMapConfigValid(*req)) {
-    (void)ctx.sys->RcRx().SetRcMapConfig(*req);
+  const auto &req = message::PayloadAs<message::RcMapConfigMsg>(pkt);
+  if (message::IsRcMapConfigValid(req)) {
+    (void)ctx.sys->RcRx().SetRcMapConfig(req);
   }
 
   const message::RcMapConfigMsg rc_map = ctx.sys->RcRx().GetRcMapConfig();
@@ -109,9 +109,9 @@ static void OnSetRcCalibration(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  const auto *req = (const message::RcCalibrationConfigMsg *)pkt.payload;
-  if (message::IsRcCalibrationConfigValid(*req)) {
-    (void)ctx.sys->RcRx().SetCalibrationConfig(*req);
+  const auto &req = message::PayloadAs<message::RcCalibrationConfigMsg>(pkt);
+  if (message::IsRcCalibrationConfigValid(req)) {
+    (void)ctx.sys->RcRx().SetCalibrationConfig(req);
   }
 
   const message::RcCalibrationConfigMsg rc_cal =
@@ -157,9 +157,8 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
                                      pkt.header.len)) {
     return;
   }
-  const auto *req =
-      reinterpret_cast<const message::PrivilegedArmMsg *>(pkt.payload);
-  const bool armed = req->armed != 0u;
+  const auto &req = message::PayloadAs<message::PrivilegedArmMsg>(pkt);
+  const bool armed = req.armed != 0u;
   // Tearing the port down mid-write is how an ESC gets bricked, so an arm
   // during a configuration session is refused rather than allowed to revoke.
   if (armed && ctx.sys->MspSvc().EscConfigGranted()) {
@@ -180,12 +179,11 @@ static void OnSetEscConfigMode(AppContext &ctx, const message::Packet &pkt) {
                                      pkt.header.len)) {
     return;
   }
-  const auto *req =
-      reinterpret_cast<const message::SetEscConfigModeMsg *>(pkt.payload);
-  ctx.sys->MspSvc().SetEscConfigMode(req->enabled != 0u);
+  const auto &req = message::PayloadAs<message::SetEscConfigModeMsg>(pkt);
+  ctx.sys->MspSvc().SetEscConfigMode(req.enabled != 0u);
 }
 
-static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
+static const Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPing, OnPing},
     {message::MsgId::kReqRcMap, OnReqRcMap},
     {message::MsgId::kReqRcCalibration, OnReqRcCalibration},
@@ -198,8 +196,7 @@ static const Epistole::Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kSetEscConfigMode, OnSetEscConfigMode},
 };
 
-static const Epistole::Dispatcher<AppContext> kDispatcher(
-    kHandlers, sizeof(kHandlers) / sizeof(kHandlers[0]));
+static const Dispatcher<AppContext> kDispatcher(kHandlers);
 
 void CommandHandler::Init() {}
 

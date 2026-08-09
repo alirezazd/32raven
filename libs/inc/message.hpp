@@ -7,17 +7,19 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <span>
+#include <type_traits>
 
 #include "checksum.hpp"
 
 namespace message {
 
 // Alternating bit patterns, so a run of either value cannot look like sync.
-static constexpr uint8_t kMagic1 = 0xAA;
-static constexpr uint8_t kMagic2 = 0x55;
+inline constexpr uint8_t kMagic1 = 0xAA;
+inline constexpr uint8_t kMagic2 = 0x55;
 
-static constexpr size_t kMaxPayload = 0xFFu;
-static constexpr uint8_t kMaxLogTextPayload = 200u;
+inline constexpr size_t kMaxPayload = 0xFFu;
+inline constexpr uint8_t kMaxLogTextPayload = 200u;
 
 enum class MsgId : uint8_t {
   kPing = 0x01,
@@ -55,6 +57,12 @@ struct Header {
   uint8_t id;
   uint8_t len;
 };
+
+// Serialize writes the header by reinterpreting the caller's byte buffer, and
+// kPacketOverhead derives from this size. A toolchain that ignored the pragma
+// would emit frames the peer cannot parse rather than fail here.
+static_assert(sizeof(Header) == 4 && alignof(Header) == 1,
+              "wire header must be 4 packed bytes");
 
 struct RcChannelsMsg {
   uint16_t channels[16];
@@ -244,15 +252,18 @@ struct Packet {
 
 #pragma pack(pop)
 
-static constexpr size_t kPacketOverhead = sizeof(Header) + 2;
+inline constexpr size_t kPacketOverhead = sizeof(Header) + 2;
 
 template <typename T>
-static constexpr uint8_t PayloadLength() {
+inline constexpr uint8_t PayloadLength() {
   static_assert(sizeof(T) <= kMaxPayload, "Payload exceeds wire payload limit");
   return static_cast<uint8_t>(sizeof(T));
 }
 
-static constexpr bool IsKnownMsgId(MsgId id) {
+template <typename T>
+using PacketBuffer = std::array<uint8_t, sizeof(T) + kPacketOverhead>;
+
+inline constexpr bool IsKnownMsgId(MsgId id) {
   switch (id) {
     case MsgId::kPing:
     case MsgId::kLog:
@@ -286,7 +297,7 @@ static constexpr bool IsKnownMsgId(MsgId id) {
   }
 }
 
-static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
+inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
   switch (id) {
     case MsgId::kPing:
     case MsgId::kPong:
@@ -335,8 +346,7 @@ static constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
   }
 }
 
-static inline bool IsPayloadValid(MsgId id, const uint8_t *payload,
-                                  uint8_t len) {
+inline bool IsPayloadValid(MsgId id, const uint8_t *payload, uint8_t len) {
   if (!IsPayloadLengthValid(id, len)) {
     return false;
   }
@@ -347,16 +357,15 @@ static inline bool IsPayloadValid(MsgId id, const uint8_t *payload,
   return true;
 }
 
-static inline bool IsPacketValid(uint8_t raw_id, const uint8_t *payload,
-                                 uint8_t len) {
+inline bool IsPacketValid(uint8_t raw_id, const uint8_t *payload, uint8_t len) {
   return IsPayloadValid(static_cast<MsgId>(raw_id), payload, len);
 }
 
-static constexpr bool IsRcMapChannelValid(uint8_t channel) {
+inline constexpr bool IsRcMapChannelValid(uint8_t channel) {
   return channel >= 1u && channel <= 4u;
 }
 
-static constexpr bool IsRcMapConfigValid(const RcMapConfigMsg &cfg) {
+inline constexpr bool IsRcMapConfigValid(const RcMapConfigMsg &cfg) {
   return IsRcMapChannelValid(cfg.roll) && IsRcMapChannelValid(cfg.pitch) &&
          IsRcMapChannelValid(cfg.yaw) && IsRcMapChannelValid(cfg.throttle) &&
          cfg.roll != cfg.pitch && cfg.roll != cfg.yaw &&
@@ -364,20 +373,19 @@ static constexpr bool IsRcMapConfigValid(const RcMapConfigMsg &cfg) {
          cfg.pitch != cfg.throttle && cfg.yaw != cfg.throttle;
 }
 
-static constexpr size_t kRcCalibrationChannelCount = 16u;
+inline constexpr size_t kRcCalibrationChannelCount = 16u;
 
-static constexpr bool IsRcCalibrationRevValid(int8_t rev) {
+inline constexpr bool IsRcCalibrationRevValid(int8_t rev) {
   return rev == 1 || rev == -1;
 }
 
-static constexpr bool IsRcCalibrationRangeValid(uint16_t min_us,
+inline constexpr bool IsRcCalibrationRangeValid(uint16_t min_us,
                                                 uint16_t max_us,
                                                 uint16_t trim_us) {
   return min_us < max_us && trim_us >= min_us && trim_us <= max_us;
 }
 
-static inline bool IsRcCalibrationConfigValid(
-    const RcCalibrationConfigMsg &cfg) {
+inline bool IsRcCalibrationConfigValid(const RcCalibrationConfigMsg &cfg) {
   for (size_t i = 0; i < kRcCalibrationChannelCount; ++i) {
     if (!IsRcCalibrationRangeValid(cfg.min_us[i], cfg.max_us[i],
                                    cfg.trim_us[i]) ||
@@ -388,21 +396,15 @@ static inline bool IsRcCalibrationConfigValid(
   return true;
 }
 
-static inline bool IsGyroCalibrationIdConfigValid(
+inline bool IsGyroCalibrationIdConfigValid(
     const GyroCalibrationIdConfigMsg &cfg) {
   return cfg.cal_gyro0_id != 0u;
-}
-
-template <typename T>
-static constexpr std::array<uint8_t, sizeof(T) + kPacketOverhead>
-MakePacketBuffer(const T &) {
-  return {};
 }
 
 // Takes the length from the payload type, so the declared length cannot
 // disagree with the bytes actually copied.
 template <typename T>
-static inline Packet MakePacket(MsgId id, const T &body) {
+inline Packet MakePacket(MsgId id, const T &body) {
   Packet pkt{};
   pkt.header.id = static_cast<uint8_t>(id);
   pkt.header.len = PayloadLength<T>();
@@ -410,28 +412,48 @@ static inline Packet MakePacket(MsgId id, const T &body) {
   return pkt;
 }
 
-// 'out' must be at least 'len' + kPacketOverhead bytes.
-static inline size_t Serialize(MsgId id, const uint8_t *payload, uint8_t len,
-                               uint8_t *out) {
-  if (out == nullptr || !IsPayloadValid(id, payload, len)) {
+// Callers must validate id and length first (both Dispatch paths do, via
+// IsPacketValid); this is a view over the wire bytes, not a decoder.
+template <typename T>
+[[nodiscard]] const T &PayloadAs(const Packet &pkt) {
+  static_assert(std::is_trivially_copyable_v<T>,
+                "packet payload type must be trivially copyable");
+  static_assert(alignof(T) == 1,
+                "packet payload type must be packed for zero-copy decode");
+  static_assert(sizeof(T) <= kMaxPayload,
+                "packet payload type exceeds wire payload limit");
+  return *reinterpret_cast<const T *>(pkt.payload);
+}
+
+[[nodiscard]] inline size_t Serialize(MsgId id,
+                                      std::span<const uint8_t> payload,
+                                      std::span<uint8_t> out) {
+  if (payload.size() > kMaxPayload) {
+    return 0;
+  }
+  const auto len = static_cast<uint8_t>(payload.size());
+  if (out.size() < len + kPacketOverhead) {
+    return 0;
+  }
+  if (!IsPayloadValid(id, payload.data(), len)) {
     return 0;
   }
 
-  Header *h = (Header *)out;
+  Header *h = reinterpret_cast<Header *>(out.data());
   h->magic[0] = kMagic1;
   h->magic[1] = kMagic2;
-  h->id = (uint8_t)id;
+  h->id = static_cast<uint8_t>(id);
   h->len = len;
 
-  if (len > 0 && payload) {
-    std::memcpy(out + sizeof(Header), payload, len);
+  if (len > 0) {
+    std::memcpy(out.data() + sizeof(Header), payload.data(), len);
   }
 
-  uint16_t crc = checksum::XModem(out, sizeof(Header) + len);
+  uint16_t crc = checksum::XModem(out.first(sizeof(Header) + len));
 
   // Little endian.
-  out[sizeof(Header) + len] = (uint8_t)(crc & 0xFF);
-  out[sizeof(Header) + len + 1] = (uint8_t)((crc >> 8) & 0xFF);
+  out[sizeof(Header) + len] = static_cast<uint8_t>(crc & 0xFF);
+  out[sizeof(Header) + len + 1] = static_cast<uint8_t>((crc >> 8) & 0xFF);
 
   return sizeof(Header) + len + 2;
 }

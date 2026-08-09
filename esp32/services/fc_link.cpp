@@ -122,7 +122,7 @@ void FcLink::SendPacket(const message::Packet &pkt) {
   uint8_t tx[message::kMaxPayload + message::kPacketOverhead];
   const size_t len =
       message::Serialize(static_cast<message::MsgId>(pkt.header.id),
-                         pkt.payload, pkt.header.len, tx);
+                         {pkt.payload, pkt.header.len}, tx);
   if (!len) {
     ESP_LOGE(kTag, "Failed to serialize packet id=0x%02X len=%u",
              static_cast<unsigned>(pkt.header.id),
@@ -131,7 +131,7 @@ void FcLink::SendPacket(const message::Packet &pkt) {
     return;
   }
 
-  uart_->Write(tx, len);
+  uart_->WriteBytes({tx, len});
 }
 
 std::optional<message::Packet> FcLink::PopPacket() {
@@ -218,7 +218,7 @@ void FcLink::Poll() {
 
   uint8_t buf[kMaxRxReadBufferSize];
   const size_t read_size = std::min(pending_bytes, sizeof(buf));
-  const int n = uart_->Read(buf, read_size);
+  const int n = uart_->ReadBytes({buf, read_size});
 
   const auto should_alert_invalid = [this](ErrorCode::Esp32 code) {
     if (!rx_synchronized_) {

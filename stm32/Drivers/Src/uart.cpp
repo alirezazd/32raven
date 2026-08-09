@@ -4,6 +4,7 @@
 #include "uart.hpp"
 
 #include <cstring>
+#include <span>
 
 #include "irq_priority.hpp"
 #include "stm32f4xx.h"
@@ -245,7 +246,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
   for (size_t i = 0; i < len; i++) {
     // Non-blocking: drop if full
     if (!tx_buffer_.Push(data[i])) {
-      tx_drop_bytes_++;
+      tx_drop_bytes_ = tx_drop_bytes_ + 1;
       // Can't log via UART (buffer full); signal overflow on LED instead.
       System::GetInstance().Led().Set(true);
       // TODO(stm32): Handle UART TX buffer overflow correctly in future
@@ -259,7 +260,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-bool Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Read(uint8_t &out) {
+bool Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::ReadByte(uint8_t &out) {
   return rx_ring_.Pop(out);
 }
 
@@ -272,8 +273,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushRx() {
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
-  const uint8_t *ptr = nullptr;
-  size_t len = 0;
+  std::span<const uint8_t> chunk;
 
   {
     BasepriGuard g(kMaskPri);
@@ -281,20 +281,21 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::FlushTx() {
       return;
     }
 
-    len = tx_buffer_.ContiguousReadable(ptr);
+    chunk = tx_buffer_.ContiguousReadable();
 
-    if (len > 0 && ptr != nullptr) {
-      if (len > 0xFFFFu) len = 0xFFFFu;
-      tx_busy_ = true;
-      last_dma_len_ = static_cast<uint16_t>(len);
-    } else {
+    if (chunk.empty()) {
       // Nothing queued: clear DMAT so a stale request can't re-trigger.
       UartReg()->CR3 &= ~USART_CR3_DMAT;
       return;
     }
+
+    if (chunk.size() > 0xFFFFu) chunk = chunk.first(0xFFFFu);
+    tx_busy_ = true;
+    last_dma_len_ = static_cast<uint16_t>(chunk.size());
   }  // interrupts unmasked here
 
-  const bool ok = UartTransmitDma<Inst>(ptr, static_cast<uint16_t>(len));
+  const bool ok =
+      UartTransmitDma<Inst>(chunk.data(), static_cast<uint16_t>(chunk.size()));
   if (!ok) {
     BasepriGuard g2(kMaskPri);
     tx_busy_ = false;
@@ -317,7 +318,7 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
     uint32_t isr_flags) {
-  rx_dma_err_++;
+  rx_dma_err_ = rx_dma_err_ + 1;
   System::GetInstance().Led().Set(true);
 
   // RX DMA recovery: disable stream, clear flags, reload PAR/M0AR/NDTR,
@@ -376,7 +377,7 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleDmaError(
     uint32_t isr_flags) {
-  tx_dma_err_++;
+  tx_dma_err_ = tx_dma_err_ + 1;
   System::GetInstance().Led().Set(true);
 
   // Retry Strategy
@@ -510,10 +511,10 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::OnUartInterrupt() {
   bool drain = false;
 
   if (sr & (USART_SR_ORE | USART_SR_FE | USART_SR_NE | USART_SR_PE)) {
-    if (sr & USART_SR_ORE) uart_ore_err_++;
-    if (sr & USART_SR_FE) uart_fe_err_++;
-    if (sr & USART_SR_NE) uart_ne_err_++;
-    if (sr & USART_SR_PE) uart_pe_err_++;
+    if (sr & USART_SR_ORE) uart_ore_err_ = uart_ore_err_ + 1;
+    if (sr & USART_SR_FE) uart_fe_err_ = uart_fe_err_ + 1;
+    if (sr & USART_SR_NE) uart_ne_err_ = uart_ne_err_ + 1;
+    if (sr & USART_SR_PE) uart_pe_err_ = uart_pe_err_ + 1;
     drain = true;
   }
 

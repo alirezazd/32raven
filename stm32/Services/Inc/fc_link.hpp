@@ -3,7 +3,8 @@
 
 #pragma once
 
-#include "command_handler.hpp"
+#include <span>
+
 #include "message.hpp"
 #include "ring_buffer.hpp"
 #include "vehicle_state.hpp"
@@ -30,8 +31,8 @@ class FcLink {
   void SendGps(const GpsData &data, const BatteryData &bat);
 
   // Convenience for one IMU sample.
-  void SendImu(uint64_t timestamp_us, const float accel[3],
-               const float gyro[3]);
+  void SendImu(uint64_t timestamp_us, std::span<const float, 3> accel,
+               std::span<const float, 3> gyro);
 
   // Send one-shot RC channel mapping config.
   void SendRcChannels(const message::RcChannelsMsg &msg);

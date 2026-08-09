@@ -5,7 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <type_traits>
+#include <span>
 
 #include "stm32f4xx.h"
 
@@ -43,44 +43,29 @@ class Spi {
 
   void TxRx(const uint8_t *tx, uint8_t *rx, size_t len);
   uint8_t TxRxByte(uint8_t tx);
-  void Write(const uint8_t *tx, size_t len);
-  void Read(uint8_t *rx, size_t len);
+  void WriteBytes(std::span<const uint8_t> tx);
+  void ReadBytes(std::span<uint8_t> rx);
 
   void SetPrescaler(SpiPrescaler rate);
-  template <SpiInstance I = Inst,
-            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
-  void EnableIrqs(uint32_t priority) {
-    EnableIrqsImpl(priority);
-  }
+  void EnableIrqs(uint32_t priority)
+    requires(Inst == SpiInstance::kSpi2);
 
   bool IsInitialized() const { return initialized_; }
 
-  template <SpiInstance I = Inst,
-            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
-  bool Busy() const {
-    return BusyImpl();
-  }
+  bool Busy() const
+    requires(Inst == SpiInstance::kSpi2);
 
   using SpiDoneCb = void (*)(void *user, bool ok);
 
-  template <SpiInstance I = Inst,
-            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
   bool StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len, SpiDoneCb cb,
-                    void *user) {
-    return StartTxRxDmaImpl(tx, rx, len, cb, user);
-  }
+                    void *user)
+    requires(Inst == SpiInstance::kSpi2);
 
-  template <SpiInstance I = Inst,
-            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
-  void OnRxDmaTcIrq() {
-    OnRxDmaTcIrqImpl();
-  }
+  void OnRxDmaTcIrq()
+    requires(Inst == SpiInstance::kSpi2);
 
-  template <SpiInstance I = Inst,
-            typename std::enable_if_t<I == SpiInstance::kSpi2, int> = 0>
-  void HandleDmaError(uint32_t isr_flags) {
-    HandleDmaErrorImpl(isr_flags);
-  }
+  void HandleDmaError(uint32_t isr_flags)
+    requires(Inst == SpiInstance::kSpi2);
 
  private:
   friend class System;
@@ -116,12 +101,6 @@ class Spi {
   void Disable();
   void EnableDmaClk();
   void EnableSpiClk();
-  void EnableIrqsImpl(uint32_t priority);
-  bool BusyImpl() const;
-  bool StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
-                        SpiDoneCb cb, void *user);
-  void OnRxDmaTcIrqImpl();
-  void HandleDmaErrorImpl(uint32_t isr_flags);
 };
 
 using Spi1 = Spi<SpiInstance::kSpi1>;

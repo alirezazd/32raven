@@ -9,11 +9,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace {
-
-inline constexpr uint16_t kPixelOff = 0;
-inline constexpr uint16_t kPixelOn = 1;
 
 class GfxRenderer : public Adafruit_GFX {
  public:
@@ -33,7 +31,7 @@ class GfxRenderer : public Adafruit_GFX {
         setFont(nullptr);
         break;
     }
-    setTextColor(kPixelOn);
+    setTextColor(std::to_underlying(Ink::kOn));
     setTextSize(std::max<uint8_t>(style.scale, 1));
     setTextWrap(false);
   }
@@ -43,24 +41,14 @@ class GfxRenderer : public Adafruit_GFX {
       return;
     }
 
-    canvas_->SetPixel(static_cast<size_t>(x), static_cast<size_t>(y),
-                      color != kPixelOff);
+    canvas_->SetPixel(
+        static_cast<size_t>(x), static_cast<size_t>(y),
+        color != std::to_underlying(Ink::kOff) ? Ink::kOn : Ink::kOff);
   }
 
  private:
   RenderCanvas *canvas_ = nullptr;
 };
-
-bool ReadPackedPixel(const uint8_t *bitmap_data, size_t width, size_t height,
-                     size_t x, size_t y) {
-  if (bitmap_data == nullptr || x >= width || y >= height) {
-    return false;
-  }
-  const size_t page = y / 8;
-  const size_t bit = y % 8;
-  const uint8_t value = bitmap_data[(page * width) + x];
-  return (value & (1u << bit)) != 0;
-}
 
 }  // namespace
 
@@ -70,9 +58,9 @@ void DisplayRenderer::Clear() {
   }
 }
 
-void DisplayRenderer::Fill(bool on) {
+void DisplayRenderer::Fill(Ink ink) {
   if (canvas_ != nullptr) {
-    canvas_->Fill(on);
+    canvas_->Fill(ink);
   }
 }
 
@@ -84,45 +72,45 @@ size_t DisplayRenderer::Height() const {
   return (canvas_ != nullptr) ? canvas_->Height() : 0;
 }
 
-bool DisplayRenderer::SetPixel(size_t x, size_t y, bool on) {
-  return canvas_ != nullptr && canvas_->SetPixel(x, y, on);
+bool DisplayRenderer::SetPixel(size_t x, size_t y, Ink ink) {
+  return canvas_ != nullptr && canvas_->SetPixel(x, y, ink);
 }
 
 bool DisplayRenderer::DrawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1,
-                               bool on) {
+                               Ink ink) {
   if (canvas_ == nullptr) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawLine(x0, y0, x1, y1, on ? kPixelOn : kPixelOff);
+  renderer.drawLine(x0, y0, x1, y1, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawFastHLine(int16_t x, int16_t y, int16_t width,
-                                    bool on) {
+                                    Ink ink) {
   if (canvas_ == nullptr || width <= 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawFastHLine(x, y, width, on ? kPixelOn : kPixelOff);
+  renderer.drawFastHLine(x, y, width, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawFastVLine(int16_t x, int16_t y, int16_t height,
-                                    bool on) {
+                                    Ink ink) {
   if (canvas_ == nullptr || height <= 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawFastVLine(x, y, height, on ? kPixelOn : kPixelOff);
+  renderer.drawFastVLine(x, y, height, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawRect(size_t x, size_t y, size_t width, size_t height,
-                               bool on) {
+                               Ink ink) {
   if (canvas_ == nullptr || width == 0 || height == 0 || x >= Width() ||
       y >= Height()) {
     return false;
@@ -131,149 +119,147 @@ bool DisplayRenderer::DrawRect(size_t x, size_t y, size_t width, size_t height,
   GfxRenderer renderer(canvas_);
   renderer.drawRect(static_cast<int16_t>(x), static_cast<int16_t>(y),
                     static_cast<int16_t>(width), static_cast<int16_t>(height),
-                    on ? kPixelOn : kPixelOff);
+                    std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::FillRect(int16_t x, int16_t y, int16_t width,
-                               int16_t height, bool on) {
+                               int16_t height, Ink ink) {
   if (canvas_ == nullptr || width <= 0 || height <= 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.fillRect(x, y, width, height, on ? kPixelOn : kPixelOff);
+  renderer.fillRect(x, y, width, height, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawCircle(int16_t x, int16_t y, int16_t radius,
-                                 bool on) {
+                                 Ink ink) {
   if (canvas_ == nullptr || radius < 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawCircle(x, y, radius, on ? kPixelOn : kPixelOff);
+  renderer.drawCircle(x, y, radius, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::FillCircle(int16_t x, int16_t y, int16_t radius,
-                                 bool on) {
+                                 Ink ink) {
   if (canvas_ == nullptr || radius < 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.fillCircle(x, y, radius, on ? kPixelOn : kPixelOff);
+  renderer.fillCircle(x, y, radius, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawEllipse(int16_t x, int16_t y, int16_t radius_w,
-                                  int16_t radius_h, bool on) {
+                                  int16_t radius_h, Ink ink) {
   if (canvas_ == nullptr || radius_w < 0 || radius_h < 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawEllipse(x, y, radius_w, radius_h, on ? kPixelOn : kPixelOff);
+  renderer.drawEllipse(x, y, radius_w, radius_h, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::FillEllipse(int16_t x, int16_t y, int16_t radius_w,
-                                  int16_t radius_h, bool on) {
+                                  int16_t radius_h, Ink ink) {
   if (canvas_ == nullptr || radius_w < 0 || radius_h < 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.fillEllipse(x, y, radius_w, radius_h, on ? kPixelOn : kPixelOff);
+  renderer.fillEllipse(x, y, radius_w, radius_h, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawTriangle(int16_t x0, int16_t y0, int16_t x1,
                                    int16_t y1, int16_t x2, int16_t y2,
-                                   bool on) {
+                                   Ink ink) {
   if (canvas_ == nullptr) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawTriangle(x0, y0, x1, y1, x2, y2, on ? kPixelOn : kPixelOff);
+  renderer.drawTriangle(x0, y0, x1, y1, x2, y2, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::FillTriangle(int16_t x0, int16_t y0, int16_t x1,
                                    int16_t y1, int16_t x2, int16_t y2,
-                                   bool on) {
+                                   Ink ink) {
   if (canvas_ == nullptr) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.fillTriangle(x0, y0, x1, y1, x2, y2, on ? kPixelOn : kPixelOff);
+  renderer.fillTriangle(x0, y0, x1, y1, x2, y2, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::DrawRoundRect(int16_t x, int16_t y, int16_t width,
-                                    int16_t height, int16_t radius, bool on) {
+                                    int16_t height, int16_t radius, Ink ink) {
   if (canvas_ == nullptr || width <= 0 || height <= 0 || radius < 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.drawRoundRect(x, y, width, height, radius,
-                         on ? kPixelOn : kPixelOff);
+  renderer.drawRoundRect(x, y, width, height, radius, std::to_underlying(ink));
   return true;
 }
 
 bool DisplayRenderer::FillRoundRect(int16_t x, int16_t y, int16_t width,
-                                    int16_t height, int16_t radius, bool on) {
+                                    int16_t height, int16_t radius, Ink ink) {
   if (canvas_ == nullptr || width <= 0 || height <= 0 || radius < 0) {
     return false;
   }
 
   GfxRenderer renderer(canvas_);
-  renderer.fillRoundRect(x, y, width, height, radius,
-                         on ? kPixelOn : kPixelOff);
+  renderer.fillRoundRect(x, y, width, height, radius, std::to_underlying(ink));
   return true;
 }
 
-bool DisplayRenderer::DrawBitmap(const uint8_t *bitmap_data, size_t width,
-                                 size_t height, size_t offset_x,
+bool DisplayRenderer::DrawBitmap(const PackedBitmap &bitmap, size_t offset_x,
                                  size_t offset_y) {
   return canvas_ != nullptr &&
-         canvas_->DrawPackedBitmap(bitmap_data, width, height, offset_x,
-                                   offset_y);
+         canvas_->DrawPackedBitmap(bitmap, offset_x, offset_y);
 }
 
-bool DisplayRenderer::DrawMosaicBitmap(const uint8_t *bitmap_data, size_t width,
-                                       size_t height, size_t offset_x,
-                                       size_t offset_y, uint8_t block_size_px) {
-  if (canvas_ == nullptr || bitmap_data == nullptr || width == 0 ||
-      height == 0 || block_size_px == 0 || width > Width() ||
-      height > Height() || offset_x + width > Width() ||
-      offset_y + height > Height()) {
+bool DisplayRenderer::DrawMosaicBitmap(const PackedBitmap &bitmap,
+                                       size_t offset_x, size_t offset_y,
+                                       uint8_t block_size_px) {
+  if (canvas_ == nullptr || !bitmap.Valid() || block_size_px == 0 ||
+      bitmap.width > Width() || bitmap.height > Height() ||
+      offset_x + bitmap.width > Width() ||
+      offset_y + bitmap.height > Height()) {
     return false;
   }
 
   const size_t block =
       static_cast<size_t>(std::max<uint8_t>(block_size_px, 1u));
-  for (size_t src_y = 0; src_y < height; src_y += block) {
-    for (size_t src_x = 0; src_x < width; src_x += block) {
-      const size_t sample_x = std::min(src_x + block / 2u, width - 1u);
-      const size_t sample_y = std::min(src_y + block / 2u, height - 1u);
-      if (!ReadPackedPixel(bitmap_data, width, height, sample_x, sample_y)) {
+  for (size_t src_y = 0; src_y < bitmap.height; src_y += block) {
+    for (size_t src_x = 0; src_x < bitmap.width; src_x += block) {
+      const size_t sample_x = std::min(src_x + block / 2u, bitmap.width - 1u);
+      const size_t sample_y = std::min(src_y + block / 2u, bitmap.height - 1u);
+      if (!bitmap.Pixel(sample_x, sample_y)) {
         continue;
       }
 
       const size_t dst_x_begin = offset_x + src_x;
       const size_t dst_y_begin = offset_y + src_y;
-      const size_t dst_x_end = std::min(dst_x_begin + block, offset_x + width);
-      const size_t dst_y_end = std::min(dst_y_begin + block, offset_y + height);
+      const size_t dst_x_end =
+          std::min(dst_x_begin + block, offset_x + bitmap.width);
+      const size_t dst_y_end =
+          std::min(dst_y_begin + block, offset_y + bitmap.height);
 
       for (size_t dst_y = dst_y_begin; dst_y < dst_y_end; ++dst_y) {
         for (size_t dst_x = dst_x_begin; dst_x < dst_x_end; ++dst_x) {
-          canvas_->SetPixel(dst_x, dst_y, true);
+          canvas_->SetPixel(dst_x, dst_y, Ink::kOn);
         }
       }
     }
@@ -282,13 +268,13 @@ bool DisplayRenderer::DrawMosaicBitmap(const uint8_t *bitmap_data, size_t width,
   return true;
 }
 
-bool DisplayRenderer::DrawMosaicTransition(const uint8_t *from_bitmap_data,
-                                           const uint8_t *to_bitmap_data,
-                                           size_t width, size_t height,
+bool DisplayRenderer::DrawMosaicTransition(const PackedBitmap &from,
+                                           const PackedBitmap &to,
                                            float progress,
                                            uint8_t max_block_size_px) {
-  if (canvas_ == nullptr || from_bitmap_data == nullptr ||
-      to_bitmap_data == nullptr || width != Width() || height != Height()) {
+  if (canvas_ == nullptr || !from.Valid() || !to.Valid() ||
+      from.width != Width() || from.height != Height() || to.width != Width() ||
+      to.height != Height()) {
     return false;
   }
 
@@ -309,12 +295,12 @@ bool DisplayRenderer::DrawMosaicTransition(const uint8_t *from_bitmap_data,
   Clear();
   if (progress < 0.5f) {
     const float local_progress = progress * 2.0f;
-    return DrawMosaicBitmap(from_bitmap_data, width, height, 0, 0,
+    return DrawMosaicBitmap(from, 0, 0,
                             interpolated_block_size(local_progress, false));
   }
 
   const float local_progress = (progress - 0.5f) * 2.0f;
-  return DrawMosaicBitmap(to_bitmap_data, width, height, 0, 0,
+  return DrawMosaicBitmap(to, 0, 0,
                           interpolated_block_size(local_progress, true));
 }
 

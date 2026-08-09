@@ -35,9 +35,9 @@ class Button {
   // Polling API
   void Poll();
   // Semantic events (latched until consumed)
-  bool ConsumePress();
-  bool ConsumeLongPress();
-  bool ConsumeLongLongPress();
+  [[nodiscard]] bool ConsumePress();
+  [[nodiscard]] bool ConsumeLongPress();
+  [[nodiscard]] bool ConsumeLongLongPress();
   void FlushEvents();
 
  private:

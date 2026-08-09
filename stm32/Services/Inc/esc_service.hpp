@@ -19,32 +19,36 @@ class EscService {
     uint8_t command_repeat_count;
   };
 
-  static constexpr uint16_t kDshotCommandMotorStop = 0;
-  static constexpr uint16_t kDshotCommandBeacon1 = 1;
-  static constexpr uint16_t kDshotCommandBeacon2 = 2;
-  static constexpr uint16_t kDshotCommandBeacon3 = 3;
-  static constexpr uint16_t kDshotCommandBeacon4 = 4;
-  static constexpr uint16_t kDshotCommandBeacon5 = 5;
-  static constexpr uint16_t kDshotCommandEscInfo = 6;
-  static constexpr uint16_t kDshotCommandSpinDirection1 = 7;
-  static constexpr uint16_t kDshotCommandSpinDirection2 = 8;
-  static constexpr uint16_t kDshotCommand3dModeOff = 9;
-  static constexpr uint16_t kDshotCommand3dModeOn = 10;
-  static constexpr uint16_t kDshotCommandSettingsRequest = 11;
-  static constexpr uint16_t kDshotCommandSaveSettings = 12;
+  enum class DshotCommand : uint16_t {
+    kMotorStop = 0,
+    kBeacon1 = 1,
+    kBeacon2 = 2,
+    kBeacon3 = 3,
+    kBeacon4 = 4,
+    kBeacon5 = 5,
+    kEscInfo = 6,
+    kSpinDirection1 = 7,
+    kSpinDirection2 = 8,
+    k3dModeOff = 9,
+    k3dModeOn = 10,
+    kSettingsRequest = 11,
+    kSaveSettings = 12,
+  };
 
   void Init(const Config &cfg, EscTelemetry &telemetry,
             VehicleState &vehicle_state);
   void Poll(uint32_t now_us);
 
   void SetArmed(bool armed);
-  bool WriteMotors(const DShotCodec::MotorValues &motor);
-  bool WriteMotors(const DShotCodec::MotorValues &motor, uint32_t now_us);
+  [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor);
+  [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor,
+                                 uint32_t now_us);
 
   // Overloads taking normalized thrust [0, 1] per motor — the units mixers /
   // controllers produce. Per-motor ThrustToDshot, then WriteMotors.
-  bool WriteMotorsThrust(const std::array<float, 4> &thrust);
-  bool WriteMotorsThrust(const std::array<float, 4> &thrust, uint32_t now_us);
+  [[nodiscard]] bool WriteMotorsThrust(const std::array<float, 4> &thrust);
+  [[nodiscard]] bool WriteMotorsThrust(const std::array<float, 4> &thrust,
+                                       uint32_t now_us);
 
   // Map normalized thrust [0, 1] → DShot wire units. 0 → kMotorStop (motor
   // off). >0 → linearly into [kThrottleMin, kThrottleMax]. Saturates.
@@ -52,12 +56,13 @@ class EscService {
   static float DshotToThrust(uint16_t value);
   static constexpr uint8_t kAllMotors = 0xFF;
 
-  bool StopAll();
+  [[nodiscard]] bool StopAll();
   // A command aimed at one motor leaves the others at kMotorStop, which is what
   // they are already being sent while disarmed. Anything read back arrives on
   // the telemetry line all four share, so a broadcast would collide.
-  bool QueueCommand(uint16_t command, uint8_t motor_index = kAllMotors,
-                    bool telemetry = false);
+  [[nodiscard]] bool QueueCommand(DshotCommand command,
+                                  uint8_t motor_index = kAllMotors,
+                                  bool telemetry = false);
   void SetTestThrottle(const std::array<float, 4> &thrust);
 
   // What actually went out on the wire, not what was asked for: a dropped
@@ -91,10 +96,10 @@ class EscService {
 
   static uint16_t NormalizeMotorValue(uint16_t value);
   void PollEscInfo(uint32_t now_us);
-  bool StopAll(uint32_t now_us);
-  bool SendIdleFrame(uint32_t now_us);
-  bool WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
-                bool force_telemetry);
+  [[nodiscard]] bool StopAll(uint32_t now_us);
+  [[nodiscard]] bool SendIdleFrame(uint32_t now_us);
+  [[nodiscard]] bool WriteRaw(const DShotCodec::MotorValues &motor,
+                              uint32_t now_us, bool force_telemetry);
   void PublishTelemetryState();
 
   Config cfg_{};

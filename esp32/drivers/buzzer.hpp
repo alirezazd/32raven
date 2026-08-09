@@ -4,11 +4,9 @@
 #pragma once
 #include <cstdint>
 
-#include "error_code.hpp"
-
 extern "C" {
-#include "driver/ledc.h"
 #include "hal/gpio_types.h"  // IWYU pragma: keep
+#include "hal/ledc_types.h"
 }
 class Buzzer {
  public:

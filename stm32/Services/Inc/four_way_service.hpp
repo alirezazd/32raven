@@ -63,6 +63,16 @@ class FourWayService {
     kCrcLo,
   };
 
+  enum class Ack : uint8_t {
+    kOk = 0x00,
+    kInvalidCommand = 0x02,
+    kInvalidCrc = 0x03,
+    kVerifyError = 0x04,
+    kInvalidChannel = 0x08,
+    kInvalidParam = 0x09,
+    kDeviceGeneralError = 0x0F,
+  };
+
   // Escape, command, address x2, length -- everything Respond writes ahead of
   // the payload. Replies are staged past it so the payload is never copied.
   static constexpr size_t kHeaderBytes = 5;
@@ -71,7 +81,7 @@ class FourWayService {
   static constexpr size_t kFrameOverhead = kHeaderBytes + 3;
 
   void Dispatch();
-  void Respond(uint8_t ack);
+  void Respond(Ack ack);
   void Reset();
 
   uint8_t *ReplyBuf() { return &frame_[kHeaderBytes]; }

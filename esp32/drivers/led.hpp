@@ -22,7 +22,7 @@ class LED {
     bool active_low = true;
   };
 
-  enum class Pattern {
+  enum class Pattern : uint8_t {
     kBlink,
     kBreathe,
     kDoubleBlink,

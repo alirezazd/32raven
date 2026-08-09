@@ -71,7 +71,9 @@ void Spi<Inst>::EnableSpiClk() {
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::EnableIrqsImpl(uint32_t priority) {
+void Spi<Inst>::EnableIrqs(uint32_t priority)
+  requires(Inst == SpiInstance::kSpi2)
+{
   if constexpr (Inst == SpiInstance::kSpi2) {
     /* DMA1_Stream3_IRQn interrupt configuration */
     NVIC_SetPriority(DMA1_Stream3_IRQn, priority);
@@ -132,13 +134,13 @@ uint8_t Spi<Inst>::TxRxByte(uint8_t tx) {
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::Write(const uint8_t *tx, size_t len) {
-  TxRx(tx, nullptr, len);
+void Spi<Inst>::WriteBytes(std::span<const uint8_t> tx) {
+  TxRx(tx.data(), nullptr, tx.size());
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::Read(uint8_t *rx, size_t len) {
-  TxRx(nullptr, rx, len);
+void Spi<Inst>::ReadBytes(std::span<uint8_t> rx) {
+  TxRx(nullptr, rx.data(), rx.size());
 }
 
 template <SpiInstance Inst>
@@ -184,22 +186,17 @@ static inline void DmaDisableAndWait(DMA_Stream_TypeDef *s) {
 }
 
 template <SpiInstance Inst>
-bool Spi<Inst>::BusyImpl() const {
+bool Spi<Inst>::Busy() const
+  requires(Inst == SpiInstance::kSpi2)
+{
   return busy_;
 }
 
 template <SpiInstance Inst>
-bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
-                                 SpiDoneCb cb, void *user) {
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    (void)tx;
-    (void)rx;
-    (void)len;
-    (void)cb;
-    (void)user;
-    return false;
-  }
-
+bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
+                             SpiDoneCb cb, void *user)
+  requires(Inst == SpiInstance::kSpi2)
+{
   if (busy_ || len == 0 || len > 0xFFFF) {
     return false;
   }
@@ -311,11 +308,9 @@ bool Spi<Inst>::StartTxRxDmaImpl(const uint8_t *tx, uint8_t *rx, size_t len,
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::OnRxDmaTcIrqImpl() {
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    return;
-  }
-
+void Spi<Inst>::OnRxDmaTcIrq()
+  requires(Inst == SpiInstance::kSpi2)
+{
   SPI_TypeDef *spi = Hw();
   DMA_Stream_TypeDef *rx_stream = nullptr;
   DMA_Stream_TypeDef *tx_stream = nullptr;
@@ -366,11 +361,10 @@ void Spi<Inst>::OnRxDmaTcIrqImpl() {
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::HandleDmaErrorImpl(uint32_t isr_flags) {
-  if constexpr (Inst == SpiInstance::kSpi1) {
-    (void)isr_flags;
-    return;
-  }
+void Spi<Inst>::HandleDmaError(uint32_t isr_flags)
+  requires(Inst == SpiInstance::kSpi2)
+{
+  (void)isr_flags;
 
   // Tear down like OnRxDmaTcIrq, but report failure to the callback.
   SPI_TypeDef *spi = Hw();

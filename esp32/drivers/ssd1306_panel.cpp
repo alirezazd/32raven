@@ -3,7 +3,9 @@
 
 #include "ssd1306_panel.hpp"
 
+#include <array>
 #include <cstring>
+#include <span>
 
 #include "error_code.hpp"
 #include "panic.hpp"
@@ -21,6 +23,9 @@ constexpr uint8_t kControlCommand = 0x00;
 constexpr uint8_t kControlData = 0x40;
 constexpr TickType_t kProbeRetryPeriod = pdMS_TO_TICKS(10);
 constexpr size_t kProbeRetryCount = 20;
+constexpr size_t kCommandBufferSize = 32;
+// buffer[0] carries the control byte, so one fewer command byte fits.
+constexpr size_t kMaxCommandBytes = kCommandBufferSize - 1;
 
 }  // namespace
 
@@ -64,32 +69,34 @@ void Ssd1306Panel::Init(const Config &cfg, I2cDisplay *i2c) {
   const uint8_t segment_remap = cfg_.output.rotate_180 ? 0xA0 : 0xA1;
   const uint8_t com_scan_direction = cfg_.output.rotate_180 ? 0xC0 : 0xC8;
   const uint8_t display_mode = cfg_.output.invert ? 0xA7 : 0xA6;
-  const uint8_t init_cmds[] = {
+  const auto init_cmds = std::to_array<uint8_t>({
       0xAE, 0xD5, 0xF0, 0xA8,         0x27, 0xD3,          0x00,
       0x40, 0x8D, 0x14, 0x20,         0x02, segment_remap, com_scan_direction,
       0xDA, 0x12, 0xAD, 0x30,         0x81, 0x2F,          0xD9,
       0x22, 0xDB, 0x20, display_mode, 0x23, 0x00,          0xA4,
       0xAF,
-  };
-  SendCommands(init_cmds, sizeof(init_cmds));
+  });
+  static_assert(init_cmds.size() <= kMaxCommandBytes);
+  SendCommands(init_cmds);
 
   ESP_LOGI(kTag, "initialized addr=0x%02X invert=%u rotate180=%u",
            cfg_.i2c.address, static_cast<unsigned>(cfg_.output.invert),
            static_cast<unsigned>(cfg_.output.rotate_180));
 }
 
-void Ssd1306Panel::SendCommands(const uint8_t *commands, size_t count) {
+void Ssd1306Panel::SendCommands(std::span<const uint8_t> commands) {
   if (dev_ == nullptr || i2c_ == nullptr) {
     Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
-  if (commands == nullptr || count == 0 || count > 31) {
+  if (commands.data() == nullptr || commands.empty() ||
+      commands.size() > kMaxCommandBytes) {
     Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
-  uint8_t buffer[32]{};
+  std::array<uint8_t, kCommandBufferSize> buffer{};
   buffer[0] = kControlCommand;
-  std::memcpy(buffer + 1, commands, count);
-  i2c_->Transmit(dev_, buffer, count + 1);
+  std::memcpy(buffer.data() + 1, commands.data(), commands.size());
+  i2c_->Transmit(dev_, std::span{buffer}.first(commands.size() + 1));
 }
 
 void Ssd1306Panel::SetPageAddress(uint8_t page, uint8_t column) {
@@ -102,14 +109,12 @@ void Ssd1306Panel::SetPageAddress(uint8_t page, uint8_t column) {
       static_cast<uint8_t>(column & 0x0Fu),
       static_cast<uint8_t>(0x10u | ((column >> 4) & 0x0Fu)),
   };
-  SendCommands(commands, sizeof(commands));
+  SendCommands(commands);
 }
 
-void Ssd1306Panel::Flush(const uint8_t *framebuffer, size_t size) {
+void Ssd1306Panel::Flush(
+    std::span<const uint8_t, kFramebufferSize> framebuffer) {
   if (dev_ == nullptr || i2c_ == nullptr) {
-    Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
-  }
-  if (framebuffer == nullptr || size != kFramebufferSize) {
     Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
 
@@ -119,18 +124,19 @@ void Ssd1306Panel::Flush(const uint8_t *framebuffer, size_t size) {
   for (uint8_t page = 0; page < kPageCount; ++page) {
     SetPageAddress(page, 0);
     std::memset(buffer + 1, 0x00, kControllerWidth);
-    std::memcpy(buffer + 1 + kColumnOffset, framebuffer + (page * kWidth),
-                kWidth);
-    i2c_->Transmit(dev_, buffer, sizeof(buffer));
+    std::memcpy(buffer + 1 + kColumnOffset,
+                framebuffer.data() + (page * kWidth), kWidth);
+    i2c_->Transmit(dev_, buffer);
   }
 }
 
-void Ssd1306Panel::FlushPageRange(uint8_t page, const uint8_t *page_data,
+void Ssd1306Panel::FlushPageRange(uint8_t page,
+                                  std::span<const uint8_t, kWidth> row,
                                   size_t x_begin, size_t count) {
   if (dev_ == nullptr || i2c_ == nullptr) {
     Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
-  if (page >= kPageCount || page_data == nullptr || count == 0 ||
+  if (page >= kPageCount || row.data() == nullptr || count == 0 ||
       x_begin >= kWidth || (x_begin + count) > kWidth) {
     Panic(ErrorCode::Esp32::kDisplayPanelInitFailed);
   }
@@ -142,9 +148,9 @@ void Ssd1306Panel::FlushPageRange(uint8_t page, const uint8_t *page_data,
 
   uint8_t buffer[1 + kWidth]{};
   buffer[0] = kControlData;
-  std::memcpy(buffer + 1, page_data + x_begin, count);
+  std::memcpy(buffer + 1, row.data() + x_begin, count);
   SetPageAddress(page, static_cast<uint8_t>(start_column));
-  i2c_->Transmit(dev_, buffer, count + 1);
+  i2c_->Transmit(dev_, std::span{buffer}.first(count + 1));
 }
 
 void Ssd1306Panel::SetFadeOut(uint8_t interval) {
@@ -156,7 +162,7 @@ void Ssd1306Panel::SetFadeOut(uint8_t interval) {
       0x23,
       static_cast<uint8_t>(0x20u | (interval & 0x0Fu)),
   };
-  SendCommands(commands, sizeof(commands));
+  SendCommands(commands);
 }
 
 void Ssd1306Panel::DisableFadeOut() {
@@ -168,7 +174,7 @@ void Ssd1306Panel::DisableFadeOut() {
       0x23,
       0x00,
   };
-  SendCommands(commands, sizeof(commands));
+  SendCommands(commands);
 }
 
 void Ssd1306Panel::DisplayOn() {
@@ -177,7 +183,7 @@ void Ssd1306Panel::DisplayOn() {
   }
 
   const uint8_t commands[1] = {0xAF};
-  SendCommands(commands, sizeof(commands));
+  SendCommands(commands);
 }
 
 void Ssd1306Panel::DisplayOff() {
@@ -186,5 +192,5 @@ void Ssd1306Panel::DisplayOff() {
   }
 
   const uint8_t commands[1] = {0xAE};
-  SendCommands(commands, sizeof(commands));
+  SendCommands(commands);
 }

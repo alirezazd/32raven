@@ -115,7 +115,7 @@ void UartSoft::SetInput() {
   port_->MODER &= ~(0x3u << moder_shift_);
 }
 
-void UartSoft::WriteByte(uint8_t value) {
+void UartSoft::ShiftOutByte(uint8_t value) {
   // One guard bit time of idle high, the start bit low, eight data bits least
   // significant first, the parity bit if configured, then the stop bits high.
   // Packed into one word so the loop is a uniform shift rather than a switch
@@ -153,7 +153,7 @@ void UartSoft::WriteByte(uint8_t value) {
   }
 }
 
-bool UartSoft::ReadByte(uint8_t &out) {
+bool UartSoft::ShiftInByte(uint8_t &out) {
   const uint32_t timeout_at = Micros() + cfg_.start_bit_timeout_us;
   while (LineHigh()) {
     if (Reached(Micros(), timeout_at)) {
@@ -220,7 +220,7 @@ void UartSoft::Send(const uint8_t *data, size_t len) {
     // 19200 baud is 133 ms, and nothing else on this MCU survives being held
     // off that long.
     __disable_irq();
-    WriteByte(data[i]);
+    ShiftOutByte(data[i]);
     __enable_irq();
   }
   // Back to input immediately: the far end answers on this same wire and will
@@ -228,23 +228,23 @@ void UartSoft::Send(const uint8_t *data, size_t len) {
   SetInput();
 }
 
-bool UartSoft::Read(uint8_t &out) {
+bool UartSoft::ReadByte(uint8_t &out) {
   if (!open_) {
     return false;
   }
   __disable_irq();
-  const bool ok = ReadByte(out);
+  const bool ok = ShiftInByte(out);
   __enable_irq();
   return ok;
 }
 
-size_t UartSoft::ReadBlock(uint8_t *out, size_t len) {
+size_t UartSoft::ReadBytes(uint8_t *out, size_t len) {
   if (!open_ || out == nullptr) {
     return 0;
   }
   size_t got = 0;
   while (got < len) {
-    if (!Read(out[got])) {
+    if (!ReadByte(out[got])) {
       break;
     }
     ++got;
@@ -260,6 +260,6 @@ void UartSoft::FlushRx() {
   // state is a byte still on the wire. Drain until the line has been idle for
   // one full character.
   uint8_t discard = 0;
-  while (Read(discard)) {
+  while (ReadByte(discard)) {
   }
 }

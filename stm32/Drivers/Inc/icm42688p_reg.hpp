@@ -9,82 +9,86 @@
 
 namespace Icm42688pReg {
 
-// Bank 0 registers
+enum class Reg : uint8_t {
+  // Bank 0
+  kDeviceConfig = 0x11,
+  kBankSel = 0x76,
+  kDriveConfig = 0x13,
+  kFifoConfig = 0x16,
+  kFifoConfig1 = 0x5F,
+  kFifoConfig2 = 0x60,
+  kFifoConfig3 = 0x61,
+  kFifoCountH = 0x2E,
+  kFifoCountL = 0x2F,
+  kFifoData = 0x30,
+  kTempData1 = 0x1D,
+  kTempData0 = 0x1E,
+  kAccelDataX1 = 0x1F,
+  kAccelDataX0 = 0x20,
+  kAccelDataY1 = 0x21,
+  kAccelDataY0 = 0x22,
+  kAccelDataZ1 = 0x23,
+  kAccelDataZ0 = 0x24,
+  kGyroDataX1 = 0x25,
+  kGyroDataX0 = 0x26,
+  kGyroDataY1 = 0x27,
+  kGyroDataY0 = 0x28,
+  kGyroDataZ1 = 0x29,
+  kGyroDataZ0 = 0x2A,
+  kIntConfig = 0x14,
+  kIntStatus = 0x2D,
+  kIntStatus2 = 0x37,
+  kIntStatus3 = 0x38,
+  kSignalPathReset = 0x4B,
+  kIntfConfig0 = 0x4C,
+  kIntfConfig1 = 0x4D,
+  kPwrMgmt0 = 0x4E,
+  kGyroConfig0 = 0x4F,
+  kAccelConfig0 = 0x50,
+  kGyroConfig1 = 0x51,
+  kGyroAccelConfig0 = 0x52,
+  kAccelConfig1 = 0x53,
+  kTmstConfig = 0x54,
+  kFsyncConfig = 0x62,
 
-constexpr uint8_t REG_DEVICE_CONFIG = 0x11;
-constexpr uint8_t REG_BANK_SEL = 0x76;
-constexpr uint8_t REG_DRIVE_CONFIG = 0x13;
-constexpr uint8_t REG_FIFO_CONFIG = 0x16;
-constexpr uint8_t REG_FIFO_CONFIG1 = 0x5F;
-constexpr uint8_t REG_FIFO_CONFIG2 = 0x60;
-constexpr uint8_t REG_FIFO_CONFIG3 = 0x61;
-constexpr uint8_t REG_FIFO_COUNTH = 0x2E;
-constexpr uint8_t REG_FIFO_COUNTL = 0x2F;
-constexpr uint8_t REG_FIFO_DATA = 0x30;
-constexpr uint8_t REG_TEMP_DATA1 = 0x1D;
-constexpr uint8_t REG_TEMP_DATA0 = 0x1E;
-constexpr uint8_t REG_ACCEL_DATA_X1 = 0x1F;
-constexpr uint8_t REG_ACCEL_DATA_X0 = 0x20;
-constexpr uint8_t REG_ACCEL_DATA_Y1 = 0x21;
-constexpr uint8_t REG_ACCEL_DATA_Y0 = 0x22;
-constexpr uint8_t REG_ACCEL_DATA_Z1 = 0x23;
-constexpr uint8_t REG_ACCEL_DATA_Z0 = 0x24;
-constexpr uint8_t REG_GYRO_DATA_X1 = 0x25;
-constexpr uint8_t REG_GYRO_DATA_X0 = 0x26;
-constexpr uint8_t REG_GYRO_DATA_Y1 = 0x27;
-constexpr uint8_t REG_GYRO_DATA_Y0 = 0x28;
-constexpr uint8_t REG_GYRO_DATA_Z1 = 0x29;
-constexpr uint8_t REG_GYRO_DATA_Z0 = 0x2A;
-constexpr uint8_t REG_INT_CONFIG = 0x14;
-constexpr uint8_t REG_INT_STATUS = 0x2D;
-constexpr uint8_t REG_INT_STATUS2 = 0x37;
-constexpr uint8_t REG_INT_STATUS3 = 0x38;
-constexpr uint8_t REG_SIGNAL_PATH_RESET = 0x4B;
-constexpr uint8_t REG_INTF_CONFIG0 = 0x4C;
-constexpr uint8_t REG_INTF_CONFIG1 = 0x4D;
-constexpr uint8_t REG_PWR_MGMT0 = 0x4E;
-constexpr uint8_t REG_GYRO_CONFIG0 = 0x4F;
-constexpr uint8_t REG_ACCEL_CONFIG0 = 0x50;
-constexpr uint8_t REG_GYRO_CONFIG1 = 0x51;
-constexpr uint8_t REG_GYRO_ACCEL_CONFIG0 = 0x52;
-constexpr uint8_t REG_ACCEL_CONFIG1 = 0x53;
-constexpr uint8_t REG_TMST_CONFIG = 0x54;
-constexpr uint8_t REG_FSYNC_CONFIG = 0x62;
+  kIntConfig0 = 0x63,
+  kIntConfig1 = 0x64,
+  kIntSource0 = 0x65,
+  kIntSource1 = 0x66,
+  kIntSource3 = 0x68,
+  kIntSource4 = 0x69,
+  kWhoAmI = 0x75,
+  kOffsetUser0 = 0x77,
+  kOffsetUser1 = 0x78,
+  kOffsetUser2 = 0x79,
+  kOffsetUser3 = 0x7A,
+  kOffsetUser4 = 0x7B,
+  kOffsetUser5 = 0x7C,
+  kOffsetUser6 = 0x7D,
+  kOffsetUser7 = 0x7E,
+  kOffsetUser8 = 0x7F,
 
-constexpr uint8_t REG_INT_CONFIG1 = 0x64;
-constexpr uint8_t REG_INT_SOURCE0 = 0x65;
-constexpr uint8_t REG_INT_SOURCE1 = 0x66;
-constexpr uint8_t REG_INT_SOURCE3 = 0x68;
-constexpr uint8_t REG_INT_SOURCE4 = 0x69;
-constexpr uint8_t REG_WHO_AM_I = 0x75;
-constexpr uint8_t REG_OFFSET_USER0 = 0x77;
-constexpr uint8_t REG_OFFSET_USER1 = 0x78;
-constexpr uint8_t REG_OFFSET_USER2 = 0x79;
-constexpr uint8_t REG_OFFSET_USER3 = 0x7A;
-constexpr uint8_t REG_OFFSET_USER4 = 0x7B;
-constexpr uint8_t REG_OFFSET_USER5 = 0x7C;
-constexpr uint8_t REG_OFFSET_USER6 = 0x7D;
-constexpr uint8_t REG_OFFSET_USER7 = 0x7E;
-constexpr uint8_t REG_OFFSET_USER8 = 0x7F;
+  // Bank 1 — values alias bank 0; Reg does not encode the bank, so the
+  // caller must have selected the right one via SetBank first.
+  kGyroConfigStatic2 = 0x0B,
+  kGyroConfigStatic3 = 0x0C,
+  kGyroConfigStatic4 = 0x0D,
+  kGyroConfigStatic5 = 0x0E,
+  kGyroConfigStatic6 = 0x0F,
+  kGyroConfigStatic7 = 0x10,
+  kGyroConfigStatic8 = 0x11,
+  kGyroConfigStatic9 = 0x12,
+  kGyroConfigStatic10 = 0x13,
+  kIntfConfig5 = 0x7B,
 
-// Bank 1 registers
+  // Bank 2
+  kAccelConfigStatic2 = 0x03,
+  kAccelConfigStatic3 = 0x04,
+  kAccelConfigStatic4 = 0x05,
 
-constexpr uint8_t REG_GYRO_CONFIG_STATIC2 = 0x0B;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC3 = 0x0C;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC4 = 0x0D;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC5 = 0x0E;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC6 = 0x0F;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC7 = 0x10;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC8 = 0x11;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC9 = 0x12;
-constexpr uint8_t REG_GYRO_CONFIG_STATIC10 = 0x13;
-constexpr uint8_t REG_INTF_CONFIG5 = 0x7B;
-
-// Bank 2 registers
-
-constexpr uint8_t REG_ACCEL_CONFIG_STATIC2 = 0x03;
-constexpr uint8_t REG_ACCEL_CONFIG_STATIC3 = 0x04;
-constexpr uint8_t REG_ACCEL_CONFIG_STATIC4 = 0x05;
+  // Bank 3
+  kClkdiv = 0x2A,
+};
 
 // Bit definitions
 
@@ -181,7 +185,6 @@ constexpr uint8_t FSYNC_CONFIG_POLARITY = 1u << 0;
 constexpr uint8_t FSYNC_UI_SEL_DISABLE = 0x0;  // 000 = no tagging
 
 // INT_CONFIG0 (0x63) — UI_DRDY_INT_CLEAR bits [5:4]
-constexpr uint8_t REG_INT_CONFIG0 = 0x63;
 constexpr uint8_t INT_CONFIG0_DRDY_CLEAR_ON_STATUS_READ = 0x0u << 4;
 constexpr uint8_t INT_CONFIG0_DRDY_CLEAR_ON_SENSOR_READ = 0x2u << 4;
 constexpr uint8_t INT_CONFIG0_DRDY_CLEAR_ON_BOTH = 0x3u << 4;
@@ -225,9 +228,6 @@ constexpr uint8_t SIGNAL_PATH_RESET_FIFO_FLUSH = 1u << 1;
 
 // ACCEL_CONFIG_STATIC2 (Bank 2, 0x03)
 constexpr uint8_t ACCEL_CONFIG_STATIC2_AAF_DIS = 1u << 0;
-
-// CLKDIV (Bank 3, 0x2A)
-constexpr uint8_t REG_CLKDIV = 0x2A;
 
 // WHO_AM_I values
 

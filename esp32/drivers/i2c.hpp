@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "driver/i2c_master.h"
 #include "hal/gpio_types.h"
@@ -50,14 +50,14 @@ class I2c {
   i2c_master_dev_handle_t AddDevice(const I2cDeviceConfig &cfg);
   bool Probe(uint16_t address) const;
 
-  void Transmit(i2c_master_dev_handle_t device, const uint8_t *data,
-                size_t size) const;
-  void MultiBufferTransmit(i2c_master_dev_handle_t device,
-                           i2c_master_transmit_multi_buffer_info_t *buffers,
-                           size_t buffer_count) const;
+  void Transmit(i2c_master_dev_handle_t device,
+                std::span<const uint8_t> data) const;
+  void MultiBufferTransmit(
+      i2c_master_dev_handle_t device,
+      std::span<i2c_master_transmit_multi_buffer_info_t> buffers) const;
   void TransmitReceive(i2c_master_dev_handle_t device,
-                       const uint8_t *write_buffer, size_t write_size,
-                       uint8_t *read_buffer, size_t read_size) const;
+                       std::span<const uint8_t> write_buffer,
+                       std::span<uint8_t> read_buffer) const;
 
  private:
   friend class System;

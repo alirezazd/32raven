@@ -3,6 +3,9 @@
 
 #include "system.hpp"
 
+#include <array>
+#include <cstddef>
+
 #include "button.hpp"
 #include "dshot_tim1.hpp"
 #include "error_code.hpp"
@@ -29,6 +32,68 @@ constexpr uint32_t kClockSwitchTimeoutMs = 5000u;
 constexpr uint32_t kPllSourceHse = RCC_PLLCFGR_PLLSRC_HSE;
 constexpr uint32_t kPllSourceHsi = 0u;
 constexpr uint32_t kHsiHz = 16000000u;  // fixed silicon, not a Kconfig value
+
+// ApbDiv holds PPRE1-aligned field values; PPRE2 takes the same encoding at its
+// own bit position, so take the offset from CMSIS instead of hand-copying it.
+constexpr uint32_t kPpre2Shift = RCC_CFGR_PPRE2_Pos - RCC_CFGR_PPRE1_Pos;
+
+constexpr uint32_t Ppre2Bits(System::ApbDiv d) {
+  return static_cast<uint32_t>(d) << kPpre2Shift;
+}
+
+// Bring-up order, which deliberately differs from declaration order.
+constexpr std::array<System::Component,
+                     static_cast<std::size_t>(System::Component::kCount)>
+    kInitOrder{
+        System::Component::kTimeBase,
+        System::Component::kGpio,
+        System::Component::kUart1,
+        System::Component::kSpi1,
+        System::Component::kEe,
+        System::Component::kBattery,
+        System::Component::kUart6,
+        System::Component::kRcReceiver,
+        System::Component::kCrsfLink,
+        System::Component::kLed,
+        System::Component::kSpi2,
+        System::Component::kDshot,
+        System::Component::kEscTelemetry,
+        System::Component::kEscService,
+        System::Component::kUsbCdc,
+        System::Component::kUartSoft,
+        System::Component::kEscBootloader,
+        System::Component::kFourWayService,
+        System::Component::kMspService,
+        System::Component::kButton,
+        System::Component::kUart2,
+        System::Component::kM10,
+        System::Component::kIcm42688p,
+        System::Component::kMultirotorMixer,
+        System::Component::kAhrs,
+        System::Component::kRateController,
+        System::Component::kAttitudeController,
+    };
+
+// -Werror=switch already ties Component to InitComponent's switch; this ties it
+// to the boot order, so an enumerator that is never brought up fails the build
+// instead of shipping with its peripheral clock still gated off.
+consteval bool InitOrderCoversEveryComponent() {
+  std::array<bool, static_cast<std::size_t>(System::Component::kCount)> seen{};
+  for (const System::Component c : kInitOrder) {
+    const auto i = static_cast<std::size_t>(c);
+    if (i >= seen.size() || seen[i]) {
+      return false;
+    }
+    seen[i] = true;
+  }
+  for (const bool s : seen) {
+    if (!s) {
+      return false;
+    }
+  }
+  return true;
+}
+static_assert(InitOrderCoversEveryComponent());
 }  // namespace
 
 // C-callable tick increment, invoked from stm32f4xx_it.c::SysTick_Handler.
@@ -79,33 +144,9 @@ void System::Init(const System::Config &config) {
   ConfigureSystemClock(config);
   NVIC_SetPriority(PendSV_IRQn, irq_priority::kPendSv);
 
-  InitComponent(Component::kTimeBase);
-  InitComponent(Component::kGpio);
-  InitComponent(Component::kUart1);
-  InitComponent(Component::kSpi1);
-  InitComponent(Component::kEe);
-  InitComponent(Component::kBattery);
-  InitComponent(Component::kUart6);
-  InitComponent(Component::kRcReceiver);
-  InitComponent(Component::kCrsfLink);
-  InitComponent(Component::kLed);
-  InitComponent(Component::kSpi2);
-  InitComponent(Component::kDshot);
-  InitComponent(Component::kEscTelemetry);
-  InitComponent(Component::kEscService);
-  InitComponent(Component::kUsbCdc);
-  InitComponent(Component::kUartSoft);
-  InitComponent(Component::kEscBootloader);
-  InitComponent(Component::kFourWayService);
-  InitComponent(Component::kMspService);
-  InitComponent(Component::kButton);
-  InitComponent(Component::kUart2);
-  InitComponent(Component::kM10);
-  InitComponent(Component::kIcm42688p);
-  InitComponent(Component::kMultirotorMixer);
-  InitComponent(Component::kAhrs);
-  InitComponent(Component::kRateController);
-  InitComponent(Component::kAttitudeController);
+  for (const Component c : kInitOrder) {
+    InitComponent(c);
+  }
 
   // Arm the watchdog last so blocking bring-up can't trip it. From here the
   // main loop (and the panic loop) must keep feeding it.
@@ -232,10 +273,9 @@ void System::InitClockTree(const Config &cfg) {
     }
   }
 
-  // 2. Park APB1/APB2 at /16 across the switch. APB2 reuses PPRE1 bit values
-  //    shifted left by 3.
+  // 2. Park APB1/APB2 at /16 across the switch.
   RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE1) | RCC_CFGR_PPRE1_DIV16;
-  RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) | (RCC_CFGR_PPRE1_DIV16 << 3);
+  RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) | RCC_CFGR_PPRE2_DIV16;
 
   // 3. AHB divider (HPRE).
   RCC->CFGR =
@@ -262,8 +302,7 @@ void System::InitClockTree(const Config &cfg) {
   // 6. Apply target APB1 + APB2 dividers.
   RCC->CFGR =
       (RCC->CFGR & ~RCC_CFGR_PPRE1) | static_cast<uint32_t>(cfg.apb1_divider);
-  RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) |
-              (static_cast<uint32_t>(cfg.apb2_divider) << 3);
+  RCC->CFGR = (RCC->CFGR & ~RCC_CFGR_PPRE2) | Ppre2Bits(cfg.apb2_divider);
 
   // 7. Publish SystemCoreClock and re-arm SysTick at the new HCLK.
   SystemCoreClock = board::kHclkHz;
@@ -360,6 +399,8 @@ void System::InitComponent(Component c) {
       break;
     case Component::kAttitudeController:
       attitude_controller_.Init(kAttitudeControllerConfig);
+      break;
+    case Component::kCount:
       break;
   }
 }

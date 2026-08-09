@@ -3,6 +3,8 @@
 
 #include "esc_bootloader.hpp"
 
+#include <array>
+
 #include "checksum.hpp"
 #include "dshot_codec.hpp"
 #include "error_code.hpp"
@@ -120,12 +122,12 @@ bool EscBootloader::SendWake() {
 
 bool EscBootloader::ReadBootInfo(DeviceInfo &out) {
   uint8_t info[kBootInfoBytes] = {};
-  if (uart_->ReadBlock(info, kBootInfoBytes) != kBootInfoBytes) {
+  if (uart_->ReadBytes(info, kBootInfoBytes) != kBootInfoBytes) {
     return false;
   }
 
   uint8_t ack = 0;
-  if (!uart_->Read(ack) || ack != kBlbSuccess) {
+  if (!uart_->ReadByte(ack) || ack != kBlbSuccess) {
     return false;
   }
 
@@ -169,9 +171,10 @@ bool EscBootloader::Connect(uint8_t motor_index, DeviceInfo &out) {
   return true;
 }
 
-bool EscBootloader::SendCommand(const uint8_t *cmd, size_t len) {
-  uint8_t frame[kMaxCommandBytes];
-  if (len + 2u > sizeof(frame)) {
+bool EscBootloader::SendCommand(std::span<const uint8_t> cmd) {
+  std::array<uint8_t, kMaxCommandBytes> frame;
+  const size_t len = cmd.size();
+  if (len + 2u > frame.size()) {
     return false;
   }
 
@@ -183,7 +186,7 @@ bool EscBootloader::SendCommand(const uint8_t *cmd, size_t len) {
   frame[len] = static_cast<uint8_t>(crc & 0xFFu);
   frame[len + 1u] = static_cast<uint8_t>(crc >> 8);
 
-  uart_->Send(frame, len + 2u);
+  uart_->Send(frame.data(), len + 2u);
   return true;
 }
 
@@ -194,28 +197,28 @@ uint8_t EscBootloader::ReadAck(uint16_t attempts) {
   uint8_t ack = kBlbNone;
   for (uint16_t i = 0; i < attempts; ++i) {
     Watchdog::GetInstance().Kick();
-    if (uart_->Read(ack)) {
+    if (uart_->ReadByte(ack)) {
       return ack;
     }
   }
   return kBlbNone;
 }
 
-bool EscBootloader::SendPayload(const uint8_t *data, uint16_t len) {
-  if (data == nullptr || len == 0u) {
+bool EscBootloader::SendPayload(std::span<const uint8_t> data) {
+  if (data.empty()) {
     return false;
   }
 
   uint16_t crc = 0;
-  for (uint16_t i = 0; i < len; ++i) {
-    crc = checksum::Arc16Update(crc, data[i]);
+  for (uint8_t byte : data) {
+    crc = checksum::Arc16Update(crc, byte);
   }
   const uint8_t trailer[] = {
       static_cast<uint8_t>(crc & 0xFFu),
       static_cast<uint8_t>(crc >> 8),
   };
 
-  uart_->Send(data, len);
+  uart_->Send(data.data(), data.size());
   uart_->Send(trailer, sizeof(trailer));
   return true;
 }
@@ -223,7 +226,7 @@ bool EscBootloader::SendPayload(const uint8_t *data, uint16_t len) {
 bool EscBootloader::ReadFramed(uint8_t *out, uint16_t len) {
   uint16_t crc = 0;
   for (uint16_t i = 0; i < len; ++i) {
-    if (!uart_->Read(out[i])) {
+    if (!uart_->ReadByte(out[i])) {
       return false;
     }
     crc = checksum::Arc16Update(crc, out[i]);
@@ -232,7 +235,7 @@ bool EscBootloader::ReadFramed(uint8_t *out, uint16_t len) {
   uint8_t crc_lo = 0;
   uint8_t crc_hi = 0;
   uint8_t ack = 0;
-  if (!uart_->Read(crc_lo) || !uart_->Read(crc_hi) || !uart_->Read(ack)) {
+  if (!uart_->ReadByte(crc_lo) || !uart_->ReadByte(crc_hi) || !uart_->ReadByte(ack)) {
     return false;
   }
 
@@ -253,24 +256,23 @@ bool EscBootloader::SetAddress(uint16_t address) {
       static_cast<uint8_t>(address >> 8),
       static_cast<uint8_t>(address & 0xFFu),
   };
-  return SendCommand(cmd, sizeof(cmd)) &&
-         ReadAck(kAckImmediate) == kBlbSuccess;
+  return SendCommand(cmd) && ReadAck(kAckImmediate) == kBlbSuccess;
 }
 
 // The one command answered with silence: a byte back means the bootloader
 // rejected the header, so anything other than a timeout is the failure.
-bool EscBootloader::SetBuffer(const uint8_t *data, uint16_t len) {
+bool EscBootloader::SetBuffer(std::span<const uint8_t> data) {
+  const size_t len = data.size();
   const uint8_t cmd[] = {
       kCmdSetBuffer,
       0,
       static_cast<uint8_t>(len >> 8),
       static_cast<uint8_t>(len & 0xFFu),
   };
-  if (!SendCommand(cmd, sizeof(cmd)) ||
-      ReadAck(kAckImmediate) != kBlbNone) {
+  if (!SendCommand(cmd) || ReadAck(kAckImmediate) != kBlbNone) {
     return false;
   }
-  return SendPayload(data, len) && ReadAck(kAckBuffer) == kBlbSuccess;
+  return SendPayload(data) && ReadAck(kAckBuffer) == kBlbSuccess;
 }
 
 bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
@@ -284,7 +286,7 @@ bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
   // A full 256 travels as a zero count, so the length is masked rather than
   // range-checked into a byte.
   const uint8_t cmd[] = {kCmdReadFlash, static_cast<uint8_t>(len & 0xFFu)};
-  return SendCommand(cmd, sizeof(cmd)) && ReadFramed(out, len);
+  return SendCommand(cmd) && ReadFramed(out, len);
 }
 
 // ARM pages are 1 KB and the erase takes a page number, not a byte offset.
@@ -297,36 +299,35 @@ bool EscBootloader::PageErase(uint8_t page) {
   }
 
   const uint8_t cmd[] = {kCmdEraseFlash, 0x01};
-  return SendCommand(cmd, sizeof(cmd)) && ReadAck(kAckErase) == kBlbSuccess;
+  return SendCommand(cmd) && ReadAck(kAckErase) == kBlbSuccess;
 }
 
-bool EscBootloader::WriteFlash(uint16_t address, const uint8_t *data,
-                               uint16_t len) {
-  if (!connected_ || len == 0u || len > kMaxTransferBytes) {
+bool EscBootloader::WriteFlash(uint16_t address,
+                               std::span<const uint8_t> data) {
+  if (!connected_ || data.empty() || data.size() > kMaxTransferBytes) {
     return false;
   }
-  if (!SetAddress(address) || !SetBuffer(data, len)) {
+  if (!SetAddress(address) || !SetBuffer(data)) {
     return false;
   }
 
   const uint8_t cmd[] = {kCmdProgFlash, 0x01};
-  return SendCommand(cmd, sizeof(cmd)) && ReadAck(kAckProgram) == kBlbSuccess;
+  return SendCommand(cmd) && ReadAck(kAckProgram) == kBlbSuccess;
 }
 
 // A mismatch is kept apart from a failure: the link worked and the flash does
 // not hold what was written, which is the one outcome retrying cannot fix.
-EscBootloader::VerifyResult EscBootloader::VerifyFlash(uint16_t address,
-                                                       const uint8_t *data,
-                                                       uint16_t len) {
-  if (!connected_ || len == 0u || len > kMaxTransferBytes) {
+EscBootloader::VerifyResult EscBootloader::VerifyFlash(
+    uint16_t address, std::span<const uint8_t> data) {
+  if (!connected_ || data.empty() || data.size() > kMaxTransferBytes) {
     return VerifyResult::kFailed;
   }
-  if (!SetAddress(address) || !SetBuffer(data, len)) {
+  if (!SetAddress(address) || !SetBuffer(data)) {
     return VerifyResult::kFailed;
   }
 
   const uint8_t cmd[] = {kCmdVerifyFlash, 0x01};
-  if (!SendCommand(cmd, sizeof(cmd))) {
+  if (!SendCommand(cmd)) {
     return VerifyResult::kFailed;
   }
 
@@ -348,8 +349,7 @@ bool EscBootloader::KeepAlive() {
     return false;
   }
   const uint8_t cmd[] = {kCmdKeepAlive, 0};
-  return SendCommand(cmd, sizeof(cmd)) &&
-         ReadAck(kAckImmediate) == kBlbErrorCommand;
+  return SendCommand(cmd) && ReadAck(kAckImmediate) == kBlbErrorCommand;
 }
 
 // Nothing acknowledges the run command, so false means only that the channel
@@ -367,7 +367,7 @@ bool EscBootloader::Reset(uint8_t motor_index, bool reboot) {
   }
 
   const uint8_t cmd[] = {kCmdRun, 0};
-  SendCommand(cmd, sizeof(cmd));
+  SendCommand(cmd);
 
   if (reboot) {
     // Shorter than the watchdog's worst-case 681 ms, so it needs no feeding.

@@ -3,18 +3,18 @@
 
 #include "telem_uart_server.hpp"
 
-int TelemUartServer::Receive(uint8_t *dst, size_t max_len) {
-  if (dst == nullptr || max_len == 0) {
+int TelemUartServer::Receive(std::span<uint8_t> dst) {
+  if (dst.empty()) {
     return 0;
   }
-  return UartTelem::GetInstance().Read(dst, max_len, /*timeout_ms=*/0);
+  return UartTelem::GetInstance().ReadBytes(dst, /*timeout_ms=*/0);
 }
 
-int TelemUartServer::Send(const uint8_t *data, size_t len) {
-  if (data == nullptr || len == 0) {
+int TelemUartServer::Send(std::span<const uint8_t> data) {
+  if (data.empty()) {
     return 0;
   }
-  return UartTelem::GetInstance().Write(data, len);
+  return UartTelem::GetInstance().WriteBytes(data);
 }
 
 bool TelemUartServer::IsReady() const {

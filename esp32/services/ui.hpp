@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 
 #include "display_renderer.hpp"
 #include "error_code.hpp"
@@ -33,23 +34,27 @@ class DisplayCanvas : public RenderCanvas {
   static constexpr size_t kPageCount = Ssd1306Panel::kPageCount;
   static constexpr size_t kBufferSize = Ssd1306Panel::kFramebufferSize;
 
-  void Clear();
-  void Fill(bool on);
+  void Clear() override;
+  void Fill(Ink ink) override;
   size_t Width() const override { return kWidth; }
   size_t Height() const override { return kHeight; }
-  bool SetPixel(size_t x, size_t y, bool on) override;
-  bool DrawPackedBitmap(const uint8_t *bitmap_data, size_t width, size_t height,
-                        size_t offset_x, size_t offset_y);
+  bool SetPixel(size_t x, size_t y, Ink ink) override;
+  bool DrawPackedBitmap(const PackedBitmap &bitmap, size_t offset_x,
+                        size_t offset_y) override;
+  PackedBitmap AsBitmap() const { return {buffer_, kWidth, kHeight}; }
   bool HasDirtyRanges() const;
   const DirtyRange &GetDirtyRange(size_t page) const {
     return dirty_ranges_[page];
   }
-  const uint8_t *PageData(size_t page) const {
-    return buffer_.data() + (page * kWidth);
+  std::span<const uint8_t, kWidth> PageSpan(size_t page) const {
+    return std::span<const uint8_t, kWidth>(buffer_.data() + (page * kWidth),
+                                            kWidth);
   }
   void ClearDirtyRanges();
   const uint8_t *Data() const { return buffer_.data(); }
-  size_t Size() const { return buffer_.size(); }
+  [[nodiscard]] std::span<const uint8_t, kBufferSize> Buffer() const {
+    return buffer_;
+  }
 
  private:
   void MarkDirtyRange(size_t page, size_t x_begin, size_t x_end);
@@ -214,7 +219,18 @@ class Ui {
   bool ShouldUseMosaicMainScreenTransition(MainScreen from,
                                            MainScreen to) const;
   TimeMs MosaicDurationForScreens(MainScreen from, MainScreen to) const;
-  uint8_t ScreenGroup(MainScreen screen) const;
+  // Order is the left/right slide direction (see
+  // TransitionDirectionForScreens).
+  enum class ScreenGroup : uint8_t {
+    kBoot,
+    kServing,
+    kMavlink,
+    kDfu,
+    kProgram,
+    kEscConfig,
+  };
+
+  ScreenGroup ScreenGroupFor(MainScreen screen) const;
 
   Config cfg_{};
   Ssd1306Panel *panel_ = nullptr;

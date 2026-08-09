@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <span>
 
 #include "checksum.hpp"
 #include "dshot_codec.hpp"
@@ -358,7 +359,7 @@ bool MspService::SendReply(bool ok) {
     frame_[7] = static_cast<uint8_t>(reply_len_ >> 8);
     n = kV2HeaderBytes + reply_len_;
     // Covers flags through payload: everything after the direction byte.
-    frame_[n] = checksum::Dvbs2(&frame_[3], n - 3u);
+    frame_[n] = checksum::Dvbs2(std::span{frame_}.subspan(3u, n - 3u));
     ++n;
   } else {
     // v1 carries an 8-bit length, so an oversized reply cannot be framed at

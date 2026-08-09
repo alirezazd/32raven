@@ -48,6 +48,10 @@ idf_component_register(
     "../ui/widgets/main_ui_widget.cpp"
     "../ui/widgets/matrix_widget.cpp"
     "../ui/widgets/renderer_demo_widget.cpp"
+    # Nothing constructs these two, so --gc-sections drops them from the image.
+    # They are listed anyway: an unbuilt widget rots until the day it is wanted.
+    "../ui/widgets/rc_channels_widget.cpp"
+    "../ui/widgets/resource_utilization_widget.cpp"
     "../services/wifi.cpp"
     "../services/tone_player.cpp"
     "../services/tcp_server.cpp"

@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 
 // UBX-CFG-VALSET fixed header fields

@@ -276,10 +276,10 @@ const char *GetMessage(ErrorCode::Esp32 code) {
 }
 
 const char *GetMessage(uint32_t raw_code) {
-  if (raw_code >= 0x20000) {
+  if (raw_code >= ErrorCode::kEsp32Base) {
     return GetMessage(static_cast<ErrorCode::Esp32>(raw_code));
   }
-  if (raw_code >= 0x10000) {
+  if (raw_code >= ErrorCode::kStm32Base) {
     return GetMessage(static_cast<ErrorCode::Stm32>(raw_code));
   }
   return GetMessage(static_cast<ErrorCode::Common>(raw_code));

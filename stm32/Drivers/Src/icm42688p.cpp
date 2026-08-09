@@ -4,6 +4,7 @@
 #include "icm42688p.hpp"
 
 #include <cmath>
+#include <utility>
 
 #include "config_storage.hpp"
 #include "error_code.hpp"
@@ -16,6 +17,18 @@
 #include "time_base.hpp"
 
 using namespace Icm42688pReg;
+
+namespace {
+
+constexpr uint16_t LoadBe16(const uint8_t *p) {
+  return static_cast<uint16_t>((static_cast<uint16_t>(p[0]) << 8) | p[1]);
+}
+
+constexpr int16_t LoadBe16Signed(const uint8_t *p) {
+  return static_cast<int16_t>(LoadBe16(p));
+}
+
+}  // namespace
 
 template <bool HiRes>
 Icm42688pT<HiRes> &Icm42688pT<HiRes>::GetInstance() {
@@ -56,7 +69,7 @@ void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   SoftReset();
   SetBank(0);
   // Datasheet: keep gyro/accel OFF while programming non-ODR/FS registers.
-  WriteReg(REG_PWR_MGMT0, 0x00u);
+  WriteReg(Reg::kPwrMgmt0, 0x00u);
   System::GetInstance().Time().DelayMicros(200);
 
   SetClockSource(cfg);
@@ -70,11 +83,11 @@ void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   SetTimestampConfig();
   ClearUserOffsets();
   // Keep temp sensor disabled while accel/gyro OFF during FIFO setup.
-  WriteReg(REG_PWR_MGMT0, PWR_MGMT0_TEMP_DIS);
+  WriteReg(Reg::kPwrMgmt0, PWR_MGMT0_TEMP_DIS);
   ConfigureFifo();
 
   // Enable all sensors (incl. temp, for FIFO die-temp) once, last.
-  WriteReg(REG_PWR_MGMT0, PWR_MGMT0_GYRO_MODE_LN | PWR_MGMT0_ACCEL_MODE_LN);
+  WriteReg(Reg::kPwrMgmt0, PWR_MGMT0_GYRO_MODE_LN | PWR_MGMT0_ACCEL_MODE_LN);
 
   // Datasheet: no register writes for 200us after OFF->ON transition.
   System::GetInstance().Time().DelayMicros(200);
@@ -157,7 +170,7 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
 
   // Gyro notch filter (Bank 1)
   {
-    uint8_t s2 = ReadReg(REG_GYRO_CONFIG_STATIC2);
+    uint8_t s2 = ReadReg(Reg::kGyroConfigStatic2);
 
     if (cfg.notch.enabled && cfg.notch.freq_hz > 0.0f) {
       // Datasheet: notch supported 1kHz..3kHz.
@@ -165,13 +178,13 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
 
       // CLKDIV lives in Bank 3.
       SetBank(3);
-      uint8_t clkdiv = ReadReg(REG_CLKDIV);
+      uint8_t clkdiv = ReadReg(Reg::kClkdiv);
       SetBank(1);
 
       if (clkdiv == 0) {
         // Invalid clock divider: leave notch disabled.
         s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
-        WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
+        WriteReg(Reg::kGyroConfigStatic2, s2);
       } else {
         float fdrv = 19.2e6f / (float(clkdiv) * 10.0f);
         float coswz = cosf(2.0f * kPi * (f_hz / fdrv));
@@ -193,47 +206,47 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
         }
 
         s2 &= ~GYRO_CONFIG_STATIC2_NF_DIS;
-        WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
+        WriteReg(Reg::kGyroConfigStatic2, s2);
 
         // Same notch coefficient for all three axes.
-        WriteReg(REG_GYRO_CONFIG_STATIC6, (uint8_t)(val & 0xFF));
-        WriteReg(REG_GYRO_CONFIG_STATIC7, (uint8_t)(val & 0xFF));
-        WriteReg(REG_GYRO_CONFIG_STATIC8, (uint8_t)(val & 0xFF));
+        WriteReg(Reg::kGyroConfigStatic6, (uint8_t)(val & 0xFF));
+        WriteReg(Reg::kGyroConfigStatic7, (uint8_t)(val & 0xFF));
+        WriteReg(Reg::kGyroConfigStatic8, (uint8_t)(val & 0xFF));
 
         uint8_t s9 = 0;
         if (sel) s9 |= (1u << 5) | (1u << 4) | (1u << 3);
         if (val & 0x100) s9 |= (1u << 2) | (1u << 1) | (1u << 0);
-        WriteReg(REG_GYRO_CONFIG_STATIC9, s9);
+        WriteReg(Reg::kGyroConfigStatic9, s9);
 
-        uint8_t s10 = ReadReg(REG_GYRO_CONFIG_STATIC10);
+        uint8_t s10 = ReadReg(Reg::kGyroConfigStatic10);
         s10 &= ~(0x7u << 4);
         uint8_t bw = (cfg.notch.bw_idx > 7) ? 7 : cfg.notch.bw_idx;
         s10 |= (uint8_t)(bw << 4);
-        WriteReg(REG_GYRO_CONFIG_STATIC10, s10);
+        WriteReg(Reg::kGyroConfigStatic10, s10);
       }
     } else {
       s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
-      WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
+      WriteReg(Reg::kGyroConfigStatic2, s2);
     }
   }
 
   // Gyro anti-alias filter (Bank 1)
   {
-    uint8_t s2 = ReadReg(REG_GYRO_CONFIG_STATIC2);
+    uint8_t s2 = ReadReg(Reg::kGyroConfigStatic2);
     if (cfg.gyro_aaf.dis) {
       s2 |= GYRO_CONFIG_STATIC2_AAF_DIS;
-      WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
+      WriteReg(Reg::kGyroConfigStatic2, s2);
     } else {
       s2 &= ~GYRO_CONFIG_STATIC2_AAF_DIS;
-      WriteReg(REG_GYRO_CONFIG_STATIC2, s2);
+      WriteReg(Reg::kGyroConfigStatic2, s2);
 
-      WriteReg(REG_GYRO_CONFIG_STATIC3, (uint8_t)(cfg.gyro_aaf.delt & 0x3F));
-      WriteReg(REG_GYRO_CONFIG_STATIC4,
+      WriteReg(Reg::kGyroConfigStatic3, (uint8_t)(cfg.gyro_aaf.delt & 0x3F));
+      WriteReg(Reg::kGyroConfigStatic4,
                (uint8_t)(cfg.gyro_aaf.delt_sqr & 0xFF));
 
       uint8_t s5 = (uint8_t)((cfg.gyro_aaf.bitshift & 0xF) << 4) |
                    (uint8_t)((cfg.gyro_aaf.delt_sqr >> 8) & 0xF);
-      WriteReg(REG_GYRO_CONFIG_STATIC5, s5);
+      WriteReg(Reg::kGyroConfigStatic5, s5);
     }
   }
 
@@ -241,33 +254,33 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
   SetBank(2);
 
   {
-    uint8_t s2 = ReadReg(REG_ACCEL_CONFIG_STATIC2);
+    uint8_t s2 = ReadReg(Reg::kAccelConfigStatic2);
     if (cfg.accel_aaf.dis) {
       s2 |= ACCEL_CONFIG_STATIC2_AAF_DIS;
-      WriteReg(REG_ACCEL_CONFIG_STATIC2, s2);
+      WriteReg(Reg::kAccelConfigStatic2, s2);
     } else {
       s2 &= ~ACCEL_CONFIG_STATIC2_AAF_DIS;
       s2 &= ~(0x3Fu << 1);
       s2 |= (uint8_t)((cfg.accel_aaf.delt & 0x3F) << 1);
-      WriteReg(REG_ACCEL_CONFIG_STATIC2, s2);
+      WriteReg(Reg::kAccelConfigStatic2, s2);
 
-      WriteReg(REG_ACCEL_CONFIG_STATIC3,
+      WriteReg(Reg::kAccelConfigStatic3,
                (uint8_t)(cfg.accel_aaf.delt_sqr & 0xFF));
 
       uint8_t s4 = (uint8_t)((cfg.accel_aaf.bitshift & 0xF) << 4) |
                    (uint8_t)((cfg.accel_aaf.delt_sqr >> 8) & 0xF);
-      WriteReg(REG_ACCEL_CONFIG_STATIC4, s4);
+      WriteReg(Reg::kAccelConfigStatic4, s4);
     }
   }
 
   // UI filter bandwidths (Bank 0).
   SetBank(0);
-  WriteReg(REG_GYRO_ACCEL_CONFIG0,
+  WriteReg(Reg::kGyroAccelConfig0,
            static_cast<uint8_t>(((cfg.ui_filter.accel_bw & 0x0Fu) << 4) |
                                 (cfg.ui_filter.gyro_bw & 0x0Fu)));
-  WriteReg(REG_GYRO_CONFIG1,
+  WriteReg(Reg::kGyroConfig1,
            static_cast<uint8_t>(cfg.ui_filter.gyro_cfg1 & 0xEFu));
-  WriteReg(REG_ACCEL_CONFIG1,
+  WriteReg(Reg::kAccelConfig1,
            static_cast<uint8_t>(cfg.ui_filter.accel_cfg1 & 0x1Eu));
 }
 
@@ -360,8 +373,8 @@ void Icm42688pT<HiRes>::OnSpiDone(bool ok) {
 template <bool HiRes>
 void Icm42688pT<HiRes>::RecoverFromFifoFault() {
   SetBank(0);
-  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(REG_INT_STATUS);
+  WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(Reg::kIntStatus);
 
   tmst_inited_ = false;
   host_sync_inited_ = false;
@@ -489,18 +502,9 @@ bool Icm42688pT<HiRes>::ParsePacket3Record(const uint8_t *rec, Sample &out) {
     return false;
   }
 
-  auto be_u16 = [](const uint8_t *q) -> uint16_t {
-    return static_cast<uint16_t>((static_cast<uint16_t>(q[0]) << 8) |
-                                 static_cast<uint16_t>(q[1]));
-  };
-  auto be_s16 = [](const uint8_t *q) -> int16_t {
-    return static_cast<int16_t>((static_cast<uint16_t>(q[0]) << 8) |
-                                static_cast<uint16_t>(q[1]));
-  };
-
   // Packet3 temperature byte is at 0x0D and timestamp stays at 0x0E..0x0F.
   out.temp_raw = static_cast<int8_t>(rec[0x0D]);
-  const uint16_t ts16 = be_u16(&rec[0x0E]);
+  const uint16_t ts16 = LoadBe16(&rec[0x0E]);
 
   uint64_t host_ts_us = 0;
   UpdateTimestampAndSync(ts16, host_ts_us);
@@ -508,13 +512,13 @@ bool Icm42688pT<HiRes>::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   out.timestamp_us = host_ts_us;
 
   // Packet layout (big-endian)
-  out.accel[0] = be_s16(&rec[0x01]);
-  out.accel[1] = be_s16(&rec[0x03]);
-  out.accel[2] = be_s16(&rec[0x05]);
+  out.accel[0] = LoadBe16Signed(&rec[0x01]);
+  out.accel[1] = LoadBe16Signed(&rec[0x03]);
+  out.accel[2] = LoadBe16Signed(&rec[0x05]);
 
-  out.gyro[0] = be_s16(&rec[0x07]);
-  out.gyro[1] = be_s16(&rec[0x09]);
-  out.gyro[2] = be_s16(&rec[0x0B]);
+  out.gyro[0] = LoadBe16Signed(&rec[0x07]);
+  out.gyro[1] = LoadBe16Signed(&rec[0x09]);
+  out.gyro[2] = LoadBe16Signed(&rec[0x0B]);
 
   // INTF_CONFIG0.FIFO_HOLD_LAST_DATA_EN=0 inserts invalid code (-32768).
   // Treat any detected invalid code as a hard fault.
@@ -544,15 +548,6 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
     return false;
   }
 
-  auto be_u16 = [](const uint8_t *q) -> uint16_t {
-    return static_cast<uint16_t>((static_cast<uint16_t>(q[0]) << 8) |
-                                 static_cast<uint16_t>(q[1]));
-  };
-  auto be_s16 = [](const uint8_t *q) -> int16_t {
-    return static_cast<int16_t>((static_cast<uint16_t>(q[0]) << 8) |
-                                static_cast<uint16_t>(q[1]));
-  };
-
   // Reassemble split 20-bit signed value: high 16 bits + low 4. Sign extends
   // naturally — int16 `high` carries bit 19, and <<4 in int32 preserves sign.
   auto pack20 = [](int16_t high, uint8_t low4) -> int32_t {
@@ -573,8 +568,8 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   //   0x11       Accel X [3:0] (upper nibble) | Gyro X [3:0] (lower nibble)
   //   0x12       Accel Y [3:0] | Gyro Y [3:0]
   //   0x13       Accel Z [3:0] | Gyro Z [3:0]
-  const int16_t temp16 = be_s16(&rec[0x0D]);
-  const uint16_t ts16 = be_u16(&rec[0x0F]);
+  const int16_t temp16 = LoadBe16Signed(&rec[0x0D]);
+  const uint16_t ts16 = LoadBe16(&rec[0x0F]);
 
   uint64_t host_ts_us = 0;
   UpdateTimestampAndSync(ts16, host_ts_us);
@@ -585,15 +580,18 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   const uint8_t b12 = rec[0x12];
   const uint8_t b13 = rec[0x13];
 
-  out.accel[0] =
-      pack20(be_s16(&rec[0x01]), static_cast<uint8_t>((b11 >> 4) & 0x0Fu));
-  out.accel[1] =
-      pack20(be_s16(&rec[0x03]), static_cast<uint8_t>((b12 >> 4) & 0x0Fu));
-  out.accel[2] =
-      pack20(be_s16(&rec[0x05]), static_cast<uint8_t>((b13 >> 4) & 0x0Fu));
-  out.gyro[0] = pack20(be_s16(&rec[0x07]), static_cast<uint8_t>(b11 & 0x0Fu));
-  out.gyro[1] = pack20(be_s16(&rec[0x09]), static_cast<uint8_t>(b12 & 0x0Fu));
-  out.gyro[2] = pack20(be_s16(&rec[0x0B]), static_cast<uint8_t>(b13 & 0x0Fu));
+  out.accel[0] = pack20(LoadBe16Signed(&rec[0x01]),
+                        static_cast<uint8_t>((b11 >> 4) & 0x0Fu));
+  out.accel[1] = pack20(LoadBe16Signed(&rec[0x03]),
+                        static_cast<uint8_t>((b12 >> 4) & 0x0Fu));
+  out.accel[2] = pack20(LoadBe16Signed(&rec[0x05]),
+                        static_cast<uint8_t>((b13 >> 4) & 0x0Fu));
+  out.gyro[0] =
+      pack20(LoadBe16Signed(&rec[0x07]), static_cast<uint8_t>(b11 & 0x0Fu));
+  out.gyro[1] =
+      pack20(LoadBe16Signed(&rec[0x09]), static_cast<uint8_t>(b12 & 0x0Fu));
+  out.gyro[2] =
+      pack20(LoadBe16Signed(&rec[0x0B]), static_cast<uint8_t>(b13 & 0x0Fu));
 
   // Invalid-sample sentinel (datasheet §12.8) — chip writes -524288
   // when FIFO_HOLD_LAST_DATA_EN=0 and no fresh data is available.
@@ -765,8 +763,8 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
   }
 
   SetBank(0);
-  const uint8_t prev_pwr = ReadReg(REG_PWR_MGMT0);
-  WriteReg(REG_PWR_MGMT0, 0x00u);
+  const uint8_t prev_pwr = ReadReg(Reg::kPwrMgmt0);
+  WriteReg(Reg::kPwrMgmt0, 0x00u);
   time.DelayMicros(200);
 
   WriteGyroUserOffsets(offset_lsb[0], offset_lsb[1], offset_lsb[2]);
@@ -778,13 +776,13 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
   timestamp_tick_remainder_q16_ = 0;
   host_offset_us_ = 0;
 
-  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(REG_INT_STATUS);
-  WriteReg(REG_PWR_MGMT0, prev_pwr);
+  WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(Reg::kIntStatus);
+  WriteReg(Reg::kPwrMgmt0, prev_pwr);
   time.DelayMicros(200);
   time.DelayMicros(MILLIS_TO_MICROS(50));
-  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(REG_INT_STATUS);
+  WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(Reg::kIntStatus);
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 
@@ -801,14 +799,14 @@ void Icm42688pT<HiRes>::WriteGyroUserOffsets(int16_t x_offset_lsb,
   const uint16_t z = pack12(z_offset_lsb);
 
   SetBank(0);
-  WriteReg(REG_OFFSET_USER0, static_cast<uint8_t>(x & 0xFFu));
-  WriteReg(REG_OFFSET_USER1, static_cast<uint8_t>(((y >> 8) & 0x0Fu) << 4) |
-                                 static_cast<uint8_t>((x >> 8) & 0x0Fu));
-  WriteReg(REG_OFFSET_USER2, static_cast<uint8_t>(y & 0xFFu));
-  WriteReg(REG_OFFSET_USER3, static_cast<uint8_t>(z & 0xFFu));
+  WriteReg(Reg::kOffsetUser0, static_cast<uint8_t>(x & 0xFFu));
+  WriteReg(Reg::kOffsetUser1, static_cast<uint8_t>(((y >> 8) & 0x0Fu) << 4) |
+                                  static_cast<uint8_t>((x >> 8) & 0x0Fu));
+  WriteReg(Reg::kOffsetUser2, static_cast<uint8_t>(y & 0xFFu));
+  WriteReg(Reg::kOffsetUser3, static_cast<uint8_t>(z & 0xFFu));
 
-  const uint8_t user4 = ReadReg(REG_OFFSET_USER4);
-  WriteReg(REG_OFFSET_USER4,
+  const uint8_t user4 = ReadReg(Reg::kOffsetUser4);
+  WriteReg(Reg::kOffsetUser4,
            static_cast<uint8_t>((user4 & 0xF0u) | ((z >> 8) & 0x0Fu)));
 }
 
@@ -819,7 +817,7 @@ void Icm42688pT<HiRes>::CheckWhoAmI() {
 
   SetBank(0);
   while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
-    const uint8_t id = ReadReg(REG_WHO_AM_I);
+    const uint8_t id = ReadReg(Reg::kWhoAmI);
     if (id == WHO_AM_I_ICM42688P || id == WHO_AM_I_ICM42686P) {
       who_am_i_ = id;
       return;
@@ -834,9 +832,9 @@ template <bool HiRes>
 void Icm42688pT<HiRes>::SoftReset() {
   SetBank(0);
 
-  uint8_t v = ReadReg(REG_DEVICE_CONFIG);
+  uint8_t v = ReadReg(Reg::kDeviceConfig);
   v |= 0x01u;  // SOFT_RESET_CONFIG = 1, preserve SPI_MODE + reserved
-  WriteReg(REG_DEVICE_CONFIG, v);
+  WriteReg(Reg::kDeviceConfig, v);
 
   System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(1));
   SetBank(0);
@@ -874,15 +872,15 @@ template <bool HiRes>
 void Icm42688pT<HiRes>::SetClockSource(const Config &cfg) {
   SetBank(1);
 
-  uint8_t pin_cfg = ReadReg(REG_INTF_CONFIG5);
+  uint8_t pin_cfg = ReadReg(Reg::kIntfConfig5);
   pin_cfg &= static_cast<uint8_t>(~INTF_CONFIG5_PIN9_FUNCTION_MASK);
   pin_cfg |= cfg.external_clock.enabled ? INTF_CONFIG5_PIN9_FUNCTION_CLKIN
                                         : INTF_CONFIG5_PIN9_FUNCTION_FSYNC;
-  WriteReg(REG_INTF_CONFIG5, pin_cfg);
+  WriteReg(Reg::kIntfConfig5, pin_cfg);
 
   SetBank(0);
 
-  uint8_t v = ReadReg(REG_INTF_CONFIG1);
+  uint8_t v = ReadReg(Reg::kIntfConfig1);
   // CLKSEL[1:0]=01 (PLL when available); RTC_MODE bit2 needs pin9 CLKIN for
   // external clocking. Preserve reserved [7:4] and ACCEL_LP_CLK_SEL bit3.
   v &= static_cast<uint8_t>(~(Icm42688pReg::INTF_CONFIG1_CLKSEL_MASK |
@@ -891,14 +889,14 @@ void Icm42688pT<HiRes>::SetClockSource(const Config &cfg) {
   if (cfg.external_clock.enabled) {
     v |= Icm42688pReg::INTF_CONFIG1_RTC_MODE_EN;
   }
-  WriteReg(REG_INTF_CONFIG1, v);
+  WriteReg(Reg::kIntfConfig1, v);
 }
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::SetInterfaceConfig(const Config &cfg) {
   SetBank(0);
 
-  uint8_t v = ReadReg(REG_INTF_CONFIG0);
+  uint8_t v = ReadReg(Reg::kIntfConfig0);
 
   // Keep reserved bits (3:2), update everything else we control:
   // - bit7 FIFO_HOLD_LAST_DATA_EN (user-configurable)
@@ -911,38 +909,38 @@ void Icm42688pT<HiRes>::SetInterfaceConfig(const Config &cfg) {
     cfg_bits |= 0x80u;
   }
   v = static_cast<uint8_t>((v & 0x0Cu) | cfg_bits);
-  WriteReg(REG_INTF_CONFIG0, v);
+  WriteReg(Reg::kIntfConfig0, v);
 }
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::SetInterruptConfig() {
   SetBank(0);
-  uint8_t v = ReadReg(REG_INT_CONFIG);
+  uint8_t v = ReadReg(Reg::kIntConfig);
   // Preserve reserved bits 7:6, rewrite bits 5:0
   // INT2: pulsed(0), open-drain(0), active-low(0) => bits [5:3] = 000
   // INT1: pulsed(0), push-pull(1), active-high(1) => bits [2:0] = 0b011
   v = static_cast<uint8_t>((v & 0xC0u) | 0x03u);
-  WriteReg(REG_INT_CONFIG, v);
+  WriteReg(Reg::kIntConfig, v);
   // ODR >= 4kHz: 8us pulse + deassert disabled.
   // Datasheet note: set INT_ASYNC_RESET=0 for proper INT operation.
   // Preserve reserved bits: bit7 and bits3:0
   // Set bits6:4 = 0b110 (8us pulse, disable deassert duration, async_reset=0)
-  v = ReadReg(REG_INT_CONFIG1);
+  v = ReadReg(Reg::kIntConfig1);
   v = static_cast<uint8_t>((v & 0x8Fu) | 0x60u);
-  WriteReg(REG_INT_CONFIG1, v);
+  WriteReg(Reg::kIntConfig1, v);
 }
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::DisableFsync() {
   SetBank(0);
 
-  uint8_t v = ReadReg(REG_FSYNC_CONFIG);
+  uint8_t v = ReadReg(Reg::kFsyncConfig);
 
   // Preserve reserved bits: bit7 and bits3:2
   // Clear only: FSYNC_UI_SEL (6:4), FSYNC_UI_FLAG_CLEAR_SEL (1),
   // FSYNC_POLARITY (0)
   v &= static_cast<uint8_t>(~0x73u);  // ~0b01110011
-  WriteReg(REG_FSYNC_CONFIG, v);
+  WriteReg(Reg::kFsyncConfig, v);
 }
 
 template <bool HiRes>
@@ -956,59 +954,67 @@ void Icm42688pT<HiRes>::SetOdrAndFullScale(const Config &cfg) {
   const uint8_t accel =
       static_cast<uint8_t>(((static_cast<uint8_t>(cfg.fs.accel) & 0x03u) << 5) |
                            (static_cast<uint8_t>(cfg.rates.accel) & 0x0Fu));
-  WriteReg(REG_GYRO_CONFIG0, gyro);
-  WriteReg(REG_ACCEL_CONFIG0, accel);
+  WriteReg(Reg::kGyroConfig0, gyro);
+  WriteReg(Reg::kAccelConfig0, accel);
 }
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::SetTimestampConfig() {
   SetBank(0);
 
-  uint8_t v = ReadReg(REG_TMST_CONFIG);
+  uint8_t v = ReadReg(Reg::kTmstConfig);
 
   // Preserve reserved [7:5], clear [4:1], set TMST_EN (bit0).
   v &= 0xE0u;
   v |= 0x01u;
 
-  WriteReg(REG_TMST_CONFIG, v);
+  WriteReg(Reg::kTmstConfig, v);
 }
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::ClearUserOffsets() {
+  // Rebuilding a Reg from a raw counter is the one path an unlisted address
+  // can take to WriteReg; a reordered enum would clear nine wrong registers.
+  static_assert(std::to_underlying(Reg::kOffsetUser8) -
+                        std::to_underlying(Reg::kOffsetUser0) ==
+                    8,
+                "user-offset registers must stay contiguous");
+
   SetBank(0);
-  for (uint8_t reg = REG_OFFSET_USER0; reg <= REG_OFFSET_USER8; ++reg) {
-    WriteReg(reg, 0x00u);
+  for (uint8_t reg = std::to_underlying(Reg::kOffsetUser0);
+       reg <= std::to_underlying(Reg::kOffsetUser8); ++reg) {
+    WriteReg(static_cast<Reg>(reg), 0x00u);
   }
 }
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::ConfigureFifo() {
   SetBank(0);
-  uint8_t v = ReadReg(REG_INT_CONFIG0);  // Preserve reserved [7:6], replace
-                                         // [5:0]
+  uint8_t v = ReadReg(Reg::kIntConfig0);  // Preserve reserved [7:6], replace
+                                          // [5:0]
   v = static_cast<uint8_t>((v & 0xC0u) | 0x0Au);
-  WriteReg(REG_INT_CONFIG0, v);
-  v = ReadReg(REG_INT_SOURCE0);  // Preserve reserved bit7, clear bits6:0
+  WriteReg(Reg::kIntConfig0, v);
+  v = ReadReg(Reg::kIntSource0);  // Preserve reserved bit7, clear bits6:0
   v = static_cast<uint8_t>((v & 0x80u) | 0x04u);  // FIFO_THS -> INT1 only
-  WriteReg(REG_INT_SOURCE0, v);  // Packet3, 16-bit, timestamp, DMA-safe
-  v = ReadReg(REG_FIFO_CONFIG);
+  WriteReg(Reg::kIntSource0, v);  // Packet3, 16-bit, timestamp, DMA-safe
+  v = ReadReg(Reg::kFifoConfig);
   v &= 0x3F;  // clear bits 7:6 → FIFO_MODE = 00 (bypass)
-  WriteReg(REG_FIFO_CONFIG, v);
+  WriteReg(Reg::kFifoConfig, v);
   uint8_t fifo_cfg1 = FIFO_CONFIG1_RESUME_PARTIAL_RD |
                       FIFO_CONFIG1_TMST_FSYNC_EN | FIFO_CONFIG1_TEMP_EN |
                       FIFO_CONFIG1_GYRO_EN | FIFO_CONFIG1_ACCEL_EN;
   if constexpr (HiRes) {
     fifo_cfg1 |= FIFO_CONFIG1_HIRES_EN;  // switches to Packet4
   }
-  WriteReg(REG_FIFO_CONFIG1, fifo_cfg1);
+  WriteReg(Reg::kFifoConfig1, fifo_cfg1);
   const uint16_t fifo_wm_bytes =
       static_cast<uint16_t>(fifo_wm_records_ * kPacketBytes);
-  WriteReg(REG_FIFO_CONFIG2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));
-  WriteReg(REG_FIFO_CONFIG3,
+  WriteReg(Reg::kFifoConfig2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));
+  WriteReg(Reg::kFifoConfig3,
            static_cast<uint8_t>((fifo_wm_bytes >> 8) & 0x0Fu));
-  WriteReg(REG_SIGNAL_PATH_RESET, 0x02);  // FIFO_FLUSH
-  (void)ReadReg(REG_INT_STATUS);          // clear any pending status bits (R/C)
-  WriteReg(REG_FIFO_CONFIG, 0x40);        // FIFO Stream mode
+  WriteReg(Reg::kSignalPathReset, 0x02);  // FIFO_FLUSH
+  (void)ReadReg(Reg::kIntStatus);         // clear any pending status bits (R/C)
+  WriteReg(Reg::kFifoConfig, 0x40);       // FIFO Stream mode
   SetupDmaBuffer();
 }
 
@@ -1018,28 +1024,29 @@ void Icm42688pT<HiRes>::SetupDmaBuffer() {
   for (uint16_t i = 0; i < sizeof(fifo_tx_); i++) {
     fifo_tx_[i] = 0xFFu;
   }
-  fifo_tx_[0] = static_cast<uint8_t>(REG_FIFO_DATA | 0x80u);
+  fifo_tx_[0] =
+      static_cast<uint8_t>(std::to_underlying(Reg::kFifoData) | 0x80u);
 }
 // SPI helpers (blocking)
 
 template <bool HiRes>
 void Icm42688pT<HiRes>::SetBank(uint8_t bank) {
-  WriteReg(REG_BANK_SEL, (uint8_t)(bank & 0x07));
+  WriteReg(Reg::kBankSel, (uint8_t)(bank & 0x07));
   System::GetInstance().Time().DelayMicros(1);
 }
 
 template <bool HiRes>
-void Icm42688pT<HiRes>::WriteReg(uint8_t reg, uint8_t val) {
+void Icm42688pT<HiRes>::WriteReg(Reg reg, uint8_t val) {
   auto &spi = *spi_;
-  uint8_t tx[2] = {(uint8_t)(reg & 0x7F), val};
+  uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(reg) & 0x7F), val};
   CsLow();
-  spi.Write(tx, 2);
+  spi.WriteBytes(tx);
   CsHigh();
 }
 template <bool HiRes>
-uint8_t Icm42688pT<HiRes>::ReadReg(uint8_t reg) {
+uint8_t Icm42688pT<HiRes>::ReadReg(Reg reg) {
   auto &spi = *spi_;
-  uint8_t tx[2] = {(uint8_t)(reg | 0x80), 0x00};
+  uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(reg) | 0x80), 0x00};
   uint8_t rx[2] = {0, 0};
   CsLow();
   spi.TxRx(tx, rx, 2);
@@ -1066,8 +1073,8 @@ void Icm42688pT<HiRes>::ResumeSampling() {
   // The chip never stopped sampling into its own FIFO, so what is in there is
   // a backlog rather than the present. Discarded instead of parsed: a stale
   // burst would be integrated by the AHRS as if it had just happened.
-  WriteReg(REG_SIGNAL_PATH_RESET, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(REG_INT_STATUS);
+  WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
+  (void)ReadReg(Reg::kIntStatus);
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 

@@ -24,7 +24,6 @@
 #include "stat_publisher.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-#include "usb_cdc.hpp"
 #include "vehicle_state.hpp"
 #include "watchdog.hpp"
 
@@ -104,7 +103,7 @@ class System {
   static System &GetInstance();
 
   // Component identifiers used by InitComponent().
-  enum class Component {
+  enum class Component : uint8_t {
     kTimeBase,
     kGpio,
     kSpi1,
@@ -134,6 +133,8 @@ class System {
     kAhrs,
     kRateController,
     kAttitudeController,
+
+    kCount,  // sentinel: keep last
   };
 
   void Init(const Config &config);

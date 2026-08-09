@@ -5,10 +5,8 @@
 
 #include <cstdio>
 
-#include "common_config.hpp"
 #include "ctx.hpp"
 #include "error_code.hpp"
-#include "esp32_config.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
@@ -82,7 +80,8 @@ void MavlinkWifiState::OnEnter(AppContext &ctx) {
   ctx.sys->Mavlink().SetTelemetryLink(true);
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().StartAp();
-  ctx.sys->Udp().Start();
+  // Telemetry only: a dead socket must not take the whole bench tool down.
+  (void)ctx.sys->Udp().Start();
 }
 
 void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
@@ -142,6 +141,8 @@ void DfuState::OnEnter(AppContext &ctx) {
   ctx.sys->Ui().SetAppState(Ui::AppState::kDfu);
   ctx.sys->Mavlink().SetTelemetryLink(false);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
+  // Panicking here would be unrecoverable (kTcpServerStartFailed is not
+  // DFU-recoverable), so a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().DisableBridge();
 }
@@ -258,9 +259,11 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   size_t free = prog.Free();
   if (free > 0) {
     uint8_t buf[512];
-    size_t n = tcp.ReadDownload(buf, (free < sizeof(buf)) ? free : sizeof(buf));
+    const std::span<uint8_t> chunk{buf};
+    const size_t n = tcp.ReadDownload(
+        chunk.first((free < chunk.size()) ? free : chunk.size()));
     if (n > 0) {
-      prog.PushBytes(buf, n, now);
+      prog.PushBytes(chunk.first(n), now);
       ctx.sys->Led().Toggle();
       last_activity_ = now;
     }

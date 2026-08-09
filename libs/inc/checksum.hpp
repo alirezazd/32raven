@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 // The checksums the wire protocols share. Each comes in an incremental form,
 // for parsers that see one byte at a time, and a buffer form built from it.
@@ -20,10 +20,10 @@ inline uint8_t Dvbs2Update(uint8_t crc, uint8_t byte) {
   return crc;
 }
 
-inline uint8_t Dvbs2(const uint8_t *data, size_t len) {
+[[nodiscard]] inline uint8_t Dvbs2(std::span<const uint8_t> data) {
   uint8_t crc = 0;
-  for (size_t i = 0; i < len; ++i) {
-    crc = Dvbs2Update(crc, data[i]);
+  for (const uint8_t byte : data) {
+    crc = Dvbs2Update(crc, byte);
   }
   return crc;
 }
@@ -39,10 +39,10 @@ inline uint16_t XModemUpdate(uint16_t crc, uint8_t byte) {
   return crc;
 }
 
-inline uint16_t XModem(const uint8_t *data, size_t len) {
+[[nodiscard]] inline uint16_t XModem(std::span<const uint8_t> data) {
   uint16_t crc = 0;
-  for (size_t i = 0; i < len; ++i) {
-    crc = XModemUpdate(crc, data[i]);
+  for (const uint8_t byte : data) {
+    crc = XModemUpdate(crc, byte);
   }
   return crc;
 }

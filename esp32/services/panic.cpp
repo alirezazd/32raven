@@ -3,6 +3,8 @@
 
 #include "panic.hpp"
 
+#include <algorithm>
+
 #include "driver/gpio.h"
 #include "error_code.hpp"
 #include "esp32_config.hpp"
@@ -110,6 +112,8 @@ uint32_t EnterRecoveryDfuMode() {
   sys.Button().FlushEvents();
   sys.Ui().SetAppState(Ui::AppState::kDfu);
   sys.Ui().NotifyUserActivity();
+  // Reached from the panic task, so a Panic() here would nest another
+  // RunPanicLoop on the same static stack. The checks below report instead.
   sys.StartNetwork();
   sys.Tcp().DisableBridge();
 
@@ -123,19 +127,13 @@ uint32_t EnterRecoveryDfuMode() {
   return Raw(ErrorCode::Common::kOk);
 }
 
-void EnterRecoveryProgramMode(SmTick now, SmTick *last_activity,
-                              uint32_t *last_written) {
+[[nodiscard]] uint32_t EnterRecoveryProgramMode() {
   System &sys = Sys();
   sys.Button().FlushEvents();
   sys.Ui().SetAppState(Ui::AppState::kProgram);
   sys.Ui().NotifyUserActivity();
   sys.Programmer().Start(sys.Tcp().GetStatus().total);
-  if (last_activity != nullptr) {
-    *last_activity = now;
-  }
-  if (last_written != nullptr) {
-    *last_written = sys.Programmer().Written();
-  }
+  return sys.Programmer().Written();
 }
 
 class RecoverySession {
@@ -150,11 +148,16 @@ class RecoverySession {
     kProgram,
   };
 
-  bool EnterDfuMode(SmTick now, bool stop_network_on_error);
+  enum class NetworkAction : uint8_t {
+    kKeepNetwork,
+    kStopNetwork,
+  };
+
+  bool EnterDfuMode(SmTick now, NetworkAction network_on_error);
   void EnterProgramMode(SmTick now);
   void StepDfuMode(SmTick now);
   void StepProgramMode(SmTick now);
-  void Exit(uint32_t code, bool stop_network);
+  void Exit(uint32_t code, NetworkAction network);
 
   System &sys_;
   TcpServer &tcp_;
@@ -169,10 +172,10 @@ class RecoverySession {
 RecoverySession::RecoverySession(System &sys)
     : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
 
-bool RecoverySession::EnterDfuMode(SmTick now, bool stop_network_on_error) {
+bool RecoverySession::EnterDfuMode(SmTick now, NetworkAction network_on_error) {
   const uint32_t recovery_error = EnterRecoveryDfuMode();
   if (recovery_error != Raw(ErrorCode::Common::kOk)) {
-    Exit(recovery_error, stop_network_on_error);
+    Exit(recovery_error, network_on_error);
     return false;
   }
 
@@ -193,7 +196,7 @@ void RecoverySession::StepDfuMode(SmTick now) {
       case TcpServer::EventId::kAbort: {
         prog_.Abort(now);
         tcp_.StopDownload();
-        if (!EnterDfuMode(now, true)) {
+        if (!EnterDfuMode(now, NetworkAction::kStopNetwork)) {
           return;
         }
         break;
@@ -219,7 +222,8 @@ void RecoverySession::StepDfuMode(SmTick now) {
 
 void RecoverySession::EnterProgramMode(SmTick now) {
   mode_ = Mode::kProgram;
-  EnterRecoveryProgramMode(now, &last_activity_, &last_written_);
+  last_written_ = EnterRecoveryProgramMode();
+  last_activity_ = now;
 }
 
 void RecoverySession::StepProgramMode(SmTick now) {
@@ -229,7 +233,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
     const uint32_t programmer_error = prog_.LastErrorCode();
     tcp_.StopDownload();
     prog_.Abort(now);
-    Exit(programmer_error, true);
+    Exit(programmer_error, NetworkAction::kStopNetwork);
     return;
   }
 
@@ -241,7 +245,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
     tcp_.StopDownload();
     tcp_.SetStatus(st);
     (void)prog_.Boot();
-    (void)EnterDfuMode(now, true);
+    (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
     return;
   }
 
@@ -255,7 +259,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
       case TcpServer::EventId::kAbort:
         prog_.Abort(now);
         tcp_.StopDownload();
-        (void)EnterDfuMode(now, true);
+        (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
         return;
       case TcpServer::EventId::kReset:
         tcp_.DisableBridge();
@@ -269,7 +273,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
       case TcpServer::EventId::kDataDown:
         prog_.Abort(now);
         tcp_.StopDownload();
-        (void)EnterDfuMode(now, true);
+        (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
         return;
       case TcpServer::EventId::kNone:
       case TcpServer::EventId::kCtrlUp:
@@ -287,13 +291,13 @@ void RecoverySession::StepProgramMode(SmTick now) {
   st.rx = prog_.Written();
   tcp_.SetStatus(st);
 
-  size_t free = prog_.Free();
+  const size_t free = prog_.Free();
   if (free > 0) {
     uint8_t buf[512];
-    size_t n =
-        tcp_.ReadDownload(buf, (free < sizeof(buf)) ? free : sizeof(buf));
+    const size_t read_size = std::min(free, sizeof(buf));
+    const size_t n = tcp_.ReadDownload({buf, read_size});
     if (n > 0) {
-      prog_.PushBytes(buf, n, now);
+      prog_.PushBytes({buf, n}, now);
       last_activity_ = now;
     }
   }
@@ -306,12 +310,13 @@ void RecoverySession::StepProgramMode(SmTick now) {
 
   if (!prog_.Done() && (now - last_activity_) > 3000) {
     prog_.Abort(now);
-    Exit(Raw(ErrorCode::Esp32::kProgrammerTimedOut), true);
+    Exit(Raw(ErrorCode::Esp32::kProgrammerTimedOut),
+         NetworkAction::kStopNetwork);
   }
 }
 
-void RecoverySession::Exit(uint32_t code, bool stop_network) {
-  if (stop_network) {
+void RecoverySession::Exit(uint32_t code, NetworkAction network) {
+  if (network == NetworkAction::kStopNetwork) {
     sys_.StopNetwork();
   }
   result_ = code;
@@ -319,7 +324,7 @@ void RecoverySession::Exit(uint32_t code, bool stop_network) {
 }
 
 uint32_t RecoverySession::RunUntilFailure() {
-  if (!EnterDfuMode(sys_.Timebase().NowMs(), false)) {
+  if (!EnterDfuMode(sys_.Timebase().NowMs(), NetworkAction::kKeepNetwork)) {
     return result_;
   }
 

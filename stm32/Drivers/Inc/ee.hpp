@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <type_traits>
 
 #include "gpio.hpp"
@@ -70,7 +71,7 @@ class EE {
   EE &operator=(const EE &) = delete;
 
   bool ReadJedecId(uint8_t jedec_id[3]) const;
-  bool ReadStatus(uint8_t *status) const;
+  std::optional<uint8_t> ReadStatus() const;
   bool WriteStatus(uint8_t status);
   bool EnsureWritable();
   bool WaitWhileBusy() const;
@@ -99,8 +100,8 @@ class EE {
   bool HeaderHasValidCrc(const RecordHeader &header) const;
   RecordHeader ReadHeader(uint32_t address) const;
   RecordState ReadRecord(uint32_t address) const;
-  bool ComputePayloadCrc32(uint32_t address, uint32_t size,
-                           uint32_t *crc32) const;
+  std::optional<uint32_t> ComputePayloadCrc32(uint32_t address,
+                                              uint32_t size) const;
   bool ValidateRecord(const RecordState &record) const;
   RecordState ScanLatestRecord() const;
   bool PrepareWriteSpace(uint32_t record_size);

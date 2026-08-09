@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <type_traits>
 #include <variant>
 
@@ -167,10 +168,14 @@ class Mavlink {
     uint16_t mavlink_index = 0;
   };
 
+  // Values are the per-channel parameter offsets; mavlink_index arithmetic and
+  // the index->field modulo both depend on them.
+  enum class RcCalField : uint8_t { kMin = 0, kMax = 1, kTrim = 2, kRev = 3 };
+
   struct RcCalibrationParamRef {
     uint16_t mavlink_index = 0;
     uint8_t channel_index = 0;
-    uint8_t field_index = 0;
+    RcCalField field = RcCalField::kMin;
   };
 
   using ParamRef = std::variant<FixedParamRef, RcCalibrationParamRef>;
@@ -278,10 +283,34 @@ class Mavlink {
   using TxQueueItem = std::variant<std::monostate, CommandAck, AutopilotVersion,
                                    MissionCount, StatusText>;
 
-  struct TxFrameState {
-    uint8_t buf[MAVLINK_MAX_PACKET_LEN]{};
-    uint16_t len = 0;
-    bool is_hb = false;
+  // The buffer is private so Bytes() is the only way to reach the frame: a
+  // span over the raw array would cover all MAVLINK_MAX_PACKET_LEN bytes and
+  // put whatever the previous frame left behind on the wire.
+  class TxFrameState {
+   public:
+    TxFrameState() = default;
+
+    TxFrameState(const mavlink_message_t &msg, bool is_heartbeat)
+        : is_hb_(is_heartbeat) {
+      len_ =
+          static_cast<uint16_t>(mavlink_msg_to_send_buffer(buf_.data(), &msg));
+    }
+
+    void Clear() {
+      len_ = 0;
+      is_hb_ = false;
+    }
+
+    [[nodiscard]] bool Empty() const { return len_ == 0; }
+    [[nodiscard]] bool IsHeartbeat() const { return is_hb_; }
+    [[nodiscard]] std::span<const uint8_t> Bytes() const {
+      return {buf_.data(), len_};
+    }
+
+   private:
+    std::array<uint8_t, MAVLINK_MAX_PACKET_LEN> buf_{};
+    uint16_t len_ = 0;
+    bool is_hb_ = false;
   };
 
   struct TxScheduleState {

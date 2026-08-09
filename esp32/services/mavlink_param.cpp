@@ -352,25 +352,25 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveRcCalibrationParam(
   if (std::strcmp(suffix, "MIN") == 0) {
     return RcCalibrationParamRef{
         static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset),
-        channel_index, 0u};
+        channel_index, RcCalField::kMin};
   }
   if (std::strcmp(suffix, "MAX") == 0) {
     return RcCalibrationParamRef{
         static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset +
                               1u),
-        channel_index, 1u};
+        channel_index, RcCalField::kMax};
   }
   if (std::strcmp(suffix, "TRIM") == 0) {
     return RcCalibrationParamRef{
         static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset +
                               2u),
-        channel_index, 2u};
+        channel_index, RcCalField::kTrim};
   }
   if (std::strcmp(suffix, "REV") == 0) {
     return RcCalibrationParamRef{
         static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset +
                               3u),
-        channel_index, 3u};
+        channel_index, RcCalField::kRev};
   }
   return std::nullopt;
 }
@@ -414,12 +414,16 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveParamByIndex(
     return std::nullopt;
   }
 
+  // Keeps the modulo below total over RcCalField.
+  static_assert(param_detail::kRcCalibrationParamCountPerChannel ==
+                static_cast<uint8_t>(RcCalField::kRev) + 1u);
+
   const uint16_t rc_param_index = param_index - param_detail::kBaseParamCount;
   const uint8_t channel_index = static_cast<uint8_t>(
       rc_param_index / param_detail::kRcCalibrationParamCountPerChannel);
-  const uint8_t field_index = static_cast<uint8_t>(
+  const auto field = static_cast<RcCalField>(
       rc_param_index % param_detail::kRcCalibrationParamCountPerChannel);
-  return RcCalibrationParamRef{param_index, channel_index, field_index};
+  return RcCalibrationParamRef{param_index, channel_index, field};
 }
 
 std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeParam(
@@ -567,30 +571,29 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeRcCalibrationParam(
   }
 
   EncodedParam encoded{};
-  switch (param.field_index) {
-    case 0:
+  switch (param.field) {
+    case RcCalField::kMin:
       std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_MIN",
                     static_cast<unsigned>(param.channel_index + 1u));
       encoded.type = MAV_PARAM_TYPE_UINT16;
       encoded.value =
           static_cast<float>(rc_calibration->min_us[param.channel_index]);
       break;
-    case 1:
+    case RcCalField::kMax:
       std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_MAX",
                     static_cast<unsigned>(param.channel_index + 1u));
       encoded.type = MAV_PARAM_TYPE_UINT16;
       encoded.value =
           static_cast<float>(rc_calibration->max_us[param.channel_index]);
       break;
-    case 2:
+    case RcCalField::kTrim:
       std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_TRIM",
                     static_cast<unsigned>(param.channel_index + 1u));
       encoded.type = MAV_PARAM_TYPE_UINT16;
       encoded.value =
           static_cast<float>(rc_calibration->trim_us[param.channel_index]);
       break;
-    case 3:
-    default:
+    case RcCalField::kRev:
       std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_REV",
                     static_cast<unsigned>(param.channel_index + 1u));
       encoded.type = MAV_PARAM_TYPE_INT8;
@@ -710,28 +713,26 @@ Mavlink::ParamSetResult Mavlink::TrySetRcCalibrationParam(
   }
   const char *field_name = "MIN";
 
-  switch (param.field_index) {
-    case 0:
+  switch (param.field) {
+    case RcCalField::kMin:
       field_name = "MIN";
       updated.min_us[param.channel_index] =
           static_cast<uint16_t>(std::lround(param_value));
       break;
-    case 1:
+    case RcCalField::kMax:
       field_name = "MAX";
       updated.max_us[param.channel_index] =
           static_cast<uint16_t>(std::lround(param_value));
       break;
-    case 2:
+    case RcCalField::kTrim:
       field_name = "TRIM";
       updated.trim_us[param.channel_index] =
           static_cast<uint16_t>(std::lround(param_value));
       break;
-    case 3:
+    case RcCalField::kRev:
       field_name = "REV";
       updated.rev[param.channel_index] = (param_value < 0.0f) ? -1 : 1;
       break;
-    default:
-      return ParamSetResult::kUnsupported;
   }
 
   if (!message::IsRcCalibrationConfigValid(updated)) {
@@ -986,10 +987,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartParamValueFrame(
       param_detail::EncodeParamValue(encoded->value, encoded->type),
       encoded->type, param_detail::kTotalParamCount, ParamMavlinkIndex(param));
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartNextParamFrame(

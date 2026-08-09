@@ -10,7 +10,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "panic.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -107,15 +106,13 @@ void TcpServer::StopDownload() {
   status_ = Status{};
 }
 
-int TcpServer::ReadDownload(uint8_t *dst, size_t max_len) {
-  if (!dst || max_len == 0) return 0;
-
+size_t TcpServer::ReadDownload(std::span<uint8_t> dst) {
   size_t n = 0;
-  while (n < max_len && down_head_ != down_tail_) {
+  while (n < dst.size() && down_head_ != down_tail_) {
     dst[n++] = down_[down_head_];
     down_head_ = (down_head_ + 1) % kDownCap;
   }
-  return (int)n;
+  return n;
 }
 
 bool TcpServer::WriteDownload(const uint8_t *data, size_t len) {

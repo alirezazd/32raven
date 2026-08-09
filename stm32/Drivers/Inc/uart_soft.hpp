@@ -59,11 +59,11 @@ class UartSoft {
   bool IsOpen() const { return open_; }
 
   void Send(const uint8_t *data, size_t len);
-  bool Read(uint8_t &out);
+  bool ReadByte(uint8_t &out);
 
   // Stops at the first byte that does not arrive, so a short count means a
   // timeout rather than a partial frame worth keeping.
-  size_t ReadBlock(uint8_t *out, size_t len);
+  size_t ReadBytes(uint8_t *out, size_t len);
 
   void FlushRx();
   void SetBaudRate(uint32_t baud_rate);
@@ -84,8 +84,8 @@ class UartSoft {
   void SetOutput();
   void SetInput();
   bool ParityBit(uint8_t value) const;
-  void WriteByte(uint8_t value);
-  bool ReadByte(uint8_t &out);
+  void ShiftOutByte(uint8_t value);
+  bool ShiftInByte(uint8_t &out);
 
   bool LineHigh() const { return (port_->IDR & pin_) != 0u; }
   void DriveHigh() { port_->BSRR = pin_; }

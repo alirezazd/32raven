@@ -229,9 +229,9 @@ void M10Service::ProcessByte(uint8_t byte) {
   sm_.Step(0);
 }
 
-bool M10Service::PopGpsData(uint64_t timestamp_us, GpsData &out) {
+std::optional<GpsData> M10Service::PopGpsData(uint64_t timestamp_us) {
   if (!new_data_) {
-    return false;
+    return std::nullopt;
   }
 
   GpsData data{};
@@ -265,7 +265,6 @@ bool M10Service::PopGpsData(uint64_t timestamp_us, GpsData &out) {
   data.posCovEE = cov_data_.posCovEE;
   data.posCovDD = cov_data_.posCovDD;
 
-  out = data;
   new_data_ = false;
-  return true;
+  return data;
 }

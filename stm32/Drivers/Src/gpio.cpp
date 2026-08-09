@@ -137,25 +137,23 @@ void ApplyConfig(GPIO_TypeDef *port, const GpioInit &init) {
 
 }  // namespace
 
-void GPIO::Init(const PinConfig *pins, size_t pin_count) {
+void GPIO::Init(std::span<const PinConfig> pins) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kGpioReinit);
   }
   initialized_ = true;
-  for (size_t i = 0; i < pin_count; i++) {
-    EnablePortClock(pins[i].port);
+  for (const auto &pc : pins) {
+    EnablePortClock(pc.port);
   }
 
   // Drive safe initial output levels BEFORE flipping the pin to output —
   // prevents glitches during the input -> output transition.
-  for (size_t i = 0; i < pin_count; i++) {
-    const auto &pc = pins[i];
+  for (const auto &pc : pins) {
     if (!IsOutputMode(pc.init.Mode)) continue;
-    const bool initial_level = pc.active_low;
-    WritePin(pc.port, pc.init.Pin, initial_level);
+    WritePin(pc.port, pc.init.Pin, pc.active_low);
   }
-  for (size_t i = 0; i < pin_count; i++) {
-    ApplyConfig(pins[i].port, pins[i].init);
+  for (const auto &pc : pins) {
+    ApplyConfig(pc.port, pc.init);
   }
 }
 

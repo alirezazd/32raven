@@ -3,7 +3,11 @@
 
 #include "programmer.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstring>
+#include <optional>
+#include <span>
 
 #include "error_code.hpp"
 #include "panic.hpp"
@@ -18,7 +22,40 @@ static constexpr char kTag[] = "programmer";
 
 namespace {
 
-constexpr size_t kEsp32OtaWriteChunkBytes = 4096;
+// STM32 ROM bootloader (AN3155) replies. Plain bytes, not an enum: they come
+// off a UART from a device that may be mid-reset and can hold anything.
+constexpr uint8_t kAck = 0x79;
+constexpr uint8_t kNack = 0x1F;
+constexpr uint8_t kSyncByte = 0x7F;
+
+enum class Stm32Cmd : uint8_t {
+  kGet = 0x00,
+  kReadMemory = 0x11,
+  kGo = 0x21,
+  kWriteMemory = 0x31,
+  kEraseMemory = 0x43,
+  kExtErase = 0x44,
+};
+
+// AN3155 frames every command as the opcode followed by its complement.
+constexpr std::array<uint8_t, 2> CmdFrame(Stm32Cmd cmd) {
+  const auto v = static_cast<uint8_t>(cmd);
+  return {v, static_cast<uint8_t>(~v)};
+}
+
+constexpr auto kCmdGet = CmdFrame(Stm32Cmd::kGet);
+constexpr auto kCmdReadMemory = CmdFrame(Stm32Cmd::kReadMemory);
+constexpr auto kCmdWriteMemory = CmdFrame(Stm32Cmd::kWriteMemory);
+constexpr auto kCmdExtErase = CmdFrame(Stm32Cmd::kExtErase);
+
+[[nodiscard]] constexpr std::array<uint8_t, 5> Be32WithXorChecksum(
+    uint32_t addr) {
+  const uint8_t b3 = static_cast<uint8_t>(addr >> 24);
+  const uint8_t b2 = static_cast<uint8_t>(addr >> 16);
+  const uint8_t b1 = static_cast<uint8_t>(addr >> 8);
+  const uint8_t b0 = static_cast<uint8_t>(addr);
+  return {b3, b2, b1, b0, static_cast<uint8_t>(b3 ^ b2 ^ b1 ^ b0)};
+}
 
 struct FlashSector {
   uint16_t number;
@@ -30,33 +67,53 @@ struct Stm32FlashLayout {
   static constexpr uint32_t kBase = 0x08000000u;
   static constexpr uint32_t kFlashSize = 1024u * 1024u;
 
-  static constexpr FlashSector kSectors[] = {
-      {0, 0x08000000u, 16u * 1024u},   {1, 0x08004000u, 16u * 1024u},
-      {2, 0x08008000u, 16u * 1024u},   {3, 0x0800C000u, 16u * 1024u},
-      {4, 0x08010000u, 64u * 1024u},   {5, 0x08020000u, 128u * 1024u},
-      {6, 0x08040000u, 128u * 1024u},  {7, 0x08060000u, 128u * 1024u},
-      {8, 0x08080000u, 128u * 1024u},  {9, 0x080A0000u, 128u * 1024u},
-      {10, 0x080C0000u, 128u * 1024u}, {11, 0x080E0000u, 128u * 1024u},
+  static constexpr auto kSectors = std::to_array<FlashSector>({
+      {0, 0x08000000u, 16u * 1024u},
+      {1, 0x08004000u, 16u * 1024u},
+      {2, 0x08008000u, 16u * 1024u},
+      {3, 0x0800C000u, 16u * 1024u},
+      {4, 0x08010000u, 64u * 1024u},
+      {5, 0x08020000u, 128u * 1024u},
+      {6, 0x08040000u, 128u * 1024u},
+      {7, 0x08060000u, 128u * 1024u},
+      {8, 0x08080000u, 128u * 1024u},
+      {9, 0x080A0000u, 128u * 1024u},
+      {10, 0x080C0000u, 128u * 1024u},
+      {11, 0x080E0000u, 128u * 1024u},
+  });
+
+  struct Placement {
+    uint32_t flash_addr;
+    size_t max_chunk;
   };
 
-  static bool ResolveOffset(uint32_t offset, uint32_t total_size,
-                            uint32_t *flash_addr, size_t *max_chunk) {
-    if (offset >= total_size || total_size > kFlashSize || !flash_addr ||
-        !max_chunk) {
-      return false;
+  [[nodiscard]] static constexpr std::optional<Placement> ResolveOffset(
+      uint32_t offset, uint32_t total_size) {
+    if (offset >= total_size || total_size > kFlashSize) {
+      return std::nullopt;
     }
 
-    *flash_addr = kBase + offset;
-    *max_chunk = total_size - offset;
-    return true;
+    return Placement{kBase + offset, total_size - offset};
   }
 
-  static bool ContainsOffset(uint32_t offset, uint32_t total_size) {
-    uint32_t flash_addr = 0;
-    size_t max_chunk = 0;
-    return ResolveOffset(offset, total_size, &flash_addr, &max_chunk);
+  [[nodiscard]] static constexpr bool ContainsOffset(uint32_t offset,
+                                                     uint32_t total_size) {
+    return ResolveOffset(offset, total_size).has_value();
   }
 };
+
+constexpr uint32_t SectorTableBytes() {
+  uint32_t sum = 0;
+  for (const auto &sector : Stm32FlashLayout::kSectors) {
+    sum += sector.size;
+  }
+  return sum;
+}
+
+// EraseStm32Sectors walks this table until the image is covered, and relies on
+// an image bounded by kFlashSize never outrunning it.
+static_assert(SectorTableBytes() == Stm32FlashLayout::kFlashSize,
+              "sector table must cover the whole flash");
 
 }  // namespace
 
@@ -70,13 +127,8 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
   }
   ctx_.restore_baud_rate = ctx_.uart->GetConfig().line.baud_rate;
 
-  // Init pins
-  // Bind state pointers
-  ctx_.st_idle = &StIdle_;
-  ctx_.st_writing = &StWriting_;
   ctx_.st_verifying = &StVerifying_;
   ctx_.st_done = &StDone_;
-  ctx_.st_error = &StError_;
 
   GpioInit();
 
@@ -121,7 +173,6 @@ void Programmer::GpioInit() {
     io.intr_type = GPIO_INTR_DISABLE;
     gpio_config(&io);
 
-    // Default NRST deasserted (high if active-low reset)
     // Default NRST deasserted (high for active-low reset)
     gpio_set_level(nrst, 1);
   }
@@ -149,8 +200,6 @@ void Programmer::NrstPulse(uint32_t pulse_ms) {
 }
 
 bool Programmer::EnterStm32Bootloader() {
-  if (!ctx_.uart) return false;
-
   // Put STM32 into ROM bootloader: BOOT0=1, reset pulse, settle
   Boot0Set(true);
   NrstPulse(ctx_.cfg.reset_pulse_ms);
@@ -165,17 +214,15 @@ bool Programmer::EnterStm32Bootloader() {
 
   // STM32 ROM bootloader sync:
   // Host sends 0x7F, device replies 0x79 (ACK) or 0x1F (NACK)
-  uint8_t tx = 0x7F;
-  uint8_t rx = 0;
+  uint8_t tx = kSyncByte;
 
   uint8_t retries = ctx_.cfg.sync_retries;
   while (retries--) {
     // Send sync
-    int w = ctx_.uart->Write(&tx, 1);
-    (void)w;
+    (void)ctx_.uart->WriteByte(tx);
 
     // Ensure byte physically left UART
-    (void)ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
+    ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
     // Wait for ACK. Some boards can leave a stale byte in the RX FIFO during
     // the reset-to-bootloader transition; keep reading until timeout so one
@@ -194,12 +241,12 @@ bool Programmer::EnterStm32Bootloader() {
         remaining = 10;
       }
 
-      int r = ctx_.uart->Read(&rx, 1, remaining);
-      if (r != 1) {
+      const auto rx = ctx_.uart->ReadByte(remaining);
+      if (!rx) {
         continue;
       }
 
-      if (rx == 0x79) {
+      if (*rx == kAck) {
         if (unexpected_count > 0) {
           ESP_LOGW(kTag,
                    "STM32 Connect ignored %u unexpected byte(s), last=0x%02X",
@@ -209,12 +256,12 @@ bool Programmer::EnterStm32Bootloader() {
         return true;  // ACK
       }
 
-      if (rx == 0x1F) {
+      if (*rx == kNack) {
         saw_nack = true;
         break;
       }
 
-      last_unexpected = rx;
+      last_unexpected = *rx;
       ++unexpected_count;
     }
 
@@ -236,82 +283,48 @@ bool Programmer::EnterStm32Bootloader() {
 }
 
 bool Programmer::GetStm32BootloaderInfo() {
-  if (!ctx_.uart) return false;
-
   // CMD_GET: 0x00 0xFF
-  uint8_t cmd[] = {0x00, 0xFF};
   ctx_.uart->Flush();
-  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->WriteBytes(kCmdGet);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
   // Expect: ACK + N + Version + N bytes + ACK
   // N = number of bytes to follow - 1
-  uint8_t ack = 0;
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "CMD_GET failed to get initial ACK (0x%02X)", ack);
+  const auto ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (ack != kAck) {
+    ESP_LOGE(kTag, "CMD_GET failed to get initial ACK (0x%02X)",
+             ack.value_or(0));
     return false;
   }
 
-  uint8_t len = 0;
-  if (ctx_.uart->Read(&len, 1, ctx_.cfg.sync_timeout_ms) != 1) {
+  const auto len = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (!len) {
     ESP_LOGE(kTag, "CMD_GET failed to get length");
     return false;
   }
 
-  uint8_t ver = 0;
-  if (ctx_.uart->Read(&ver, 1, ctx_.cfg.sync_timeout_ms) != 1) {
+  const auto ver = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (!ver) {
     ESP_LOGE(kTag, "CMD_GET failed to get version");
     return false;
   }
 
-  ESP_LOGI(kTag, "STM32 Bootloader v%X.%X", ver >> 4, ver & 0xF);
+  ESP_LOGI(kTag, "STM32 Bootloader v%X.%X", *ver >> 4, *ver & 0xF);
 
-  // Version was the first of the N + 1 bytes N counts, so N remain.
-  uint8_t cmds[256];
-  // uint8_t len cannot exceed 255, so it fits in cmds
-
-  if (len > 0) {
-    if (ctx_.uart->Read(cmds, len, ctx_.cfg.sync_timeout_ms) != (int)len) {
+  // Version was the first of the N + 1 bytes N counts, so N remain: the
+  // supported-command list. Drained to stay framed for the final ACK, not
+  // inspected — BeginStm32Session proceeds whatever this returns, so a
+  // capability check here could only mislead.
+  if (*len > 0) {
+    uint8_t cmds[UINT8_MAX];  // *len is a uint8_t, so it always fits
+    if (ctx_.uart->ReadBytes({cmds, *len}, ctx_.cfg.sync_timeout_ms) != *len) {
       ESP_LOGE(kTag, "CMD_GET failed to get commands");
       return false;
     }
-
-    // Verify critical commands: READ(0x11), WRITE(0x31), ERASE(0x43/44),
-    // GO(0x21)
-    bool has_read = false;
-    bool has_write = false;
-    bool has_erase = false;
-    bool has_go = false;
-
-    for (int i = 0; i < len; ++i) {
-      switch (cmds[i]) {
-        case 0x11:
-          has_read = true;
-          break;
-        case 0x31:
-          has_write = true;
-          break;
-        case 0x43:
-        case 0x44:
-          has_erase = true;
-          break;
-        case 0x21:
-          has_go = true;
-          break;
-      }
-    }
-
-    if (!has_read || !has_write || !has_erase || !has_go) {
-      ESP_LOGE(kTag, "Missing critical commands: R=%d W=%d E=%d GO=%d",
-               has_read, has_write, has_erase, has_go);
-      return false;
-    }
-    ESP_LOGI(kTag, "Bootloader capabilities OK");
   }
 
-  uint8_t final_ack = 0;
-  if (ctx_.uart->Read(&final_ack, 1, ctx_.cfg.sync_timeout_ms) != 1 ||
-      final_ack != 0x79) {
+  const auto final_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (final_ack != kAck) {
     ESP_LOGE(kTag, "CMD_GET missing final ACK");
     return false;
   }
@@ -320,14 +333,12 @@ bool Programmer::GetStm32BootloaderInfo() {
 }
 
 bool Programmer::EraseStm32Sectors() {
-  if (!ctx_.uart) return false;
   if (ctx_.total_size == 0 || ctx_.total_size > Stm32FlashLayout::kFlashSize) {
     ESP_LOGE(kTag, "STM32 image size %u is invalid", (unsigned)ctx_.total_size);
     return false;
   }
 
-  uint16_t sectors[sizeof(Stm32FlashLayout::kSectors) /
-                   sizeof(Stm32FlashLayout::kSectors[0])];
+  std::array<uint16_t, Stm32FlashLayout::kSectors.size()> sectors{};
   size_t sector_count = 0;
   uint32_t remaining = ctx_.total_size;
 
@@ -339,29 +350,22 @@ bool Programmer::EraseStm32Sectors() {
     remaining -= sector.size;
   }
 
-  if (sector_count == 0 ||
-      remaining > Stm32FlashLayout::kSectors[sector_count - 1].size) {
-    ESP_LOGE(kTag, "STM32 image size %u exceeds flash layout",
-             (unsigned)ctx_.total_size);
-    return false;
-  }
-
   ESP_LOGI(kTag, "Sending EXT_ERASE (0x44) for %u sector(s)...",
            (unsigned)sector_count);
 
-  uint8_t cmd[] = {0x44, 0xBB};
   ctx_.uart->Flush();
-  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->WriteBytes(kCmdExtErase);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  uint8_t ack = 0;
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "EXT_ERASE failed to get initial ACK (0x%02X)", ack);
+  const auto initial_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (initial_ack != kAck) {
+    ESP_LOGE(kTag, "EXT_ERASE failed to get initial ACK (0x%02X)",
+             initial_ack.value_or(0));
     return false;
   }
 
   const uint16_t count_minus_one = static_cast<uint16_t>(sector_count - 1u);
-  uint8_t payload[2 + sizeof(sectors) + 1] = {};
+  std::array<uint8_t, 2 + 2 * Stm32FlashLayout::kSectors.size() + 1> payload{};
   size_t payload_len = 0;
   uint8_t checksum = 0;
 
@@ -380,56 +384,14 @@ bool Programmer::EraseStm32Sectors() {
   }
   payload[payload_len++] = checksum;
 
-  ctx_.uart->Write(payload, payload_len);
+  ctx_.uart->WriteBytes({payload.data(), payload_len});
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
   const uint32_t erase_timeout_ms = 10000;
-  ack = 0;
-  if (ctx_.uart->Read(&ack, 1, erase_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)", ack);
-    return false;
-  }
-
-  ESP_LOGI(kTag, "EXT_ERASE Success");
-  return true;
-}
-
-bool Programmer::MassEraseStm32() {
-  if (!ctx_.uart) return false;
-
-  ESP_LOGI(kTag, "Sending EXT_ERASE (0x44)...");
-
-  // CMD_EXT_ERASE: 0x44 0xBB
-  uint8_t cmd[] = {0x44, 0xBB};
-  ctx_.uart->Flush();
-  ctx_.uart->Write(cmd, sizeof(cmd));
-  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
-
-  uint8_t ack = 0;
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "EXT_ERASE failed to get initial ACK (0x%02X)", ack);
-    return false;
-  }
-
-  // To mass erase: 0xFF 0xFF + Checksum (0x00)
-  // Wait, AN3155 says:
-  // 1. Send 0x44 0xBB -> Receive ACK
-  // 2. Send 0xFF 0xFF (Special erase code) + 0x00 (Checksum of 0xFF 0xFF xor
-  // logic? No, simple sum checksum) Checksum calculation: 0xFF ^ 0xFF = 0x00.
-  // Correct.
-
-  uint8_t payload[] = {0xFF, 0xFF, 0x00};
-  ctx_.uart->Write(payload, sizeof(payload));
-  ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
-
-  // Wait for final ACK - this can take time for full chip erase!
-  // Configured wait time might need to be longer.
-  // Using a longer timeout here.
-  const uint32_t erase_timeout_ms = 10000;
-
-  ack = 0;
-  if (ctx_.uart->Read(&ack, 1, erase_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)", ack);
+  const auto final_ack = ctx_.uart->ReadByte(erase_timeout_ms);
+  if (final_ack != kAck) {
+    ESP_LOGE(kTag, "EXT_ERASE failed to get final ACK (0x%02X)",
+             final_ack.value_or(0));
     return false;
   }
 
@@ -438,8 +400,6 @@ bool Programmer::MassEraseStm32() {
 }
 
 bool Programmer::Boot() {
-  if (!ctx_.uart) return false;
-
   ESP_LOGI(kTag, "Performing Hardware Reset to Boot App...");
 
   // Ensure BOOT0 is low (User Flash mode)
@@ -456,36 +416,31 @@ bool Programmer::Boot() {
 
 bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
                                  size_t len) {
-  if (!ctx_.uart || !data || len == 0 ||
-      len > esp32_limits::kProgrammerStm32BlockBytes) {
+  if (!data || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
     return false;
   }
 
   // CMD_WRITE_MEMORY: 0x31 0xCE
-  uint8_t cmd[] = {0x31, 0xCE};
   ctx_.uart->Flush();
-  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->WriteBytes(kCmdWriteMemory);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  uint8_t ack = 0;
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "WRITE_MEM failed to get initial ACK (0x%02X)", ack);
+  const auto initial_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (initial_ack != kAck) {
+    ESP_LOGE(kTag, "WRITE_MEM failed to get initial ACK (0x%02X)",
+             initial_ack.value_or(0));
     return false;
   }
 
   // Address: 4 bytes (BE) + Checksum
-  uint8_t addr_buf[5];
-  addr_buf[0] = (addr >> 24) & 0xFF;
-  addr_buf[1] = (addr >> 16) & 0xFF;
-  addr_buf[2] = (addr >> 8) & 0xFF;
-  addr_buf[3] = (addr >> 0) & 0xFF;
-  addr_buf[4] = addr_buf[0] ^ addr_buf[1] ^ addr_buf[2] ^ addr_buf[3];
-
-  ctx_.uart->Write(addr_buf, 5);
+  const auto addr_buf = Be32WithXorChecksum(addr);
+  ctx_.uart->WriteBytes(addr_buf);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "WRITE_MEM failed to get addr ACK (0x%02X)", ack);
+  const auto addr_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (addr_ack != kAck) {
+    ESP_LOGE(kTag, "WRITE_MEM failed to get addr ACK (0x%02X)",
+             addr_ack.value_or(0));
     return false;
   }
 
@@ -496,13 +451,15 @@ bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
     cs ^= data[i];
   }
 
-  ctx_.uart->Write(&n, 1);
-  ctx_.uart->Write(data, len);
-  ctx_.uart->Write(&cs, 1);
+  ctx_.uart->WriteByte(n);
+  ctx_.uart->WriteBytes({data, len});
+  ctx_.uart->WriteByte(cs);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "WRITE_MEM failed to get data ACK (0x%02X)", ack);
+  const auto data_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (data_ack != kAck) {
+    ESP_LOGE(kTag, "WRITE_MEM failed to get data ACK (0x%02X)",
+             data_ack.value_or(0));
     return false;
   }
 
@@ -510,36 +467,31 @@ bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
 }
 
 bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *data, size_t len) {
-  if (!ctx_.uart || !data || len == 0 ||
-      len > esp32_limits::kProgrammerStm32BlockBytes) {
+  if (!data || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
     return false;
   }
 
   // CMD_READ_MEMORY: 0x11 0xEE
-  uint8_t cmd[] = {0x11, 0xEE};
   ctx_.uart->Flush();
-  ctx_.uart->Write(cmd, sizeof(cmd));
+  ctx_.uart->WriteBytes(kCmdReadMemory);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  uint8_t ack = 0;
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "READ_MEM failed to get initial ACK (0x%02X)", ack);
+  const auto initial_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (initial_ack != kAck) {
+    ESP_LOGE(kTag, "READ_MEM failed to get initial ACK (0x%02X)",
+             initial_ack.value_or(0));
     return false;
   }
 
   // Address: 4 bytes (BE) + Checksum
-  uint8_t addr_buf[5];
-  addr_buf[0] = (addr >> 24) & 0xFF;
-  addr_buf[1] = (addr >> 16) & 0xFF;
-  addr_buf[2] = (addr >> 8) & 0xFF;
-  addr_buf[3] = (addr >> 0) & 0xFF;
-  addr_buf[4] = addr_buf[0] ^ addr_buf[1] ^ addr_buf[2] ^ addr_buf[3];
-
-  ctx_.uart->Write(addr_buf, 5);
+  const auto addr_buf = Be32WithXorChecksum(addr);
+  ctx_.uart->WriteBytes(addr_buf);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "READ_MEM failed to get addr ACK (0x%02X)", ack);
+  const auto addr_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (addr_ack != kAck) {
+    ESP_LOGE(kTag, "READ_MEM failed to get addr ACK (0x%02X)",
+             addr_ack.value_or(0));
     return false;
   }
 
@@ -548,17 +500,19 @@ bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *data, size_t len) {
   uint8_t cs = ~n;
 
   uint8_t len_buf[2] = {n, cs};
-  ctx_.uart->Write(len_buf, 2);
+  ctx_.uart->WriteBytes(len_buf);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
-  if (ctx_.uart->Read(&ack, 1, ctx_.cfg.sync_timeout_ms) != 1 || ack != 0x79) {
-    ESP_LOGE(kTag, "READ_MEM failed to get length ACK (0x%02X)", ack);
+  const auto len_ack = ctx_.uart->ReadByte(ctx_.cfg.sync_timeout_ms);
+  if (len_ack != kAck) {
+    ESP_LOGE(kTag, "READ_MEM failed to get length ACK (0x%02X)",
+             len_ack.value_or(0));
     return false;
   }
 
-  // Receive data
-  int r = ctx_.uart->Read(
-      data, len,
+  // Receive bytes
+  int r = ctx_.uart->ReadBytes(
+      {data, len},
       ctx_.cfg.sync_timeout_ms + (len / 10));  // extra time for bytes
   if (r != (int)len) {
     ESP_LOGE(kTag, "READ_MEM read data failed exp=%u got=%d", (unsigned)len, r);
@@ -593,8 +547,7 @@ void Programmer::Start(uint32_t total_size) {
 
 void Programmer::Poll(SmTick now) { sm_.Step(now); }
 
-void Programmer::Abort(SmTick now) {
-  (void)now;
+void Programmer::Abort(SmTick) {
   // Disable bootloader entry and clear buffers
   Boot0Set(false);
 
@@ -613,52 +566,45 @@ void Programmer::Abort(SmTick now) {
   }
 }
 
-size_t Programmer::PushBytes(const uint8_t *data, size_t n, SmTick now) {
+size_t Programmer::PushBytes(std::span<const uint8_t> data, SmTick now) {
   if (!ctx_.ready) return 0;  // not ready to accept bytes
   if (Error() || Done()) return 0;
 
-  size_t accepted = 0;
-  if (data && n) {
-    const size_t free = RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
-    const size_t take = (n <= free) ? n : free;
+  const size_t free = RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
+  const size_t take = (data.size() <= free) ? data.size() : free;
 
-    for (size_t i = 0; i < take; ++i) {
-      ctx_.buf[ctx_.tail] = data[i];
-      ctx_.tail = (ctx_.tail + 1) % Ctx::kBufCap;
-    }
-    accepted = take;
-
-    if (take < n) {
-      ctx_.overflow = true;
-    }
+  if (take > 0) {
+    const size_t until_wrap = std::min(take, Ctx::kBufCap - ctx_.tail);
+    std::memcpy(ctx_.buf + ctx_.tail, data.data(), until_wrap);
+    std::memcpy(ctx_.buf, data.data() + until_wrap, take - until_wrap);
+    ctx_.tail = (ctx_.tail + take) % Ctx::kBufCap;
   }
 
-  // Advance internal SM even if n==0 (lets it finish draining / finalize)
+  if (take < data.size()) {
+    ctx_.overflow = true;
+  }
+
+  // Advance internal SM even if data is empty (lets it finish draining /
+  // finalize)
   sm_.Step(now);
-  return accepted;
+  return take;
 }
 
 bool Programmer::Ready() const { return ctx_.ready && !Error(); }
 
-bool Programmer::Done() const {
-  return (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Done") == 0);
-}
+bool Programmer::Done() const { return sm_.CurrentState() == &StDone_; }
 
-bool Programmer::Error() const {
-  return (sm_.CurrentName() && std::strcmp(sm_.CurrentName(), "P.Error") == 0);
-}
+bool Programmer::Error() const { return sm_.CurrentState() == &StError_; }
 
 uint32_t Programmer::LastErrorCode() const {
-  const uint32_t err = static_cast<uint32_t>(ctx_.err);
-  if (err == static_cast<uint32_t>(ErrorCode::Common::kOk)) {
+  if (ctx_.err == static_cast<uint32_t>(ErrorCode::Common::kOk)) {
     return static_cast<uint32_t>(ErrorCode::Common::kUnknown);
   }
-  return err;
+  return ctx_.err;
 }
 
 bool Programmer::IsVerifying() const {
-  return (sm_.CurrentName() &&
-          std::strcmp(sm_.CurrentName(), "P.Verifying") == 0);
+  return sm_.CurrentState() == &StVerifying_;
 }
 
 uint32_t Programmer::Total() const { return ctx_.total_size; }
@@ -675,7 +621,7 @@ bool Programmer::BeginTargetSession(Ctx &c) {
 
 size_t Programmer::TargetWriteChunkLimit(const Ctx &c) const {
   return (c.target == Target::kEsp32)
-             ? kEsp32OtaWriteChunkBytes
+             ? Ctx::kWriteChunkCap
              : esp32_limits::kProgrammerStm32BlockBytes;
 }
 
@@ -684,22 +630,22 @@ bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len) {
     return WriteEsp32Chunk(c, data, len);
   }
 
-  uint32_t flash_addr = 0;
-  size_t max_chunk = 0;
-  if (!Stm32FlashLayout::ResolveOffset(c.written, c.total_size, &flash_addr,
-                                       &max_chunk)) {
+  const auto placement =
+      Stm32FlashLayout::ResolveOffset(c.written, c.total_size);
+  if (!placement) {
     ESP_LOGE(kTag, "STM32 write offset 0x%08X is outside flash image",
              (unsigned)c.written);
     return false;
   }
 
-  if (len > max_chunk) {
+  if (len > placement->max_chunk) {
     ESP_LOGE(kTag, "Write chunk crossed STM32 image boundary");
     return false;
   }
 
-  if (!WriteStm32Block(flash_addr, data, len)) {
-    ESP_LOGE(kTag, "Write failed at addr 0x%08X", (unsigned)flash_addr);
+  if (!WriteStm32Block(placement->flash_addr, data, len)) {
+    ESP_LOGE(kTag, "Write failed at addr 0x%08X",
+             (unsigned)placement->flash_addr);
     return false;
   }
 
@@ -716,38 +662,43 @@ size_t Programmer::TargetVerifyChunkSize(const Ctx &c) const {
              : esp32_limits::kProgrammerStm32BlockBytes;
 }
 
-bool Programmer::ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len) {
-  if (data == nullptr || len == nullptr || *len == 0) {
-    return false;
-  }
-
+std::optional<size_t> Programmer::ReadTargetVerifyChunk(
+    Ctx &c, std::span<uint8_t> dst) {
   if (c.target == Target::kEsp32) {
-    return ReadEsp32PartitionBlock(c, c.verify_offset, data, *len);
+    if (!ReadEsp32PartitionBlock(c, c.verify_offset, dst.data(), dst.size())) {
+      return std::nullopt;
+    }
+    return dst.size();
   }
 
-  uint32_t flash_addr = 0;
-  size_t max_chunk = 0;
-  if (!Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size,
-                                       &flash_addr, &max_chunk)) {
+  const auto placement =
+      Stm32FlashLayout::ResolveOffset(c.verify_offset, c.total_size);
+  if (!placement) {
     ESP_LOGE(kTag, "STM32 verify offset 0x%08X is outside flash image",
              (unsigned)c.verify_offset);
-    return false;
+    return std::nullopt;
   }
 
-  if (*len > max_chunk) {
-    *len = max_chunk;
+  const size_t n =
+      (dst.size() < placement->max_chunk) ? dst.size() : placement->max_chunk;
+  if (!ReadStm32Block(placement->flash_addr, dst.data(), n)) {
+    return std::nullopt;
   }
 
-  return ReadStm32Block(flash_addr, data, *len);
+  return n;
 }
 
 // Reached only by the STM32: an ESP32 image reboots out of
 // CompleteSuccessfulProgram before this state exists. Both branches of
 // verify.EnabledFor() funnel here, so one tone covers write-only and
 // write-then-verify without either path knowing which ran.
-void Programmer::DoneState::OnEnter(Ctx &c) {
-  (void)c;
+void Programmer::DoneState::OnEnter(Ctx &) {
   Sys().TonePlayer().PlayBuiltin(message::Tone::kConfirm);
+}
+
+void Programmer::Fail(Ctx &c, ErrorCode::Esp32 code) {
+  c.err = static_cast<uint32_t>(code);
+  sm_.ReqTransition(StError_);
 }
 
 bool Programmer::CompleteSuccessfulProgram(Ctx &c) {
@@ -762,9 +713,7 @@ bool Programmer::CompleteSuccessfulProgram(Ctx &c) {
     return true;
   }
 
-  if (c.sm && c.st_done) {
-    c.sm->ReqTransition(*c.st_done);
-  }
+  c.sm->ReqTransition(*c.st_done);
   return true;
 }
 
@@ -836,10 +785,7 @@ bool Programmer::FinalizeEsp32Ota(Ctx &c) {
   esp_err_t err = esp_ota_end(c.ota_handle);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_end failed: %s", esp_err_to_name(err));
-    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaEndFailed);
-    if (c.sm && c.st_error) {
-      c.sm->ReqTransition(*c.st_error);
-    }
+    Fail(c, ErrorCode::Esp32::kProgrammerOtaEndFailed);
     return false;
   }
   c.ota_handle = 0;
@@ -851,11 +797,7 @@ bool Programmer::ActivateEsp32Ota(Ctx &c) {
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_set_boot_partition failed: %s",
              esp_err_to_name(err));
-    c.err =
-        static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaSetBootFailed);
-    if (c.sm && c.st_error) {
-      c.sm->ReqTransition(*c.st_error);
-    }
+    Fail(c, ErrorCode::Esp32::kProgrammerOtaSetBootFailed);
     return false;
   }
   return true;
@@ -878,79 +820,59 @@ bool Programmer::ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset,
 
 // State implementations
 
-void Programmer::WritingState::OnStep(Ctx &c, SmTick now) {
-  (void)now;
+void Programmer::WritingState::OnStep(Ctx &c, SmTick) {
+  Programmer &self = Programmer::GetInstance();
 
-  // If buffer overflow happened, error out
   if (c.overflow) {
-    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerBufferOverflow);
-    if (c.sm && c.st_error) {
-      c.sm->ReqTransition(*c.st_error);
-    }
+    self.Fail(c, ErrorCode::Esp32::kProgrammerBufferOverflow);
     return;
   }
 
   while (c.written < c.total_size) {
-    size_t available = RbUsed(c.head, c.tail, Ctx::kBufCap);
+    const size_t remaining_file = c.total_size - c.written;
+    const size_t needed =
+        std::min(self.TargetWriteChunkLimit(c), remaining_file);
 
-    const size_t protocol_limit =
-        Programmer::GetInstance().TargetWriteChunkLimit(c);
-
-    size_t needed = protocol_limit;
-    size_t remaining_file = c.total_size - c.written;
-    if (needed > remaining_file) needed = remaining_file;
-
-    if (available < needed) {
-      // Wait for more data
-      return;
+    if (RbUsed(c.head, c.tail, Ctx::kBufCap) < needed) {
+      return;  // Wait for more bytes
     }
 
-    static uint8_t block[kEsp32OtaWriteChunkBytes];
-    for (size_t i = 0; i < needed; ++i) {
-      block[i] = c.buf[c.head];
-      c.head = (c.head + 1) % Ctx::kBufCap;
-    }
+    const size_t until_wrap = std::min(needed, Ctx::kBufCap - c.head);
+    std::memcpy(c.block, c.buf + c.head, until_wrap);
+    std::memcpy(c.block + until_wrap, c.buf, needed - until_wrap);
+    c.head = (c.head + needed) % Ctx::kBufCap;
 
-    if (!Programmer::GetInstance().WriteTargetChunk(c, block, needed)) {
-      c.err = static_cast<uint32_t>(
-          (c.target == Target::kEsp32)
-              ? ErrorCode::Esp32::kProgrammerOtaWriteFailed
-              : ErrorCode::Esp32::kProgrammerWriteFailed);
-      if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
+    if (!self.WriteTargetChunk(c, c.block, needed)) {
+      self.Fail(c, (c.target == Target::kEsp32)
+                       ? ErrorCode::Esp32::kProgrammerOtaWriteFailed
+                       : ErrorCode::Esp32::kProgrammerWriteFailed);
       return;
     }
 
     // Update ongoing SHA256
     if (c.target == Target::kEsp32 ||
         Stm32FlashLayout::ContainsOffset(c.written, c.total_size)) {
-      mbedtls_sha256_update(&c.sha_ctx, block, needed);
+      mbedtls_sha256_update(&c.sha_ctx, c.block, needed);
     }
     c.written += needed;
   }
 
-  // Done writing
-  if (c.written >= c.total_size) {
-    mbedtls_sha256_finish(&c.sha_ctx, c.computed_hash);
-    mbedtls_sha256_free(&c.sha_ctx);
+  mbedtls_sha256_finish(&c.sha_ctx, c.computed_hash);
+  mbedtls_sha256_free(&c.sha_ctx);
 
-    ESP_LOGI(kTag, "Write complete.");
+  ESP_LOGI(kTag, "Write complete.");
 
-    if (!Programmer::GetInstance().FinalizeTargetWrite(c)) {
-      return;
-    }
-
-    if (c.cfg.verify.EnabledFor(c.target)) {
-      ESP_LOGI(kTag, "Verifying...");
-      if (c.sm && c.st_verifying) {
-        c.sm->ReqTransition(*c.st_verifying);
-      }
-      return;
-    }
-
-    if (!Programmer::GetInstance().CompleteSuccessfulProgram(c)) {
-      return;
-    }
+  if (!self.FinalizeTargetWrite(c)) {
+    return;
   }
+
+  if (c.cfg.verify.EnabledFor(c.target)) {
+    ESP_LOGI(kTag, "Verifying...");
+    c.sm->ReqTransition(*c.st_verifying);
+    return;
+  }
+
+  (void)self.CompleteSuccessfulProgram(c);
 }
 
 void Programmer::VerifyingState::OnEnter(Ctx &c) {
@@ -961,32 +883,23 @@ void Programmer::VerifyingState::OnEnter(Ctx &c) {
 }
 
 void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
-  while (c.verify_offset < c.total_size) {
+  Programmer &self = Programmer::GetInstance();
+
+  if (c.verify_offset < c.total_size) {
     // Reuse the upload staging buffer as verify scratch after writing
     // completes.
-    size_t chunk = Programmer::GetInstance().TargetVerifyChunkSize(c);
-    if (chunk > Ctx::kBufCap) {
-      chunk = Ctx::kBufCap;
-    }
-    if (chunk > (c.total_size - c.verify_offset)) {
-      chunk = c.total_size - c.verify_offset;
-    }
+    const size_t chunk =
+        std::min({self.TargetVerifyChunkSize(c), Ctx::kBufCap,
+                  static_cast<size_t>(c.total_size - c.verify_offset)});
 
-    if (!Programmer::GetInstance().ReadTargetVerifyChunk(c, c.buf, &chunk)) {
-      c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerReadFailed);
-      if (c.sm && c.st_error) {
-        c.sm->ReqTransition(*c.st_error);
-      }
+    const auto read = self.ReadTargetVerifyChunk(c, {c.buf, chunk});
+    if (!read) {
+      self.Fail(c, ErrorCode::Esp32::kProgrammerReadFailed);
       return;
     }
 
-    if (chunk == 0) {
-      continue;
-    }
-
-    mbedtls_sha256_update(&c.sha_ctx, c.buf, chunk);
-    c.verify_offset += chunk;
-
+    mbedtls_sha256_update(&c.sha_ctx, c.buf, *read);
+    c.verify_offset += *read;
     return;
   }
 
@@ -998,11 +911,10 @@ void Programmer::VerifyingState::OnStep(Ctx &c, SmTick) {
   // Compare
   if (std::memcmp(c.computed_hash, read_hash, 32) != 0) {
     ESP_LOGE(kTag, "Verification Failed! CRCs do not match.");
-    c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerVerifyFailed);
-    if (c.sm && c.st_error) c.sm->ReqTransition(*c.st_error);
+    self.Fail(c, ErrorCode::Esp32::kProgrammerVerifyFailed);
   } else {
     ESP_LOGI(kTag, "Verification Successful. Hash matches.");
-    if (!Programmer::GetInstance().CompleteSuccessfulProgram(c)) {
+    if (!self.CompleteSuccessfulProgram(c)) {
       return;
     }
   }

@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "esp32_limits.hpp"
 #include "i2c.hpp"
@@ -40,9 +41,9 @@ class Ssd1306Panel {
   }
 
   void Init(const Config &cfg, I2cDisplay *i2c);
-  void Flush(const uint8_t *framebuffer, size_t size);
-  void FlushPageRange(uint8_t page, const uint8_t *page_data, size_t x_begin,
-                      size_t count);
+  void Flush(std::span<const uint8_t, kFramebufferSize> framebuffer);
+  void FlushPageRange(uint8_t page, std::span<const uint8_t, kWidth> row,
+                      size_t x_begin, size_t count);
   void SetFadeOut(uint8_t interval);
   void DisableFadeOut();
   void DisplayOn();
@@ -56,7 +57,7 @@ class Ssd1306Panel {
   static constexpr size_t kColumnOffset =
       esp32_limits::kDisplayPanelColumnOffset;
 
-  void SendCommands(const uint8_t *commands, size_t count);
+  void SendCommands(std::span<const uint8_t> commands);
   void SetPageAddress(uint8_t page, uint8_t column);
 
   Config cfg_{};

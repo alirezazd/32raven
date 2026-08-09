@@ -401,7 +401,7 @@ static void StepSlow(AppContext &ctx, SmTick now) {
     auto &gps_svc = ctx.sys->GpsSvc();
     uint8_t c;
     uint32_t gps_bytes = 0;
-    while (gps_bytes < 32 && gps_uart.Read(c)) {
+    while (gps_bytes < 32 && gps_uart.ReadByte(c)) {
       gps_svc.ProcessByte(c);
       gps_bytes++;
     }
@@ -428,13 +428,12 @@ static void StepSlow(AppContext &ctx, SmTick now) {
 
   // 5. Process GPS Data (Decoupled)
   auto &gps_svc = ctx.sys->GpsSvc();
-  GpsData t{};
-  if (gps_svc.PopGpsData(ctx.sys->Time().Micros(), t)) {
+  if (const auto gps = gps_svc.PopGpsData(ctx.sys->Time().Micros())) {
     uint32_t t0 = micros();
-    ctx.sys->Vehicle().UpdateGps(t);
+    ctx.sys->Vehicle().UpdateGps(*gps);
 
     const BatteryData &bat = ctx.sys->Vehicle().GetBattery();
-    ctx.sys->FcLinkSvc().SendGps(t, bat);
+    ctx.sys->FcLinkSvc().SendGps(*gps, bat);
 
     uint32_t dt = micros() - t0;
     if (dt > g_prof_gpspub_us) g_prof_gpspub_us = dt;

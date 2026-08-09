@@ -10,7 +10,7 @@
 
 static volatile uint32_t g_tim5_tick_count = 0;
 
-extern "C" void TimeBaseOnTim5Irq(void) { g_tim5_tick_count++; }
+extern "C" void TimeBaseOnTim5Irq(void) { g_tim5_tick_count = g_tim5_tick_count + 1; }
 
 TimeBase &TimeBase::GetInstance() {
   static TimeBase instance;

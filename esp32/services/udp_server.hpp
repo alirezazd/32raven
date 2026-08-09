@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
+#include <span>
 
 #include "esp32_limits.hpp"
 #include "mavlink_transport.hpp"
@@ -28,12 +28,12 @@ class UdpServer : public IMavlinkTransport {
     return instance;
   }
 
-  esp_err_t Start();
+  [[nodiscard]] esp_err_t Start();
   void Stop();
   void ClearPeer() override;
 
-  int Receive(uint8_t *dst, size_t max_len) override;
-  int Send(const uint8_t *data, size_t len) override;
+  int Receive(std::span<uint8_t> dst) override;
+  int Send(std::span<const uint8_t> data) override;
   bool IsReady() const override;
 
  private:

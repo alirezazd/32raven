@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "message.hpp"
 #include "uart.hpp"
@@ -50,12 +51,20 @@ class CrsfLinkService {
     kCount,
   };
 
+  static constexpr uint8_t kMaxTelemetryPayload = 16u;
+
+  struct TelemetryFrame {
+    uint8_t type = 0;
+    uint8_t len = 0;
+    std::array<uint8_t, kMaxTelemetryPayload> payload{};
+  };
+
   struct TopicState {
     uint32_t next_due_us = 0;
     uint32_t last_sent_us = 0;
     uint8_t last_payload_len = 0;
     bool have_last_payload = false;
-    std::array<uint8_t, 16> last_payload{};
+    std::array<uint8_t, kMaxTelemetryPayload> last_payload{};
   };
 
   enum class PendingCommand : uint8_t {
@@ -72,18 +81,13 @@ class CrsfLinkService {
   const TopicConfig &GetTelemetryTopicConfig(TelemetryTopic topic) const;
   TopicState &GetTelemetryTopicState(TelemetryTopic topic);
   bool IsTelemetryTopicReady(TelemetryTopic topic, uint32_t now_us) const;
-  bool PrepareTelemetryTopic(TelemetryTopic topic, uint32_t now_us,
-                             uint8_t &type, uint8_t *payload,
-                             uint8_t &payload_len) const;
+  std::optional<TelemetryFrame> PrepareTelemetryTopic(TelemetryTopic topic,
+                                                      uint32_t now_us) const;
   bool ShouldSendTelemetryTopic(TelemetryTopic topic, uint32_t now_us,
-                                const uint8_t *payload,
-                                uint8_t payload_len) const;
-  uint32_t ComputeDeferredDueTime(TelemetryTopic topic, uint32_t now_us,
-                                  const uint8_t *payload,
-                                  uint8_t payload_len) const;
+                                const TelemetryFrame &frame) const;
+  uint32_t ComputeDeferredDueTime(TelemetryTopic topic, uint32_t now_us) const;
   bool TrySendTelemetryTopic(TelemetryTopic topic, uint32_t now_us,
-                             const uint8_t *payload, uint8_t payload_len,
-                             uint8_t type);
+                             const TelemetryFrame &frame);
   bool TrySendHeartbeatTelemetry();
   bool TrySendGpsTelemetry(const uint8_t *payload, uint8_t payload_len);
   bool TrySendBatteryTelemetry();

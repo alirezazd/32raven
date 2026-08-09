@@ -78,13 +78,13 @@ bool I2c<Inst>::Probe(uint16_t address) const {
 }
 
 template <I2cInstance Inst>
-void I2c<Inst>::Transmit(i2c_master_dev_handle_t device, const uint8_t *data,
-                         size_t size) const {
-  if (data == nullptr || size == 0) {
+void I2c<Inst>::Transmit(i2c_master_dev_handle_t device,
+                         std::span<const uint8_t> data) const {
+  if (data.empty()) {
     Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
-  if (i2c_master_transmit(device, data, size,
+  if (i2c_master_transmit(device, data.data(), data.size(),
                           static_cast<int>(cfg_.bus.transfer_timeout_ms)) !=
       ESP_OK) {
     Panic(ErrorCode::Esp32::kI2cOperationFailed);
@@ -94,14 +94,13 @@ void I2c<Inst>::Transmit(i2c_master_dev_handle_t device, const uint8_t *data,
 template <I2cInstance Inst>
 void I2c<Inst>::MultiBufferTransmit(
     i2c_master_dev_handle_t device,
-    i2c_master_transmit_multi_buffer_info_t *buffers,
-    size_t buffer_count) const {
-  if (buffers == nullptr || buffer_count == 0) {
+    std::span<i2c_master_transmit_multi_buffer_info_t> buffers) const {
+  if (buffers.empty()) {
     Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
   if (i2c_master_multi_buffer_transmit(
-          device, buffers, buffer_count,
+          device, buffers.data(), buffers.size(),
           static_cast<int>(cfg_.bus.transfer_timeout_ms)) != ESP_OK) {
     Panic(ErrorCode::Esp32::kI2cOperationFailed);
   }
@@ -109,15 +108,15 @@ void I2c<Inst>::MultiBufferTransmit(
 
 template <I2cInstance Inst>
 void I2c<Inst>::TransmitReceive(i2c_master_dev_handle_t device,
-                                const uint8_t *write_buffer, size_t write_size,
-                                uint8_t *read_buffer, size_t read_size) const {
-  if (write_buffer == nullptr || write_size == 0 || read_buffer == nullptr ||
-      read_size == 0) {
+                                std::span<const uint8_t> write_buffer,
+                                std::span<uint8_t> read_buffer) const {
+  if (write_buffer.empty() || read_buffer.empty()) {
     Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
   if (i2c_master_transmit_receive(
-          device, write_buffer, write_size, read_buffer, read_size,
+          device, write_buffer.data(), write_buffer.size(), read_buffer.data(),
+          read_buffer.size(),
           static_cast<int>(cfg_.bus.transfer_timeout_ms)) != ESP_OK) {
     Panic(ErrorCode::Esp32::kI2cOperationFailed);
   }

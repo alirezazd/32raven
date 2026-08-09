@@ -15,7 +15,7 @@ void Mavlink::ServiceUdpRx() {
   mavlink_message_t msg{};
 
   for (int iter = 0; iter < kMaxDrainIterations; ++iter) {
-    const int received = transport_->Receive(rx_buf.data(), rx_buf.size());
+    const int received = transport_->Receive(rx_buf);
     if (received <= 0) {
       return;
     }

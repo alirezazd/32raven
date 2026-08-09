@@ -119,16 +119,28 @@ class M10 {
  private:
   friend class System;
 
+  // M10 config is applied to RAM on each boot; this module variant has no
+  // flash. VALSET layers are a bitmask while VALGET layers are an enumeration,
+  // so 0x01 means RAM in one space and BBR in the other — separate types keep
+  // the two from being passed to the wrong call.
+  enum class ValsetLayer : uint8_t { kRam = 0x01 };
+  enum class ValgetLayer : uint8_t {
+    kRam = 0,
+    kBbr = 1,
+    kFlash = 2,
+    kDefault = 7,
+  };
+
   void Init(const Config &config);
-  void ApplyConfig(uint8_t layer);
+  void ApplyConfig(ValsetLayer layer);
 
   template <typename T>
-  void SendCfgValSetRaw(uint32_t key, T value, uint8_t layer);
+  void SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer);
 
   template <typename T>
-  bool SendCfgValSet(uint32_t key, T value, uint8_t layer);
+  bool SendCfgValSet(uint32_t key, T value, ValsetLayer layer);
 
-  void SendCfgValGet(uint32_t key, uint8_t layer);
+  void SendCfgValGet(uint32_t key, ValgetLayer layer);
 
   template <typename T>
   bool WaitForValget(uint32_t key, T expected_value);

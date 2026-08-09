@@ -14,7 +14,8 @@ extern "C" {
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
+#include <optional>
+#include <span>
 
 #include "esp32_limits.hpp"
 #include "state_machine.hpp"
@@ -59,7 +60,7 @@ class Programmer {
 
   // Feed bytes and internally advance writing SM.
   // Returns bytes accepted (may be < n for backpressure).
-  size_t PushBytes(const uint8_t *data, size_t n, SmTick now);
+  size_t PushBytes(std::span<const uint8_t> data, SmTick now);
 
   bool Ready() const;  // handshake done, ready to accept bytes
   bool Done() const;
@@ -97,14 +98,16 @@ class Programmer {
     size_t tail = 0;
     bool overflow = false;
 
+    // A target write must be one contiguous block, so a chunk that straddles
+    // the ring's wrap is staged here rather than sent in two pieces.
+    static constexpr size_t kWriteChunkCap = 4096;
+    uint8_t block[kWriteChunkCap]{};
+
     uint32_t err = static_cast<uint32_t>(ErrorCode::Common::kOk);
 
     // transitions
-    IState<Ctx> *st_idle = nullptr;
-    IState<Ctx> *st_writing = nullptr;
-    IState<Ctx> *st_verifying = nullptr;  // New State
+    IState<Ctx> *st_verifying = nullptr;
     IState<Ctx> *st_done = nullptr;
-    IState<Ctx> *st_error = nullptr;
 
     // verification
     mbedtls_sha256_context sha_ctx;
@@ -155,6 +158,8 @@ class Programmer {
     void OnStep(Ctx &, SmTick) override {}
   };
 
+  void Fail(Ctx &c, ErrorCode::Esp32 code);
+
   void GpioInit();
   void Boot0Set(bool on);
   void NrstPulse(uint32_t pulse_ms);
@@ -163,7 +168,8 @@ class Programmer {
   bool WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len);
   bool FinalizeTargetWrite(Ctx &c);
   size_t TargetVerifyChunkSize(const Ctx &c) const;
-  bool ReadTargetVerifyChunk(Ctx &c, uint8_t *data, size_t *len);
+  [[nodiscard]] std::optional<size_t> ReadTargetVerifyChunk(
+      Ctx &c, std::span<uint8_t> dst);
   bool CompleteSuccessfulProgram(Ctx &c);
 
   bool BeginEsp32Ota(Ctx &c);
@@ -177,7 +183,6 @@ class Programmer {
   bool EnterStm32Bootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
   bool GetStm32BootloaderInfo();  // CMD_GET (0x00)
   bool EraseStm32Sectors();       // STM32 targeted EXT_ERASE preserving EEPROM
-  bool MassEraseStm32();  // Mass erase (STM32 only, no EEPROM preservation)
   bool WriteStm32Block(uint32_t addr, const uint8_t *data,
                        size_t len);  // CMD_WRITE_MEMORY (0x31)
   bool ReadStm32Block(uint32_t addr, uint8_t *data,

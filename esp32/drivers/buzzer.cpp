@@ -10,6 +10,7 @@
 #include "panic.hpp"
 
 extern "C" {
+#include "driver/ledc.h"
 #include "esp_log.h"
 }
 

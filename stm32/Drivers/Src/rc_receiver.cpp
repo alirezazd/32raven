@@ -3,7 +3,6 @@
 
 #include "rc_receiver.hpp"
 
-#include <cstdio>
 #include <cstring>
 
 #include "config_storage.hpp"

@@ -74,7 +74,7 @@ class Uart {
 
   void Send(const char *str);
   void Send(const uint8_t *data, size_t len);
-  bool Read(uint8_t &out);
+  bool ReadByte(uint8_t &out);
   void FlushRx();
   void SuspendRx();
   void ResumeRx();

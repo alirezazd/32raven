@@ -3,8 +3,6 @@
 
 #include "panic.hpp"
 
-#include <cstdio>
-#include <cstring>
 
 #include "message.hpp"
 #include "stm32f4xx.h"
@@ -27,7 +25,8 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
   } else {
     // Not time-accurate; scale factor conservative under typical -O2 clocks.
     volatile uint32_t spins = timeout_us * 16U + 1000U;
-    while (spins--) {
+    while (spins != 0U) {
+      spins = spins - 1U;
       const bool is_set = ((*reg) & mask) != 0;
       if (is_set == want_set) return true;
     }
@@ -38,7 +37,9 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
 // Raw hardware delay using TIM2 (assumes 1MHz tick from init)
 static void DelayMs(uint32_t ms) {
   if (!Tim2Running()) {
-    for (volatile uint32_t i = 0; i < ms * 10000; ++i);
+    for (volatile uint32_t i = 0; i < ms * 10000;) {
+      i = i + 1;
+    }
     return;
   }
   uint32_t start = TIM2->CNT;
@@ -82,18 +83,18 @@ static void UartSend(const uint8_t *data, size_t len) {
   (void)WaitCondTimeout(&USART1->SR, USART_SR_TC, true, tc_timeout_us);
 }
 
-// Send Epistole panic message with error code
 static void SendPanicMessage(uint32_t error_code) {
   message::PanicMsg panic_msg = {};
   panic_msg.error_code = error_code;
 
-  auto pkt_buf = message::MakePacketBuffer(panic_msg);
-  size_t pkt_len = message::Serialize(
-      message::MsgId::kPanic, (const uint8_t *)&panic_msg,
-      message::PayloadLength<message::PanicMsg>(), pkt_buf.data());
+  message::PacketBuffer<message::PanicMsg> pkt_buf{};
+  size_t pkt_len =
+      message::Serialize(message::MsgId::kPanic,
+                         {reinterpret_cast<const uint8_t *>(&panic_msg),
+                          message::PayloadLength<message::PanicMsg>()},
+                         pkt_buf);
 
-  // Reject a bogus length so UartSend can't overrun the buffer.
-  if (pkt_len == 0 || pkt_len > pkt_buf.size()) {
+  if (pkt_len == 0) {
     return;
   }
 

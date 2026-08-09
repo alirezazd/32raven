@@ -14,7 +14,6 @@ extern "C" {
 #include "i2c.hpp"
 #include "led.hpp"
 #include "mavlink.hpp"
-#include "panic.hpp"
 #include "programmer.hpp"
 #include "ssd1306_panel.hpp"
 #include "tcp_server.hpp"

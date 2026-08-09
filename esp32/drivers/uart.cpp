@@ -79,17 +79,14 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
 }
 
 template <UartInstance Inst>
-int Uart<Inst>::Write(const uint8_t *data, size_t size) {
-  if (size == 0) {
+int Uart<Inst>::WriteBytes(std::span<const uint8_t> bytes) {
+  if (bytes.empty()) {
     return 0;
-  }
-  if (!data) {
-    Panic(ErrorCode::Esp32::kUartInvalidArg);
   }
 
   constexpr uart_port_t port = ToPort<Inst>();
   const int num_bytes_written =
-      uart_write_bytes(port, (const char *)data, (uint32_t)size);
+      uart_write_bytes(port, bytes.data(), bytes.size());
   if (num_bytes_written < 0) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
@@ -97,22 +94,33 @@ int Uart<Inst>::Write(const uint8_t *data, size_t size) {
 }
 
 template <UartInstance Inst>
-int Uart<Inst>::Read(uint8_t *data, size_t size, uint32_t timeout_ms) {
-  if (size == 0) {
+int Uart<Inst>::WriteByte(uint8_t byte) {
+  return WriteBytes(std::span<const uint8_t>(&byte, 1));
+}
+
+template <UartInstance Inst>
+int Uart<Inst>::ReadBytes(std::span<uint8_t> bytes, uint32_t timeout_ms) {
+  if (bytes.empty()) {
     return 0;
-  }
-  if (!data) {
-    Panic(ErrorCode::Esp32::kUartInvalidArg);
   }
 
   constexpr uart_port_t port = ToPort<Inst>();
   TickType_t timeout_ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
-  const int num_bytes_read =
-      uart_read_bytes(port, data, (uint32_t)size, timeout_ticks);
+  const int num_bytes_read = uart_read_bytes(
+      port, bytes.data(), static_cast<uint32_t>(bytes.size()), timeout_ticks);
   if (num_bytes_read < 0) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
   return num_bytes_read;
+}
+
+template <UartInstance Inst>
+std::optional<uint8_t> Uart<Inst>::ReadByte(uint32_t timeout_ms) {
+  uint8_t byte = 0;
+  if (ReadBytes({&byte, 1}, timeout_ms) != 1) {
+    return std::nullopt;
+  }
+  return byte;
 }
 
 template <UartInstance Inst>

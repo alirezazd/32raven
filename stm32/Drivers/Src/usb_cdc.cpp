@@ -448,7 +448,7 @@ void UsbCdc::IrqHandler() {
 }
 
 void UsbCdc::OnReset() {
-  ++reset_count_;
+  reset_count_ = reset_count_ + 1;
   ctrl_out_is_line_coding_ = false;
   configured_ = false;
   dtr_ = false;
@@ -905,27 +905,26 @@ void UsbCdc::PumpTx() {
     return;
   }
 
-  const uint8_t *src = nullptr;
-  size_t avail = tx_ring_.ContiguousReadable(src);
-  if (avail == 0u) {
+  auto chunk = tx_ring_.ContiguousReadable();
+  if (chunk.empty()) {
     return;
   }
-  if (avail > kBulkMaxPacket) {
-    avail = kBulkMaxPacket;
+  if (chunk.size() > kBulkMaxPacket) {
+    chunk = chunk.first(kBulkMaxPacket);
   }
 
-  const uint32_t words_needed = (static_cast<uint32_t>(avail) + 3u) / 4u;
+  const uint32_t words_needed = (static_cast<uint32_t>(chunk.size()) + 3u) / 4u;
   if ((InEp(kBulkEp)->DTXFSTS & USB_OTG_DTXFSTS_INEPTFSAV) < words_needed) {
     return;
   }
 
   tx_in_flight_ = true;
-  last_tx_len_ = static_cast<uint16_t>(avail);
+  last_tx_len_ = static_cast<uint16_t>(chunk.size());
   InEp(kBulkEp)->DIEPTSIZ =
-      (1u << USB_OTG_DIEPTSIZ_PKTCNT_Pos) | static_cast<uint32_t>(avail);
+      (1u << USB_OTG_DIEPTSIZ_PKTCNT_Pos) | static_cast<uint32_t>(chunk.size());
   InEp(kBulkEp)->DIEPCTL |= USB_OTG_DIEPCTL_EPENA | USB_OTG_DIEPCTL_CNAK;
-  WriteFifo(kBulkEp, src, static_cast<uint16_t>(avail));
-  tx_ring_.Consume(avail);
+  WriteFifo(kBulkEp, chunk.data(), static_cast<uint16_t>(chunk.size()));
+  tx_ring_.Consume(chunk.size());
 }
 
 // Public data path

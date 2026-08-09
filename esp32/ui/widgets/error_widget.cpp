@@ -42,7 +42,7 @@ void DrawConstructionRibbon(DisplayRenderer &renderer, int16_t top,
     return;
   }
 
-  renderer.FillRect(0, top, width, height, true);
+  renderer.FillRect(0, top, width, height, Ink::kOn);
 
   const int16_t phase_px = static_cast<int16_t>(
       ((static_cast<uint32_t>(now) * kRibbonPixelsPerSecond) / 1000u) %
@@ -53,7 +53,7 @@ void DrawConstructionRibbon(DisplayRenderer &renderer, int16_t top,
           static_cast<int16_t>((x + y + phase_px) % kRibbonStripePitchPx);
       if (pattern_pos < kRibbonStripeWidthPx) {
         renderer.SetPixel(static_cast<size_t>(x), static_cast<size_t>(top + y),
-                          false);
+                          Ink::kOff);
       }
     }
   }

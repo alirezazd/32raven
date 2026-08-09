@@ -165,7 +165,7 @@ bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
 bool DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {
   // NDTR is 16-bit; reject anything that would not fit (mirrors HAL's guard).
   if (count_words == 0u || count_words > 0xFFFFu) {
-    dma_start_fail_count_++;
+    dma_start_fail_count_ = dma_start_fail_count_ + 1;
     return false;
   }
 

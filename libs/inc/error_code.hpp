@@ -12,6 +12,11 @@
 // build time and fails the build if any enumerator here has zero callsites
 // (excluding `error_code.cpp` itself, which is required to switch over them).
 struct ErrorCode {
+// The enums initialize their first entry from these, so the domain boundaries
+// GetMessage(uint32_t) dispatches on cannot drift from the values themselves.
+static constexpr uint32_t kStm32Base = 0x10000;
+static constexpr uint32_t kEsp32Base = 0x20000;
+
 enum class Common : uint32_t {
   kOk = 0x00000,
   kUnknown,
@@ -23,7 +28,7 @@ enum class Common : uint32_t {
 
 enum class Stm32 : uint32_t {
   // Init
-  kSystemReinit = 0x10000,
+  kSystemReinit = kStm32Base,
   kRccOscConfigFailed,
   kRccClockConfigFailed,
   kSpiInitFailed,
@@ -90,7 +95,7 @@ enum class Stm32 : uint32_t {
 
 enum class Esp32 : uint32_t {
   // Networking
-  kTcpServerStartFailed = 0x20000,
+  kTcpServerStartFailed = kEsp32Base,
   kTcpServerAcceptFailed,
   kTcpServerError,
   kUdpServerInvalidOverflowThreshold,

@@ -3,6 +3,8 @@
 
 #include "esc_service.hpp"
 
+#include <utility>
+
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -134,7 +136,7 @@ void EscService::PollEscInfo(uint32_t now_us) {
       continue;
     }
     info_cursor_ = static_cast<uint8_t>((i + 1u) % DShotCodec::kMotorCount);
-    if (QueueCommand(kDshotCommandEscInfo, i)) {
+    if (QueueCommand(DshotCommand::kEscInfo, i)) {
       // Opened with the first frame, not the last. AM32 acts on the sixth of
       // ten, so the reply lands mid-burst -- a window opened at the end has
       // already missed it.
@@ -238,13 +240,14 @@ bool EscService::StopAll(uint32_t now_us) {
   return WriteRaw(stop, now_us, false);
 }
 
-bool EscService::QueueCommand(uint16_t command, uint8_t motor_index,
+bool EscService::QueueCommand(DshotCommand command, uint8_t motor_index,
                               bool telemetry) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
-  if (armed_ || command_.active || command > DShotCodec::kCommandMax) {
+  const uint16_t value = std::to_underlying(command);
+  if (armed_ || command_.active || value > DShotCodec::kCommandMax) {
     return false;
   }
   if (motor_index != kAllMotors && motor_index >= DShotCodec::kMotorCount) {
@@ -252,7 +255,7 @@ bool EscService::QueueCommand(uint16_t command, uint8_t motor_index,
   }
 
   command_ = PendingCommand{
-      .value = command,
+      .value = value,
       .motor = motor_index,
       .repeats_remaining = cfg_.command_repeat_count,
       .next_send_us = 0,

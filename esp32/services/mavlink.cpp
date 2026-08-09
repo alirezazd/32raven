@@ -47,8 +47,7 @@ void Mavlink::SetTransport(IMavlinkTransport *transport) {
   if (transport_ != nullptr && transport_ != transport) {
     transport_->ClearPeer();
   }
-  tx_frame_.len = 0;
-  tx_frame_.is_hb = false;
+  tx_frame_.Clear();
   transport_ = transport;
 }
 
@@ -59,8 +58,7 @@ void Mavlink::Poll(uint32_t now_ms) {
 }
 
 void Mavlink::SetTelemetryLink(bool enabled) {
-  tx_frame_.len = 0;
-  tx_frame_.is_hb = false;
+  tx_frame_.Clear();
   tx_work_queue_.Clear();
 
   if (enabled) {

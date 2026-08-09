@@ -34,17 +34,6 @@ struct TransitionPreset {
   float decel_ratio = 0.45f;
 };
 
-bool ReadPackedPixel(const uint8_t *bitmap_data, size_t width, size_t height,
-                     size_t x, size_t y) {
-  if (bitmap_data == nullptr || x >= width || y >= height) {
-    return false;
-  }
-  const size_t page = y / 8;
-  const size_t bit = y % 8;
-  const uint8_t value = bitmap_data[(page * width) + x];
-  return (value & (1u << bit)) != 0;
-}
-
 float Clamp01(float value) { return std::clamp(value, 0.0f, 1.0f); }
 
 float SwipeProgress(float t, float accel_ratio, float decel_ratio) {
@@ -125,7 +114,7 @@ Ui::Ui()
       main_ui_widget_(&MainUiWidget::GetInstance()),
       error_widget_(&ErrorWidget::GetInstance()) {}
 
-void DisplayCanvas::Clear() { Fill(false); }
+void DisplayCanvas::Clear() { Fill(Ink::kOff); }
 
 void DisplayCanvas::MarkDirtyRange(size_t page, size_t x_begin, size_t x_end) {
   if (page >= kPageCount || x_begin >= x_end || x_begin >= kWidth) {
@@ -145,8 +134,8 @@ void DisplayCanvas::MarkDirtyRange(size_t page, size_t x_begin, size_t x_end) {
   range.x_end = std::max(range.x_end, x_end);
 }
 
-void DisplayCanvas::Fill(bool on) {
-  const uint8_t fill_value = on ? 0xFF : 0x00;
+void DisplayCanvas::Fill(Ink ink) {
+  const uint8_t fill_value = (ink == Ink::kOn) ? 0xFF : 0x00;
 
   for (size_t page = 0; page < kPageCount; ++page) {
     size_t dirty_begin = kWidth;
@@ -170,7 +159,7 @@ void DisplayCanvas::Fill(bool on) {
   }
 }
 
-bool DisplayCanvas::SetPixel(size_t x, size_t y, bool on) {
+bool DisplayCanvas::SetPixel(size_t x, size_t y, Ink ink) {
   if (x >= kWidth || y >= kHeight) {
     return false;
   }
@@ -179,7 +168,7 @@ bool DisplayCanvas::SetPixel(size_t x, size_t y, bool on) {
   const uint8_t mask = static_cast<uint8_t>(1u << (y % 8));
   uint8_t &value = buffer_[(page * kWidth) + x];
   const uint8_t previous = value;
-  if (on) {
+  if (ink == Ink::kOn) {
     value |= mask;
   } else {
     value &= static_cast<uint8_t>(~mask);
@@ -190,21 +179,19 @@ bool DisplayCanvas::SetPixel(size_t x, size_t y, bool on) {
   return true;
 }
 
-bool DisplayCanvas::DrawPackedBitmap(const uint8_t *bitmap_data, size_t width,
-                                     size_t height, size_t offset_x,
-                                     size_t offset_y) {
-  if (bitmap_data == nullptr || width == 0 || height == 0 || width > kWidth ||
-      height > kHeight || offset_x + width > kWidth ||
-      offset_y + height > kHeight) {
+bool DisplayCanvas::DrawPackedBitmap(const PackedBitmap &bitmap,
+                                     size_t offset_x, size_t offset_y) {
+  if (!bitmap.Valid() || bitmap.width > kWidth || bitmap.height > kHeight ||
+      offset_x + bitmap.width > kWidth || offset_y + bitmap.height > kHeight) {
     return false;
   }
 
-  for (size_t src_y = 0; src_y < height; ++src_y) {
-    for (size_t src_x = 0; src_x < width; ++src_x) {
-      if (!ReadPackedPixel(bitmap_data, width, height, src_x, src_y)) {
+  for (size_t src_y = 0; src_y < bitmap.height; ++src_y) {
+    for (size_t src_x = 0; src_x < bitmap.width; ++src_x) {
+      if (!bitmap.Pixel(src_x, src_y)) {
         continue;
       }
-      SetPixel(offset_x + src_x, offset_y + src_y, true);
+      SetPixel(offset_x + src_x, offset_y + src_y, Ink::kOn);
     }
   }
   return true;
@@ -407,34 +394,34 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
   }
 }
 
-uint8_t Ui::ScreenGroup(MainScreen screen) const {
+Ui::ScreenGroup Ui::ScreenGroupFor(MainScreen screen) const {
   switch (screen) {
     case MainScreen::kServing:
-      return 1;
+      return ScreenGroup::kServing;
     case MainScreen::kMavlinkWifiDisconnected:
     case MainScreen::kMavlinkWifiConnected:
-      return 2;
+      return ScreenGroup::kMavlink;
     case MainScreen::kDfuDisconnected:
     case MainScreen::kDfuIdleConnected:
-      return 3;
+      return ScreenGroup::kDfu;
     case MainScreen::kProgramming:
     case MainScreen::kVerifying:
-      return 4;
+      return ScreenGroup::kProgram;
     case MainScreen::kEscConfigArmed:
     case MainScreen::kEscConfigDisconnected:
     case MainScreen::kEscConfigIdleConnected:
     case MainScreen::kEscConfigConnected:
-      return 5;
+      return ScreenGroup::kEscConfig;
     case MainScreen::kBooting:
     default:
-      return 0;
+      return ScreenGroup::kBoot;
   }
 }
 
 Ui::SlideDirection Ui::TransitionDirectionForScreens(MainScreen from,
                                                      MainScreen to) const {
-  return (ScreenGroup(to) >= ScreenGroup(from)) ? SlideDirection::kLeft
-                                                : SlideDirection::kRight;
+  return (ScreenGroupFor(to) >= ScreenGroupFor(from)) ? SlideDirection::kLeft
+                                                      : SlideDirection::kRight;
 }
 
 bool Ui::ShouldSkipMainScreenTransition(MainScreen from, MainScreen to) const {
@@ -522,9 +509,9 @@ bool Ui::RenderActiveTransition(TimeMs now) {
               static_cast<float>(transition_.duration_ms));
   switch (transition_.effect) {
     case TransitionEffect::kMosaic:
-      renderer_.DrawMosaicTransition(
-          transition_from_canvas_.Data(), transition_to_canvas_.Data(), kWidth,
-          kHeight, linear_t, transition_.mosaic_block_size);
+      renderer_.DrawMosaicTransition(transition_from_canvas_.AsBitmap(),
+                                     transition_to_canvas_.AsBitmap(), linear_t,
+                                     transition_.mosaic_block_size);
       break;
 
     case TransitionEffect::kSlide:
@@ -546,11 +533,10 @@ bool Ui::RenderActiveTransition(TimeMs now) {
       }
 
       canvas_.Clear();
-      const auto draw_shifted = [&](const DisplayCanvas &src,
-                                    int16_t offset_x) {
+      const auto draw_shifted = [&](const PackedBitmap &src, int16_t offset_x) {
         for (size_t y = 0; y < kHeight; ++y) {
           for (size_t x = 0; x < kWidth; ++x) {
-            if (!ReadPackedPixel(src.Data(), kWidth, kHeight, x, y)) {
+            if (!src.Pixel(x, y)) {
               continue;
             }
 
@@ -560,13 +546,13 @@ bool Ui::RenderActiveTransition(TimeMs now) {
               continue;
             }
 
-            canvas_.SetPixel(static_cast<size_t>(dst_x), y, true);
+            canvas_.SetPixel(static_cast<size_t>(dst_x), y, Ink::kOn);
           }
         }
       };
 
-      draw_shifted(transition_from_canvas_, from_offset_x);
-      draw_shifted(transition_to_canvas_, to_offset_x);
+      draw_shifted(transition_from_canvas_.AsBitmap(), from_offset_x);
+      draw_shifted(transition_to_canvas_.AsBitmap(), to_offset_x);
       break;
     }
   }
@@ -590,7 +576,7 @@ void Ui::SyncPresentation(TimeMs now) {
                                      pending != boot_widget_ &&
                                      pending != error_widget_;
     const bool same_group =
-        ScreenGroup(main_screen_) == ScreenGroup(desired_main_screen);
+        ScreenGroupFor(main_screen_) == ScreenGroupFor(desired_main_screen);
     const bool skip_transition =
         ShouldSkipMainScreenTransition(main_screen_, desired_main_screen);
     const bool mosaic_transition =
@@ -688,7 +674,7 @@ void Ui::DisableFadeOut() {
     return;
   }
 
-  panel_->Flush(canvas_.Data(), canvas_.Size());
+  panel_->Flush(canvas_.Buffer());
   panel_->DisableFadeOut();
   canvas_.ClearDirtyRanges();
   inactivity_fade_active_ = false;
@@ -701,7 +687,7 @@ void Ui::DisplayOn() {
 
   panel_->DisableFadeOut();
   panel_->DisplayOn();
-  panel_->Flush(canvas_.Data(), canvas_.Size());
+  panel_->Flush(canvas_.Buffer());
   canvas_.ClearDirtyRanges();
   display_on_ = true;
   inactivity_fade_active_ = false;
@@ -894,7 +880,7 @@ void Ui::FlushIfDirty() {
       continue;
     }
 
-    panel_->FlushPageRange(static_cast<uint8_t>(page), canvas_.PageData(page),
+    panel_->FlushPageRange(static_cast<uint8_t>(page), canvas_.PageSpan(page),
                            range.x_begin, range.x_end - range.x_begin);
   }
 

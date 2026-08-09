@@ -6,6 +6,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <span>
 
 #include "checksum.hpp"
 #include "ctx.hpp"
@@ -27,7 +28,7 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   // 1. RX Parsing
   uint8_t c;
   size_t rx_count = 0;
-  while (rx_count < rx_budget && uart.Read(c)) {
+  while (rx_count < rx_budget && uart.ReadByte(c)) {
     rx_count++;
     switch (rx_state_) {
       case RxState::kMagic1:
@@ -77,8 +78,8 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
             memcpy(check_buf + sizeof(message::Header),
                    rx_pkt_internal_.payload, rx_len_);
 
-          if (checksum::XModem(check_buf, sizeof(message::Header) + rx_len_) ==
-              rx_pkt_internal_.crc) {
+          if (checksum::XModem(std::span{check_buf}.first(
+                  sizeof(message::Header) + rx_len_)) == rx_pkt_internal_.crc) {
             message::Packet pkt;
             pkt.header.id = rx_pkt_internal_.id;
             pkt.header.len = rx_len_;
@@ -110,8 +111,7 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
 bool FcLink::Send(const message::Packet &pkt) {
   uint8_t buf[sizeof(message::Packet)];
   size_t len = message::Serialize((message::MsgId)pkt.header.id,
-                                  (pkt.header.len > 0) ? pkt.payload : nullptr,
-                                  pkt.header.len, buf);
+                                  {pkt.payload, pkt.header.len}, buf);
   if (len == 0) {
     return false;
   }
@@ -166,8 +166,8 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   Send(pkt);
 }
 
-void FcLink::SendImu(uint64_t timestamp_us, const float accel[3],
-                     const float gyro[3]) {
+void FcLink::SendImu(uint64_t timestamp_us, std::span<const float, 3> accel,
+                     std::span<const float, 3> gyro) {
   message::ImuData m = {};
   m.timestamp_us = timestamp_us;
   m.accel[0] = accel[0];

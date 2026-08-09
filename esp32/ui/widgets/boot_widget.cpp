@@ -16,25 +16,22 @@ size_t CenterOffset(size_t content_size, size_t bounds_size) {
   return (bounds_size - content_size) / 2;
 }
 
-void DrawCenteredBitmap(WidgetContext &ctx, const uint8_t *bitmap_data) {
-  if (ctx.renderer == nullptr || bitmap_data == nullptr) {
+void DrawCenteredBitmap(WidgetContext &ctx, const PackedBitmap &bitmap) {
+  if (ctx.renderer == nullptr || !bitmap.Valid()) {
     return;
   }
 
-  const size_t offset_x =
-      CenterOffset(boot_logo::kVisibleWidth, ctx.renderer->Width());
-  const size_t offset_y =
-      CenterOffset(boot_logo::kVisibleHeight, ctx.renderer->Height());
+  const size_t offset_x = CenterOffset(bitmap.width, ctx.renderer->Width());
+  const size_t offset_y = CenterOffset(bitmap.height, ctx.renderer->Height());
 
   ctx.renderer->Clear();
-  ctx.renderer->DrawBitmap(bitmap_data, boot_logo::kVisibleWidth,
-                           boot_logo::kVisibleHeight, offset_x, offset_y);
+  ctx.renderer->DrawBitmap(bitmap, offset_x, offset_y);
 }
 
 }  // namespace
 
 void BootWidget::OnEnter(WidgetContext &ctx) {
-  DrawCenteredBitmap(ctx, boot_logo::kBitmapData.data());
+  DrawCenteredBitmap(ctx, boot_logo::kBitmap);
   deadline_ms_ = TimeAfter(Sys().Timebase().NowMs(), timeout_ms_);
   mode_ = Mode::kShowing;
 }

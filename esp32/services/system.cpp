@@ -117,10 +117,15 @@ void System::StopNetwork() {
   Wifi().Stop();
 }
 
+// Best effort: both servers log their own failure and leave Running() false,
+// and every caller here is a last resort with nothing to fall back to. Callers
+// that need to know ask Wifi().IsOn() / Tcp().Running() instead, which also
+// covers StartAp() -- an esp_err_t from here could only ever describe the two
+// sockets.
 void System::StartNetwork() {
   Wifi().StartAp();
-  Tcp().Start();
-  Udp().Start();
+  (void)Tcp().Start();
+  (void)Udp().Start();
 }
 
 void System::Halt() {

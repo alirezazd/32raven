@@ -141,11 +141,11 @@ bool Mavlink::SendStatusTextFrameNow(const StatusText &status,
   }
 
   const TxFrameState frame = StartStatusTextFrame(status);
-  if (frame.len == 0) {
+  if (frame.Empty()) {
     return false;
   }
 
-  const int sent = transport_->Send(frame.buf, frame.len);
+  const int sent = transport_->Send(frame.Bytes());
   if (sent > 0) {
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
     return true;
@@ -195,10 +195,7 @@ Mavlink::TxFrameState Mavlink::StartCommandAckFrame(const CommandAck &ack) {
                                ack.command, ack.result, UINT8_MAX, 0,
                                ack.target_system, ack.target_component);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 Mavlink::TxFrameState Mavlink::StartAutopilotVersionFrame(
@@ -220,10 +217,7 @@ Mavlink::TxFrameState Mavlink::StartAutopilotVersionFrame(
                                      0, 0, 0, kZeroHash, kZeroHash, kZeroHash,
                                      0, 0, 0, kZeroUid2);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 Mavlink::TxFrameState Mavlink::StartMissionCountFrame(
@@ -233,10 +227,7 @@ Mavlink::TxFrameState Mavlink::StartMissionCountFrame(
                                  work.target_system, work.target_component, 0,
                                  work.mission_type, 0);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 Mavlink::TxFrameState Mavlink::StartStatusTextFrame(const StatusText &work) {
@@ -244,10 +235,7 @@ Mavlink::TxFrameState Mavlink::StartStatusTextFrame(const StatusText &work) {
   mavlink_msg_statustext_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
                               work.severity, work.text, 0, 0);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 void Mavlink::InitTxSchedule(const Config::Tx &cfg_tx, uint32_t now_ms,
@@ -300,7 +288,7 @@ void Mavlink::ServiceTx(uint32_t now_ms) {
 
 bool Mavlink::StartNextFrameIfIdle(TxState &tx, const Config::Tx &cfg_tx,
                                    uint32_t now_ms) {
-  if (tx_frame_.len > 0) {
+  if (!tx_frame_.Empty()) {
     return true;
   }
 
@@ -319,15 +307,14 @@ bool Mavlink::StartNextFrameIfIdle(TxState &tx, const Config::Tx &cfg_tx,
     tx_frame_ = *scheduled_frame;
   }
 
-  return tx_frame_.len > 0;
+  return !tx_frame_.Empty();
 }
 
 void Mavlink::CompleteFrame(TxFrameState &frame, uint32_t now_ms) {
-  if (frame.is_hb) {
+  if (frame.IsHeartbeat()) {
     tx_schedule_.last_hb_done_ms = now_ms;
   }
-  frame.len = 0;
-  frame.is_hb = false;
+  frame.Clear();
 }
 
 Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
@@ -395,11 +382,8 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
                              MAV_TYPE_QUADROTOR, mav_autopilot_32raven,
                              base_mode, custom_mode, system_status);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = true;
   tx_schedule_.next_hb_ms += cfg_tx.periods.hb_ms;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/true};
 }
 
 Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
@@ -447,10 +431,7 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
                               0, voltage_battery, current_battery,
                               battery_remaining, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
@@ -480,10 +461,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
       static_cast<uint8_t>(latest->numSV), 0, latest->hAcc, latest->vAcc, 0, 0,
       0);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
@@ -506,10 +484,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
   mavlink_msg_attitude_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
                             roll, pitch, yaw, 0.0f, 0.0f, 0.0f);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame(
@@ -526,10 +501,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame(
       cfg_.identity.sysid, cfg_.identity.compid, &m, 0, latest->lat,
       latest->lon, latest->hMSL, latest->hMSL, 0, 0, 0, latest->hdg);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
@@ -565,10 +537,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
       static_cast<uint8_t>(MAV_BATTERY_CHARGE_STATE_UNDEFINED), voltages_ext, 0,
       0);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
@@ -611,10 +580,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
       rx_online ? channels.channels[15] : invalid_channel_value,
       mavlink_unused_channel_value, mavlink_unused_channel_value, rssi);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
@@ -646,10 +612,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
   mavlink_msg_esc_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
                               esc.timestamp_us, rpm, voltage, current);
 
-  TxFrameState frame{};
-  frame.len = static_cast<uint16_t>(mavlink_msg_to_send_buffer(frame.buf, &m));
-  frame.is_hb = false;
-  return frame;
+  return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
@@ -725,7 +688,7 @@ void Mavlink::ServiceUdpTx(uint32_t now_ms) {
     return;
   }
 
-  const int sent = transport_->Send(tx_frame_.buf, tx_frame_.len);
+  const int sent = transport_->Send(tx_frame_.Bytes());
   if (sent > 0) {
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
   }

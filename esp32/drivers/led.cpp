@@ -83,27 +83,35 @@ void LED::SetPattern(const Step *steps, size_t count,
 
 void LED::SetPattern(Pattern p, uint32_t period_ms,
                      std::optional<int> repeat_count) {
-  if (p == Pattern::kBlink) {
-    // 50% duty
-    dynamic_steps_[0] = {100, 0, (uint16_t)(period_ms / 2)};
-    dynamic_steps_[1] = {0, 0, (uint16_t)(period_ms / 2)};
-    SetPattern(dynamic_steps_, 2, repeat_count);
-  } else if (p == Pattern::kBreathe) {
-    // Fade In/Out
-    dynamic_steps_[0] = {100, (uint16_t)(period_ms / 2), 0};
-    dynamic_steps_[1] = {0, (uint16_t)(period_ms / 2), 0};
-    SetPattern(dynamic_steps_, 2, repeat_count);
-  } else if (p == Pattern::kDoubleBlink) {
-    // On 10%, Off 10%, On 10%, Off 70%
-    uint16_t t_on = period_ms / 10;
-    uint16_t t_off_short = period_ms / 10;
-    uint16_t t_off_long = period_ms - (2 * t_on) - t_off_short;
+  switch (p) {
+    case Pattern::kBlink:
+      // 50% duty
+      dynamic_steps_[0] = {100, 0, static_cast<uint16_t>(period_ms / 2)};
+      dynamic_steps_[1] = {0, 0, static_cast<uint16_t>(period_ms / 2)};
+      SetPattern(dynamic_steps_, 2, repeat_count);
+      break;
 
-    dynamic_steps_[0] = {100, 0, t_on};
-    dynamic_steps_[1] = {0, 0, t_off_short};
-    dynamic_steps_[2] = {100, 0, t_on};
-    dynamic_steps_[3] = {0, 0, t_off_long};
-    SetPattern(dynamic_steps_, 4, repeat_count);
+    case Pattern::kBreathe:
+      // Fade In/Out
+      dynamic_steps_[0] = {100, static_cast<uint16_t>(period_ms / 2), 0};
+      dynamic_steps_[1] = {0, static_cast<uint16_t>(period_ms / 2), 0};
+      SetPattern(dynamic_steps_, 2, repeat_count);
+      break;
+
+    case Pattern::kDoubleBlink: {
+      // On 10%, Off 10%, On 10%, Off 70%
+      const uint16_t t_on = static_cast<uint16_t>(period_ms / 10);
+      const uint16_t t_off_short = static_cast<uint16_t>(period_ms / 10);
+      const uint16_t t_off_long =
+          static_cast<uint16_t>(period_ms - (2 * t_on) - t_off_short);
+
+      dynamic_steps_[0] = {100, 0, t_on};
+      dynamic_steps_[1] = {0, 0, t_off_short};
+      dynamic_steps_[2] = {100, 0, t_on};
+      dynamic_steps_[3] = {0, 0, t_off_long};
+      SetPattern(dynamic_steps_, 4, repeat_count);
+      break;
+    }
   }
 }
 

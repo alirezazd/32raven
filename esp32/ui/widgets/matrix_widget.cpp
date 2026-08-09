@@ -126,18 +126,14 @@ void MatrixWidget::AdvanceColumns() {
 
     column.offset_px = 0;
     if (column.scroll_up) {
-      for (size_t glyph_index = 0; glyph_index + 1u < glyph_count_;
-           ++glyph_index) {
-        column.glyphs[glyph_index] = column.glyphs[glyph_index + 1u];
-      }
+      std::shift_left(column.glyphs.begin(),
+                      column.glyphs.begin() + glyph_count_, 1);
       column.glyphs[glyph_count_ - 1u] = RandomGlyph();
       continue;
     }
 
-    for (size_t glyph_index = glyph_count_ - 1u; glyph_index > 0u;
-         --glyph_index) {
-      column.glyphs[glyph_index] = column.glyphs[glyph_index - 1u];
-    }
+    std::shift_right(column.glyphs.begin(),
+                     column.glyphs.begin() + glyph_count_, 1);
     column.glyphs[0] = RandomGlyph();
   }
 }

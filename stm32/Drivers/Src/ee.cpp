@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <span>
 
 #include "error_code.hpp"
 #include "panic.hpp"
@@ -267,9 +268,9 @@ bool EE::ReadJedecId(uint8_t jedec_id[3]) const {
   return true;
 }
 
-bool EE::ReadStatus(uint8_t *status) const {
-  if (status == nullptr || gpio_ == nullptr || spi_ == nullptr) {
-    return false;
+std::optional<uint8_t> EE::ReadStatus() const {
+  if (gpio_ == nullptr || spi_ == nullptr) {
+    return std::nullopt;
   }
 
   uint8_t tx[2] = {kCmdReadStatusRegister1, 0xFFu};
@@ -277,8 +278,7 @@ bool EE::ReadStatus(uint8_t *status) const {
   CsLow();
   spi_->TxRx(tx, rx, sizeof(tx));
   CsHigh();
-  *status = rx[1];
-  return true;
+  return rx[1];
 }
 
 bool EE::WriteStatus(uint8_t status) {
@@ -288,25 +288,25 @@ bool EE::WriteStatus(uint8_t status) {
 
   uint8_t cmd[2] = {kCmdWriteStatusRegister1, status};
   CsLow();
-  spi_->Write(cmd, sizeof(cmd));
+  spi_->WriteBytes(cmd);
   CsHigh();
 
   if (!WaitWhileBusy()) {
     return false;
   }
 
-  uint8_t verify = 0u;
-  return ReadStatus(&verify) &&
-         (verify & kStatusProtectMask) == (status & kStatusProtectMask);
+  const std::optional<uint8_t> verify = ReadStatus();
+  return verify.has_value() &&
+         (*verify & kStatusProtectMask) == (status & kStatusProtectMask);
 }
 
 bool EE::EnsureWritable() {
-  uint8_t status = 0u;
-  if (!ReadStatus(&status)) {
+  std::optional<uint8_t> status = ReadStatus();
+  if (!status) {
     return false;
   }
 
-  if ((status & kStatusProtectMask) == 0u) {
+  if ((*status & kStatusProtectMask) == 0u) {
     return true;
   }
 
@@ -314,19 +314,20 @@ bool EE::EnsureWritable() {
     return false;
   }
 
-  if (!ReadStatus(&status)) {
+  status = ReadStatus();
+  if (!status) {
     return false;
   }
-  return (status & kStatusProtectMask) == 0u;
+  return (*status & kStatusProtectMask) == 0u;
 }
 
 bool EE::WaitWhileBusy() const {
-  uint8_t status = 0u;
   for (uint32_t attempt = 0; attempt < kBusyPollLimit; ++attempt) {
-    if (!ReadStatus(&status)) {
+    const std::optional<uint8_t> status = ReadStatus();
+    if (!status) {
       return false;
     }
-    if ((status & kStatusBusyMask) == 0u) {
+    if ((*status & kStatusBusyMask) == 0u) {
       return true;
     }
   }
@@ -338,13 +339,13 @@ bool EE::WriteEnable() const {
     return false;
   }
 
-  uint8_t cmd = kCmdWriteEnable;
+  const uint8_t cmd[] = {kCmdWriteEnable};
   CsLow();
-  spi_->Write(&cmd, 1);
+  spi_->WriteBytes(cmd);
   CsHigh();
 
-  uint8_t status = 0u;
-  return ReadStatus(&status) && (status & kStatusWriteEnableLatchMask) != 0u;
+  const std::optional<uint8_t> status = ReadStatus();
+  return status.has_value() && (*status & kStatusWriteEnableLatchMask) != 0u;
 }
 
 bool EE::ReadRaw(uint32_t address, void *dst, size_t len) const {
@@ -365,8 +366,8 @@ bool EE::ReadRaw(uint32_t address, void *dst, size_t len) const {
   };
 
   CsLow();
-  spi_->Write(cmd, sizeof(cmd));
-  spi_->Read(static_cast<uint8_t *>(dst), len);
+  spi_->WriteBytes(cmd);
+  spi_->ReadBytes(std::span{static_cast<uint8_t *>(dst), len});
   CsHigh();
   return true;
 }
@@ -424,7 +425,7 @@ bool EE::EraseSector(uint32_t address) {
   };
 
   CsLow();
-  spi_->Write(cmd, sizeof(cmd));
+  spi_->WriteBytes(cmd);
   CsHigh();
   return WaitWhileBusy();
 }
@@ -468,8 +469,8 @@ bool EE::PageProgram(uint32_t address, const uint8_t *src, size_t len) {
   };
 
   CsLow();
-  spi_->Write(cmd, sizeof(cmd));
-  spi_->Write(src, len);
+  spi_->WriteBytes(cmd);
+  spi_->WriteBytes(std::span{src, len});
   CsHigh();
   return WaitWhileBusy();
 }
@@ -583,27 +584,22 @@ EE::RecordState EE::ReadRecord(uint32_t address) const {
   return record;
 }
 
-bool EE::ComputePayloadCrc32(uint32_t address, uint32_t size,
-                             uint32_t *crc32) const {
-  if (crc32 == nullptr) {
-    return false;
-  }
-
+std::optional<uint32_t> EE::ComputePayloadCrc32(uint32_t address,
+                                                uint32_t size) const {
   uint8_t buffer[kPageSize] = {};
   uint32_t crc = 0xFFFFFFFFu;
   for (uint32_t offset = 0u; offset < size; offset += kPageSize) {
     const size_t chunk = std::min(static_cast<size_t>(kPageSize),
                                   static_cast<size_t>(size - offset));
     if (!ReadRaw(address + offset, buffer, chunk)) {
-      return false;
+      return std::nullopt;
     }
     for (size_t i = 0; i < chunk; ++i) {
       crc = UpdateCrc32(crc, buffer[i]);
     }
   }
 
-  *crc32 = ~crc;
-  return true;
+  return ~crc;
 }
 
 bool EE::ValidateRecord(const RecordState &record) const {
@@ -620,10 +616,9 @@ bool EE::ValidateRecord(const RecordState &record) const {
     return false;
   }
 
-  uint32_t crc32 = 0u;
-  return ComputePayloadCrc32(PayloadAddress(record.address), record.header.size,
-                             &crc32) &&
-         record.header.payload_crc32 == crc32;
+  const std::optional<uint32_t> crc32 =
+      ComputePayloadCrc32(PayloadAddress(record.address), record.header.size);
+  return crc32 && record.header.payload_crc32 == *crc32;
 }
 
 EE::RecordState EE::ScanLatestRecord() const {

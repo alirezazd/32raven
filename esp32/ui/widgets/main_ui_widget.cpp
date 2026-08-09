@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <span>
 
 #include "bitmap/am32_bitmap.hpp"
 #include "bitmap/chip_bitmap.hpp"
@@ -102,9 +103,10 @@ uint8_t DotCount(TimeMs now) {
 // Padded to full width because the scroller derives its cycle length from the
 // measured text: a string that grew and shrank with the dots would restart the
 // cycle at an unrelated phase on every tick.
-void AppendDots(char *buffer, size_t size, uint8_t dot_count) {
-  size_t len = std::strlen(buffer);
-  for (uint8_t index = 0; index < kMaxDotCount && (len + 1) < size; ++index) {
+void AppendDots(std::span<char> buffer, uint8_t dot_count) {
+  size_t len = std::strlen(buffer.data());
+  for (uint8_t index = 0; index < kMaxDotCount && (len + 1) < buffer.size();
+       ++index) {
     buffer[len++] = (index < dot_count) ? '.' : ' ';
   }
   buffer[len] = '\0';
@@ -213,14 +215,14 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
   }
 
   const int16_t top = static_cast<int16_t>(height - kProgressBarHeightPx);
-  renderer.FillRect(0, top, width, kProgressBarHeightPx, false);
+  renderer.FillRect(0, top, width, kProgressBarHeightPx, Ink::kOff);
 
   const int16_t fill_width = ProgressBarFillWidth(renderer, mode);
   if (fill_width <= 0) {
     return;
   }
 
-  renderer.FillRect(0, top, fill_width, kProgressBarHeightPx, true);
+  renderer.FillRect(0, top, fill_width, kProgressBarHeightPx, Ink::kOn);
 
   const int16_t phase_px = static_cast<int16_t>(
       ((static_cast<uint32_t>(now) * kProgressBarPixelsPerSecond) / 1000u) %
@@ -229,33 +231,19 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
     const int16_t pattern_pos = static_cast<int16_t>(
         (x + kProgressBarPitchPx - phase_px) % kProgressBarPitchPx);
     if (pattern_pos < kProgressBarBlackWidthPx) {
-      renderer.DrawFastVLine(x, top, kProgressBarHeightPx, false);
+      renderer.DrawFastVLine(x, top, kProgressBarHeightPx, Ink::kOff);
     }
   }
 }
 
-struct IconAsset {
-  const uint8_t *data = nullptr;
-  size_t width = 0;
-  size_t height = 0;
-};
-
 // Names the transport the mode is reachable on. Verifying gets none: it runs
 // off the link that brought it here.
-IconAsset CornerBadgeForMode(WidgetMode mode) {
+PackedBitmap CornerBadgeForMode(WidgetMode mode) {
   if (IsEscConfigMode(mode)) {
-    return {
-        .data = usb_bitmap::kBitmapData.data(),
-        .width = usb_bitmap::kVisibleWidth,
-        .height = usb_bitmap::kVisibleHeight,
-    };
+    return usb_bitmap::kBitmap;
   }
   if (IsDfuVisualMode(mode) && mode != WidgetMode::kVerifying) {
-    return {
-        .data = wifi_bitmap::kBitmapData.data(),
-        .width = wifi_bitmap::kVisibleWidth,
-        .height = wifi_bitmap::kVisibleHeight,
-    };
+    return wifi_bitmap::kBitmap;
   }
   return {};
 }
@@ -265,11 +253,9 @@ int16_t StatusViewportWidthPx(DisplayRenderer &renderer, WidgetMode mode) {
       renderer.MeasureText(">", kStatusStyle);
   // The badge shares this band, so the text stops at its edge rather than
   // scrolling underneath it.
-  const IconAsset badge = CornerBadgeForMode(mode);
+  const PackedBitmap badge = CornerBadgeForMode(mode);
   const int16_t badge_reserve =
-      (badge.data != nullptr)
-          ? static_cast<int16_t>(badge.width + kStatusBadgeGapPx)
-          : 0;
+      badge.Valid() ? static_cast<int16_t>(badge.width + kStatusBadgeGapPx) : 0;
   return static_cast<int16_t>(
       static_cast<int16_t>(renderer.Width()) - kTextInsetX -
       static_cast<int16_t>(prefix_bounds.width) - kStatusRightInsetPx -
@@ -285,49 +271,25 @@ bool StatusLineScrolls(DisplayRenderer &renderer, WidgetMode mode) {
          StatusViewportWidthPx(renderer, mode);
 }
 
-IconAsset LeftIconForMode(WidgetMode mode, TimeMs now) {
+PackedBitmap LeftIconForMode(WidgetMode mode, TimeMs now) {
   if (IsEscConfigMode(mode)) {
-    return {
-        .data = am32_bitmap::kBitmapData.data(),
-        .width = am32_bitmap::kVisibleWidth,
-        .height = am32_bitmap::kVisibleHeight,
-    };
+    return am32_bitmap::kBitmap;
   }
 
   if (!IsMavlinkMode(mode)) {
-    return {
-        .data = pc_bitmap::kBitmapData.data(),
-        .width = pc_bitmap::kVisibleWidth,
-        .height = pc_bitmap::kVisibleHeight,
-    };
+    return pc_bitmap::kBitmap;
   }
 
   switch ((now / kMavlinkIconFramePeriodMs) % 4u) {
     case 1:
-      return {
-          .data = mavlink1_bitmap::kBitmapData.data(),
-          .width = mavlink1_bitmap::kVisibleWidth,
-          .height = mavlink1_bitmap::kVisibleHeight,
-      };
+      return mavlink1_bitmap::kBitmap;
     case 2:
-      return {
-          .data = mavlink2_bitmap::kBitmapData.data(),
-          .width = mavlink2_bitmap::kVisibleWidth,
-          .height = mavlink2_bitmap::kVisibleHeight,
-      };
+      return mavlink2_bitmap::kBitmap;
     case 3:
-      return {
-          .data = mavlink3_bitmap::kBitmapData.data(),
-          .width = mavlink3_bitmap::kVisibleWidth,
-          .height = mavlink3_bitmap::kVisibleHeight,
-      };
+      return mavlink3_bitmap::kBitmap;
     case 0:
     default:
-      return {
-          .data = mavlink0_bitmap::kBitmapData.data(),
-          .width = mavlink0_bitmap::kVisibleWidth,
-          .height = mavlink0_bitmap::kVisibleHeight,
-      };
+      return mavlink0_bitmap::kBitmap;
   }
 }
 
@@ -377,14 +339,17 @@ void DrawBodyTextLines(DisplayRenderer &renderer, TimeMs now,
   }
 }
 
-template <size_t N>
+enum class LensMask : uint8_t { kInside, kOutside };
+
+template <size_t N, size_t Rows>
 void DrawMaskedVerifyDigits(DisplayRenderer &renderer, int16_t center_x,
                             int16_t center_y, const std::array<char, N> &digits,
                             int16_t lens_center_x, int16_t lens_center_y,
-                            bool inside_lens, int16_t glyph_width,
-                            int16_t glyph_height, int16_t glyph_gap,
-                            const uint8_t *zero_pattern,
-                            const uint8_t *one_pattern) {
+                            LensMask mask, int16_t glyph_width,
+                            int16_t glyph_gap,
+                            const std::array<uint8_t, Rows> &zero_pattern,
+                            const std::array<uint8_t, Rows> &one_pattern) {
+  const int16_t glyph_height = static_cast<int16_t>(Rows);
   const int16_t digit_count = static_cast<int16_t>(digits.size());
   const int16_t total_width = static_cast<int16_t>(
       (digit_count * glyph_width) + ((digit_count - 1) * glyph_gap));
@@ -394,14 +359,14 @@ void DrawMaskedVerifyDigits(DisplayRenderer &renderer, int16_t center_x,
       kVerifyMagnifierLensRadiusPx * kVerifyMagnifierLensRadiusPx);
 
   for (size_t digit_index = 0; digit_index < digits.size(); ++digit_index) {
-    const uint8_t *pattern =
+    const std::array<uint8_t, Rows> &pattern =
         (digits[digit_index] == '1') ? one_pattern : zero_pattern;
     const int16_t glyph_left = static_cast<int16_t>(
         left + static_cast<int16_t>(digit_index * (glyph_width + glyph_gap)));
 
     for (int16_t row = 0; row < glyph_height; ++row) {
       for (int16_t col = 0; col < glyph_width; ++col) {
-        const uint8_t row_mask = pattern[row];
+        const uint8_t row_mask = pattern[static_cast<size_t>(row)];
         const uint8_t bit = static_cast<uint8_t>(1u << (glyph_width - 1 - col));
         if ((row_mask & bit) == 0u) {
           continue;
@@ -412,7 +377,7 @@ void DrawMaskedVerifyDigits(DisplayRenderer &renderer, int16_t center_x,
         const int16_t dx = static_cast<int16_t>(px - lens_center_x);
         const int16_t dy = static_cast<int16_t>(py - lens_center_y);
         const bool pixel_in_lens = ((dx * dx) + (dy * dy)) <= lens_radius_sq;
-        if (inside_lens ? !pixel_in_lens : pixel_in_lens) {
+        if ((mask == LensMask::kInside) ? !pixel_in_lens : pixel_in_lens) {
           continue;
         }
         if (px < 0 || py < 0 || static_cast<size_t>(px) >= renderer.Width() ||
@@ -421,22 +386,10 @@ void DrawMaskedVerifyDigits(DisplayRenderer &renderer, int16_t center_x,
         }
 
         renderer.SetPixel(static_cast<size_t>(px), static_cast<size_t>(py),
-                          true);
+                          Ink::kOn);
       }
     }
   }
-}
-
-bool ReadPackedPixel(const uint8_t *bitmap_data, size_t width, size_t height,
-                     size_t x, size_t y) {
-  if (bitmap_data == nullptr || x >= width || y >= height) {
-    return false;
-  }
-
-  const size_t page = y / 8;
-  const size_t bit = y % 8;
-  const uint8_t value = bitmap_data[(page * width) + x];
-  return (value & (1u << bit)) != 0;
 }
 
 float RotationAngle(TimeMs now, TimeMs period_ms, bool clockwise) {
@@ -447,22 +400,22 @@ float RotationAngle(TimeMs now, TimeMs period_ms, bool clockwise) {
   return clockwise ? angle : -angle;
 }
 
-void DrawRotatingBitmap(DisplayRenderer &renderer, const uint8_t *bitmap_data,
-                        size_t bitmap_width, size_t bitmap_height, TimeMs now,
-                        size_t offset_x, size_t offset_y, bool clockwise,
+void DrawRotatingBitmap(DisplayRenderer &renderer, const PackedBitmap &bitmap,
+                        TimeMs now, size_t offset_x, size_t offset_y,
+                        bool clockwise,
                         TimeMs period_ms = kGearRotationPeriodMs) {
-  if (bitmap_data == nullptr || bitmap_width == 0 || bitmap_height == 0) {
+  if (!bitmap.Valid()) {
     return;
   }
 
   const float angle = RotationAngle(now, period_ms, clockwise);
   const float cos_angle = std::cos(angle);
   const float sin_angle = std::sin(angle);
-  const float center_x = (static_cast<float>(bitmap_width) - 1.0f) * 0.5f;
-  const float center_y = (static_cast<float>(bitmap_height) - 1.0f) * 0.5f;
+  const float center_x = (static_cast<float>(bitmap.width) - 1.0f) * 0.5f;
+  const float center_y = (static_cast<float>(bitmap.height) - 1.0f) * 0.5f;
 
-  for (size_t dst_y = 0; dst_y < bitmap_height; ++dst_y) {
-    for (size_t dst_x = 0; dst_x < bitmap_width; ++dst_x) {
+  for (size_t dst_y = 0; dst_y < bitmap.height; ++dst_y) {
+    for (size_t dst_x = 0; dst_x < bitmap.width; ++dst_x) {
       const float rel_x = static_cast<float>(dst_x) - center_x;
       const float rel_y = static_cast<float>(dst_y) - center_y;
       const long src_x =
@@ -472,12 +425,11 @@ void DrawRotatingBitmap(DisplayRenderer &renderer, const uint8_t *bitmap_data,
       if (src_x < 0 || src_y < 0) {
         continue;
       }
-      if (!ReadPackedPixel(bitmap_data, bitmap_width, bitmap_height,
-                           static_cast<size_t>(src_x),
-                           static_cast<size_t>(src_y))) {
+      if (!bitmap.Pixel(static_cast<size_t>(src_x),
+                        static_cast<size_t>(src_y))) {
         continue;
       }
-      renderer.SetPixel(offset_x + dst_x, offset_y + dst_y, true);
+      renderer.SetPixel(offset_x + dst_x, offset_y + dst_y, Ink::kOn);
     }
   }
 }
@@ -691,9 +643,8 @@ bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
     ++dfu_link_offset_px_;
     if (dfu_link_offset_px_ >= dfu_link_glyph_pitch_px_) {
       dfu_link_offset_px_ = 0;
-      for (size_t index = dfu_link_glyph_count_ - 1u; index > 0u; --index) {
-        dfu_link_glyphs_[index] = dfu_link_glyphs_[index - 1u];
-      }
+      std::shift_right(dfu_link_glyphs_.begin(),
+                       dfu_link_glyphs_.begin() + dfu_link_glyph_count_, 1);
       dfu_link_glyphs_[0] = RandomBinaryGlyph();
     }
   }
@@ -945,7 +896,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     return;
   }
 
-  AppendDots(status_line, sizeof(status_line), dot_count);
+  AppendDots(status_line, dot_count);
 
   const DisplayTextBounds status_bounds =
       renderer.MeasureText(status_line, kStatusStyle);
@@ -1023,10 +974,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     }
 
     // Mask outside the viewport before the prefix goes down over it.
-    renderer.FillRect(0, status_top, viewport_left, line_height, false);
+    renderer.FillRect(0, status_top, viewport_left, line_height, Ink::kOff);
     renderer.FillRect(viewport_right, status_top,
                       static_cast<int16_t>(renderer.Width()) - viewport_right,
-                      line_height, false);
+                      line_height, Ink::kOff);
     renderer.DrawText(">", prefix_cursor_x, status_y, kStatusStyle);
   }
   if (mode == Mode::kServing) {
@@ -1040,10 +991,11 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         (static_cast<size_t>(right_gear_x) + gear1_bitmap::kVisibleWidth) <=
             renderer.Width() &&
         (right_gear_y + gear1_bitmap::kVisibleHeight) <= renderer.Height()) {
-      DrawRotatingBitmap(renderer, gear1_bitmap::kBitmapData.data(),
-                         gear1_bitmap::kVisibleWidth,
-                         gear1_bitmap::kVisibleHeight, gear_animation_ms_,
-                         static_cast<size_t>(right_gear_x), right_gear_y, true);
+      DrawRotatingBitmap(
+          renderer,
+          gear1_bitmap::kBitmap,
+          gear_animation_ms_, static_cast<size_t>(right_gear_x), right_gear_y,
+          true);
     }
 
     const int16_t left_gear_x =
@@ -1054,17 +1006,16 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
             : 0;
     if (left_gear_x >= 0 &&
         (left_gear_y + gear0_bitmap::kVisibleHeight) <= renderer.Height()) {
-      DrawRotatingBitmap(renderer, gear0_bitmap::kBitmapData.data(),
-                         gear0_bitmap::kVisibleWidth,
-                         gear0_bitmap::kVisibleHeight, gear_animation_ms_,
-                         static_cast<size_t>(left_gear_x), left_gear_y, false,
-                         kLargeGearRotationPeriodMs);
+      DrawRotatingBitmap(
+          renderer,
+          gear0_bitmap::kBitmap,
+          gear_animation_ms_, static_cast<size_t>(left_gear_x), left_gear_y,
+          false, kLargeGearRotationPeriodMs);
     }
   } else if (IsDfuVisualMode(mode)) {
     // Not the entry condition: the verify screen is here and has no badge.
-    const IconAsset badge = CornerBadgeForMode(mode);
-    const bool badge_fits = badge.data != nullptr &&
-                            badge.width <= renderer.Width() &&
+    const PackedBitmap badge = CornerBadgeForMode(mode);
+    const bool badge_fits = badge.Valid() && badge.width <= renderer.Width() &&
                             badge.height <= renderer.Height();
     // Blinks while the transport is missing, steady once it is up.
     const bool show_warning_icon =
@@ -1076,8 +1027,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           static_cast<int16_t>(badge.width) -
           static_cast<int16_t>(kCornerBadgeRightInsetX));
       const int16_t badge_y = static_cast<int16_t>(kCornerBadgeTopY);
-      renderer.DrawBitmap(badge.data, badge.width, badge.height,
-                          static_cast<size_t>(badge_x),
+      renderer.DrawBitmap(badge, static_cast<size_t>(badge_x),
                           static_cast<size_t>(badge_y));
 
       if (ShouldBlinkCornerBadge(mode)) {
@@ -1112,7 +1062,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                         mode == Mode::kEscConfigDisconnected
                             ? "Waiting for USB"
                             : "Waiting for command");
-          AppendDots(guidance, sizeof(guidance), dot_count);
+          AppendDots(guidance, dot_count);
           DrawBodyTextLines(renderer, now, body_top, guidance);
         }
       } else {
@@ -1144,11 +1094,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               0, (body_height -
                   static_cast<int16_t>(chip_verify_bitmap::kVisibleHeight)) /
                      2));
-      renderer.DrawBitmap(chip_verify_bitmap::kBitmapData.data(),
-                          chip_verify_bitmap::kVisibleWidth,
-                          chip_verify_bitmap::kVisibleHeight,
-                          static_cast<size_t>(verify_icon_x),
-                          static_cast<size_t>(verify_icon_y));
+      renderer.DrawBitmap(
+          chip_verify_bitmap::kBitmap,
+          static_cast<size_t>(verify_icon_x),
+          static_cast<size_t>(verify_icon_y));
 
       const int16_t verify_focus_center_x = static_cast<int16_t>(
           verify_icon_x +
@@ -1171,10 +1120,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
 
       DrawMaskedVerifyDigits(renderer, verify_focus_center_x,
                              verify_focus_center_y, verify_digits_,
-                             lens_center_x, lens_center_y, true,
-                             kVerifyDigitGlyphWidthPx,
-                             kVerifyDigitGlyphHeightPx, kVerifyDigitGlyphGapPx,
-                             kVerifyDigitZero.data(), kVerifyDigitOne.data());
+                             lens_center_x, lens_center_y, LensMask::kInside,
+                             kVerifyDigitGlyphWidthPx, kVerifyDigitGlyphGapPx,
+                             kVerifyDigitZero, kVerifyDigitOne);
 
       if (magnifier_x >= 0 && magnifier_y >= 0 &&
           (magnifier_x +
@@ -1183,9 +1131,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           (magnifier_y +
            static_cast<int16_t>(magnifying_glass_bitmap::kVisibleHeight)) <=
               static_cast<int16_t>(renderer.Height())) {
-        renderer.DrawBitmap(magnifying_glass_bitmap::kBitmapData.data(),
-                            magnifying_glass_bitmap::kVisibleWidth,
-                            magnifying_glass_bitmap::kVisibleHeight,
+        renderer.DrawBitmap(magnifying_glass_bitmap::kBitmap,
                             static_cast<size_t>(magnifier_x),
                             static_cast<size_t>(magnifier_y));
       }
@@ -1193,8 +1139,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       return;
     }
 
-    const IconAsset left_icon = LeftIconForMode(mode, now);
-    if (left_icon.data != nullptr && left_icon.width <= renderer.Width() &&
+    const PackedBitmap left_icon = LeftIconForMode(mode, now);
+    if (left_icon.Valid() && left_icon.width <= renderer.Width() &&
         chip_bitmap::kVisibleWidth <= renderer.Width() &&
         left_icon.height <= renderer.Height() &&
         chip_bitmap::kVisibleHeight <= renderer.Height()) {
@@ -1280,12 +1226,10 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         }
       }
 
-      renderer.DrawBitmap(left_icon.data, left_icon.width, left_icon.height,
-                          kDfuIconLeftX, static_cast<size_t>(left_icon_y));
-      renderer.DrawBitmap(chip_bitmap::kBitmapData.data(),
-                          chip_bitmap::kVisibleWidth,
-                          chip_bitmap::kVisibleHeight, right_icon_x,
-                          static_cast<size_t>(chip_icon_y));
+      renderer.DrawBitmap(left_icon, kDfuIconLeftX,
+                          static_cast<size_t>(left_icon_y));
+      renderer.DrawBitmap(chip_bitmap::kBitmap,
+                          right_icon_x, static_cast<size_t>(chip_icon_y));
 
       if ((mode == Mode::kDfuIdleConnected ||
            mode == Mode::kEscConfigIdleConnected) &&

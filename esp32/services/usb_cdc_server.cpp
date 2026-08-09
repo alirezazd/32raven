@@ -36,20 +36,22 @@ void UsbCdcServer::Init(const Config &cfg) {
   driver_installed_ = true;
 }
 
-int UsbCdcServer::Receive(uint8_t *dst, size_t max_len) {
-  if (!driver_installed_ || dst == nullptr || max_len == 0) {
+int UsbCdcServer::Receive(std::span<uint8_t> dst) {
+  if (!driver_installed_ || dst.empty()) {
     return 0;
   }
   // ticks_to_wait=0 so the call is non-blocking and matches UdpServer's
   // semantics. Returns the number of bytes actually read.
-  return usb_serial_jtag_read_bytes(dst, max_len, /*ticks_to_wait=*/0);
+  return usb_serial_jtag_read_bytes(dst.data(), dst.size(),
+                                    /*ticks_to_wait=*/0);
 }
 
-int UsbCdcServer::Send(const uint8_t *data, size_t len) {
-  if (!driver_installed_ || data == nullptr || len == 0) {
+int UsbCdcServer::Send(std::span<const uint8_t> data) {
+  if (!driver_installed_ || data.empty()) {
     return 0;
   }
-  return usb_serial_jtag_write_bytes(data, len, kSendTimeoutTicks);
+  return usb_serial_jtag_write_bytes(data.data(), data.size(),
+                                     kSendTimeoutTicks);
 }
 
 bool UsbCdcServer::IsReady() const {

@@ -5,6 +5,7 @@
 
 #include <cstring>
 #include <type_traits>
+#include <utility>
 
 #include "error_code.hpp"
 #include "m10_reg.hpp"
@@ -31,7 +32,7 @@ void M10::WaitForReady() {
   while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
     uart.FlushRx();
 
-    SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, kValsetLayerRam);
+    SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, ValsetLayer::kRam);
     if (WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       return;
     }
@@ -42,79 +43,85 @@ void M10::WaitForReady() {
   Panic(ErrorCode::Stm32::kGpsNotResponding);
 }
 
-template bool M10::SendCfgValSet<uint8_t>(uint32_t, uint8_t, uint8_t);
-template bool M10::SendCfgValSet<uint16_t>(uint32_t, uint16_t, uint8_t);
-template bool M10::SendCfgValSet<uint32_t>(uint32_t, uint32_t, uint8_t);
+template bool M10::SendCfgValSet<uint8_t>(uint32_t, uint8_t, M10::ValsetLayer);
+template bool M10::SendCfgValSet<uint16_t>(uint32_t, uint16_t,
+                                           M10::ValsetLayer);
+template bool M10::SendCfgValSet<uint32_t>(uint32_t, uint32_t,
+                                           M10::ValsetLayer);
 
-template void M10::SendCfgValSetRaw<uint8_t>(uint32_t, uint8_t, uint8_t);
-template void M10::SendCfgValSetRaw<uint16_t>(uint32_t, uint16_t, uint8_t);
-template void M10::SendCfgValSetRaw<uint32_t>(uint32_t, uint32_t, uint8_t);
+template void M10::SendCfgValSetRaw<uint8_t>(uint32_t, uint8_t,
+                                             M10::ValsetLayer);
+template void M10::SendCfgValSetRaw<uint16_t>(uint32_t, uint16_t,
+                                              M10::ValsetLayer);
+template void M10::SendCfgValSetRaw<uint32_t>(uint32_t, uint32_t,
+                                              M10::ValsetLayer);
 
 template bool M10::WaitForValget<uint8_t>(uint32_t, uint8_t);
 template bool M10::WaitForValget<uint16_t>(uint32_t, uint16_t);
 template bool M10::WaitForValget<uint32_t>(uint32_t, uint32_t);
 
-void M10::ApplyConfig(uint8_t layer) {
-  if (!SendCfgValSet(kKeyUart1Baudrate, ToBaudRateValue(config_.baud_rate),
-                     layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyUart1StopBits,
-                     static_cast<uint8_t>(config_.uart1.stop_bits), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyUart1DataBits,
-                     static_cast<uint8_t>(config_.uart1.data_bits), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyUart1Parity,
-                     static_cast<uint8_t>(config_.uart1.parity), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyUart1InprotUbx, static_cast<uint8_t>(true), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyUart1OutprotUbx,
-                     static_cast<uint8_t>(config_.protocols.outprot_ubx),
-                     layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyUart1OutprotNmea,
-                     static_cast<uint8_t>(config_.protocols.outprot_nmea),
-                     layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  if (!SendCfgValSet(kKeyMsgoutNavPvtUart1,
-                     static_cast<uint8_t>(config_.messages.nav_pvt), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyNavPvtFailed);
-  if (!SendCfgValSet(kKeyMsgoutNavDopUart1,
-                     static_cast<uint8_t>(config_.messages.nav_dop), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyNavDopFailed);
-  if (!SendCfgValSet(kKeyMsgoutNavCovUart1,
-                     static_cast<uint8_t>(config_.messages.nav_cov), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyNavCovFailed);
-  if (!SendCfgValSet(kKeyMsgoutNavEoeUart1,
-                     static_cast<uint8_t>(config_.messages.nav_eoe), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyNavEoeFailed);
-  if (!SendCfgValSet(kKeyCfgRateMeasMs, config_.nav.rate_meas_ms, layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyRateFailed);
-  if (!SendCfgValSet(kKeyCfgDynModel,
-                     static_cast<uint8_t>(config_.nav.dyn_model), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyDynModelFailed);
-  if (!SendCfgValSet(kKeyGpsEnable,
-                     static_cast<uint8_t>(config_.gnss.gps_enable), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  if (!SendCfgValSet(kKeyGloEnable,
-                     static_cast<uint8_t>(config_.gnss.glo_enable), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  if (!SendCfgValSet(kKeyGalEnable,
-                     static_cast<uint8_t>(config_.gnss.gal_enable), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  if (!SendCfgValSet(kKeyBdsEnable,
-                     static_cast<uint8_t>(config_.gnss.bds_enable), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  if (!SendCfgValSet(kKeySbasEnable,
-                     static_cast<uint8_t>(config_.gnss.sbas_enable), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  if (!SendCfgValSet(kKeyItfmEnable,
-                     static_cast<uint8_t>(config_.gnss.itfm_enable), layer))
-    Panic(ErrorCode::Stm32::kGpsVerifyItfmFailed);
+void M10::ApplyConfig(ValsetLayer layer) {
+  // `auto value` keeps SendCfgValSet's template dispatch, so each key still
+  // picks its own UBX storage width. A key that goes unacknowledged has to
+  // panic; folding that in makes it impossible to add a key and forget.
+  const auto set = [&](uint32_t key, auto value, ErrorCode::Stm32 err) {
+    if (!SendCfgValSet(key, value, layer)) {
+      Panic(err);
+    }
+  };
 
+  // Error codes stay fully qualified: scripts/lint/check_error_codes.py finds
+  // live enumerators by matching `ErrorCode::Stm32::k...`, so a `using enum`
+  // here would report all eight below as dead and offer to delete them.
+  const auto u8 = [](auto v) { return static_cast<uint8_t>(v); };
+
+  set(kKeyUart1Baudrate, ToBaudRateValue(config_.baud_rate),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1StopBits, u8(config_.uart1.stop_bits),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1DataBits, u8(config_.uart1.data_bits),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1Parity, u8(config_.uart1.parity),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1InprotUbx, u8(true),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1OutprotUbx, u8(config_.protocols.outprot_ubx),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1OutprotNmea, u8(config_.protocols.outprot_nmea),
+      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+
+  set(kKeyMsgoutNavPvtUart1, u8(config_.messages.nav_pvt),
+      ErrorCode::Stm32::kGpsVerifyNavPvtFailed);
+  set(kKeyMsgoutNavDopUart1, u8(config_.messages.nav_dop),
+      ErrorCode::Stm32::kGpsVerifyNavDopFailed);
+  set(kKeyMsgoutNavCovUart1, u8(config_.messages.nav_cov),
+      ErrorCode::Stm32::kGpsVerifyNavCovFailed);
+  set(kKeyMsgoutNavEoeUart1, u8(config_.messages.nav_eoe),
+      ErrorCode::Stm32::kGpsVerifyNavEoeFailed);
+
+  set(kKeyCfgRateMeasMs, config_.nav.rate_meas_ms,
+      ErrorCode::Stm32::kGpsVerifyRateFailed);
+  set(kKeyCfgDynModel, u8(config_.nav.dyn_model),
+      ErrorCode::Stm32::kGpsVerifyDynModelFailed);
+
+  set(kKeyGpsEnable, u8(config_.gnss.gps_enable),
+      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+  set(kKeyGloEnable, u8(config_.gnss.glo_enable),
+      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+  set(kKeyGalEnable, u8(config_.gnss.gal_enable),
+      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+  set(kKeyBdsEnable, u8(config_.gnss.bds_enable),
+      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+  set(kKeySbasEnable, u8(config_.gnss.sbas_enable),
+      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+  set(kKeyItfmEnable, u8(config_.gnss.itfm_enable),
+      ErrorCode::Stm32::kGpsVerifyItfmFailed);
+
+  // The leading 4 is CFG-VALSET's own header -- version, layers and two
+  // reserved bytes -- which the length field counts along with the key/value
+  // pairs. SendCfgValSet and its valget counterpart include it too.
   constexpr uint16_t payload_len =
-      (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1);
+      4 + (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1);
   constexpr size_t packet_len = 6 + payload_len + 2;
   uint8_t buf[packet_len];
 
@@ -126,7 +133,7 @@ void M10::ApplyConfig(uint8_t layer) {
   buf[5] = (payload_len >> 8) & 0xFF;
 
   buf[6] = kValsetVersion;
-  buf[7] = layer;
+  buf[7] = std::to_underlying(layer);
   buf[8] = 0;
   buf[9] = 0;
 
@@ -158,7 +165,8 @@ void M10::ApplyConfig(uint8_t layer) {
                static_cast<uint8_t>(config_.tp1.align_to_tow));
   write_key_u1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
 
-  if (idx != 10 + payload_len) {
+  // payload_len is measured from buf[6], where the CFG-VALSET payload starts.
+  if (idx != 6 + payload_len) {
     Panic(ErrorCode::Stm32::kGpsConfigTimepulseBufferError);
   }
 
@@ -190,11 +198,11 @@ void M10::Init(const Config &config) {
 
   WaitForReady();
   Uart<UartInstance::kUart2>::GetInstance().FlushRx();
-  ApplyConfig(kValsetLayerRam);
+  ApplyConfig(ValsetLayer::kRam);
 }
 
 bool M10::Read(uint8_t &b) {
-  return Uart<UartInstance::kUart2>::GetInstance().Read(b);
+  return Uart<UartInstance::kUart2>::GetInstance().ReadByte(b);
 }
 
 bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
@@ -207,7 +215,7 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 
   while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
     uint8_t b;
-    if (!uart.Read(b)) continue;
+    if (!uart.ReadByte(b)) continue;
 
     if (idx == 0) {
       if (b != UBX::kSync1) continue;
@@ -250,7 +258,7 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 }
 
 template <typename T>
-void M10::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
+void M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
@@ -267,7 +275,7 @@ void M10::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
   buf[5] = (payload_len >> 8) & 0xFF;
 
   buf[6] = kValsetVersion;
-  buf[7] = layer;
+  buf[7] = std::to_underlying(layer);
   buf[8] = 0;
   buf[9] = 0;
 
@@ -287,7 +295,7 @@ void M10::SendCfgValSetRaw(uint32_t key, T value, uint8_t layer) {
   Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
 }
 
-void M10::SendCfgValGet(uint32_t key, uint8_t layer) {
+void M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
   constexpr uint8_t version = 0x00;
   constexpr uint16_t position = 0;
   constexpr uint16_t payload_len = 4 + 4;
@@ -303,7 +311,7 @@ void M10::SendCfgValGet(uint32_t key, uint8_t layer) {
   buf[5] = (payload_len >> 8) & 0xFF;
 
   buf[6] = version;
-  buf[7] = layer;
+  buf[7] = std::to_underlying(layer);
   buf[8] = position & 0xFF;
   buf[9] = (position >> 8) & 0xFF;
 
@@ -337,7 +345,7 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
 
   while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
     uint8_t b;
-    if (!uart.Read(b)) continue;
+    if (!uart.ReadByte(b)) continue;
 
     if (idx == 0 && b != UBX::kSync1) continue;
     if (idx == 1 && b != UBX::kSync2) {
@@ -386,13 +394,13 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
 }
 
 template <typename T>
-bool M10::SendCfgValSet(uint32_t key, T value, uint8_t layer) {
+bool M10::SendCfgValSet(uint32_t key, T value, ValsetLayer layer) {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
 
   SendCfgValSetRaw(key, value, layer);
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) return false;
 
   uart.FlushRx();
-  SendCfgValGet(key, kValgetLayerRam);
+  SendCfgValGet(key, ValgetLayer::kRam);
   return WaitForValget<T>(key, value);
 }

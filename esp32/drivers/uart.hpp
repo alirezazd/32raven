@@ -5,6 +5,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
 
 #include "hal/gpio_types.h"
 
@@ -46,8 +48,13 @@ class Uart {
     static Uart instance;
     return instance;
   }
-  int Write(const uint8_t *data, size_t size);
-  int Read(uint8_t *data, size_t size, uint32_t timeout_ms = 0);
+  int WriteBytes(std::span<const uint8_t> bytes);
+  // Not a WriteBytes overload: on a uint16_t crc, WriteBytes(crc) would then
+  // compile and silently send one truncated byte.
+  int WriteByte(uint8_t byte);
+  [[nodiscard]] int ReadBytes(std::span<uint8_t> bytes, uint32_t timeout_ms = 0);
+  // nullopt on timeout.
+  [[nodiscard]] std::optional<uint8_t> ReadByte(uint32_t timeout_ms = 0);
   size_t BufferedRxBytes() const;
   void Flush();
   void DrainTx(uint32_t timeout_ms);

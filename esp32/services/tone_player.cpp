@@ -106,15 +106,15 @@ void TonePlayer::Task() {
 
       const TimeMs now = Sys().Timebase().NowMs();
       if (TimeReached(now, next_change_ms_)) {
-        const NoteEvent event = ParseNextNote();
-        if (!event.valid) {
+        const std::optional<NoteEvent> event = ParseNextNote();
+        if (!event) {
           playing_ = false;
           score_ = nullptr;
           cursor_ = nullptr;
           next_change_ms_ = 0;
           buzzer_->Stop();
         } else {
-          StartEvent(event, now);
+          StartEvent(*event, now);
         }
         continue;
       }
@@ -156,8 +156,8 @@ void TonePlayer::Task() {
                            ? kMaxVolume
                            : std::min<int>(request.volume, kMaxVolume);
 
-    const NoteEvent event = ParseNextNote();
-    if (!event.valid) {
+    const std::optional<NoteEvent> event = ParseNextNote();
+    if (!event) {
       playing_ = false;
       score_ = nullptr;
       cursor_ = nullptr;
@@ -166,7 +166,7 @@ void TonePlayer::Task() {
       continue;
     }
 
-    StartEvent(event, Sys().Timebase().NowMs());
+    StartEvent(*event, Sys().Timebase().NowMs());
   }
 }
 
@@ -227,39 +227,38 @@ bool TonePlayer::ParseHeader(const char *rtttl) {
   return true;
 }
 
-TonePlayer::NoteEvent TonePlayer::ParseNextNote() {
+std::optional<TonePlayer::NoteEvent> TonePlayer::ParseNextNote() {
   if (cursor_ == nullptr) {
-    return {};
+    return std::nullopt;
   }
 
   SkipSeparators(cursor_);
   if (*cursor_ == '\0') {
-    return {};
+    return std::nullopt;
   }
 
   const uint32_t duration_value = ParseNumber(cursor_);
   const uint32_t duration_divisor =
       (duration_value == 0) ? default_duration_ : duration_value;
   if (duration_divisor == 0) {
-    return {};
+    return std::nullopt;
   }
 
   char note = *cursor_;
   if (note == '\0') {
-    return {};
+    return std::nullopt;
   }
   if (note >= 'A' && note <= 'Z') {
     note = static_cast<char>(note - 'A' + 'a');
   }
   ++cursor_;
 
-  bool sharp = false;
-  bool flat = false;
+  Accidental accidental = Accidental::kNatural;
   if (*cursor_ == '#') {
-    sharp = true;
+    accidental = Accidental::kSharp;
     ++cursor_;
   } else if (*cursor_ == '_') {
-    flat = true;
+    accidental = Accidental::kFlat;
     ++cursor_;
   }
 
@@ -290,16 +289,16 @@ TonePlayer::NoteEvent TonePlayer::ParseNextNote() {
 
   NoteEvent event{};
   event.duration_ms = duration_ms;
-  event.valid = true;
 
+  // A rest is a real event with no frequency, not a parse failure.
   if (note == 'p') {
     event.freq_hz = 0;
     return event;
   }
 
-  event.freq_hz = NoteToFrequencyHz(note, sharp, flat, octave);
+  event.freq_hz = NoteToFrequencyHz(note, accidental, octave);
   if (event.freq_hz == 0) {
-    event.valid = false;
+    return std::nullopt;
   }
   return event;
 }
@@ -337,7 +336,7 @@ uint32_t TonePlayer::ParseNumber(const char *&p) {
   return have_digit ? value : 0;
 }
 
-uint32_t TonePlayer::NoteToFrequencyHz(char note, bool sharp, bool flat,
+uint32_t TonePlayer::NoteToFrequencyHz(char note, Accidental accidental,
                                        uint32_t octave) {
   int semitone = -1;
   switch (note) {
@@ -366,11 +365,15 @@ uint32_t TonePlayer::NoteToFrequencyHz(char note, bool sharp, bool flat,
       return 0;
   }
 
-  if (sharp) {
-    ++semitone;
-  }
-  if (flat) {
-    --semitone;
+  switch (accidental) {
+    case Accidental::kSharp:
+      ++semitone;
+      break;
+    case Accidental::kFlat:
+      --semitone;
+      break;
+    case Accidental::kNatural:
+      break;
   }
 
   int octave_i = static_cast<int>(octave);

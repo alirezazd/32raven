@@ -6,6 +6,8 @@
 #include <atomic>
 #include <cstddef>
 #include <cstring>
+#include <span>
+#include <type_traits>
 
 template <typename T, size_t Size> class RingBuffer {
 public:
@@ -77,6 +79,8 @@ public:
 
   // Returns number of items written
   size_t PushBlock(const T *p, size_t n) {
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "PushBlock memcpys elements; use Push() for non-trivial T");
     if (n == 0)
       return 0;
 
@@ -108,17 +112,13 @@ public:
     return n;
   }
 
-  size_t ContiguousReadable(const T *&ptr) const {
-    size_t t = tail_.load(std::memory_order_acquire);
-    size_t h = head_.load(std::memory_order_acquire);
+  [[nodiscard]] std::span<const T> ContiguousReadable() const {
+    const size_t t = tail_.load(std::memory_order_acquire);
+    const size_t h = head_.load(std::memory_order_acquire);
     if (t == h) {
-      ptr = nullptr;
-      return 0;
+      return {};
     }
-    ptr = &buffer_[t];
-    if (h > t)
-      return h - t;
-    return Size - t;
+    return {&buffer_[t], (h > t) ? (h - t) : (Size - t)};
   }
 
   void Consume(size_t n) {

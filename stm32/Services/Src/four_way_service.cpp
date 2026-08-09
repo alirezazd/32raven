@@ -3,6 +3,9 @@
 
 #include "four_way_service.hpp"
 
+#include <span>
+#include <utility>
+
 #include "checksum.hpp"
 #include "dshot_codec.hpp"
 #include "error_code.hpp"
@@ -28,14 +31,6 @@ constexpr uint8_t kCmdDeviceReadEeprom = 0x3D;
 constexpr uint8_t kCmdDeviceWriteEeprom = 0x3E;
 constexpr uint8_t kCmdInterfaceSetMode = 0x3F;
 constexpr uint8_t kCmdDeviceVerify = 0x40;
-
-constexpr uint8_t kAckOk = 0x00;
-constexpr uint8_t kAckInvalidCommand = 0x02;
-constexpr uint8_t kAckInvalidCrc = 0x03;
-constexpr uint8_t kAckVerifyError = 0x04;
-constexpr uint8_t kAckInvalidChannel = 0x08;
-constexpr uint8_t kAckInvalidParam = 0x09;
-constexpr uint8_t kAckDeviceGeneralError = 0x0F;
 
 // Long enough that a host pausing between the bytes of one frame is never
 // mistaken for a dead one, short enough to recover well inside the seconds a
@@ -159,7 +154,7 @@ void FourWayService::Feed(uint8_t byte) {
       } else {
         ++crc_error_count_;
         reply_len_ = 0;
-        Respond(kAckInvalidCrc);
+        Respond(Ack::kInvalidCrc);
       }
       Reset();
       break;
@@ -177,56 +172,56 @@ void FourWayService::Dispatch() {
     case kCmdInterfaceTestAlive:
       if (bootloader_->IsConnected() && !bootloader_->KeepAlive()) {
         bootloader_->Disconnect();
-        Respond(kAckDeviceGeneralError);
+        Respond(Ack::kDeviceGeneralError);
         return;
       }
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
 
     case kCmdProtocolGetVersion:
       ReplyBuf()[reply_len_++] = kProtocolVersion;
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
 
     case kCmdInterfaceGetName:
       for (size_t i = 0; i < sizeof(kInterfaceName) - 1u; ++i) {
         ReplyBuf()[reply_len_++] = static_cast<uint8_t>(kInterfaceName[i]);
       }
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
 
     case kCmdInterfaceGetVersion:
       ReplyBuf()[reply_len_++] = kInterfaceVersionMain;
       ReplyBuf()[reply_len_++] = kInterfaceVersionSub;
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
 
     // Acknowledged before the teardown, because Exit hands the motor pins back
     // to TIM1 and the reply has nothing to do with them.
     case kCmdInterfaceExit:
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       Exit();
       return;
 
     case kCmdInterfaceSetMode:
       if (param_count_ < 1u || params_[0] < kModeSilBlb ||
           params_[0] > kModeArmBlb) {
-        Respond(kAckInvalidParam);
+        Respond(Ack::kInvalidParam);
         return;
       }
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
 
     case kCmdDeviceInitFlash: {
       if (param_count_ < 1u || params_[0] >= DShotCodec::kMotorCount) {
-        Respond(kAckInvalidChannel);
+        Respond(Ack::kInvalidChannel);
         return;
       }
       selected_esc_ = params_[0];
 
       EscBootloader::DeviceInfo info{};
       if (!bootloader_->Connect(selected_esc_, info)) {
-        Respond(kAckDeviceGeneralError);
+        Respond(Ack::kDeviceGeneralError);
         return;
       }
       // Low byte first. Transposed, this is not a corrupt reply but a valid one
@@ -235,79 +230,83 @@ void FourWayService::Dispatch() {
       ReplyBuf()[reply_len_++] = info.signature_hi;
       ReplyBuf()[reply_len_++] = info.boot_version;
       ReplyBuf()[reply_len_++] = info.interface_mode;
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
     }
 
     case kCmdDeviceReset: {
       if (param_count_ < 1u || params_[0] >= DShotCodec::kMotorCount) {
-        Respond(kAckInvalidChannel);
+        Respond(Ack::kInvalidChannel);
         return;
       }
       selected_esc_ = params_[0];
       // A 1 in the address low byte asks for the line to be pulled down as
       // well, which is what stops the ESC re-entering its bootloader.
       bootloader_->Reset(selected_esc_, (address_ & 0xFFu) == 1u);
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
     }
     case kCmdDeviceRead: {
       const uint16_t len = (params_[0] == 0u) ? kMaxParams : params_[0];
       if (!bootloader_->ReadFlash(address_, ReplyBuf(), len)) {
-        Respond(kAckDeviceGeneralError);
+        Respond(Ack::kDeviceGeneralError);
         return;
       }
       reply_len_ = len;
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
     }
 
     case kCmdDevicePageErase: {
       if (param_count_ < 1u) {
-        Respond(kAckInvalidParam);
+        Respond(Ack::kInvalidParam);
         return;
       }
       const uint8_t page = params_[0];
       if (page < EscBootloader::kFirstErasablePage) {
-        Respond(kAckInvalidParam);
+        Respond(Ack::kInvalidParam);
         return;
       }
       if (!bootloader_->PageErase(page)) {
-        Respond(kAckDeviceGeneralError);
+        Respond(Ack::kDeviceGeneralError);
         return;
       }
       ReplyBuf()[reply_len_++] = page;
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
     }
 
-    case kCmdDeviceWrite:
+    case kCmdDeviceWrite: {
       // Erasing the bootloader is not the only way to lose it: flash writes
       // clear bits, so programming over a live page corrupts it just as well.
       if (address_ < EscBootloader::kFirstWritableAddress) {
-        Respond(kAckInvalidParam);
+        Respond(Ack::kInvalidParam);
         return;
       }
-      if (!bootloader_->WriteFlash(address_, params_, param_count_)) {
-        Respond(kAckDeviceGeneralError);
+      const auto params = std::span{params_}.first(param_count_);
+      if (!bootloader_->WriteFlash(address_, params)) {
+        Respond(Ack::kDeviceGeneralError);
         return;
       }
-      Respond(kAckOk);
+      Respond(Ack::kOk);
       return;
+    }
 
-    case kCmdDeviceVerify:
-      switch (bootloader_->VerifyFlash(address_, params_, param_count_)) {
+    case kCmdDeviceVerify: {
+      const auto params = std::span{params_}.first(param_count_);
+      switch (bootloader_->VerifyFlash(address_, params)) {
         case EscBootloader::VerifyResult::kOk:
-          Respond(kAckOk);
+          Respond(Ack::kOk);
           return;
         case EscBootloader::VerifyResult::kMismatch:
-          Respond(kAckVerifyError);
+          Respond(Ack::kVerifyError);
           return;
         case EscBootloader::VerifyResult::kFailed:
-          Respond(kAckDeviceGeneralError);
+          Respond(Ack::kDeviceGeneralError);
           return;
       }
       return;
+    }
 
     // SiLabs and Atmel paths. The two eeprom commands answer differently
     // because the reference does: it writes no ARM case for either, so the read
@@ -315,20 +314,20 @@ void FourWayService::Dispatch() {
     // preset. Matching that matters more than the pair looking consistent.
     case kCmdDeviceEraseAll:
     case kCmdDeviceReadEeprom:
-      Respond(kAckInvalidCommand);
+      Respond(Ack::kInvalidCommand);
       return;
 
     case kCmdDeviceWriteEeprom:
-      Respond(kAckDeviceGeneralError);
+      Respond(Ack::kDeviceGeneralError);
       return;
 
     default:
-      Respond(kAckInvalidCommand);
+      Respond(Ack::kInvalidCommand);
       return;
   }
 }
 
-void FourWayService::Respond(uint8_t ack) {
+void FourWayService::Respond(Ack ack) {
   // Zero length means 256 parameters, so an empty reply cannot be encoded --
   // the host would wait for 256 bytes that never come. Ack-only responses
   // carry one padding byte, as BLHeli's own implementation does.
@@ -346,9 +345,9 @@ void FourWayService::Respond(uint8_t ack) {
   frame_[4] = static_cast<uint8_t>(reply_len_ & 0xFFu);
 
   size_t n = kHeaderBytes + reply_len_;
-  frame_[n++] = ack;
+  frame_[n++] = std::to_underlying(ack);
 
-  const uint16_t crc = checksum::XModem(frame_, n);
+  const uint16_t crc = checksum::XModem(std::span{frame_}.first(n));
   frame_[n++] = static_cast<uint8_t>(crc >> 8);
   frame_[n++] = static_cast<uint8_t>(crc & 0xFFu);
 

@@ -4,6 +4,7 @@
 #include "crsf_link_service.hpp"
 
 #include <cstring>
+#include <span>
 
 #include "checksum.hpp"
 #include "error_code.hpp"
@@ -198,7 +199,7 @@ void CrsfLinkService::PollRx(uint32_t now_us, size_t byte_budget) {
 
   uint8_t byte = 0;
   size_t count = 0;
-  while (count < byte_budget && uart_->Read(byte)) {
+  while (count < byte_budget && uart_->ReadByte(byte)) {
     ++count;
     (void)ProcessCrsfByte(byte, now_us);
   }
@@ -288,38 +289,32 @@ bool CrsfLinkService::SendScheduledTelemetry(uint32_t now_us) {
       return false;
     }
 
-    uint8_t type = 0;
-    uint8_t payload[16] = {};
-    uint8_t payload_len = 0;
-    if (!PrepareTelemetryTopic(best_topic, now_us, type, payload,
-                               payload_len)) {
+    const std::optional<TelemetryFrame> frame =
+        PrepareTelemetryTopic(best_topic, now_us);
+    if (!frame) {
       skipped[static_cast<size_t>(best_topic)] = true;
       ++skipped_count;
       continue;
     }
 
     TopicState &topic_state = GetTelemetryTopicState(best_topic);
-    if (!ShouldSendTelemetryTopic(best_topic, now_us, payload, payload_len)) {
-      topic_state.next_due_us =
-          ComputeDeferredDueTime(best_topic, now_us, payload, payload_len);
+    if (!ShouldSendTelemetryTopic(best_topic, now_us, *frame)) {
+      topic_state.next_due_us = ComputeDeferredDueTime(best_topic, now_us);
       skipped[static_cast<size_t>(best_topic)] = true;
       ++skipped_count;
       continue;
     }
 
-    if (!TrySendTelemetryTopic(best_topic, now_us, payload, payload_len,
-                               type)) {
+    if (!TrySendTelemetryTopic(best_topic, now_us, *frame)) {
       return false;
     }
 
     topic_state.last_sent_us = now_us;
     topic_state.next_due_us =
         now_us + GetTelemetryTopicConfig(best_topic).period_us;
-    topic_state.last_payload_len = payload_len;
+    topic_state.last_payload_len = frame->len;
     topic_state.have_last_payload = true;
-    if (payload_len > 0u) {
-      memcpy(topic_state.last_payload.data(), payload, payload_len);
-    }
+    topic_state.last_payload = frame->payload;
     return true;
   }
 
@@ -382,48 +377,48 @@ bool CrsfLinkService::IsTelemetryTopicReady(TelemetryTopic topic,
   }
 }
 
-bool CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
-                                            uint32_t now_us, uint8_t &type,
-                                            uint8_t *payload,
-                                            uint8_t &payload_len) const {
-  if (payload == nullptr) {
-    return false;
-  }
+std::optional<CrsfLinkService::TelemetryFrame>
+CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
+                                       uint32_t now_us) const {
+  // The encoders below write through a raw pointer, so the payload capacity is
+  // only enforced here.
+  static_assert(kHeartbeatPayloadSize <= kMaxTelemetryPayload);
+  static_assert(kGpsPayloadSize <= kMaxTelemetryPayload);
+  static_assert(kBatteryPayloadSize <= kMaxTelemetryPayload);
 
+  TelemetryFrame frame{};
   switch (topic) {
     case TelemetryTopic::kHeartbeat:
-      type = kCrsfFrameTypeHeartbeat;
-      payload_len = kHeartbeatPayloadSize;
-      EncodeHeartbeatPayload(payload);
-      return true;
+      frame.type = kCrsfFrameTypeHeartbeat;
+      frame.len = kHeartbeatPayloadSize;
+      EncodeHeartbeatPayload(frame.payload.data());
+      return frame;
     case TelemetryTopic::kGps: {
       const GpsData &gps = vehicle_state_->GetGps();
       if (gps.timestamp_us == 0 ||
           (uint32_t)(now_us - gps.timestamp_us) > cfg_.gps_fresh_timeout_us) {
-        return false;
+        return std::nullopt;
       }
-      type = kCrsfFrameTypeGps;
-      payload_len = kGpsPayloadSize;
-      EncodeGpsPayload(gps, payload);
-      return true;
+      frame.type = kCrsfFrameTypeGps;
+      frame.len = kGpsPayloadSize;
+      EncodeGpsPayload(gps, frame.payload.data());
+      return frame;
     }
     case TelemetryTopic::kBattery: {
       const BatteryData &battery = vehicle_state_->GetBattery();
-      type = kCrsfFrameTypeBattery;
-      payload_len = kBatteryPayloadSize;
-      EncodeBatteryPayload(battery, payload);
-      return true;
+      frame.type = kCrsfFrameTypeBattery;
+      frame.len = kBatteryPayloadSize;
+      EncodeBatteryPayload(battery, frame.payload.data());
+      return frame;
     }
     case TelemetryTopic::kCount:
     default:
-      return false;
+      return std::nullopt;
   }
 }
 
-bool CrsfLinkService::ShouldSendTelemetryTopic(TelemetryTopic topic,
-                                               uint32_t now_us,
-                                               const uint8_t *payload,
-                                               uint8_t payload_len) const {
+bool CrsfLinkService::ShouldSendTelemetryTopic(
+    TelemetryTopic topic, uint32_t now_us, const TelemetryFrame &frame) const {
   const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
   const TopicState &topic_state = telemetry_states_[static_cast<size_t>(topic)];
 
@@ -431,9 +426,9 @@ bool CrsfLinkService::ShouldSendTelemetryTopic(TelemetryTopic topic,
     return true;
   }
 
-  const bool changed =
-      payload_len != topic_state.last_payload_len ||
-      memcmp(topic_state.last_payload.data(), payload, payload_len) != 0;
+  const bool changed = frame.len != topic_state.last_payload_len ||
+                       memcmp(topic_state.last_payload.data(),
+                              frame.payload.data(), frame.len) != 0;
   if (changed) {
     return true;
   }
@@ -448,11 +443,7 @@ bool CrsfLinkService::ShouldSendTelemetryTopic(TelemetryTopic topic,
 }
 
 uint32_t CrsfLinkService::ComputeDeferredDueTime(TelemetryTopic topic,
-                                                 uint32_t now_us,
-                                                 const uint8_t *payload,
-                                                 uint8_t payload_len) const {
-  (void)payload;
-  (void)payload_len;
+                                                 uint32_t now_us) const {
   const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
   const TopicState &topic_state = telemetry_states_[static_cast<size_t>(topic)];
   const uint32_t period_due = now_us + topic_cfg.period_us;
@@ -467,11 +458,10 @@ uint32_t CrsfLinkService::ComputeDeferredDueTime(TelemetryTopic topic,
 
 bool CrsfLinkService::TrySendTelemetryTopic(TelemetryTopic topic,
                                             uint32_t now_us,
-                                            const uint8_t *payload,
-                                            uint8_t payload_len, uint8_t type) {
+                                            const TelemetryFrame &frame) {
   (void)topic;
   (void)now_us;
-  return SendBroadcastFrame(type, payload, payload_len);
+  return SendBroadcastFrame(frame.type, frame.payload.data(), frame.len);
 }
 
 bool CrsfLinkService::TrySendHeartbeatTelemetry() {
@@ -581,7 +571,7 @@ bool CrsfLinkService::FinishCrsfFrame(uint32_t now_us) {
   const uint8_t *payload = crsf_frame_.data() + 3u;
   const uint8_t expected_crc = crsf_frame_[crsf_frame_pos_ - 1u];
   const uint8_t actual_crc =
-      checksum::Dvbs2(crsf_frame_.data() + 2u, payload_len + 1u);
+      checksum::Dvbs2(std::span{crsf_frame_}.subspan(2u, payload_len + 1u));
   if (actual_crc != expected_crc) {
     return false;
   }
@@ -693,7 +683,8 @@ bool CrsfLinkService::SendBroadcastFrame(uint8_t type, const uint8_t *payload,
   for (uint8_t i = 0; i < payload_len; ++i) {
     frame[3u + i] = payload[i];
   }
-  frame[total_len - 1u] = checksum::Dvbs2(frame + 2u, (size_t)payload_len + 1u);
+  frame[total_len - 1u] =
+      checksum::Dvbs2(std::span{frame}.subspan(2u, (size_t)payload_len + 1u));
   uart_->Send(frame, total_len);
   return true;
 }
@@ -726,7 +717,8 @@ bool CrsfLinkService::SendDirectCommand(uint8_t destination, uint8_t command_id,
 
   frame[6u + payload_len] =
       CrsfCommandCrc8(frame + 2u, (size_t)command_payload_len + 3u);
-  frame[total_len - 1u] = checksum::Dvbs2(frame + 2u, (size_t)frame_payload_len + 1u);
+  frame[total_len - 1u] = checksum::Dvbs2(
+      std::span{frame}.subspan(2u, (size_t)frame_payload_len + 1u));
 
   uart_->Send(frame, total_len);
   return true;
