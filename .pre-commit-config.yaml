@@ -66,3 +66,12 @@ repos:
         entry: uv run --quiet --script scripts/lint/check_unused_includes.py
         language: system
         files: '\.(c|cpp)$'
+
+      # Runs the generators to see which symbols they actually read, so it has
+      # to re-check everything whenever either side of the pair moves.
+      - id: check-config-staleness
+        name: Stale Kconfig symbols
+        entry: uv run --quiet --script scripts/lint/check_config_staleness.py
+        language: system
+        pass_filenames: false
+        files: '^(config/(Kconfig|32raven\.config)|scripts/(kconfig_gen|generate_.*)\.py|scripts/templates/.*\.j2)$'
