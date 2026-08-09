@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "ctx.hpp"
+#include "dispatcher.hpp"
 #include "error_code.hpp"
 #include "mavlink.hpp"
 #include "message.hpp"
@@ -17,32 +18,53 @@
 
 extern "C" {
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
 static constexpr const char *kTag = "cmd";
-#include "esp_timer.h"  // Added for esp_timer_get_time
 
 [[noreturn]] static void PanicUnknownCommand(uint8_t id) {
   ESP_LOGE(kTag, "Unknown Command ID: 0x%02X (%u)", (unsigned)id, (unsigned)id);
   Panic(ErrorCode::Common::kUnknownCommand);
 }
 
+// Every arm that only refreshes a cache differs solely in the payload type,
+// and the table below is where an id gets paired with one. PayloadAs cannot
+// check that pairing, so keeping it to a single line per message is the whole
+// defence against routing a packet into the wrong struct.
+template <typename T>
+static void OnTelemetry(AppContext &ctx, const message::Packet &pkt) {
+  ctx.sys->Mavlink().UpdateTelemetryCache(message::PayloadAs<T>(pkt),
+                                          ctx.sys->Timebase().NowMs());
+}
+
+template <typename T>
+static void OnConfig(AppContext &ctx, const message::Packet &pkt) {
+  ctx.sys->Mavlink().UpdateConfigCache(message::PayloadAs<T>(pkt),
+                                       ctx.sys->Timebase().NowMs());
+}
+
+// Expected traffic this side has nothing to do with. Listed rather than
+// omitted: an absent id is an unknown one, and unknown ids panic.
+static void OnIgnored(AppContext &, const message::Packet &) {}
+
 static void OnLog(AppContext &, const message::Packet &pkt) {
-  if (!message::IsPayloadValid(message::MsgId::kLog, pkt.payload,
-                               pkt.header.len) ||
-      pkt.header.len == 0) {
+  if (pkt.header.len == 0) {
     return;
   }
-  char buf[257];
+  // Dispatch validated the length against kMaxLogTextPayload already.
+  char buf[message::kMaxLogTextPayload + 1];
   memcpy(buf, pkt.payload, pkt.header.len);
   buf[pkt.header.len] = '\0';
   ESP_LOGI("FC", "%s", buf);
 }
 
-static void OnUnknown(AppContext &, const message::Packet &pkt) {
-  PanicUnknownCommand(pkt.header.id);
+static void OnTone(AppContext &ctx, const message::Packet &pkt) {
+  ctx.sys->TonePlayer().PlayBuiltin(static_cast<message::Tone>(
+      message::PayloadAs<message::ToneMsg>(pkt).tone));
+  ctx.sys->Ui().NotifyUserActivity();
 }
 
 static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
@@ -69,6 +91,54 @@ static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
   Panic(error_code);
 }
 
+static void OnUsbStatus(AppContext &ctx, const message::Packet &pkt) {
+  const auto &msg = message::PayloadAs<message::UsbStatusMsg>(pkt);
+  const bool granted = (msg.flags & message::kUsbStatusEscConfigGranted) != 0u;
+  ctx.sys->Ui().UpdatePeerUsb(
+      {
+          .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
+          .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
+          .port_open = (msg.flags & message::kUsbStatusPortOpen) != 0u,
+          .esc_config_granted = granted,
+          .rx_frames = msg.rx_frames,
+          .tx_frames = msg.tx_frames,
+      },
+      ctx.sys->Timebase().NowMs());
+
+  // The STM32 latches the grant, so correcting drift is this side's job.
+  // Answering the report that carries it covers a command lost in either
+  // direction, and a reboot that left the port open. Armed is excluded
+  // because the STM32 refuses then, and asking anyway just loops.
+  const bool want = ctx.sm->CurrentState() == ctx.esc_config_state &&
+                    !ctx.sys->Mavlink().PeerArmed().value_or(false);
+  if (granted != want) {
+    ctx.sys->FcLink().SendPacket(
+        message::MsgId::kSetEscConfigMode,
+        message::SetEscConfigModeMsg{.enabled = static_cast<uint8_t>(want)});
+  }
+}
+
+static const Dispatcher<AppContext>::Entry kHandlers[] = {
+    {message::MsgId::kPong, OnIgnored},
+    {message::MsgId::kImuData, OnIgnored},
+    {message::MsgId::kLog, OnLog},
+    {message::MsgId::kTone, OnTone},
+    {message::MsgId::kUsbStatus, OnUsbStatus},
+    {message::MsgId::kPanic, OnPanic},
+    {message::MsgId::kGpsData, OnTelemetry<message::GpsData>},
+    {message::MsgId::kRcChannels, OnTelemetry<message::RcChannelsMsg>},
+    {message::MsgId::kSystemStatus, OnTelemetry<message::SystemStatusMsg>},
+    {message::MsgId::kVehicleStatus, OnTelemetry<message::VehicleStatusMsg>},
+    {message::MsgId::kEscTelemetry, OnTelemetry<message::EscTelemetryMsg>},
+    {message::MsgId::kRcMapConfig, OnConfig<message::RcMapConfigMsg>},
+    {message::MsgId::kRcCalibrationConfig,
+     OnConfig<message::RcCalibrationConfigMsg>},
+    {message::MsgId::kGyroCalibrationIdConfig,
+     OnConfig<message::GyroCalibrationIdConfigMsg>},
+};
+
+static const Dispatcher<AppContext> kDispatcher(kHandlers);
+
 void CommandHandler::Init(const Config &cfg) {
   cfg_ = cfg;
   ESP_LOGI(kTag, "Initialized");
@@ -81,90 +151,8 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
     Panic(ErrorCode::Common::kCommandInvalidPacket);
   }
 
-  const uint32_t now_ms = ctx.sys->Timebase().NowMs();
-
-  switch (static_cast<message::MsgId>(pkt.header.id)) {
-    case message::MsgId::kPong:
-      break;
-    case message::MsgId::kGpsData:
-      ctx.sys->Mavlink().UpdateTelemetryCache(
-          message::PayloadAs<message::GpsData>(pkt), now_ms);
-      break;
-    case message::MsgId::kLog:
-      OnLog(ctx, pkt);
-      break;
-    case message::MsgId::kRcMapConfig:
-      ctx.sys->Mavlink().UpdateConfigCache(
-          message::PayloadAs<message::RcMapConfigMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kRcCalibrationConfig:
-      ctx.sys->Mavlink().UpdateConfigCache(
-          message::PayloadAs<message::RcCalibrationConfigMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kRcChannels:
-      ctx.sys->Mavlink().UpdateTelemetryCache(
-          message::PayloadAs<message::RcChannelsMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kSystemStatus:
-      ctx.sys->Mavlink().UpdateTelemetryCache(
-          message::PayloadAs<message::SystemStatusMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kTone:
-      ctx.sys->TonePlayer().PlayBuiltin(static_cast<message::Tone>(
-          message::PayloadAs<message::ToneMsg>(pkt).tone));
-      ctx.sys->Ui().NotifyUserActivity();
-      break;
-
-    case message::MsgId::kUsbStatus: {
-      const auto &msg = message::PayloadAs<message::UsbStatusMsg>(pkt);
-      const bool granted =
-          (msg.flags & message::kUsbStatusEscConfigGranted) != 0u;
-      ctx.sys->Ui().UpdatePeerUsb(
-          {
-              .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
-              .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
-              .port_open = (msg.flags & message::kUsbStatusPortOpen) != 0u,
-              .esc_config_granted = granted,
-              .rx_frames = msg.rx_frames,
-              .tx_frames = msg.tx_frames,
-          },
-          now_ms);
-
-      // The STM32 latches the grant, so correcting drift is this side's job.
-      // Answering the report that carries it covers a command lost in either
-      // direction, and a reboot that left the port open. Armed is excluded
-      // because the STM32 refuses then, and asking anyway just loops.
-      const bool want = ctx.sm->CurrentState() == ctx.esc_config_state &&
-                        !ctx.sys->Mavlink().PeerArmed().value_or(false);
-      if (granted != want) {
-        ctx.sys->FcLink().SendPacket(
-            message::MsgId::kSetEscConfigMode,
-            message::SetEscConfigModeMsg{.enabled =
-                                             static_cast<uint8_t>(want)});
-      }
-      break;
-    }
-
-    case message::MsgId::kVehicleStatus:
-      ctx.sys->Mavlink().UpdateTelemetryCache(
-          message::PayloadAs<message::VehicleStatusMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kEscTelemetry:
-      ctx.sys->Mavlink().UpdateTelemetryCache(
-          message::PayloadAs<message::EscTelemetryMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kGyroCalibrationIdConfig:
-      ctx.sys->Mavlink().UpdateConfigCache(
-          message::PayloadAs<message::GyroCalibrationIdConfigMsg>(pkt), now_ms);
-      break;
-    case message::MsgId::kImuData:
-      break;
-    case message::MsgId::kPanic:
-      OnPanic(ctx, pkt);
-      break;
-    default:
-      OnUnknown(ctx, pkt);
-      break;
+  if (!kDispatcher.Dispatch(ctx, pkt)) {
+    PanicUnknownCommand(pkt.header.id);
   }
 }
 
