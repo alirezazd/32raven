@@ -84,12 +84,15 @@ MAVLINK_SYS_AUTOSTART_CHOICES: dict[str, int] = {
 PANIC_TASK_STACK_DEPTH_WORDS = 4096
 PANIC_TASK_PRIORITY = 24
 
-# SSD1306 panel hardware geometry. Fixed by the chosen 72x40 display
-# module + its SSD1306 controller's column offset.
+# SSD1306 panel hardware geometry. Fixed by the chosen 72x40 display module
+# and its controller. The glass is centred in the controller's column range,
+# so the offset follows from the two widths rather than being measured.
 DISPLAY_PANEL_WIDTH_PX = 72
 DISPLAY_PANEL_HEIGHT_PX = 40
 DISPLAY_PANEL_CONTROLLER_WIDTH_PX = 128
-DISPLAY_PANEL_COLUMN_OFFSET_PX = 28
+DISPLAY_PANEL_COLUMN_OFFSET_PX = (
+    DISPLAY_PANEL_CONTROLLER_WIDTH_PX - DISPLAY_PANEL_WIDTH_PX
+) // 2
 
 # Compile-time buffer / queue sizes used as template parameters.
 TCP_SERVER_MAX_LINE_BYTES = 160
@@ -112,6 +115,8 @@ PROGRAMMER_SYNC_TIMEOUT_MIN_MS = 1
 PROGRAMMER_SYNC_TIMEOUT_MAX_MS = 5000
 PROGRAMMER_SYNC_RETRIES_MIN = 1
 PROGRAMMER_SYNC_RETRIES_MAX = 100
+# AN3155 WRITE_MEMORY carries a count byte holding len-1, so 256 is the most a
+# single block can express, not a chosen buffer size.
 PROGRAMMER_STM32_BLOCK_BYTES = 256
 PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES = 1
 PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES = 32768  # matches the Kconfig staging-buffer max

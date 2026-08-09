@@ -14,8 +14,7 @@
 
 class GPIO;
 
-template <bool HiRes>
-class Icm42688pT {
+class Icm42688p {
  public:
   static constexpr uint16_t kMaxWatermarkRecords =
       stm32_limits::kIcm42688pMaxWatermarkRecords;
@@ -61,6 +60,9 @@ class Icm42688pT {
     struct Fifo {
       uint16_t watermark_records;
       bool hold_last;
+      // Packet4 (20-byte) records instead of Packet3 (16-byte). Packet4
+      // reports at fixed sensitivity, so it also overrides the fs setting.
+      bool hires;
     } fifo;
 
     struct Calibration {
@@ -110,7 +112,7 @@ class Icm42688pT {
     uint32_t seq;
   };
 
-  static Icm42688pT &GetInstance();
+  static Icm42688p &GetInstance();
 
   void Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg);
   void OnIrq();
@@ -156,10 +158,10 @@ class Icm42688pT {
   bool IsInitialized() const { return device_id_ != 0u; }
 
  private:
-  Icm42688pT() = default;
-  ~Icm42688pT() = default;
-  Icm42688pT(const Icm42688pT &) = delete;
-  Icm42688pT &operator=(const Icm42688pT &) = delete;
+  Icm42688p() = default;
+  ~Icm42688p() = default;
+  Icm42688p(const Icm42688p &) = delete;
+  Icm42688p &operator=(const Icm42688p &) = delete;
 
   void WriteReg(Icm42688pReg::Reg reg, uint8_t val);
   uint8_t ReadReg(Icm42688pReg::Reg reg);
@@ -212,8 +214,9 @@ class Icm42688pT {
   static constexpr uint16_t kMaxReadBytes =
       kMaxWatermarkRecords * kMaxPacketBytes;
 
-  static constexpr uint16_t kPacketBytes =
-      HiRes ? Icm42688pReg::kPacket4Bytes : Icm42688pReg::kPacket3Bytes;
+  // Set from Config::Fifo::hires at Init, alongside the FS selections.
+  bool hires_{false};
+  uint16_t packet_bytes_{Icm42688pReg::kPacket3Bytes};
 
   uint16_t fifo_wm_records_{0};
   uint8_t fifo_tx_[1 + kMaxReadBytes]{};
@@ -263,5 +266,3 @@ class Icm42688pT {
   std::atomic<uint32_t> drop_cnt_{0};
   uint32_t seq_{0};
 };
-
-using Icm42688p = Icm42688pT<stm32_limits::kImuHiResEn>;

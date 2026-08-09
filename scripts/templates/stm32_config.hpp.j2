@@ -165,6 +165,7 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
     .fifo = {
         .watermark_records = {{ icm42688p.fifo.watermark_records }},
         .hold_last = {{ icm42688p.fifo.hold_last | cpp_bool }},
+        .hires = {{ icm42688p.fifo.hires | cpp_bool }},
     },
     .calibration = {
         .gyro_duration_s = {{ icm42688p.calibration.gyro_duration_s }},

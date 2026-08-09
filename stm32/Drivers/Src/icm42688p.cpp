@@ -30,14 +30,12 @@ constexpr int16_t LoadBe16Signed(const uint8_t *p) {
 
 }  // namespace
 
-template <bool HiRes>
-Icm42688pT<HiRes> &Icm42688pT<HiRes>::GetInstance() {
-  static Icm42688pT<HiRes> inst;
+Icm42688p &Icm42688p::GetInstance() {
+  static Icm42688p inst;
   return inst;
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
+void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   if (device_id_ != 0u) {
     Panic(ErrorCode::Stm32::kImuReinit);
   }
@@ -49,6 +47,9 @@ void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   ee_ = &ee;
   fifo_wm_records_ = cfg.fifo.watermark_records;
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
+  hires_ = cfg.fifo.hires;
+  packet_bytes_ =
+      hires_ ? Icm42688pReg::kPacket4Bytes : Icm42688pReg::kPacket3Bytes;
   accel_fs_ = cfg.fs.accel;
   gyro_fs_ = cfg.fs.gyro;
   axis_map_ = cfg.axis_map;
@@ -99,16 +100,14 @@ void Icm42688pT<HiRes>::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 
-template <bool HiRes>
-bool Icm42688pT<HiRes>::SaveAccelCalibration() {
+bool Icm42688p::SaveAccelCalibration() {
   if (ee_ == nullptr) {
     return false;
   }
   return ConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
 }
 
-template <bool HiRes>
-uint32_t Icm42688pT<HiRes>::GetDeviceId() const {
+uint32_t Icm42688p::GetDeviceId() const {
   if (device_id_ == 0u) {
     Panic(ErrorCode::Stm32::kImuNotInitialized);
   }
@@ -116,8 +115,7 @@ uint32_t Icm42688pT<HiRes>::GetDeviceId() const {
   return device_id_;
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::ValidateConfig(const Config &cfg) {
+void Icm42688p::ValidateConfig(const Config &cfg) {
   if (cfg.fifo.watermark_records == 0 ||
       cfg.fifo.watermark_records > kMaxWatermarkRecords) {
     Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
@@ -160,8 +158,7 @@ void Icm42688pT<HiRes>::ValidateConfig(const Config &cfg) {
 
 // Filter configuration
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
+void Icm42688p::ConfigureFilters(const Config &cfg) {
   static constexpr float kPi = 3.14159265358979323846f;
   const auto clampf = [](float x, float lo, float hi) constexpr {
     return (x < lo) ? lo : (x > hi) ? hi : x;
@@ -286,8 +283,7 @@ void Icm42688pT<HiRes>::ConfigureFilters(const Config &cfg) {
 
 // ISR path
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::OnIrq() {
+void Icm42688p::OnIrq() {
   irq_cnt_.fetch_add(1, std::memory_order_relaxed);
   last_irq_us_ = System::GetInstance().Time().Micros();
 
@@ -296,13 +292,13 @@ void Icm42688pT<HiRes>::OnIrq() {
     return;
   }
   const uint16_t transfer_len =
-      static_cast<uint16_t>(1u + fifo_wm_records_ * kPacketBytes);
+      static_cast<uint16_t>(1u + fifo_wm_records_ * packet_bytes_);
   last_count_ = fifo_wm_records_;
 
   auto &spi = *spi_;
   CsLow();
   if (!spi.StartTxRxDma(fifo_tx_, fifo_rx_, transfer_len,
-                        &Icm42688pT<HiRes>::SpiDoneThunk, this)) {
+                        &Icm42688p::SpiDoneThunk, this)) {
     CsHigh();
     inflight_.store(false, std::memory_order_release);
     dma_start_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
@@ -312,13 +308,11 @@ void Icm42688pT<HiRes>::OnIrq() {
 
 extern "C" void Icm42688pOnIrq() { Icm42688p::GetInstance().OnIrq(); }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SpiDoneThunk(void *user, bool ok) {
-  static_cast<Icm42688pT<HiRes> *>(user)->OnSpiDone(ok);
+void Icm42688p::SpiDoneThunk(void *user, bool ok) {
+  static_cast<Icm42688p *>(user)->OnSpiDone(ok);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::OnSpiDone(bool ok) {
+void Icm42688p::OnSpiDone(bool ok) {
   CsHigh();
 
   auto finish = [&]() { inflight_.store(false, std::memory_order_release); };
@@ -344,10 +338,10 @@ void Icm42688pT<HiRes>::OnSpiDone(bool ok) {
   batch.count = 0;
 
   for (uint16_t i = 0; i < fifo_wm_records_; ++i) {
-    const uint8_t *rec = p + static_cast<uint32_t>(i) * kPacketBytes;
+    const uint8_t *rec = p + static_cast<uint32_t>(i) * packet_bytes_;
     Sample s{};
     bool ok_rec;
-    if constexpr (HiRes) {
+    if (hires_) {
       ok_rec = ParsePacket4Record(rec, s);
     } else {
       ok_rec = ParsePacket3Record(rec, s);
@@ -370,8 +364,7 @@ void Icm42688pT<HiRes>::OnSpiDone(bool ok) {
   finish();
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::RecoverFromFifoFault() {
+void Icm42688p::RecoverFromFifoFault() {
   SetBank(0);
   WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadReg(Reg::kIntStatus);
@@ -385,8 +378,7 @@ void Icm42688pT<HiRes>::RecoverFromFifoFault() {
   last_count_ = 0;
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::HandleOverrunFault() {
+void Icm42688p::HandleOverrunFault() {
   overrun_.fetch_add(1, std::memory_order_relaxed);
 
   const uint64_t now_us = System::GetInstance().Time().Micros();
@@ -407,21 +399,18 @@ void Icm42688pT<HiRes>::HandleOverrunFault() {
   }
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::InjectOverrunFaultForTest() {
+void Icm42688p::InjectOverrunFaultForTest() {
   // One-shot: fault is injected from the SPI completion path so recovery
   // runs in the same context as a real transport fault.
   inject_overrun_fault_for_test_.store(true, std::memory_order_release);
 }
 
-template <bool HiRes>
-typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(
-    const Sample &sample) const {
+Icm42688p::ScaledSample Icm42688p::ScaleSample(const Sample &sample) const {
   // HiRes locks the chip to ±2000 dps + ±16g (datasheet §6.1) with fixed
   // sensitivity; the FS config is ignored, so bypass the FS scale helpers.
   float accel_scale;
   float gyro_scale;
-  if constexpr (HiRes) {
+  if (hires_) {
     accel_scale = Icm42688pReg::AccelLsbToMps2_HiRes();
     gyro_scale = Icm42688pReg::GyroLsbToRadS_HiRes();
   } else {
@@ -431,7 +420,7 @@ typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(
 
   ScaledSample out{};
   out.timestamp_us = sample.timestamp_us;
-  if constexpr (HiRes) {
+  if (hires_) {
     out.temperature_c = Icm42688pReg::FifoTemperatureC16(sample.temp_raw);
   } else {
     out.temperature_c = Icm42688pReg::FifoTemperatureC(
@@ -456,9 +445,7 @@ typename Icm42688pT<HiRes>::ScaledSample Icm42688pT<HiRes>::ScaleSample(
   return out;
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::UpdateTimestampAndSync(uint16_t ts16,
-                                               uint64_t &out_host_us) {
+void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
   // Unwrap 16-bit timestamp (1us ticks) into tmst64_us_
   if (!tmst_inited_) {
     last_tmst16_ = ts16;
@@ -491,8 +478,7 @@ void Icm42688pT<HiRes>::UpdateTimestampAndSync(uint16_t ts16,
   out_host_us = static_cast<uint64_t>(imu_us + host_offset_us_);
 }
 
-template <bool HiRes>
-bool Icm42688pT<HiRes>::ParsePacket3Record(const uint8_t *rec, Sample &out) {
+bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   if (!rec) return false;
 
   // Header check for Packet3 accel+gyro+temp+timestamp, 16-bit mode.
@@ -535,8 +521,7 @@ bool Icm42688pT<HiRes>::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   return true;
 }
 
-template <bool HiRes>
-bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
+bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   if (!rec) return false;
 
   // Header check: Packet4 = 0x78 with mask 0xF8 (top 5 bits define the
@@ -609,8 +594,7 @@ bool Icm42688pT<HiRes>::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   return true;
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::PublishLatestBatch(const SampleBatch &batch) {
+void Icm42688p::PublishLatestBatch(const SampleBatch &batch) {
   published_batch_ = batch;
 
   // Publish payload then publish sequence (release).
@@ -622,9 +606,7 @@ void Icm42688pT<HiRes>::PublishLatestBatch(const SampleBatch &batch) {
   SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
 }
 
-template <bool HiRes>
-bool Icm42688pT<HiRes>::WaitAndGetLatestBatch(uint32_t &last_seq,
-                                              SampleBatch &out) {
+bool Icm42688p::WaitAndGetLatestBatch(uint32_t &last_seq, SampleBatch &out) {
   uint32_t s = tick_seq_.load(std::memory_order_acquire);
   if (s == last_seq) {
     return false;
@@ -652,9 +634,7 @@ bool Icm42688pT<HiRes>::WaitAndGetLatestBatch(uint32_t &last_seq,
   }
 }
 
-template <bool HiRes>
-typename Icm42688pT<HiRes>::SampleBatch Icm42688pT<HiRes>::GetLatestBatch()
-    const {
+Icm42688p::SampleBatch Icm42688p::GetLatestBatch() const {
   SampleBatch out{};
   uint32_t seq = tick_seq_.load(std::memory_order_acquire);
   if (seq == 0) {
@@ -678,8 +658,7 @@ typename Icm42688pT<HiRes>::SampleBatch Icm42688pT<HiRes>::GetLatestBatch()
   }
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::CalibrateGyro() {
+void Icm42688p::CalibrateGyro() {
   const uint32_t duration_us =
       SECONDS_TO_MICROS(calibration_cfg_.gyro_duration_s);
   const uint32_t timeout_us =
@@ -738,7 +717,7 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
   int16_t offset_lsb[3] = {0, 0, 0};
   // HiRes: fixed 131 LSB/dps. Packet3: FS-parameterised (range/32768).
   float dps_per_lsb;
-  if constexpr (HiRes) {
+  if (hires_) {
     dps_per_lsb = 1.0f / Icm42688pReg::kHiResGyroLsbPerDps;
   } else {
     dps_per_lsb =
@@ -786,10 +765,8 @@ void Icm42688pT<HiRes>::CalibrateGyro() {
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::WriteGyroUserOffsets(int16_t x_offset_lsb,
-                                             int16_t y_offset_lsb,
-                                             int16_t z_offset_lsb) {
+void Icm42688p::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
+                                     int16_t z_offset_lsb) {
   auto pack12 = [](int16_t offset_lsb) -> uint16_t {
     return static_cast<uint16_t>(offset_lsb) & 0x0FFFu;
   };
@@ -810,8 +787,7 @@ void Icm42688pT<HiRes>::WriteGyroUserOffsets(int16_t x_offset_lsb,
            static_cast<uint8_t>((user4 & 0xF0u) | ((z >> 8) & 0x0Fu)));
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::CheckWhoAmI() {
+void Icm42688p::CheckWhoAmI() {
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
 
@@ -828,8 +804,7 @@ void Icm42688pT<HiRes>::CheckWhoAmI() {
   Panic(ErrorCode::Stm32::kImuWhoAmIFail);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SoftReset() {
+void Icm42688p::SoftReset() {
   SetBank(0);
 
   uint8_t v = ReadReg(Reg::kDeviceConfig);
@@ -840,8 +815,7 @@ void Icm42688pT<HiRes>::SoftReset() {
   SetBank(0);
 }
 
-template <bool HiRes>
-uint32_t Icm42688pT<HiRes>::EffectiveOdrHz(
+uint32_t Icm42688p::EffectiveOdrHz(
     Icm42688pReg::Odr odr,
     const typename Config::ExternalClock &external_clock) {
   const uint32_t odr_hz = Icm42688pReg::OdrHz(odr);
@@ -855,8 +829,7 @@ uint32_t Icm42688pT<HiRes>::EffectiveOdrHz(
       kExternalClockOdrReferenceHz);
 }
 
-template <bool HiRes>
-uint32_t Icm42688pT<HiRes>::TimestampTickScaleQ16(
+uint32_t Icm42688p::TimestampTickScaleQ16(
     const typename Config::ExternalClock &external_clock) {
   if (!external_clock.enabled) {
     return kTimestampScaleQ16;
@@ -868,8 +841,7 @@ uint32_t Icm42688pT<HiRes>::TimestampTickScaleQ16(
       external_clock.frequency_hz);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetClockSource(const Config &cfg) {
+void Icm42688p::SetClockSource(const Config &cfg) {
   SetBank(1);
 
   uint8_t pin_cfg = ReadReg(Reg::kIntfConfig5);
@@ -892,8 +864,7 @@ void Icm42688pT<HiRes>::SetClockSource(const Config &cfg) {
   WriteReg(Reg::kIntfConfig1, v);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetInterfaceConfig(const Config &cfg) {
+void Icm42688p::SetInterfaceConfig(const Config &cfg) {
   SetBank(0);
 
   uint8_t v = ReadReg(Reg::kIntfConfig0);
@@ -912,8 +883,7 @@ void Icm42688pT<HiRes>::SetInterfaceConfig(const Config &cfg) {
   WriteReg(Reg::kIntfConfig0, v);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetInterruptConfig() {
+void Icm42688p::SetInterruptConfig() {
   SetBank(0);
   uint8_t v = ReadReg(Reg::kIntConfig);
   // Preserve reserved bits 7:6, rewrite bits 5:0
@@ -930,8 +900,7 @@ void Icm42688pT<HiRes>::SetInterruptConfig() {
   WriteReg(Reg::kIntConfig1, v);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::DisableFsync() {
+void Icm42688p::DisableFsync() {
   SetBank(0);
 
   uint8_t v = ReadReg(Reg::kFsyncConfig);
@@ -943,8 +912,7 @@ void Icm42688pT<HiRes>::DisableFsync() {
   WriteReg(Reg::kFsyncConfig, v);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetOdrAndFullScale(const Config &cfg) {
+void Icm42688p::SetOdrAndFullScale(const Config &cfg) {
   SetBank(0);
   // GYRO_CONFIG0: [7:5]=FS (3b), bit4 reserved, [3:0]=ODR (4b)
   const uint8_t gyro =
@@ -958,8 +926,7 @@ void Icm42688pT<HiRes>::SetOdrAndFullScale(const Config &cfg) {
   WriteReg(Reg::kAccelConfig0, accel);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetTimestampConfig() {
+void Icm42688p::SetTimestampConfig() {
   SetBank(0);
 
   uint8_t v = ReadReg(Reg::kTmstConfig);
@@ -971,8 +938,7 @@ void Icm42688pT<HiRes>::SetTimestampConfig() {
   WriteReg(Reg::kTmstConfig, v);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::ClearUserOffsets() {
+void Icm42688p::ClearUserOffsets() {
   // Rebuilding a Reg from a raw counter is the one path an unlisted address
   // can take to WriteReg; a reordered enum would clear nine wrong registers.
   static_assert(std::to_underlying(Reg::kOffsetUser8) -
@@ -987,8 +953,7 @@ void Icm42688pT<HiRes>::ClearUserOffsets() {
   }
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::ConfigureFifo() {
+void Icm42688p::ConfigureFifo() {
   SetBank(0);
   uint8_t v = ReadReg(Reg::kIntConfig0);  // Preserve reserved [7:6], replace
                                           // [5:0]
@@ -1003,12 +968,12 @@ void Icm42688pT<HiRes>::ConfigureFifo() {
   uint8_t fifo_cfg1 = FIFO_CONFIG1_RESUME_PARTIAL_RD |
                       FIFO_CONFIG1_TMST_FSYNC_EN | FIFO_CONFIG1_TEMP_EN |
                       FIFO_CONFIG1_GYRO_EN | FIFO_CONFIG1_ACCEL_EN;
-  if constexpr (HiRes) {
+  if (hires_) {
     fifo_cfg1 |= FIFO_CONFIG1_HIRES_EN;  // switches to Packet4
   }
   WriteReg(Reg::kFifoConfig1, fifo_cfg1);
   const uint16_t fifo_wm_bytes =
-      static_cast<uint16_t>(fifo_wm_records_ * kPacketBytes);
+      static_cast<uint16_t>(fifo_wm_records_ * packet_bytes_);
   WriteReg(Reg::kFifoConfig2, static_cast<uint8_t>(fifo_wm_bytes & 0xFFu));
   WriteReg(Reg::kFifoConfig3,
            static_cast<uint8_t>((fifo_wm_bytes >> 8) & 0x0Fu));
@@ -1018,8 +983,7 @@ void Icm42688pT<HiRes>::ConfigureFifo() {
   SetupDmaBuffer();
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetupDmaBuffer() {
+void Icm42688p::SetupDmaBuffer() {
   // Fixed-burst FIFO reads: read exactly watermark_records packets per IRQ.
   for (uint16_t i = 0; i < sizeof(fifo_tx_); i++) {
     fifo_tx_[i] = 0xFFu;
@@ -1029,22 +993,19 @@ void Icm42688pT<HiRes>::SetupDmaBuffer() {
 }
 // SPI helpers (blocking)
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::SetBank(uint8_t bank) {
+void Icm42688p::SetBank(uint8_t bank) {
   WriteReg(Reg::kBankSel, (uint8_t)(bank & 0x07));
   System::GetInstance().Time().DelayMicros(1);
 }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::WriteReg(Reg reg, uint8_t val) {
+void Icm42688p::WriteReg(Reg reg, uint8_t val) {
   auto &spi = *spi_;
   uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(reg) & 0x7F), val};
   CsLow();
   spi.WriteBytes(tx);
   CsHigh();
 }
-template <bool HiRes>
-uint8_t Icm42688pT<HiRes>::ReadReg(Reg reg) {
+uint8_t Icm42688p::ReadReg(Reg reg) {
   auto &spi = *spi_;
   uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(reg) | 0x80), 0x00};
   uint8_t rx[2] = {0, 0};
@@ -1053,23 +1014,17 @@ uint8_t Icm42688pT<HiRes>::ReadReg(Reg reg) {
   CsHigh();
   return rx[1];
 }
-template <bool HiRes>
-void Icm42688pT<HiRes>::CsLow() {
+void Icm42688p::CsLow() {
   gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, false);
 }
-template <bool HiRes>
-void Icm42688pT<HiRes>::CsHigh() {
+void Icm42688p::CsHigh() {
   gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 }
 
 // Explicit instantiation
-template <bool HiRes>
-void Icm42688pT<HiRes>::SuspendSampling() {
-  NVIC_DisableIRQ(board::kImuInt.exti_irqn);
-}
+void Icm42688p::SuspendSampling() { NVIC_DisableIRQ(board::kImuInt.exti_irqn); }
 
-template <bool HiRes>
-void Icm42688pT<HiRes>::ResumeSampling() {
+void Icm42688p::ResumeSampling() {
   // The chip never stopped sampling into its own FIFO, so what is in there is
   // a backlog rather than the present. Discarded instead of parsed: a stale
   // burst would be integrated by the AHRS as if it had just happened.
@@ -1077,5 +1032,3 @@ void Icm42688pT<HiRes>::ResumeSampling() {
   (void)ReadReg(Reg::kIntStatus);
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }
-
-template class Icm42688pT<stm32_limits::kImuHiResEn>;

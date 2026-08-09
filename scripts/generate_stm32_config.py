@@ -255,6 +255,25 @@ ACCEL_ODR_CHOICES = {
     key.replace("GYRO", "ACCEL"): value for key, value in ODR_CHOICES.items()
 }
 
+# The same choice in Hz, so the FIFO watermark can be derived from it.
+GYRO_ODR_HZ = {
+    "STM32_IMU_GYRO_ODR_32KHZ": "32000",
+    "STM32_IMU_GYRO_ODR_16KHZ": "16000",
+    "STM32_IMU_GYRO_ODR_8KHZ": "8000",
+    "STM32_IMU_GYRO_ODR_4KHZ": "4000",
+    "STM32_IMU_GYRO_ODR_2KHZ": "2000",
+    "STM32_IMU_GYRO_ODR_1KHZ": "1000",
+    "STM32_IMU_GYRO_ODR_500HZ": "500",
+    "STM32_IMU_GYRO_ODR_200HZ": "200",
+    "STM32_IMU_GYRO_ODR_100HZ": "100",
+    "STM32_IMU_GYRO_ODR_50HZ": "50",
+    "STM32_IMU_GYRO_ODR_25HZ": "25",
+    "STM32_IMU_GYRO_ODR_12_5HZ": "12.5",
+}
+ACCEL_ODR_HZ = {
+    key.replace("GYRO", "ACCEL"): value for key, value in GYRO_ODR_HZ.items()
+}
+
 GYRO_FS_CHOICES = {
     "STM32_IMU_GYRO_FS_2000DPS": "Icm42688pReg::GyroFs::k2000dps",
     "STM32_IMU_GYRO_FS_1000DPS": "Icm42688pReg::GyroFs::k1000dps",
@@ -726,6 +745,42 @@ def _imu_fifo_capacity_records() -> int:
     return ICM42688P_FIFO_BYTES // ICM42688P_PACKET3_BYTES
 
 
+def _imu_watermark_records(kconf: kconfiglib.Kconfig) -> int:
+    """Records per FIFO interrupt.
+
+    The watermark interrupt is what runs the attitude and rate controllers
+    (icm42688p.cpp pends PendSV, which calls ExpressMain), so the loop rate is
+    the record rate divided by this. Deriving it the other way round keeps the
+    loop rate fixed when the gyro ODR changes.
+    """
+    gyro_odr_hz = float(choice_value(kconf, GYRO_ODR_HZ))
+    accel_odr_hz = float(choice_value(kconf, ACCEL_ODR_HZ))
+    loop_hz = sym_int(kconf, "STM32_FAST_LOOP_HZ")
+
+    # One FIFO record carries both sensors, so a split ODR leaves the record
+    # rate — and therefore the loop rate — undefined by this arithmetic.
+    if gyro_odr_hz != accel_odr_hz:
+        raise ValueError(
+            f"gyro ODR ({gyro_odr_hz:g} Hz) and accel ODR ({accel_odr_hz:g} Hz) "
+            "must match; the FIFO watermark is derived from a single record rate"
+        )
+    if loop_hz <= 0:
+        raise ValueError("CONFIG_STM32_FAST_LOOP_HZ must be > 0")
+    if gyro_odr_hz < loop_hz:
+        raise ValueError(
+            f"gyro ODR ({gyro_odr_hz:g} Hz) cannot drive a {loop_hz} Hz fast loop"
+        )
+
+    records = gyro_odr_hz / loop_hz
+    if records != int(records):
+        raise ValueError(
+            f"gyro ODR ({gyro_odr_hz:g} Hz) is not a whole multiple of "
+            f"CONFIG_STM32_FAST_LOOP_HZ ({loop_hz} Hz), so the watermark "
+            "interrupt would drift against the loop period"
+        )
+    return int(records)
+
+
 def _resolve_pin(
     kconf: kconfiglib.Kconfig, entry: object
 ) -> tuple[str, str, int]:
@@ -894,14 +949,13 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             f"{FCLINK_TELEMETRY_RATE_MIN}..{FCLINK_TELEMETRY_RATE_MAX}"
         )
 
-    watermark_records = sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS")
+    watermark_records = _imu_watermark_records(kconf)
     hardware_max_records = _imu_fifo_capacity_records()
-    if watermark_records <= 0:
-        raise ValueError("CONFIG_STM32_IMU_FIFO_WATERMARK_RECORDS must be > 0")
     if watermark_records > hardware_max_records:
         raise ValueError(
-            "CONFIG_STM32_IMU_FIFO_WATERMARK_RECORDS exceeds ICM42688P FIFO capacity "
-            f"({watermark_records} > {hardware_max_records})"
+            f"a {sym_int(kconf, 'STM32_FAST_LOOP_HZ')} Hz fast loop at this gyro "
+            f"ODR needs {watermark_records} FIFO records, over the ICM42688P "
+            f"capacity of {hardware_max_records}"
         )
 
     rc_map = _rc_map(kconf)
@@ -977,8 +1031,7 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
     ]
     return {
         "autogen_warning": autogen_warning(source),
-        "max_watermark_records": sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS"),
-        "imu_hires_en": sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN"),
+        "max_watermark_records": _imu_watermark_records(kconf),
         "rc_enabled_indices": enabled_rc_indices,
         "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
         "battery_adc_max_raw": BATTERY_ADC_MAX_RAW,
@@ -1337,8 +1390,9 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "bitshift": sym_int(kconf, "STM32_IMU_ACCEL_AAF_BITSHIFT"),
         },
         "fifo": {
-            "watermark_records": sym_int(kconf, "STM32_IMU_FIFO_WATERMARK_RECORDS"),
+            "watermark_records": _imu_watermark_records(kconf),
             "hold_last": sym_bool(kconf, "STM32_IMU_FIFO_HOLD_LAST"),
+            "hires": sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN"),
         },
         "calibration": {
             "gyro_duration_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_DURATION_S"),

@@ -2436,13 +2436,19 @@ endmenu
 
 menu "FIFO"
 
-config STM32_IMU_FIFO_WATERMARK_RECORDS
-    int "FIFO watermark records"
-    range 1 128
-    default 8
+config STM32_FAST_LOOP_HZ
+    int "Fast control loop rate (Hz)"
+    range 1 32000
+    default 1000
     help
-      Number of ICM42688P FIFO records read and published per IRQ-driven
-      transfer.
+      Rate at which the attitude and rate controllers run. The FIFO
+      watermark interrupt is what drives them, so this sets the watermark
+      rather than the other way round: the build computes
+
+        watermark records = gyro ODR / fast loop rate
+
+      and fails if that is not a whole number in 1..128. Raising the gyro
+      ODR therefore keeps this rate and reads more records per interrupt.
 
 config STM32_IMU_FIFO_HOLD_LAST
     bool "Hold last FIFO sample"
