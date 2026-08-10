@@ -63,13 +63,21 @@ inline constexpr Button::Config kButtonConfig = {
         {
             .debounce_ms = {{ button.debounce_ms }},
             .long_press_ms = {{ button.long_press_ms }},
-            .long_long_press_ms = {{ button.long_long_press_ms }},
         },
 };
 
 inline constexpr LED::Config kLedConfig = {
     .pin = kPinMap.led,
     .active_low = {{ led.active_low | cpp_bool }},
+    .ledc =
+        {
+            .speed_mode = {{ ledc.speed_mode }},
+            .timer = static_cast<ledc_timer_t>({{ ledc.led.timer }}),
+            .channel = static_cast<ledc_channel_t>({{ ledc.led.channel }}),
+            .duty_resolution =
+                static_cast<ledc_timer_bit_t>({{ ledc.led.duty_resolution }}),
+            .freq_hz = {{ ledc.led.freq_hz }},
+        },
 };
 
 inline constexpr Buzzer::Config kBuzzerConfig = {
@@ -77,6 +85,15 @@ inline constexpr Buzzer::Config kBuzzerConfig = {
         {
             .pin = kPinMap.buzzer,
             .active_low = {{ buzzer.active_low | cpp_bool }},
+        },
+    .ledc =
+        {
+            .speed_mode = {{ ledc.speed_mode }},
+            .timer = static_cast<ledc_timer_t>({{ ledc.buzzer.timer }}),
+            .channel = static_cast<ledc_channel_t>({{ ledc.buzzer.channel }}),
+            .duty_resolution =
+                static_cast<ledc_timer_bit_t>({{ ledc.buzzer.duty_resolution }}),
+            .max_note_hz = {{ ledc.buzzer.freq_hz }},
         },
 };
 
@@ -235,15 +252,11 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                     .gpos_ms = {{ mavlink.tx.periods.gpos_ms }},
                     .batt_ms = {{ mavlink.tx.periods.batt_ms }},
                     .rc_ms = {{ mavlink.tx.periods.rc_ms }},
+                    .esc_ms = {{ mavlink.tx.periods.esc_ms }},
                 },
             .schedule =
                 {
                     .hb_deadline_ms = {{ mavlink.tx.schedule.hb_deadline_ms }},
-                    .gps_start_delay_ms = {{ mavlink.tx.schedule.gps_start_delay_ms }},
-                    .att_start_delay_ms = {{ mavlink.tx.schedule.att_start_delay_ms }},
-                    .gpos_start_delay_ms = {{ mavlink.tx.schedule.gpos_start_delay_ms }},
-                    .batt_start_delay_ms = {{ mavlink.tx.schedule.batt_start_delay_ms }},
-                    .rc_start_delay_ms = {{ mavlink.tx.schedule.rc_start_delay_ms }},
                 },
         },
 };

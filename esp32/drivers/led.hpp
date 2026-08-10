@@ -8,6 +8,7 @@
 
 extern "C" {
 #include "hal/gpio_types.h"  // IWYU pragma: keep
+#include "hal/ledc_types.h"
 }
 
 class LED {
@@ -17,9 +18,20 @@ class LED {
     return instance;
   }
 
+  // Which LEDC timer and channel this driver claims. The generator checks the
+  // claims against each other, so nothing here has to.
+  struct Ledc {
+    ledc_mode_t speed_mode;
+    ledc_timer_t timer;
+    ledc_channel_t channel;
+    ledc_timer_bit_t duty_resolution;
+    uint32_t freq_hz;
+  };
+
   struct Config {
     gpio_num_t pin = GPIO_NUM_8;
     bool active_low = true;
+    Ledc ledc{};
   };
 
   enum class Pattern : uint8_t {
@@ -60,6 +72,8 @@ class LED {
 
   gpio_num_t pin_ = GPIO_NUM_NC;
   bool active_low_ = false;
+  Ledc ledc_{};
+  uint32_t duty_max_ = 0;
   bool is_on_ = false;
 
   void *task_handle_ = nullptr;  // TaskHandle_t

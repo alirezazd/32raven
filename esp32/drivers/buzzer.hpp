@@ -20,21 +20,18 @@ class Buzzer {
       bool active_low = false;
     };
 
-    struct Pwm {
-      ledc_mode_t speed_mode = LEDC_LOW_SPEED_MODE;
-      ledc_timer_t timer_num = LEDC_TIMER_1;
-      ledc_channel_t channel = LEDC_CHANNEL_1;
-      ledc_timer_bit_t duty_resolution = LEDC_TIMER_10_BIT;
-    };
-
-    struct Startup {
-      uint32_t freq_hz = 2000;
-      float duty_cycle = 0.5f;
+    struct Ledc {
+      ledc_mode_t speed_mode;
+      ledc_timer_t timer;
+      ledc_channel_t channel;
+      ledc_timer_bit_t duty_resolution;
+      // freq * 2^duty_resolution has to stay within the LEDC clock, so this
+      // is the highest note the resolution above leaves room for.
+      uint32_t max_note_hz;
     };
 
     Output output{};
-    Pwm pwm{};
-    Startup startup{};
+    Ledc ledc{};
   };
 
   void Start(uint32_t freq_hz);
@@ -48,8 +45,8 @@ class Buzzer {
  private:
   friend class System;
   void Init(const Config &cfg);
-  static uint32_t ComputeDutyTicks(ledc_timer_bit_t resolution,
-                                   float duty_cycle);
+  uint32_t ComputeDutyTicks(float duty_cycle) const;
+  uint32_t NoteHz(uint32_t freq_hz) const;
   Buzzer() = default;
   ~Buzzer() = default;
   Buzzer(const Buzzer &) = delete;

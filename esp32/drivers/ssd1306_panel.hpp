@@ -54,8 +54,9 @@ class Ssd1306Panel {
 
   static constexpr size_t kControllerWidth =
       esp32_limits::kDisplayPanelControllerWidth;
-  static constexpr size_t kColumnOffset =
-      esp32_limits::kDisplayPanelColumnOffset;
+  // The glass sits centred in the controller's column range, so the dead
+  // columns split evenly either side.
+  static constexpr size_t kColumnOffset = (kControllerWidth - kWidth) / 2;
 
   void SendCommands(std::span<const uint8_t> commands);
   void SetPageAddress(uint8_t page, uint8_t column);

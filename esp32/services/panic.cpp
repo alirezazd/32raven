@@ -308,7 +308,8 @@ void RecoverySession::StepProgramMode(SmTick now) {
     last_written_ = current_written;
   }
 
-  if (!prog_.Done() && (now - last_activity_) > 3000) {
+  if (!prog_.Done() &&
+      (now - last_activity_) > Programmer::kStallTimeoutMs) {
     prog_.Abort(now);
     Exit(Raw(ErrorCode::Esp32::kProgrammerTimedOut),
          NetworkAction::kStopNetwork);

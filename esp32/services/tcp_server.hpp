@@ -123,7 +123,9 @@ class TcpServer {
     uint32_t ctrl_peer_ipv4 = 0;
 
     // parser
-    char line_buf[esp32_limits::kTcpServerLineBufferBytes]{};
+    // One past the longest accepted line, for the NUL written at line_len
+    // before HandleLine sees it.
+    char line_buf[esp32_limits::kTcpServerMaxLineBytes + 1]{};
     size_t line_len = 0;
 
     // timing (if you want accept throttling etc.)

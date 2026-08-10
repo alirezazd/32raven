@@ -29,6 +29,10 @@ class Programmer {
 
   enum class Target { kStm32, kEsp32 };
 
+  // How long a transfer may go without the written count advancing before the
+  // host counts as gone.
+  static constexpr uint32_t kStallTimeoutMs = 3000;
+
   struct Config {
     struct VerifyConfig {
       bool esp32 = true;
@@ -102,6 +106,8 @@ class Programmer {
     // the ring's wrap is staged here rather than sent in two pieces.
     static constexpr size_t kWriteChunkCap = 4096;
     uint8_t block[kWriteChunkCap]{};
+    static_assert(kWriteChunkCap < kBufCap,
+                  "write chunk must fit in the staging ring");
 
     uint32_t err = static_cast<uint32_t>(ErrorCode::Common::kOk);
 

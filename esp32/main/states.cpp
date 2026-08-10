@@ -276,7 +276,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   if (!prog.IsVerifying() && !prog.Done()) {
-    if ((now - last_activity_) > 3000) {
+    if ((now - last_activity_) > Programmer::kStallTimeoutMs) {
       ESP_LOGE(kTag, "Programmer timed out -> Panic");
       tcp.StopDownload();
       prog.Abort(now);

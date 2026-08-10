@@ -14,16 +14,12 @@ extern "C" {
 static constexpr const char *kTag = "button";
 
 void Button::Init(const Config &cfg) {
-  pin_ = cfg.input.pin;
-  active_low_ = cfg.input.active_low;
-  debounce_ms_ = cfg.timing.debounce_ms;
-  long_press_ms_ = cfg.timing.long_press_ms;
-  long_long_press_ms_ = cfg.timing.long_long_press_ms;
+  cfg_ = cfg;
 
   gpio_config_t io_conf = {};
   io_conf.intr_type = GPIO_INTR_DISABLE;
   io_conf.mode = GPIO_MODE_INPUT;
-  io_conf.pin_bit_mask = (1ULL << pin_);
+  io_conf.pin_bit_mask = (1ULL << cfg_.input.pin);
   io_conf.pull_down_en =
       cfg.input.pulldown ? GPIO_PULLDOWN_ENABLE : GPIO_PULLDOWN_DISABLE;
   io_conf.pull_up_en =
@@ -39,23 +35,20 @@ void Button::Init(const Config &cfg) {
   phase_ = raw_pressed_ ? Phase::kPressed : Phase::kReleased;
   press_started_ms_ = raw_pressed_ ? now_ms : 0;
   long_fired_ = false;
-  long_long_fired_ = false;
   ev_press_ = false;
   ev_long_ = false;
-  ev_long_long_ = false;
 }
 
 bool Button::ReadRawPressed() const {
-  const int lvl = gpio_get_level(pin_);
+  const int lvl = gpio_get_level(cfg_.input.pin);
   const bool raw_pressed = (lvl != 0);
-  return active_low_ ? !raw_pressed : raw_pressed;
+  return cfg_.input.active_low ? !raw_pressed : raw_pressed;
 }
 
 void Button::EnterPressed(TimeMs now_ms) {
   phase_ = Phase::kPressed;
   press_started_ms_ = now_ms;
   long_fired_ = false;
-  long_long_fired_ = false;
   ESP_LOGI(kTag, "debounced -> 1 at %u ms", (unsigned)now_ms);
 }
 
@@ -68,7 +61,6 @@ void Button::EnterReleased(TimeMs now_ms) {
   }
   press_started_ms_ = 0;
   long_fired_ = false;
-  long_long_fired_ = false;
   ESP_LOGI(kTag, "debounced -> 0 at %u ms", (unsigned)now_ms);
 }
 
@@ -78,16 +70,10 @@ void Button::UpdateHoldEvents(TimeMs now_ms) {
   }
 
   const TimeMs held_ms = static_cast<TimeMs>(now_ms - press_started_ms_);
-  if (!long_fired_ && held_ms >= long_press_ms_) {
+  if (!long_fired_ && held_ms >= cfg_.timing.long_press_ms) {
     long_fired_ = true;
     ev_long_ = true;
     ESP_LOGW(kTag, "LONG press fired at %u ms", (unsigned)now_ms);
-  }
-
-  if (long_fired_ && !long_long_fired_ && held_ms >= long_long_press_ms_) {
-    long_long_fired_ = true;
-    ev_long_long_ = true;
-    ESP_LOGW(kTag, "LONG-LONG press fired at %u ms", (unsigned)now_ms);
   }
 }
 
@@ -111,7 +97,7 @@ void Button::Poll() {
       if (!raw_pressed_) {
         phase_ = Phase::kReleased;
       } else if (static_cast<TimeMs>(now_ms - debounce_started_ms_) >=
-                 debounce_ms_) {
+                 cfg_.timing.debounce_ms) {
         EnterPressed(now_ms);
       }
       break;
@@ -126,7 +112,7 @@ void Button::Poll() {
       if (raw_pressed_) {
         phase_ = Phase::kPressed;
       } else if (static_cast<TimeMs>(now_ms - debounce_started_ms_) >=
-                 debounce_ms_) {
+                 cfg_.timing.debounce_ms) {
         EnterReleased(now_ms);
       }
       break;
@@ -149,14 +135,7 @@ bool Button::ConsumeLongPress() {
   return fired;
 }
 
-bool Button::ConsumeLongLongPress() {
-  const bool fired = ev_long_long_;
-  ev_long_long_ = false;
-  return fired;
-}
-
 void Button::FlushEvents() {
   ev_press_ = false;
   ev_long_ = false;
-  ev_long_long_ = false;
 }

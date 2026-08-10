@@ -21,6 +21,7 @@ from kconfig_gen import (
     autogen_warning,
     choice_value,
     cpp_string_literal,
+    sym,
     sym_bool,
     sym_int,
     sym_str,
@@ -40,8 +41,6 @@ FCLINK_HANDSHAKE_ATTEMPTS_MIN = 1
 FCLINK_HANDSHAKE_ATTEMPTS_MAX = 1000
 FCLINK_HANDSHAKE_RETRY_PERIOD_MIN_MS = 1
 FCLINK_HANDSHAKE_RETRY_PERIOD_MAX_MS = 1000
-FCLINK_RX_QUEUE_DEPTH_MIN = 1
-FCLINK_RX_QUEUE_DEPTH_MAX = 32
 UART_BUFFER_SIZE_MIN = 256
 UART_BUFFER_SIZE_MAX = 16384
 MAVLINK_SYSID_MIN = 1
@@ -54,8 +53,6 @@ MAVLINK_TX_PERIOD_MIN_MS = 0
 MAVLINK_TX_PERIOD_MAX_MS = 60000
 MAVLINK_HEARTBEAT_DEADLINE_MIN_MS = 1
 MAVLINK_HEARTBEAT_DEADLINE_MAX_MS = 60000
-MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS = 0
-MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS = 10000
 MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL = 0xFF
 
 # MAVLink runtime metadata (the parts that aren't Kconfig-tunable today).
@@ -64,39 +61,36 @@ MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL = 0xFF
 # expected to vary per board.
 MAVLINK_SYSTEM_STATUS_FRESH_MS = 3000
 
-# PX4 SYS_AUTOSTART airframe IDs surfaced as a Kconfig choice. The
-# canonical full list is huge; we curate the common multirotor / plane /
-# VTOL / rover entries and let the user supply a raw integer for anything
-# else via ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM.
-MAVLINK_SYS_AUTOSTART_CHOICES: dict[str, int] = {
-    "ESP32_MAVLINK_SYS_AUTOSTART_QUAD_X": 4001,
-    "ESP32_MAVLINK_SYS_AUTOSTART_QUAD_PLUS": 4002,
-    "ESP32_MAVLINK_SYS_AUTOSTART_HEXA_X": 4011,
-    "ESP32_MAVLINK_SYS_AUTOSTART_HEXA_PLUS": 4012,
-    "ESP32_MAVLINK_SYS_AUTOSTART_OCTO_X": 4013,
-    "ESP32_MAVLINK_SYS_AUTOSTART_PLANE": 100,
-    "ESP32_MAVLINK_SYS_AUTOSTART_VTOL_STANDARD": 13000,
-    "ESP32_MAVLINK_SYS_AUTOSTART_VTOL_TAILSITTER": 13003,
-    "ESP32_MAVLINK_SYS_AUTOSTART_ROVER": 50000,
-}
+# PX4 airframe ID reported as the SYS_AUTOSTART parameter. The heartbeat
+# hardcodes MAV_TYPE_QUADROTOR, so any other value here would describe an
+# airframe the same link contradicts a second later.
+MAVLINK_SYS_AUTOSTART_QUAD_X = 4001
 
 # Panic background task (FreeRTOS).
 PANIC_TASK_STACK_DEPTH_WORDS = 4096
 PANIC_TASK_PRIORITY = 24
 
 # SSD1306 panel hardware geometry. Fixed by the chosen 72x40 display module
-# and its controller. The glass is centred in the controller's column range,
-# so the offset follows from the two widths rather than being measured.
+# and its controller. Everything that follows from these three -- page count,
+# framebuffer size, column offset -- is derived in ssd1306_panel.hpp.
 DISPLAY_PANEL_WIDTH_PX = 72
 DISPLAY_PANEL_HEIGHT_PX = 40
 DISPLAY_PANEL_CONTROLLER_WIDTH_PX = 128
-DISPLAY_PANEL_COLUMN_OFFSET_PX = (
-    DISPLAY_PANEL_CONTROLLER_WIDTH_PX - DISPLAY_PANEL_WIDTH_PX
-) // 2
 
-# Compile-time buffer / queue sizes used as template parameters.
+# Compile-time buffer / queue sizes used as template parameters. These size
+# member arrays inside driver headers, so they have to be constants the
+# compiler sees rather than fields of a runtime Config. None of them is a
+# tuning choice with a second right answer -- each is the smallest size that
+# absorbs the burst it exists for -- so they are fixed here rather than
+# exposed as Kconfig knobs nobody could set better.
 TCP_SERVER_MAX_LINE_BYTES = 160
 TONE_PLAYER_PENDING_REQUEST_QUEUE_DEPTH = 5
+# Async network events queued while the loop services the previous one.
+TCP_SERVER_EVENT_QUEUE_DEPTH = 8
+# Inbound staging for the DFU download; drained a chunk per app tick.
+TCP_SERVER_DOWNLOAD_BUFFER_BYTES = 4096
+# Parsed FcLink packets held between UART parsing and the app loop.
+FCLINK_RX_QUEUE_DEPTH = 32
 WIFI_AP_SSID_MIN_LEN = 1
 WIFI_AP_SSID_MAX_LEN = 32
 WIFI_AP_PASSWORD_MAX_LEN = 63
@@ -118,8 +112,35 @@ PROGRAMMER_SYNC_RETRIES_MAX = 100
 # AN3155 WRITE_MEMORY carries a count byte holding len-1, so 256 is the most a
 # single block can express, not a chosen buffer size.
 PROGRAMMER_STM32_BLOCK_BYTES = 256
+# In-flight bytes received over the wire before they reach the target. 32 STM32
+# blocks: enough headroom for a TCP burst, and it must stay above the ESP32
+# write chunk, which programmer.hpp static_asserts.
+PROGRAMMER_STAGING_BUFFER_BYTES = 8192
+
+# ESP32-C3 LEDC, from soc_caps.h. The peripheral is shared, so the claims below
+# are checked against each other the way the pin map is: two consumers on one
+# timer means the second to initialise silently retunes the first, and that is
+# a configuration error rather than something the drivers can detect.
+LEDC_TIMER_COUNT = 4
+LEDC_CHANNEL_COUNT = 6
+LEDC_MAX_DUTY_RES_BITS = 14
+# APB is the fastest source LEDC_AUTO_CLK can pick on this part, and
+# ledc_timer_config() fails when freq * 2^resolution exceeds it.
+LEDC_MAX_SOURCE_HZ = 80_000_000
+# The C3 has no high-speed LEDC bank.
+LEDC_SPEED_MODE = "LEDC_LOW_SPEED_MODE"
+
+# Every LEDC claim the firmware makes: (label, timer sym, channel sym,
+# duty-resolution sym, carrier frequency in Hz or None when the consumer sets
+# its own note by note).
+LEDC_CLAIMS = (
+    ("LED", "ESP32_LED_LEDC_TIMER", "ESP32_LED_LEDC_CHANNEL",
+     "ESP32_LED_LEDC_DUTY_RES_BITS", "ESP32_LED_LEDC_FREQ_HZ"),
+    ("buzzer", "ESP32_BUZZER_LEDC_TIMER", "ESP32_BUZZER_LEDC_CHANNEL",
+     "ESP32_BUZZER_LEDC_DUTY_RES_BITS", "ESP32_BUZZER_MAX_NOTE_HZ"),
+)
 PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES = 1
-PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES = 32768  # matches the Kconfig staging-buffer max
+PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES = PROGRAMMER_STAGING_BUFFER_BYTES
 DISPLAY_PANEL_I2C_CLOCK_MIN_HZ = 10000
 DISPLAY_PANEL_I2C_CLOCK_MAX_HZ = 1000000
 DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS = 1
@@ -132,6 +153,10 @@ DISPLAY_PANEL_SETTLE_TIME_MIN_MS = 0
 DISPLAY_PANEL_SETTLE_TIME_MAX_MS = 1000
 DISPLAY_MANAGER_FPS_CAP_MIN = 1
 DISPLAY_MANAGER_FPS_CAP_MAX = 60
+BUTTON_DEBOUNCE_MIN_MS = 0
+BUTTON_DEBOUNCE_MAX_MS = 1000
+BUTTON_PRESS_MIN_MS = 1
+BUTTON_PRESS_MAX_MS = 10000
 TONE_PLAYER_VOLUME_MIN = 0
 TONE_PLAYER_VOLUME_MAX = 10
 TCP_SERVER_PORT_MIN = 1
@@ -253,6 +278,11 @@ def _validate_gpio_num(kconf: kconfiglib.Kconfig, name: str) -> None:
 def _validate_int_range(
     kconf: kconfiglib.Kconfig, name: str, minimum: int, maximum: int
 ) -> None:
+    # A symbol whose `depends on` is unmet carries no value at all, and reading
+    # it raises on the empty string rather than saying which knob is off. It is
+    # not reachable in this configuration, so there is nothing to police.
+    if sym(kconf, name).visibility == 0:
+        return
     value = sym_int(kconf, name)
     if not minimum <= value <= maximum:
         raise ValueError(f"{name} must be in the range {minimum}..{maximum}")
@@ -290,22 +320,11 @@ def _validate_unique_gpio_assignments(
 # Each tuple is (Kconfig symbol, min, max). The shared range constants live
 # at the top of this file. Adding a new int symbol = one new line.
 
-PROGRAMMER_STAGING_BUFFER_MIN_BYTES = 1024
-PROGRAMMER_STAGING_BUFFER_MAX_BYTES = 32768
-TCP_SERVER_EVENT_QUEUE_DEPTH_MIN = 2
-TCP_SERVER_EVENT_QUEUE_DEPTH_MAX = 32
-TCP_SERVER_DOWNLOAD_BUFFER_MIN_BYTES = 1024
-TCP_SERVER_DOWNLOAD_BUFFER_MAX_BYTES = 32768
-MAVLINK_SYS_AUTOSTART_CUSTOM_MIN = 1
-MAVLINK_SYS_AUTOSTART_CUSTOM_MAX = 1000000
-
-
 _INT_RANGES: tuple[tuple[str, int, int], ...] = (
     ("STM32_FCLINK_TELEMETRY_RATE_HZ", FCLINK_TELEMETRY_RATE_MIN, FCLINK_TELEMETRY_RATE_MAX),
     ("ESP32_FCLINK_INVALID_PACKET_THRESHOLD", FCLINK_INVALID_PACKET_THRESHOLD_MIN, FCLINK_INVALID_PACKET_THRESHOLD_MAX),
     ("ESP32_FCLINK_HANDSHAKE_ATTEMPTS", FCLINK_HANDSHAKE_ATTEMPTS_MIN, FCLINK_HANDSHAKE_ATTEMPTS_MAX),
     ("ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS", FCLINK_HANDSHAKE_RETRY_PERIOD_MIN_MS, FCLINK_HANDSHAKE_RETRY_PERIOD_MAX_MS),
-    ("ESP32_FCLINK_RX_QUEUE_DEPTH", FCLINK_RX_QUEUE_DEPTH_MIN, FCLINK_RX_QUEUE_DEPTH_MAX),
     ("ESP32_FCLINK_UART_RX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
     ("ESP32_FCLINK_UART_TX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
     ("ESP32_MAVLINK_IDENTITY_SYSID", MAVLINK_SYSID_MIN, MAVLINK_SYSID_MAX),
@@ -315,11 +334,15 @@ _INT_RANGES: tuple[tuple[str, int, int], ...] = (
     ("ESP32_MAVLINK_TX_PERIODS_ATT_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
     ("ESP32_MAVLINK_TX_PERIODS_GPOS_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
     ("ESP32_MAVLINK_TX_PERIODS_BATT_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
+    ("ESP32_MAVLINK_TX_PERIODS_RC_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
+    ("ESP32_MAVLINK_TX_PERIODS_ESC_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
+    ("ESP32_TELEM_UART_RX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
+    ("ESP32_TELEM_UART_TX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
+    ("ESP32_USB_CDC_SERVER_RX_BUFFER_BYTES", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
+    ("ESP32_USB_CDC_SERVER_TX_BUFFER_BYTES", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
+    ("ESP32_BUTTON_DEBOUNCE_MS", BUTTON_DEBOUNCE_MIN_MS, BUTTON_DEBOUNCE_MAX_MS),
+    ("ESP32_BUTTON_LONG_PRESS_MS", BUTTON_PRESS_MIN_MS, BUTTON_PRESS_MAX_MS),
     ("ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS", MAVLINK_HEARTBEAT_DEADLINE_MIN_MS, MAVLINK_HEARTBEAT_DEADLINE_MAX_MS),
-    ("ESP32_MAVLINK_TX_SCHEDULE_GPS_START_DELAY_MS", MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS, MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS),
-    ("ESP32_MAVLINK_TX_SCHEDULE_ATT_START_DELAY_MS", MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS, MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS),
-    ("ESP32_MAVLINK_TX_SCHEDULE_GPOS_START_DELAY_MS", MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS, MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS),
-    ("ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS", MAVLINK_TX_SCHEDULE_START_DELAY_MIN_MS, MAVLINK_TX_SCHEDULE_START_DELAY_MAX_MS),
     ("ESP32_WIFI_AP_CHANNEL", WIFI_AP_CHANNEL_MIN, WIFI_AP_CHANNEL_MAX),
     ("ESP32_WIFI_AP_MAX_CONNECTIONS", WIFI_AP_MAX_CONNECTIONS_MIN, WIFI_AP_MAX_CONNECTIONS_MAX),
     ("ESP32_WIFI_AP_BEACON_INTERVAL_TU", WIFI_AP_BEACON_INTERVAL_MIN_TU, WIFI_AP_BEACON_INTERVAL_MAX_TU),
@@ -328,9 +351,6 @@ _INT_RANGES: tuple[tuple[str, int, int], ...] = (
     ("ESP32_PROGRAMMER_SYNC_TIMEOUT_MS", PROGRAMMER_SYNC_TIMEOUT_MIN_MS, PROGRAMMER_SYNC_TIMEOUT_MAX_MS),
     ("ESP32_PROGRAMMER_SYNC_RETRIES", PROGRAMMER_SYNC_RETRIES_MIN, PROGRAMMER_SYNC_RETRIES_MAX),
     ("ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES", PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES, PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES),
-    ("ESP32_PROGRAMMER_STAGING_BUFFER_BYTES", PROGRAMMER_STAGING_BUFFER_MIN_BYTES, PROGRAMMER_STAGING_BUFFER_MAX_BYTES),
-    ("ESP32_TCP_SERVER_EVENT_QUEUE_DEPTH", TCP_SERVER_EVENT_QUEUE_DEPTH_MIN, TCP_SERVER_EVENT_QUEUE_DEPTH_MAX),
-    ("ESP32_TCP_SERVER_DOWNLOAD_BUFFER_BYTES", TCP_SERVER_DOWNLOAD_BUFFER_MIN_BYTES, TCP_SERVER_DOWNLOAD_BUFFER_MAX_BYTES),
     ("ESP32_DISPLAY_PANEL_I2C_CLOCK_HZ", DISPLAY_PANEL_I2C_CLOCK_MIN_HZ, DISPLAY_PANEL_I2C_CLOCK_MAX_HZ),
     ("ESP32_DISPLAY_PANEL_I2C_TIMEOUT_MS", DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS, DISPLAY_PANEL_I2C_TIMEOUT_MAX_MS),
     ("ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US", DISPLAY_PANEL_I2C_SCL_WAIT_MIN_US, DISPLAY_PANEL_I2C_SCL_WAIT_MAX_US),
@@ -360,6 +380,8 @@ def _validate_pin_assignments(kconf: kconfiglib.Kconfig) -> None:
         "ESP32_PINMAP_BUZZER_GPIO_NUM",
         "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM",
         "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM",
+        "ESP32_PINMAP_TELEM_UART_TX_GPIO_NUM",
+        "ESP32_PINMAP_TELEM_UART_RX_GPIO_NUM",
         "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM",
         "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM",
     )
@@ -409,15 +431,77 @@ def _validate_cross_field(kconf: kconfiglib.Kconfig) -> None:
         kconf, "ESP32_BUTTON_PULLDOWN"
     ):
         raise ValueError("ESP32 button pull-up and pull-down cannot both be enabled")
+    # A long press is only recognised once debounce has already elapsed, so a
+    # debounce at or above it makes DFU entry unreachable.
+    debounce_ms = sym_int(kconf, "ESP32_BUTTON_DEBOUNCE_MS")
+    long_press_ms = sym_int(kconf, "ESP32_BUTTON_LONG_PRESS_MS")
+    if debounce_ms >= long_press_ms:
+        raise ValueError(
+            f"ESP32_BUTTON_DEBOUNCE_MS ({debounce_ms}) must be below "
+            f"ESP32_BUTTON_LONG_PRESS_MS ({long_press_ms})"
+        )
     if sym_bool(kconf, "ESP32_PROGRAMMER_VERIFY_ESP32"):
         chunk = sym_int(kconf, "ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES")
-        staging = sym_int(kconf, "ESP32_PROGRAMMER_STAGING_BUFFER_BYTES")
-        if chunk > staging:
+        if chunk > PROGRAMMER_STAGING_BUFFER_BYTES:
             raise ValueError(
                 "ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES "
-                f"({chunk}) must be <= ESP32_PROGRAMMER_STAGING_BUFFER_BYTES "
-                f"({staging})"
+                f"({chunk}) must be <= the staging buffer "
+                f"({PROGRAMMER_STAGING_BUFFER_BYTES})"
             )
+
+
+def _ledc_claim(kconf: kconfiglib.Kconfig, claim: tuple) -> dict[str, object]:
+    label, timer_sym, channel_sym, res_sym, freq_sym = claim
+    resolution = sym_int(kconf, res_sym)
+    entry = {
+        "label": label,
+        "timer": sym_int(kconf, timer_sym),
+        "channel": sym_int(kconf, channel_sym),
+        "duty_resolution": resolution,
+        "max_duty_ticks": (1 << resolution) - 1,
+        "freq_hz": sym_int(kconf, freq_sym) if freq_sym else None,
+    }
+    if entry["timer"] >= LEDC_TIMER_COUNT:
+        raise ValueError(
+            f"{label} claims LEDC timer {entry['timer']}; this SoC has "
+            f"{LEDC_TIMER_COUNT}"
+        )
+    if entry["channel"] >= LEDC_CHANNEL_COUNT:
+        raise ValueError(
+            f"{label} claims LEDC channel {entry['channel']}; this SoC has "
+            f"{LEDC_CHANNEL_COUNT}"
+        )
+    if resolution > LEDC_MAX_DUTY_RES_BITS:
+        raise ValueError(
+            f"{label} asks for {resolution} duty bits; this SoC tops out at "
+            f"{LEDC_MAX_DUTY_RES_BITS}"
+        )
+    if entry["freq_hz"] is not None:
+        carrier = entry["freq_hz"] << resolution
+        if carrier > LEDC_MAX_SOURCE_HZ:
+            raise ValueError(
+                f"{label} wants {entry['freq_hz']} Hz at {resolution} duty "
+                f"bits, which needs a {carrier} Hz LEDC source; the fastest "
+                f"this SoC offers is {LEDC_MAX_SOURCE_HZ} Hz"
+            )
+    return entry
+
+
+def _ledc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    claims = [_ledc_claim(kconf, c) for c in LEDC_CLAIMS]
+    for field in ("timer", "channel"):
+        seen: dict[int, str] = {}
+        for claim in claims:
+            owner = seen.get(claim[field])
+            if owner is not None:
+                raise ValueError(
+                    f"{claim['label']} and {owner} both claim LEDC {field} "
+                    f"{claim[field]}; whichever initialises second retunes the "
+                    "first"
+                )
+            seen[claim[field]] = claim["label"]
+    return {"speed_mode": LEDC_SPEED_MODE,
+            **{c["label"].lower(): c for c in claims}}
 
 
 def _validate(kconf: kconfiglib.Kconfig) -> None:
@@ -459,7 +543,6 @@ def _button_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "pulldown": sym_bool(kconf, "ESP32_BUTTON_PULLDOWN"),
         "debounce_ms": sym_int(kconf, "ESP32_BUTTON_DEBOUNCE_MS"),
         "long_press_ms": sym_int(kconf, "ESP32_BUTTON_LONG_PRESS_MS"),
-        "long_long_press_ms": sym_int(kconf, "ESP32_BUTTON_LONG_LONG_PRESS_MS"),
     }
 
 
@@ -546,7 +629,6 @@ def _telem_uart_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "rx_queue_depth": sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH"),
         "handshake_attempts": sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_ATTEMPTS"),
         "handshake_retry_period_ms": sym_int(
             kconf, "ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS"
@@ -591,15 +673,6 @@ def _wifi_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
-def _resolve_mavlink_sys_autostart(kconf: kconfiglib.Kconfig) -> int:
-    if sym_bool(kconf, "ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM"):
-        return sym_int(kconf, "ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM_VALUE")
-    for sym, value in MAVLINK_SYS_AUTOSTART_CHOICES.items():
-        if sym_bool(kconf, sym):
-            return value
-    raise ValueError("no ESP32_MAVLINK_SYS_AUTOSTART_* choice selected")
-
-
 def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     git_hash = _git_head_short_hash()
     firmware_version_string = _firmware_version_string()
@@ -608,7 +681,7 @@ def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "sysid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_SYSID"),
             "compid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_COMPID"),
         },
-        "sys_autostart": _resolve_mavlink_sys_autostart(kconf),
+        "sys_autostart": MAVLINK_SYS_AUTOSTART_QUAD_X,
         "system_status_fresh_ms": MAVLINK_SYSTEM_STATUS_FRESH_MS,
         "git_hash": git_hash,
         "version_string": firmware_version_string,
@@ -623,25 +696,11 @@ def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 "gpos_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_GPOS_MS"),
                 "batt_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_BATT_MS"),
                 "rc_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_RC_MS"),
+                "esc_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_ESC_MS"),
             },
             "schedule": {
                 "hb_deadline_ms": sym_int(
                     kconf, "ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS"
-                ),
-                "gps_start_delay_ms": sym_int(
-                    kconf, "ESP32_MAVLINK_TX_SCHEDULE_GPS_START_DELAY_MS"
-                ),
-                "att_start_delay_ms": sym_int(
-                    kconf, "ESP32_MAVLINK_TX_SCHEDULE_ATT_START_DELAY_MS"
-                ),
-                "gpos_start_delay_ms": sym_int(
-                    kconf, "ESP32_MAVLINK_TX_SCHEDULE_GPOS_START_DELAY_MS"
-                ),
-                "batt_start_delay_ms": sym_int(
-                    kconf, "ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS"
-                ),
-                "rc_start_delay_ms": sym_int(
-                    kconf, "ESP32_MAVLINK_TX_SCHEDULE_RC_START_DELAY_MS"
                 ),
             },
         },
@@ -657,6 +716,7 @@ def _runtime_context(
         "button": _button_context(kconf),
         "led": {"active_low": sym_bool(kconf, "ESP32_LED_ACTIVE_LOW")},
         "buzzer": {"active_low": sym_bool(kconf, "ESP32_BUZZER_ACTIVE_LOW")},
+        "ledc": _ledc_context(kconf),
         "display_i2c": _display_i2c_context(kconf),
         "display_panel": _display_panel_context(kconf),
         "ui": _ui_context(kconf),
@@ -686,24 +746,17 @@ def _limits_context(
             "width": DISPLAY_PANEL_WIDTH_PX,
             "height": DISPLAY_PANEL_HEIGHT_PX,
             "controller_width": DISPLAY_PANEL_CONTROLLER_WIDTH_PX,
-            "column_offset": DISPLAY_PANEL_COLUMN_OFFSET_PX,
         },
         "fclink": {
-            "rx_queue_depth": sym_int(kconf, "ESP32_FCLINK_RX_QUEUE_DEPTH"),
+            "rx_queue_depth": FCLINK_RX_QUEUE_DEPTH,
         },
         "programmer": {
-            "staging_buffer_bytes": sym_int(
-                kconf, "ESP32_PROGRAMMER_STAGING_BUFFER_BYTES"
-            ),
+            "staging_buffer_bytes": PROGRAMMER_STAGING_BUFFER_BYTES,
             "stm32_block_bytes": PROGRAMMER_STM32_BLOCK_BYTES,
         },
         "tcp_server": {
-            "event_queue_depth": sym_int(
-                kconf, "ESP32_TCP_SERVER_EVENT_QUEUE_DEPTH"
-            ),
-            "download_buffer_bytes": sym_int(
-                kconf, "ESP32_TCP_SERVER_DOWNLOAD_BUFFER_BYTES"
-            ),
+            "event_queue_depth": TCP_SERVER_EVENT_QUEUE_DEPTH,
+            "download_buffer_bytes": TCP_SERVER_DOWNLOAD_BUFFER_BYTES,
             "max_line_bytes": TCP_SERVER_MAX_LINE_BYTES,
         },
         "udp_server": {

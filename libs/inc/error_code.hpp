@@ -34,6 +34,8 @@ enum class Stm32 : uint32_t {
   kSpiInitFailed,
   kTimInitFailed,
   kDshotInitFailed,
+  kDshotClockMismatch,
+  kDshotPeriodUnrepresentable,
   kAdcInitFailed,
   kGpioReinit,
   kGpioInvalidPort,

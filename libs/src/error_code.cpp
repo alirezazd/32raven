@@ -37,6 +37,10 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 TIM init failed";
     case ErrorCode::Stm32::kDshotInitFailed:
       return "STM32 DShot init failed";
+    case ErrorCode::Stm32::kDshotClockMismatch:
+      return "STM32 DShot timer clock differs from the configured tree";
+    case ErrorCode::Stm32::kDshotPeriodUnrepresentable:
+      return "STM32 DShot bit period does not fit the timer";
     case ErrorCode::Stm32::kAdcInitFailed:
       return "STM32 ADC init failed";
     case ErrorCode::Stm32::kGpioReinit:

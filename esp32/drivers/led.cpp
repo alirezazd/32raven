@@ -5,21 +5,15 @@
 
 #include <cstddef>  // for size_t
 
-#include "driver/gpio.h"  // IWYU pragma: keep
-#include "driver/ledc.h"
 #include "error_code.hpp"
-#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
-#include "freertos/task.h"
 #include "panic.hpp"
 
-// LEDC configuration
-static constexpr ledc_mode_t kLedcMode = LEDC_LOW_SPEED_MODE;
-static constexpr ledc_timer_t kLedcTimer = LEDC_TIMER_0;
-static constexpr ledc_channel_t kLedcChannel = LEDC_CHANNEL_0;
-static constexpr ledc_timer_bit_t kLedcRes = LEDC_TIMER_13_BIT;
-static constexpr uint32_t kLedcFreq = 5000;
-// 13-bit => max duty is 8191
-static constexpr uint32_t kDutyMax = 8191;
+extern "C" {
+#include "driver/gpio.h"  // IWYU pragma: keep
+#include "driver/ledc.h"
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
+#include "freertos/task.h"
+}
 
 void LED::Init(const Config &cfg) {
   static constexpr uint32_t kTaskStackBytes = 2048;
@@ -27,13 +21,16 @@ void LED::Init(const Config &cfg) {
   static StackType_t task_stack[kTaskStackBytes];
   pin_ = cfg.pin;
   active_low_ = cfg.active_low;
+  ledc_ = cfg.ledc;
+  duty_max_ =
+      (UINT32_C(1) << static_cast<uint32_t>(ledc_.duty_resolution)) - UINT32_C(1);
 
   // Configure LEDC Timer
   ledc_timer_config_t timer_conf = {};
-  timer_conf.speed_mode = kLedcMode;
-  timer_conf.timer_num = kLedcTimer;
-  timer_conf.duty_resolution = kLedcRes;
-  timer_conf.freq_hz = kLedcFreq;
+  timer_conf.speed_mode = ledc_.speed_mode;
+  timer_conf.timer_num = ledc_.timer;
+  timer_conf.duty_resolution = ledc_.duty_resolution;
+  timer_conf.freq_hz = ledc_.freq_hz;
   timer_conf.clk_cfg = LEDC_AUTO_CLK;
   if (ledc_timer_config(&timer_conf) != ESP_OK) {
     Panic(ErrorCode::Esp32::kLedTimerInitFailed);
@@ -42,10 +39,10 @@ void LED::Init(const Config &cfg) {
   // Configure LEDC Channel
   ledc_channel_config_t channel_conf = {};
   channel_conf.gpio_num = pin_;
-  channel_conf.speed_mode = kLedcMode;
-  channel_conf.channel = kLedcChannel;
+  channel_conf.speed_mode = ledc_.speed_mode;
+  channel_conf.channel = ledc_.channel;
   channel_conf.intr_type = LEDC_INTR_DISABLE;
-  channel_conf.timer_sel = kLedcTimer;
+  channel_conf.timer_sel = ledc_.timer;
   channel_conf.duty = 0;  // Start off
   channel_conf.hpoint = 0;
   if (ledc_channel_config(&channel_conf) != ESP_OK) {
@@ -166,23 +163,23 @@ void LED::Task() {
 
     // Calculate target duty
     // duty_percent 0-100
-    uint32_t target_duty = (s.duty_percent * kDutyMax) / 100;
+    uint32_t target_duty = (s.duty_percent * duty_max_) / 100;
     if (active_low_) {
-      target_duty = kDutyMax - target_duty;
+      target_duty = duty_max_ - target_duty;
     }
 
     if (s.fade_ms > 0) {
-      ledc_set_fade_with_time(kLedcMode, kLedcChannel, target_duty, s.fade_ms);
-      ledc_fade_start(kLedcMode, kLedcChannel, LEDC_FADE_NO_WAIT);
+      ledc_set_fade_with_time(ledc_.speed_mode, ledc_.channel, target_duty, s.fade_ms);
+      ledc_fade_start(ledc_.speed_mode, ledc_.channel, LEDC_FADE_NO_WAIT);
       // Wait for fade to complete or new pattern
       if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(s.fade_ms)) > 0) {
-        ledc_stop(kLedcMode, kLedcChannel, target_duty);  // Stop at current
+        ledc_stop(ledc_.speed_mode, ledc_.channel, target_duty);  // Stop at current
         load_pattern();
         continue;
       }
     } else {
-      ledc_set_duty(kLedcMode, kLedcChannel, target_duty);
-      ledc_update_duty(kLedcMode, kLedcChannel);
+      ledc_set_duty(ledc_.speed_mode, ledc_.channel, target_duty);
+      ledc_update_duty(ledc_.speed_mode, ledc_.channel);
     }
 
     if (s.hold_ms > 0) {
