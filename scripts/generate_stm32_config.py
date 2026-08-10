@@ -1031,6 +1031,15 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
                 "to be enabled"
             )
 
+    mode_channel = sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL")
+    if not enabled_channels[mode_channel - 1]:
+        raise ValueError(
+            f"CONFIG_STM32_FLIGHT_MODE_RC_CHANNEL selects channel "
+            f"{mode_channel}, which CONFIG_STM32_RC_CHANNEL_{mode_channel}"
+            "_ENABLED leaves off; the mode switch would read whichever "
+            "channel compacted into its place"
+        )
+
     cell_empty_mv = sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV")
     cell_full_mv = sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV")
     if cell_empty_mv >= cell_full_mv:
@@ -1045,6 +1054,23 @@ def _enabled_rc_channels(kconf: kconfiglib.Kconfig) -> list[bool]:
         sym_bool(kconf, f"STM32_RC_CHANNEL_{channel_index + 1}_ENABLED")
         for channel_index in range(16)
     ]
+
+
+def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    """Resolve the mode-switch channel to its slot in the compacted RC array.
+
+    RcData::channels carries only the enabled channels, so a transmitter
+    channel number is not an index into it -- the two agree only while the
+    enabled set is an unbroken run starting at channel 1. Resolving here keeps
+    that arithmetic out of the flight code, where being wrong means reading
+    the wrong stick rather than failing.
+    """
+    channel = sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL")
+    enabled = _enabled_rc_channels(kconf)
+    return {
+        "slot": sum(1 for index in range(channel - 1) if enabled[index]),
+        "threshold_us": sym_int(kconf, "STM32_FLIGHT_MODE_THRESHOLD_US"),
+    }
 
 
 def _rc_map(kconf: kconfiglib.Kconfig) -> dict[str, int]:
@@ -1772,6 +1798,7 @@ def _runtime_context(
         "dshot_tim1": _dshot_tim1_context(kconf),
         "ee": _ee_context(kconf),
         "rcc": _rcc_context(kconf),
+        "flight_mode": _flight_mode_context(kconf),
         "timebase": _timebase_context(kconf),
         "esc_telemetry": _esc_telemetry_context(kconf),
         "esc_service": _esc_service_context(kconf),

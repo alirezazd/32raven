@@ -4,7 +4,6 @@
 #include "states.hpp"
 
 #include <cmath>
-#include <cstddef>
 
 #include "error_code.hpp"
 #include "multirotor_mixer.hpp"
@@ -13,15 +12,6 @@
 #include "system.hpp"
 
 namespace {
-
-// RC channel/threshold to flip between kAcro and kStabilize.
-// AUX1 (channel 5 on most TX) is index 4 of raw channels[]; mid-pulse
-// (~1500 µs) is the standard 3-position-switch transition.
-constexpr std::size_t kFlightModeChannelIndex = 4u;
-constexpr std::uint16_t kFlightModeThresholdUs = 1500u;
-static_assert(
-    kFlightModeChannelIndex < stm32_limits::kRcEnabledChannelCount,
-    "kFlightModeChannelIndex exceeds the configured RC channel count");
 
 // Max tilt Stabilize commands at full stick deflection (rad). 30° is a
 // conservative beginner default; FPV builds run 45–55°.
@@ -147,7 +137,7 @@ static void FastTickFlightLoop(AppContext &ctx,
     // it back below. AUX1 above mid-pulse → kStabilize, else kAcro.
     {
       const FlightMode new_mode =
-          rc.channels[kFlightModeChannelIndex] >= kFlightModeThresholdUs
+          rc.channels[kFlightModeChannelSlot] >= kFlightModeThresholdUs
               ? FlightMode::kStabilize
               : FlightMode::kAcro;
       ctx.sys->Vehicle().SetFlightMode(new_mode);

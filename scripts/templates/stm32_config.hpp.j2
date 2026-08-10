@@ -443,6 +443,15 @@ inline constexpr Ahrs::Config kAhrsConfig = {
 {# Outer attitude loop gains (Stage-2 Stabilize mode). Kconfig stores
    kp scaled by 1000 and rate_clamp in milli-rad/s; the template folds
    each into its float representation at the point of use. #}
+{# The transmitter's channel number is resolved to a slot here because
+   RcData::channels holds only the enabled channels. #}
+// Index into RcData::channels, which is compacted to the enabled channels --
+// not the transmitter's channel number. Derived from
+// CONFIG_STM32_FLIGHT_MODE_RC_CHANNEL, which the generator refuses unless
+// that channel is enabled.
+inline constexpr std::size_t kFlightModeChannelSlot = {{ flight_mode.slot }};
+inline constexpr std::uint16_t kFlightModeThresholdUs = {{ flight_mode.threshold_us }};
+
 inline constexpr AttitudeController::Config kAttitudeControllerConfig = {
 {% for axis_name in ["roll", "pitch", "yaw"] %}
 {% set axis = attitude_controller[axis_name] %}

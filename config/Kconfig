@@ -3602,6 +3602,33 @@ config STM32_PILOT_THROTTLE_MIN_MILLI
 
 endmenu
 
+menu "Flight Mode"
+
+config STM32_FLIGHT_MODE_RC_CHANNEL
+    int "Mode switch RC channel"
+    range 1 16
+    default 5
+    help
+      RC channel carrying the Acro/Stabilize switch, numbered the way the
+      transmitter numbers it: AUX1 is channel 5 on most radios. The channel
+      has to be enabled under RC Receiver -> Enabled Channels, and the build
+      fails if it is not, because a disabled channel would silently read as
+      whichever channel took its place.
+
+config STM32_FLIGHT_MODE_THRESHOLD_US
+    int "Stabilize threshold (us)"
+    range 900 2100
+    default 1250
+    help
+      Pulse width at or above which the switch selects Stabilize; below it
+      selects Acro. The link is CRSF, so switch positions are discrete, not
+      analogue: ELRS sends 191, 992 or 1792, which this firmware's tick-to-us
+      conversion lands on exactly 1000, 1500 and 2000 us. 1250 sits midway
+      between the first two detents, so no position is ever near the
+      comparison. 1500 would sit exactly on a 3-position switch's centre.
+
+endmenu
+
 endmenu
 
 endmenu
