@@ -159,16 +159,16 @@ session has one candidate cause instead of two.
 The airframe is one physical fact about the vehicle, and it is declared in two places that
 cannot see each other.
 
-The ESP32 has the choice: `ESP32_MAVLINK_SYS_AUTOSTART` offers `QUAD_X` (4001) and `QUAD_PLUS`
-(4002), emitted as `kMavlinkSysAutostart` and advertised to the ground station. The STM32 has no
-choice at all — `multirotor_mixer.cpp` references `QuadX::kFactors` directly at six sites. Select
-`QUAD_PLUS` today and the ground station is told it is looking at a + quad while the STM32 keeps
-mixing X, with nothing anywhere comparing the two.
+Neither MCU offers a choice today, and each hardcodes the frame separately. The ESP32 fixes
+`kMavlinkSysAutostart` at 4001 in `generate_esp32_config.py` and hardcodes `MAV_TYPE_QUADROTOR`
+in the heartbeat; the STM32 references `QuadX::kFactors` directly at six sites in
+`multirotor_mixer.cpp`. The `ESP32_MAVLINK_SYS_AUTOSTART` choice that used to offer `QUAD_PLUS`
+is gone — it was a knob whose only non-default position lied to the ground station about a frame
+the STM32 could not mix.
 
-The damage today is a mislabelled airframe in the GCS, not a vehicle that flies wrong — the
-ESP32 only advertises the number, it does not act on it. What makes this worth recording is that
-the inconsistency stops being cosmetic the moment the STM32 gains a real geometry selection: at
-that point there are two sources for one truth, on two MCUs that flash independently. This is
+There is no damage today, because neither side can be pointed at anything but an X quad. What
+makes this worth recording is that the moment either side gains a real geometry selection there
+are two sources for one truth, on two MCUs that flash independently. This is
 the same shape as the FcLink baud and exchange interval, and it wants the same answer — one
 airframe choice in Kconfig, with motor count *and* geometry table derived from it into
 `common_config`, rather than a standalone motor-count integer that can disagree with the frame
