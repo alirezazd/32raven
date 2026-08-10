@@ -77,25 +77,12 @@ menu "ESP32"
 
 menu "Pin Map"
 
-menu "Led"
-
 config ESP32_PINMAP_LED_GPIO_NUM
     int "LED GPIO number"
     range 0 21
     default 8
     help
       ESP32-C3 valid GPIOs are 0 through 21.
-
-config ESP32_LED_ACTIVE_LOW
-    bool "Active low"
-    default y
-    help
-      Invert the LED logical state. Enable this when driving the LED low turns
-      it on.
-
-endmenu
-
-menu "Button"
 
 config ESP32_PINMAP_BUTTON_GPIO_NUM
     int "Button GPIO number"
@@ -104,17 +91,6 @@ config ESP32_PINMAP_BUTTON_GPIO_NUM
     help
       ESP32-C3 valid GPIOs are 0 through 21.
 
-config ESP32_BUTTON_ACTIVE_LOW
-    bool "Active low"
-    default y
-    help
-      Treat a low GPIO level as button-pressed. Enable this for buttons wired
-      to pull the input to ground when pressed.
-
-endmenu
-
-menu "Buzzer"
-
 config ESP32_PINMAP_BUZZER_GPIO_NUM
     int "Buzzer GPIO number"
     range 0 21
@@ -122,18 +98,7 @@ config ESP32_PINMAP_BUZZER_GPIO_NUM
     help
       ESP32-C3 valid GPIOs are 0 through 21.
 
-config ESP32_BUZZER_ACTIVE_LOW
-    bool "Active low"
-    default n
-    help
-      Invert the buzzer output polarity. Enable this when the buzzer hardware
-      is active when the drive signal is low.
-
-endmenu
-
-menu "I2C"
-
-menu "SSD1306 Panel"
+menu "SSD1306 Panel I2C"
 
 config ESP32_PINMAP_SSD1306_PANEL_I2C_SDA_GPIO_NUM
     int "SDA GPIO number"
@@ -151,11 +116,7 @@ config ESP32_PINMAP_SSD1306_PANEL_I2C_SCL_GPIO_NUM
 
 endmenu
 
-endmenu
-
-menu "UART"
-
-menu "FcLink"
+menu "FcLink UART"
 
 config ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM
     int "TX GPIO number"
@@ -167,13 +128,13 @@ config ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM
 config ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM
     int "RX GPIO number"
     range 0 21
-    default 5
+    default 3
     help
       ESP32-C3 valid GPIOs are 0 through 21.
 
 endmenu
 
-menu "Telem"
+menu "Telem UART"
 
 config ESP32_PINMAP_TELEM_UART_TX_GPIO_NUM
     int "TX GPIO number"
@@ -195,23 +156,162 @@ config ESP32_PINMAP_TELEM_UART_RX_GPIO_NUM
 
 endmenu
 
-endmenu
-
 menu "Programmer"
 
 config ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM
     int "BOOT0 GPIO number"
     range 0 21
-    default 6
+    default 0
     help
       ESP32-C3 valid GPIOs are 0 through 21.
 
 config ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM
     int "NRST GPIO number"
     range 0 21
-    default 7
+    default 1
     help
       ESP32-C3 valid GPIOs are 0 through 21.
+
+endmenu
+
+endmenu
+
+menu "Peripherals"
+
+menu "LED"
+
+config ESP32_LED_ACTIVE_LOW
+    bool "Active low"
+    default y
+    help
+      Invert the LED logical state. Enable this when driving the LED low turns
+      it on.
+
+menu "LEDC"
+
+config ESP32_LED_LEDC_TIMER
+    int "LEDC timer"
+    range 0 3
+    default 0
+    help
+      Which LEDC timer drives the LED. Timers are a shared resource: the
+      build refuses a configuration where two consumers claim the same one,
+      because the second to initialise silently retunes the first.
+
+config ESP32_LED_LEDC_CHANNEL
+    int "LEDC channel"
+    range 0 5
+    default 0
+    help
+      Which LEDC channel drives the LED. Checked for collisions alongside
+      the timer.
+
+config ESP32_LED_LEDC_DUTY_RES_BITS
+    int "LEDC duty resolution (bits)"
+    range 1 14
+    default 13
+    help
+      Brightness steps are 2^bits. The build rejects a resolution the carrier
+      frequency cannot reach, since freq * 2^bits must stay within the LEDC
+      clock.
+
+config ESP32_LED_LEDC_FREQ_HZ
+    int "LEDC carrier frequency (Hz)"
+    range 100 40000000
+    default 5000
+    help
+      PWM carrier for LED brightness. Well above the flicker threshold and
+      bounded by the duty resolution above.
+
+endmenu
+
+endmenu
+
+menu "Button"
+
+config ESP32_BUTTON_ACTIVE_LOW
+    bool "Active low"
+    default y
+    help
+      Treat a low GPIO level as button-pressed. Enable this for buttons wired
+      to pull the input to ground when pressed.
+
+config ESP32_BUTTON_PULLUP
+    bool "Enable pull-up"
+    default y
+    help
+      Enable the internal pull-up resistor on the button input.
+
+config ESP32_BUTTON_PULLDOWN
+    bool "Enable pull-down"
+    default n
+    help
+      Enable the internal pull-down resistor on the button input.
+
+menu "Timing"
+
+config ESP32_BUTTON_DEBOUNCE_MS
+    int "Debounce time (ms)"
+    range 0 1000
+    default 30
+    help
+      Minimum stable time before a raw button level change is accepted.
+
+config ESP32_BUTTON_LONG_PRESS_MS
+    int "Long press time (ms)"
+    range 1 10000
+    default 500
+    help
+      Hold time required before the button reports a long-press event, which
+      enters DFU. A short press starts the Wi-Fi MAVLink bridge instead.
+
+endmenu
+
+endmenu
+
+menu "Buzzer"
+
+config ESP32_BUZZER_ACTIVE_LOW
+    bool "Active low"
+    default n
+    help
+      Invert the buzzer output polarity. Enable this when the buzzer hardware
+      is active when the drive signal is low.
+
+menu "LEDC"
+
+config ESP32_BUZZER_LEDC_TIMER
+    int "LEDC timer"
+    range 0 3
+    default 1
+    help
+      Which LEDC timer drives the buzzer. Must not collide with the LED's.
+
+config ESP32_BUZZER_LEDC_CHANNEL
+    int "LEDC channel"
+    range 0 5
+    default 1
+    help
+      Which LEDC channel drives the buzzer. Must not collide with the LED's.
+
+config ESP32_BUZZER_LEDC_DUTY_RES_BITS
+    int "LEDC duty resolution (bits)"
+    range 1 14
+    default 10
+    help
+      Volume steps are 2^bits. TonePlayer maps its volume onto this range, and
+      the highest note it can play has to fit freq * 2^bits within the LEDC
+      clock.
+
+config ESP32_BUZZER_MAX_NOTE_HZ
+    int "Highest note (Hz)"
+    range 100 20000
+    default 20000
+    help
+      Ceiling on the frequency the buzzer is driven at: the top of human
+      hearing. LEDC needs freq * 2^duty_res to stay within its clock, so the
+      build rejects a pair that cannot both be met and the driver clamps
+      anything above this.
 
 endmenu
 
@@ -294,6 +394,98 @@ endmenu
 
 endmenu
 
+menu "FcLink UART"
+
+comment "Baud rate lives under Common -> FcLink"
+
+choice
+    prompt "Parity"
+    default ESP32_FCLINK_UART_PARITY_EVEN
+    help
+      UART parity for the ESP32 side of FcLink.
+
+config ESP32_FCLINK_UART_PARITY_NONE
+    bool "None"
+
+config ESP32_FCLINK_UART_PARITY_EVEN
+    bool "Even"
+
+config ESP32_FCLINK_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+config ESP32_FCLINK_UART_RX_BUFFER_SIZE
+    int "RX buffer size (bytes)"
+    range 256 16384
+    default 2048
+    help
+      UART driver RX ring-buffer size for the ESP32 FcLink port.
+
+config ESP32_FCLINK_UART_TX_BUFFER_SIZE
+    int "TX buffer size (bytes)"
+    range 256 16384
+    default 2048
+    help
+      UART driver TX ring-buffer size for the ESP32 FcLink port.
+
+endmenu
+
+menu "Telem UART"
+
+choice
+    prompt "UART baud rate"
+    default ESP32_TELEM_UART_BAUD_57600
+    help
+      Baud rate of the MAVLink telem UART. SiK firmware defaults to 57600;
+      raise to 115200 for short-range hops with newer firmware. Must match
+      the modem's air-side configuration.
+
+config ESP32_TELEM_UART_BAUD_9600
+    bool "9600"
+
+config ESP32_TELEM_UART_BAUD_19200
+    bool "19200"
+
+config ESP32_TELEM_UART_BAUD_38400
+    bool "38400"
+
+config ESP32_TELEM_UART_BAUD_57600
+    bool "57600"
+
+config ESP32_TELEM_UART_BAUD_115200
+    bool "115200"
+
+config ESP32_TELEM_UART_BAUD_230400
+    bool "230400"
+
+config ESP32_TELEM_UART_BAUD_460800
+    bool "460800"
+
+endchoice
+
+config ESP32_TELEM_UART_RX_BUFFER_SIZE
+    int "RX buffer size (bytes)"
+    range 256 16384
+    default 1024
+    help
+      UART driver RX ring-buffer size for the telem port. SiK telemetry
+      sustains ~2-3 KB/s, so 1 KiB absorbs typical bursts comfortably.
+
+config ESP32_TELEM_UART_TX_BUFFER_SIZE
+    int "TX buffer size (bytes)"
+    range 256 16384
+    default 1024
+    help
+      UART driver TX ring-buffer size for the telem port. Bytes queue here
+      until the radio modem drains them at air rate.
+
+endmenu
+
+endmenu
+
+menu "Services"
+
 menu "UI"
 
 config ESP32_DISPLAY_MANAGER_FPS_CAP
@@ -312,6 +504,15 @@ config ESP32_WIDGET_UI_TIMEOUT_S
     help
       Turn the display off after the selected number of seconds without UI
       activity. Set to 0 to disable the timeout.
+
+config ESP32_WIDGET_BOOT_TIMEOUT_S
+    int "Timeout (seconds)"
+    range 0 15
+    default 3
+    depends on ESP32_DISPLAY_PANEL_ENABLE
+    help
+      Show the boot widget for the selected number of seconds after display
+      initialization. Set to 0 to disable it.
 
 choice
     prompt "Screen transition speed"
@@ -352,58 +553,31 @@ config ESP32_TONE_PLAYER_VOLUME
 
 endmenu
 
-menu "Widgets"
+menu "FcLink"
 
-menu "Boot"
-
-config ESP32_WIDGET_BOOT_TIMEOUT_S
-    int "Timeout (seconds)"
-    range 0 15
-    default 3
-    depends on ESP32_DISPLAY_PANEL_ENABLE
+config ESP32_FCLINK_INVALID_PACKET_THRESHOLD
+    int "Invalid packet threshold"
+    range 1 255
+    default 10
     help
-      Show the boot widget for the selected number of seconds after display
-      initialization. Set to 0 to disable it.
+      Number of consecutive invalid packets received on FcLink before the link
+      is considered unavailable. Invalid packets are those that fail basic
+      parsing checks such as header magic bytes and length limits.
 
-endmenu
-
-endmenu
-
-menu "Button"
-
-config ESP32_BUTTON_PULLUP
-    bool "Enable pull-up"
-    default y
+config ESP32_FCLINK_HANDSHAKE_ATTEMPTS
+    int "Handshake attempts"
+    range 1 1000
+    default 100
     help
-      Enable the internal pull-up resistor on the button input.
+      Number of ping attempts made during the ESP32 FcLink startup handshake
+      before the link is considered unavailable.
 
-config ESP32_BUTTON_PULLDOWN
-    bool "Enable pull-down"
-    default n
+config ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS
+    int "Handshake retry period (ms)"
+    range 1 1000
+    default 20
     help
-      Enable the internal pull-down resistor on the button input.
-
-config ESP32_BUTTON_DEBOUNCE_MS
-    int "Debounce time (ms)"
-    range 0 1000
-    default 30
-    help
-      Minimum stable time before a raw button level change is accepted.
-
-config ESP32_BUTTON_LONG_PRESS_MS
-    int "Long press time (ms)"
-    range 1 10000
-    default 500
-    help
-      Hold time required before the button reports a long-press event.
-
-config ESP32_BUTTON_LONG_LONG_PRESS_MS
-    int "Long-long press time (ms)"
-    range 1 10000
-    default 1500
-    help
-      Hold time required before the button reports the longer hold event used
-      to enter DFU while a normal long press is reserved for Wi-Fi MAVLink.
+      Delay between consecutive FcLink handshake attempts.
 
 endmenu
 
@@ -449,7 +623,7 @@ config ESP32_PROGRAMMER_VERIFY_ESP32
 
 config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
         int "ESP32 verify chunk size (bytes)"
-        range 1 32768
+        range 1 8192
         default 1024
         depends on ESP32_PROGRAMMER_VERIFY_ESP32
         help
@@ -466,21 +640,193 @@ config ESP32_PROGRAMMER_VERIFY_STM32
 
 endmenu
 
-config ESP32_PROGRAMMER_STAGING_BUFFER_BYTES
-    int "Staging buffer size (bytes)"
-    range 1024 32768
-    default 8192
+endmenu
+
+menu "Mavlink"
+
+menu "Identity"
+
+config ESP32_MAVLINK_IDENTITY_SYSID
+    int "System ID"
+    range 1 255
+    default 1
     help
-      In-flight buffer for firmware bytes received over the wire before they
-      get pushed into the STM32 ROM bootloader. Default 8192 = 32 STM32
-      blocks of 256 bytes; that's enough headroom for typical TCP burst
-      sizes without measurably stressing the ESP32-C3 heap.  Lower it on
-      memory-constrained variants or raise it if you see throughput drops
-      from buffer underruns.
+      MAVLink system ID advertised by the primary MAVLink transport endpoint.
+
+config ESP32_MAVLINK_IDENTITY_COMPID
+    int "Component ID"
+    range 0 255
+    default 1
+    help
+      MAVLink component ID advertised by the primary MAVLink transport
+      endpoint. The default value 1 matches MAV_COMP_ID_AUTOPILOT1.
+
+endmenu
+
+menu "Transmit"
+
+menu "Periods"
+
+config ESP32_MAVLINK_TX_PERIODS_HB_MS
+    int "Heartbeat period (ms)"
+    range 1 60000
+    default 1000
+    help
+      Nominal HEARTBEAT transmit cadence for the primary MAVLink transport.
+
+config ESP32_MAVLINK_TX_PERIODS_GPS_MS
+    int "GPS RAW INT period (ms)"
+    range 0 60000
+    default 2000
+    help
+      GPS_RAW_INT transmit cadence for the primary MAVLink transport. Set to 0
+      to disable this stream.
+
+config ESP32_MAVLINK_TX_PERIODS_ATT_MS
+    int "Attitude period (ms)"
+    range 0 60000
+    default 2000
+    help
+      ATTITUDE transmit cadence for the primary MAVLink transport. Set to 0 to
+      disable this stream.
+
+config ESP32_MAVLINK_TX_PERIODS_GPOS_MS
+    int "Global position period (ms)"
+    range 0 60000
+    default 2000
+    help
+      GLOBAL_POSITION_INT transmit cadence for the primary MAVLink transport.
+      Set to 0 to disable this stream.
+
+config ESP32_MAVLINK_TX_PERIODS_BATT_MS
+    int "Battery status period (ms)"
+    range 0 60000
+    default 2000
+    help
+      BATTERY_STATUS transmit cadence for the primary MAVLink transport. Set
+      to 0 to disable this stream.
+
+config ESP32_MAVLINK_TX_PERIODS_RC_MS
+    int "RC channels period (ms)"
+    range 0 60000
+    default 40
+    help
+      RC_CHANNELS transmit cadence for the primary MAVLink transport. Set to 0
+      to disable this stream.
+
+config ESP32_MAVLINK_TX_PERIODS_ESC_MS
+    int "ESC telemetry period (ms)"
+    range 0 60000
+    default 2000
+    help
+      ESC_STATUS transmit cadence for the primary MAVLink transport. Set to 0
+      to disable this stream.
+
+endmenu
+
+menu "Timing"
+
+config ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS
+    int "Heartbeat deadline (ms)"
+    range 1 60000
+    default 1500
+    help
+      Maximum allowed gap between completed HEARTBEAT frames on the primary
+      MAVLink transport. If this is lower than the heartbeat period, the
+      deadline wins.
+
+endmenu
+
+endmenu
 
 endmenu
 
 menu "Network"
+
+menu "Wifi"
+
+menu "Access Point"
+
+config ESP32_WIFI_AP_SSID
+    string "SSID"
+    default "32Raven"
+    help
+      Wi-Fi SoftAP SSID advertised by the ESP32.
+
+config ESP32_WIFI_AP_PASSWORD
+    string "Password"
+    default "32Raven@1234"
+    help
+      Wi-Fi SoftAP password. Leave empty to run the access point as an open
+      network.
+
+config ESP32_WIFI_AP_CHANNEL
+    int "Channel"
+    range 1 13
+    default 1
+    help
+      Primary 2.4 GHz Wi-Fi channel used by the access point.
+
+config ESP32_WIFI_AP_MAX_CONNECTIONS
+    int "Max connections"
+    range 1 10
+    default 1
+    help
+      Maximum number of stations allowed to associate with the SoftAP. ESP32-C3
+      supports up to 10.
+
+config ESP32_WIFI_AP_BEACON_INTERVAL_TU
+    int "Beacon interval (TU)"
+    range 100 60000
+    default 100
+    help
+      Access point beacon interval in time units. This must be a multiple of
+      100 and follows the ESP-IDF SoftAP limits.
+
+config ESP32_WIFI_AP_HIDDEN
+    bool "Hidden SSID"
+    default n
+    help
+      Do not broadcast the SSID in beacons.
+
+endmenu
+
+menu "Protected Management Frames"
+
+config ESP32_WIFI_PMF_CAPABLE
+    bool "Capable"
+    default y
+    help
+      Advertise PMF capability for the SoftAP.
+
+config ESP32_WIFI_PMF_REQUIRED
+    bool "Required"
+    default n
+    help
+      Require PMF for clients connecting to the SoftAP. This also requires PMF
+      capable to be enabled.
+
+endmenu
+
+choice
+    prompt "Power save"
+    default ESP32_WIFI_POWER_SAVE_NONE
+    help
+      Wi-Fi driver power-save mode applied after starting the SoftAP. The
+      current known-good setting is no power save.
+
+config ESP32_WIFI_POWER_SAVE_NONE
+    bool "None"
+
+config ESP32_WIFI_POWER_SAVE_MIN_MODEM
+    bool "Minimum modem"
+
+config ESP32_WIFI_POWER_SAVE_MAX_MODEM
+    bool "Maximum modem"
+
+endchoice
+
+endmenu
 
 menu "TCP Server"
 
@@ -511,26 +857,6 @@ config ESP32_TCP_SERVER_NONBLOCKING
     default y
     help
       Use non-blocking listening and client sockets.
-
-config ESP32_TCP_SERVER_EVENT_QUEUE_DEPTH
-    int "Event queue depth"
-    range 2 32
-    default 8
-    help
-      Number of async network events (accept / recv / disconnect / error)
-      the server's event loop can queue while it's busy processing the
-      previous one. Heuristic; raise it if you observe dropped events
-      under bursty load, lower it to save a few hundred bytes of static
-      buffer storage.
-
-config ESP32_TCP_SERVER_DOWNLOAD_BUFFER_BYTES
-    int "Download buffer size (bytes)"
-    range 1024 32768
-    default 4096
-    help
-      Static buffer used to stage outbound TCP traffic before it's pushed
-      onto the data socket. Heuristic; raise it on faster networks or to
-      smooth out larger writes, lower it when memory is tight.
 
 menu "Keepalive"
 
@@ -627,395 +953,10 @@ config ESP32_USB_CDC_SERVER_TX_BUFFER_BYTES
 
 endmenu
 
-menu "Wifi"
-
-menu "Access Point"
-
-config ESP32_WIFI_AP_SSID
-    string "SSID"
-    default "32Raven"
-    help
-      Wi-Fi SoftAP SSID advertised by the ESP32.
-
-config ESP32_WIFI_AP_PASSWORD
-    string "Password"
-    default "32Raven@1234"
-    help
-      Wi-Fi SoftAP password. Leave empty to run the access point as an open
-      network.
-
-config ESP32_WIFI_AP_CHANNEL
-    int "Channel"
-    range 1 13
-    default 1
-    help
-      Primary 2.4 GHz Wi-Fi channel used by the access point.
-
-config ESP32_WIFI_AP_MAX_CONNECTIONS
-    int "Max connections"
-    range 1 10
-    default 1
-    help
-      Maximum number of stations allowed to associate with the SoftAP. ESP32-C3
-      supports up to 10.
-
-config ESP32_WIFI_AP_BEACON_INTERVAL_TU
-    int "Beacon interval (TU)"
-    range 100 60000
-    default 100
-    help
-      Access point beacon interval in time units. This must be a multiple of
-      100 and follows the ESP-IDF SoftAP limits.
-
-config ESP32_WIFI_AP_HIDDEN
-    bool "Hidden SSID"
-    default n
-    help
-      Do not broadcast the SSID in beacons.
-
-endmenu
-
-menu "Protected Management Frames"
-
-config ESP32_WIFI_PMF_CAPABLE
-    bool "Capable"
-    default y
-    help
-      Advertise PMF capability for the SoftAP.
-
-config ESP32_WIFI_PMF_REQUIRED
-    bool "Required"
-    default n
-    help
-      Require PMF for clients connecting to the SoftAP. This also requires PMF
-      capable to be enabled.
-
-endmenu
-
-choice
-    prompt "Power save"
-    default ESP32_WIFI_POWER_SAVE_NONE
-    help
-      Wi-Fi driver power-save mode applied after starting the SoftAP. The
-      current known-good setting is no power save.
-
-config ESP32_WIFI_POWER_SAVE_NONE
-    bool "None"
-
-config ESP32_WIFI_POWER_SAVE_MIN_MODEM
-    bool "Minimum modem"
-
-config ESP32_WIFI_POWER_SAVE_MAX_MODEM
-    bool "Maximum modem"
-
-endchoice
-
 endmenu
 
 endmenu
 
-menu "FcLink"
-
-menu "Uart"
-
-comment "Baud rate lives under Common -> FcLink"
-
-choice
-    prompt "Parity"
-    default ESP32_FCLINK_UART_PARITY_EVEN
-    help
-      UART parity for the ESP32 side of FcLink.
-
-config ESP32_FCLINK_UART_PARITY_NONE
-    bool "None"
-
-config ESP32_FCLINK_UART_PARITY_EVEN
-    bool "Even"
-
-config ESP32_FCLINK_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
-
-config ESP32_FCLINK_UART_RX_BUFFER_SIZE
-    int "RX buffer size (bytes)"
-    range 256 16384
-    default 2048
-    help
-      UART driver RX ring-buffer size for the ESP32 FcLink port.
-
-config ESP32_FCLINK_UART_TX_BUFFER_SIZE
-    int "TX buffer size (bytes)"
-    range 256 16384
-    default 2048
-    help
-      UART driver TX ring-buffer size for the ESP32 FcLink port.
-
-endmenu
-
-config ESP32_FCLINK_INVALID_PACKET_THRESHOLD
-    int "Invalid packet threshold"
-    range 1 255
-    default 10
-    help
-      Number of consecutive invalid packets received on FcLink before the link
-      is considered unavailable. Invalid packets are those that fail basic
-      parsing checks such as header magic bytes and length limits.
-
-config ESP32_FCLINK_HANDSHAKE_ATTEMPTS
-    int "Handshake attempts"
-    range 1 1000
-    default 100
-    help
-      Number of ping attempts made during the ESP32 FcLink startup handshake
-      before the link is considered unavailable.
-
-config ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS
-    int "Handshake retry period (ms)"
-    range 1 1000
-    default 20
-    help
-      Delay between consecutive FcLink handshake attempts.
-
-config ESP32_FCLINK_RX_QUEUE_DEPTH
-    int "RX packet queue depth"
-    range 1 32
-    default 10
-    help
-      Compile-time number of parsed incoming FcLink packets buffered for later
-      processing after UART parsing.
-
-      FcLink uses the project ring buffer here rather than a FreeRTOS queue.
-      Larger values absorb bigger bursts but increase static memory use.
-
-endmenu
-
-menu "Telem UART"
-
-choice
-    prompt "UART baud rate"
-    default ESP32_TELEM_UART_BAUD_57600
-    help
-      Baud rate of the MAVLink telem UART. SiK firmware defaults to 57600;
-      raise to 115200 for short-range hops with newer firmware. Must match
-      the modem's air-side configuration.
-
-config ESP32_TELEM_UART_BAUD_9600
-    bool "9600"
-
-config ESP32_TELEM_UART_BAUD_19200
-    bool "19200"
-
-config ESP32_TELEM_UART_BAUD_38400
-    bool "38400"
-
-config ESP32_TELEM_UART_BAUD_57600
-    bool "57600"
-
-config ESP32_TELEM_UART_BAUD_115200
-    bool "115200"
-
-config ESP32_TELEM_UART_BAUD_230400
-    bool "230400"
-
-config ESP32_TELEM_UART_BAUD_460800
-    bool "460800"
-
-endchoice
-
-config ESP32_TELEM_UART_RX_BUFFER_SIZE
-    int "RX buffer size (bytes)"
-    range 256 16384
-    default 1024
-    help
-      UART driver RX ring-buffer size for the telem port. SiK telemetry
-      sustains ~2-3 KB/s, so 1 KiB absorbs typical bursts comfortably.
-
-config ESP32_TELEM_UART_TX_BUFFER_SIZE
-    int "TX buffer size (bytes)"
-    range 256 16384
-    default 1024
-    help
-      UART driver TX ring-buffer size for the telem port. Bytes queue here
-      until the radio modem drains them at air rate.
-
-endmenu
-
-menu "Mavlink"
-
-menu "Identity"
-
-config ESP32_MAVLINK_IDENTITY_SYSID
-    int "System ID"
-    range 1 255
-    default 1
-    help
-      MAVLink system ID advertised by the primary MAVLink transport endpoint.
-
-config ESP32_MAVLINK_IDENTITY_COMPID
-    int "Component ID"
-    range 0 255
-    default 1
-    help
-      MAVLink component ID advertised by the primary MAVLink transport
-      endpoint. The default value 1 matches MAV_COMP_ID_AUTOPILOT1.
-
-choice
-    prompt "PX4 airframe (SYS_AUTOSTART)"
-    default ESP32_MAVLINK_SYS_AUTOSTART_QUAD_X
-    help
-      The integer reported as MAV_PARAM SYS_AUTOSTART. PX4 / QGroundControl
-      look this up in the PX4 airframe registry to apply default mixer +
-      controller configuration. Choose the entry that matches your vehicle
-      class, or pick "Custom" and set the integer below to use an airframe
-      ID not in this curated list.
-
-      Full PX4 airframe reference:
-      https://docs.px4.io/main/en/airframes/airframe_reference.html
-
-config ESP32_MAVLINK_SYS_AUTOSTART_QUAD_X
-    bool "Generic Quadrotor X (4001)"
-config ESP32_MAVLINK_SYS_AUTOSTART_QUAD_PLUS
-    bool "Generic Quadrotor + (4002)"
-config ESP32_MAVLINK_SYS_AUTOSTART_HEXA_X
-    bool "Generic Hexarotor X (4011)"
-config ESP32_MAVLINK_SYS_AUTOSTART_HEXA_PLUS
-    bool "Generic Hexarotor + (4012)"
-config ESP32_MAVLINK_SYS_AUTOSTART_OCTO_X
-    bool "Generic Octorotor X (4013)"
-config ESP32_MAVLINK_SYS_AUTOSTART_PLANE
-    bool "Standard Plane (100)"
-config ESP32_MAVLINK_SYS_AUTOSTART_VTOL_STANDARD
-    bool "Generic Standard VTOL (13000)"
-config ESP32_MAVLINK_SYS_AUTOSTART_VTOL_TAILSITTER
-    bool "Generic Tailsitter VTOL (13003)"
-config ESP32_MAVLINK_SYS_AUTOSTART_ROVER
-    bool "Generic Rover (50000)"
-config ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM
-    bool "Custom (set integer below)"
-
-endchoice
-
-config ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM_VALUE
-    int "Custom airframe ID"
-    range 1 1000000
-    default 4001
-    depends on ESP32_MAVLINK_SYS_AUTOSTART_CUSTOM
-    help
-      Override SYS_AUTOSTART with an arbitrary integer. Only used when the
-      choice above is set to "Custom".
-
-endmenu
-
-menu "Transmit"
-
-menu "Periods"
-
-config ESP32_MAVLINK_TX_PERIODS_HB_MS
-    int "Heartbeat period (ms)"
-    range 1 60000
-    default 1000
-    help
-      Nominal HEARTBEAT transmit cadence for the primary MAVLink transport.
-
-config ESP32_MAVLINK_TX_PERIODS_GPS_MS
-    int "GPS RAW INT period (ms)"
-    range 0 60000
-    default 2000
-    help
-      GPS_RAW_INT transmit cadence for the primary MAVLink transport. Set to 0
-      to disable this stream.
-
-config ESP32_MAVLINK_TX_PERIODS_ATT_MS
-    int "Attitude period (ms)"
-    range 0 60000
-    default 2000
-    help
-      ATTITUDE transmit cadence for the primary MAVLink transport. Set to 0 to
-      disable this stream.
-
-config ESP32_MAVLINK_TX_PERIODS_GPOS_MS
-    int "Global position period (ms)"
-    range 0 60000
-    default 2000
-    help
-      GLOBAL_POSITION_INT transmit cadence for the primary MAVLink transport.
-      Set to 0 to disable this stream.
-
-config ESP32_MAVLINK_TX_PERIODS_BATT_MS
-    int "Battery status period (ms)"
-    range 0 60000
-    default 2000
-    help
-      BATTERY_STATUS transmit cadence for the primary MAVLink transport. Set
-      to 0 to disable this stream.
-
-config ESP32_MAVLINK_TX_PERIODS_RC_MS
-    int "RC channels period (ms)"
-    range 0 60000
-    default 40
-    help
-      RC_CHANNELS transmit cadence for the primary MAVLink transport. Set to 0
-      to disable this stream.
-
-endmenu
-
-menu "Timing"
-
-config ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS
-    int "Heartbeat deadline (ms)"
-    range 1 60000
-    default 1500
-    help
-      Maximum allowed gap between completed HEARTBEAT frames on the primary
-      MAVLink transport. If this is lower than the heartbeat period, the
-      deadline wins.
-
-config ESP32_MAVLINK_TX_SCHEDULE_GPS_START_DELAY_MS
-    int "GPS initial delay (ms)"
-    range 0 10000
-    default 200
-    help
-      Initial GPS_RAW_INT delay used to stagger the first MAVLink TX schedule
-      cycle.
-
-config ESP32_MAVLINK_TX_SCHEDULE_ATT_START_DELAY_MS
-    int "Attitude initial delay (ms)"
-    range 0 10000
-    default 400
-    help
-      Initial ATTITUDE delay used to stagger the first MAVLink TX schedule
-      cycle.
-
-config ESP32_MAVLINK_TX_SCHEDULE_GPOS_START_DELAY_MS
-    int "Global position initial delay (ms)"
-    range 0 10000
-    default 600
-    help
-      Initial GLOBAL_POSITION_INT delay used to stagger the first MAVLink TX
-      schedule cycle.
-
-config ESP32_MAVLINK_TX_SCHEDULE_BATT_START_DELAY_MS
-    int "Battery status initial delay (ms)"
-    range 0 10000
-    default 800
-    help
-      Initial BATTERY_STATUS delay used to stagger the first MAVLink TX
-      schedule cycle.
-
-config ESP32_MAVLINK_TX_SCHEDULE_RC_START_DELAY_MS
-    int "RC channels initial delay (ms)"
-    range 0 10000
-    default 1000
-    help
-      Initial RC_CHANNELS delay used to stagger the first MAVLink TX schedule
-      cycle.
-
-endmenu
-
-endmenu
-
-endmenu
 endmenu
 
 menu "STM32"
@@ -1542,7 +1483,9 @@ endmenu
 
 endmenu
 
-menu "System Clock"
+menu "Peripherals"
+
+menu "RCC"
 
 # Clock tree configuration consumed by System::Init(). Values are emitted
 # into board::kSystemDefault by the generator and translated to HAL bit
@@ -1556,17 +1499,17 @@ menu "System Clock"
 
 choice
     prompt "Oscillator source"
-    default STM32_SYSTEM_OSC_HSE
+    default STM32_RCC_OSC_HSE
 
-config STM32_SYSTEM_OSC_HSE
+config STM32_RCC_OSC_HSE
     bool "HSE (external crystal)"
 
-config STM32_SYSTEM_OSC_HSI
+config STM32_RCC_OSC_HSI
     bool "HSI (16 MHz internal RC)"
 
 endchoice
 
-config STM32_SYSTEM_HSE_HZ
+config STM32_RCC_HSE_HZ
     int "HSE crystal frequency (Hz)"
     range 4000000 26000000
     default 8000000
@@ -1575,32 +1518,32 @@ config STM32_SYSTEM_HSE_HZ
       wrong value still boots — the PLL runs off the real crystal either way —
       but every clock derived from it is off by the ratio of the two.
 
-config STM32_SYSTEM_PLL_M
+config STM32_RCC_PLL_M
     int "PLLM (input divider, 2..63)"
     range 2 63
     default 8
 
-config STM32_SYSTEM_PLL_N
+config STM32_RCC_PLL_N
     int "PLLN (VCO multiplier, 50..432)"
     range 50 432
     default 336
 
 choice
     prompt "PLLP (SYSCLK divider)"
-    default STM32_SYSTEM_PLL_P_DIV2
+    default STM32_RCC_PLL_P_DIV2
 
-config STM32_SYSTEM_PLL_P_DIV2
+config STM32_RCC_PLL_P_DIV2
     bool "/2"
-config STM32_SYSTEM_PLL_P_DIV4
+config STM32_RCC_PLL_P_DIV4
     bool "/4"
-config STM32_SYSTEM_PLL_P_DIV6
+config STM32_RCC_PLL_P_DIV6
     bool "/6"
-config STM32_SYSTEM_PLL_P_DIV8
+config STM32_RCC_PLL_P_DIV8
     bool "/8"
 
 endchoice
 
-config STM32_SYSTEM_PLL_Q
+config STM32_RCC_PLL_Q
     int "PLLQ (USB/SDIO divider, 2..15)"
     range 2 15
     default 7
@@ -1613,79 +1556,131 @@ config STM32_SYSTEM_PLL_Q
 
 choice
     prompt "AHB divider"
-    default STM32_SYSTEM_AHB_DIV1
+    default STM32_RCC_AHB_DIV1
 
-config STM32_SYSTEM_AHB_DIV1
+config STM32_RCC_AHB_DIV1
     bool "/1"
-config STM32_SYSTEM_AHB_DIV2
+config STM32_RCC_AHB_DIV2
     bool "/2"
-config STM32_SYSTEM_AHB_DIV4
+config STM32_RCC_AHB_DIV4
     bool "/4"
-config STM32_SYSTEM_AHB_DIV8
+config STM32_RCC_AHB_DIV8
     bool "/8"
-config STM32_SYSTEM_AHB_DIV16
+config STM32_RCC_AHB_DIV16
     bool "/16"
-config STM32_SYSTEM_AHB_DIV64
+config STM32_RCC_AHB_DIV64
     bool "/64"
-config STM32_SYSTEM_AHB_DIV128
+config STM32_RCC_AHB_DIV128
     bool "/128"
-config STM32_SYSTEM_AHB_DIV256
+config STM32_RCC_AHB_DIV256
     bool "/256"
-config STM32_SYSTEM_AHB_DIV512
+config STM32_RCC_AHB_DIV512
     bool "/512"
 
 endchoice
 
 choice
     prompt "APB1 divider (max 42 MHz)"
-    default STM32_SYSTEM_APB1_DIV4
+    default STM32_RCC_APB1_DIV4
 
-config STM32_SYSTEM_APB1_DIV1
+config STM32_RCC_APB1_DIV1
     bool "/1"
-config STM32_SYSTEM_APB1_DIV2
+config STM32_RCC_APB1_DIV2
     bool "/2"
-config STM32_SYSTEM_APB1_DIV4
+config STM32_RCC_APB1_DIV4
     bool "/4"
-config STM32_SYSTEM_APB1_DIV8
+config STM32_RCC_APB1_DIV8
     bool "/8"
-config STM32_SYSTEM_APB1_DIV16
+config STM32_RCC_APB1_DIV16
     bool "/16"
 
 endchoice
 
 choice
     prompt "APB2 divider (max 84 MHz)"
-    default STM32_SYSTEM_APB2_DIV2
+    default STM32_RCC_APB2_DIV2
 
-config STM32_SYSTEM_APB2_DIV1
+config STM32_RCC_APB2_DIV1
     bool "/1"
-config STM32_SYSTEM_APB2_DIV2
+config STM32_RCC_APB2_DIV2
     bool "/2"
-config STM32_SYSTEM_APB2_DIV4
+config STM32_RCC_APB2_DIV4
     bool "/4"
-config STM32_SYSTEM_APB2_DIV8
+config STM32_RCC_APB2_DIV8
     bool "/8"
-config STM32_SYSTEM_APB2_DIV16
+config STM32_RCC_APB2_DIV16
     bool "/16"
 
 endchoice
 
-config STM32_SYSTEM_FLASH_LATENCY
-    int "Flash latency (wait states, 0..7)"
-    range 0 7
-    default 5
-
 choice
     prompt "Voltage regulator scale"
-    default STM32_SYSTEM_VOLTAGE_SCALE1
+    default STM32_RCC_VOLTAGE_SCALE1
 
-config STM32_SYSTEM_VOLTAGE_SCALE1
+config STM32_RCC_VOLTAGE_SCALE1
     bool "Scale 1 (up to 168 MHz)"
 
-config STM32_SYSTEM_VOLTAGE_SCALE2
+config STM32_RCC_VOLTAGE_SCALE2
     bool "Scale 2 (up to 144 MHz)"
 
 endchoice
+
+endmenu
+
+menu "Time Base"
+
+config STM32_TIMEBASE_TIM5_TICK_HZ
+    int "TIM5 scheduler tick rate (Hz)"
+    range 1 100000
+    default 1000
+    help
+      Rate at which the TIM5 interrupt releases one pass of the slow loop.
+      Both timers count microseconds, so the build derives each prescaler from
+      the APB1 timer clock and TIM5's period from this rate, and fails when
+      either does not come out whole. TIM2 is left free-running as a 32-bit
+      microsecond counter and takes no rate of its own.
+
+config STM32_TIMEBASE_TIM5_AUTORELOAD_PRELOAD
+    bool "TIM5 auto-reload preload"
+    default y
+    help
+      Buffer TIM5 ARR writes through the preload register so updates take
+      effect at the next update event rather than immediately.
+
+endmenu
+
+menu "LED"
+
+config STM32_LED_ACTIVE_LOW
+    bool "LED active low"
+    default y
+    help
+      Treat a low GPIO level as LED-on for the on-board user LED. The LED
+      pin itself is fixed by the board map and is not user-tunable.
+
+endmenu
+
+menu "Button"
+
+config STM32_BUTTON_ACTIVE_LOW
+    bool "Button active low"
+    default n
+    help
+      Treat a low GPIO level as button-pressed on the STM32 board input.
+
+config STM32_BUTTON_DEBOUNCE_MS
+    int "Debounce time (ms)"
+    range 0 1000
+    default 50
+    help
+      Minimum stable time required before a button state change is accepted.
+
+config STM32_BUTTON_LONG_PRESS_MS
+    int "Long press time (ms)"
+    range 0 10000
+    default 500
+    help
+      Hold time required before the button reports a long-press event.
 
 endmenu
 
@@ -1699,6 +1694,7 @@ menu "USB CDC"
 
 config STM32_USB_VENDOR_ID
     hex "Vendor ID"
+    range 0x0 0xFFFF
     default 0x0483
     help
       USB idVendor reported in the device descriptor. Defaults to
@@ -1709,6 +1705,7 @@ config STM32_USB_VENDOR_ID
 
 config STM32_USB_PRODUCT_ID
     hex "Product ID"
+    range 0x0 0xFFFF
     default 0x5740
     help
       USB idProduct reported in the device descriptor. Defaults to ST's
@@ -1731,370 +1728,19 @@ config STM32_USB_PRODUCT
 
 endmenu
 
-menu "MSP"
-
-# Identity reported over MSP on the USB CDC port. A configurator will not admit
-# a board exists until it has read this block back, so these are the strings the
-# user sees once the port is open — distinct from the USB descriptor strings,
-# which only decide whether the port is offered in the first place.
-
-config STM32_MSP_BOARD_IDENTIFIER
-    string "Board identifier"
-    default "RAVN"
-    help
-      Four-character board identifier returned by MSP_BOARD_INFO. Shorter
-      values are space-padded and longer ones truncated, because the field is
-      a fixed four bytes on the wire.
-
-config STM32_MSP_BOARD_NAME
-    string "Board name"
-    default "32Raven"
-    help
-      Human-readable board name returned by MSP_BOARD_INFO, shown in the
-      configurator's board field.
-
-config STM32_MSP_MANUFACTURER_ID
-    string "Manufacturer ID"
-    default "RAVN"
-    help
-      Manufacturer identifier returned by MSP_BOARD_INFO. Cosmetic — displayed
-      alongside the board name.
-
-config STM32_MSP_CRAFT_NAME
-    string "Craft name"
-    default "32Raven"
-    help
-      Craft name returned by MSP_NAME, the user-facing label a configurator
-      shows for this airframe.
-
-endmenu
-
-menu "FcLink"
-
-config STM32_FCLINK_TELEMETRY_RATE_HZ
-    int "Telemetry rate (Hz)"
-    range 1 255
-    default 25
-    help
-      Requested STM32 telemetry publication rate for the FcLink protocol.
-
-      ESP32 advertises this value back to STM32 during the FcLink handshake so
-      both ends use the same telemetry-rate setting, but the user-facing
-      ownership lives under the STM32 FcLink menu because it describes STM32
-      telemetry behavior.
-
-menu "UART"
-
-comment "Baud rate lives under Common -> FcLink"
-
-choice
-    prompt "Word length"
-    default STM32_FCLINK_UART_WORD_LENGTH_9BITS
-    help
-      USART1 word length for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_WORD_LENGTH_8BITS
-    bool "8 bits"
-
-config STM32_FCLINK_UART_WORD_LENGTH_9BITS
-    bool "9 bits"
-
-endchoice
-
-choice
-    prompt "Stop bits"
-    default STM32_FCLINK_UART_STOP_BITS_1
-    help
-      USART1 stop-bit configuration for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_STOP_BITS_1
-    bool "1"
-
-config STM32_FCLINK_UART_STOP_BITS_2
-    bool "2"
-
-endchoice
-
-choice
-    prompt "Parity"
-    default STM32_FCLINK_UART_PARITY_EVEN
-    help
-      USART1 parity mode for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_PARITY_NONE
-    bool "None"
-
-config STM32_FCLINK_UART_PARITY_EVEN
-    bool "Even"
-
-config STM32_FCLINK_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
-
-choice
-    prompt "Mode"
-    default STM32_FCLINK_UART_MODE_TX_RX
-    help
-      USART1 direction mode for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_MODE_RX
-    bool "RX"
-
-config STM32_FCLINK_UART_MODE_TX
-    bool "TX"
-
-config STM32_FCLINK_UART_MODE_TX_RX
-    bool "TX/RX"
-
-endchoice
-
-choice
-    prompt "Hardware flow control"
-    default STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
-    help
-      USART1 hardware flow control for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
-    bool "None"
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS
-    bool "RTS"
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_CTS
-    bool "CTS"
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS_CTS
-    bool "RTS/CTS"
-
-endchoice
-
-choice
-    prompt "Oversampling"
-    default STM32_FCLINK_UART_OVERSAMPLING_16
-    help
-      USART1 oversampling mode for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_OVERSAMPLING_16
-    bool "16"
-
-config STM32_FCLINK_UART_OVERSAMPLING_8
-    bool "8"
-
-endchoice
-
-endmenu
-
-endmenu
-
-menu "Battery Monitor"
-
-config STM32_BATTERY_SAMPLE_PERIOD_MS
-    int "Sample period (ms)"
-    range 1 1000
-    default 100
-    help
-      Period for reading the battery voltage/current ADC channels. Lower
-      values update telemetry faster but spend more slow-loop time sampling
-      analog inputs. The driver still filters the readings before publishing.
-
-config STM32_BATTERY_ADC_REFERENCE_MV
-    int "ADC reference voltage (mV)"
-    range 1000 3600
-    default 3300
-    help
-      VDDA/reference voltage used by ADC1 in millivolts. Set this to the
-      measured 3.3 V rail if it differs from the nominal value; voltage and
-      current accuracy are directly proportional to this setting.
-
-config STM32_BATTERY_ADC_OVERSAMPLE_COUNT
-    int "ADC oversample count"
-    range 1 64
-    default 16
-    help
-      Number of ADC conversion pairs averaged each battery sample period.
-      Increase to reduce analog noise; decrease to reduce sampling time.
-
-config STM32_BATTERY_FILTER_ALPHA_PERMILLE
-    int "Filter alpha (permille)"
-    range 1 1000
-    default 250
-    help
-      Low-pass filter coefficient in thousandths. 1000 publishes each new
-      sample directly; lower values smooth voltage/current telemetry more.
-
-config STM32_BATTERY_ADC_TIMEOUT_US
-    int "ADC conversion timeout (us)"
-    range 100 10000
-    default 1000
-    help
-      Maximum time allowed for each ADC conversion before the sample is
-      discarded and the previous battery reading is retained.
-
-menu "Voltage"
-
-config STM32_BATTERY_VOLTAGE_MULTIPLIER_MILLI
-    int "Voltage multiplier x1000"
-    range 1000 100000
-    default 11000
-    help
-      Battery-voltage multiplier in thousandths applied to the ADC pin
-      voltage. For example, use 11000 when 1.000 V on PC0 represents 11.000 V
-      battery voltage. Calibrate this from measured pack voltage versus ADC
-      pin voltage.
-
-config STM32_BATTERY_VOLTAGE_OFFSET_MV
-    int "Voltage offset (mV)"
-    range -2000 2000
-    default 0
-    help
-      Signed correction added after voltage scaling. Use this to remove a
-      small fixed offset after the divider multiplier is calibrated.
-
-config STM32_BATTERY_CELL_COUNT
-    int "Cell count"
-    range 1 12
-    default 4
-    help
-      Battery cell count used to estimate remaining percentage from pack
-      voltage. This does not affect the reported pack voltage.
-
-config STM32_BATTERY_CELL_EMPTY_MV
-    int "Empty cell voltage (mV)"
-    range 2500 3800
-    default 3500
-    help
-      Per-cell voltage treated as 0 percent for telemetry percentage. Choose a
-      conservative loaded voltage for the battery chemistry you use.
-
-config STM32_BATTERY_CELL_FULL_MV
-    int "Full cell voltage (mV)"
-    range 3600 4400
-    default 4200
-    help
-      Per-cell voltage treated as 100 percent for telemetry percentage.
-
-endmenu
-
-menu "Current"
-
-config STM32_BATTERY_CURRENT_SCALE_MA_PER_V
-    int "Current scale (mA/V)"
-    range 1 500000
-    default 50000
-    help
-      Current-sensor scale in milliamps per volt at PC1. For example, use
-      50000 when 1.000 V on the current ADC input represents 50.000 A.
-      Calibrate this from a known current load.
-
-config STM32_BATTERY_CURRENT_OFFSET_MV
-    int "Current zero offset (mV)"
-    range -3300 3300
-    default 0
-    help
-      ADC pin voltage that represents zero current, in millivolts. Most ESC
-      current outputs are ground-referenced and should stay at 0 unless the
-      sensor has a mid-rail or fixed zero-current offset.
-
-config STM32_BATTERY_CURRENT_DEADBAND_MA
-    int "Current deadband (mA)"
-    range 0 5000
-    default 250
-    help
-      Absolute current below this value is reported as zero and not integrated
-      into consumed mAh. This suppresses idle ADC noise.
-
-config STM32_BATTERY_INITIAL_MAH_DRAWN
-    int "Initial consumed capacity (mAh)"
-    range 0 100000
-    default 0
-    help
-      Initial consumed capacity used at boot. Keep this at 0 for a fresh
-      battery; raise it only when resuming from a known partially used pack.
-
-endmenu
-
-endmenu
-
-menu "Storage"
-menu "EEPROM (SPI1 flash)"
-
-choice
-    prompt "SPI prescaler"
-    default STM32_EE_SPI1_PRESCALER_DIV4
-    help
-      SPI1 bus prescaler used for STM32 communication with the external
-      flash chip backing EEPROM emulation. Lower divisors increase transfer
-      speed; higher divisors give more signal margin for long traces or
-      slower flash parts.
-
-config STM32_EE_SPI1_PRESCALER_DIV2
-    bool "div2"
-
-config STM32_EE_SPI1_PRESCALER_DIV4
-    bool "div4"
-
-config STM32_EE_SPI1_PRESCALER_DIV8
-    bool "div8"
-
-config STM32_EE_SPI1_PRESCALER_DIV16
-    bool "div16"
-
-config STM32_EE_SPI1_PRESCALER_DIV32
-    bool "div32"
-
-config STM32_EE_SPI1_PRESCALER_DIV64
-    bool "div64"
-
-config STM32_EE_SPI1_PRESCALER_DIV128
-    bool "div128"
-
-config STM32_EE_SPI1_PRESCALER_DIV256
-    bool "div256"
-
-endchoice
-
-endmenu
-endmenu
-
-menu "IMU"
-menu "ICM42688P"
+menu "IMU (ICM42688P)"
 
 menu "SPI"
 
-choice
-    prompt "SPI prescaler"
-    default STM32_IMU_SPI_PRESCALER_DIV4
+config STM32_IMU_SPI_MAX_SCK_HZ
+    int "Maximum SCK frequency (Hz)"
+    range 100000 24000000
+    default 21000000
     help
-      SPI bus prescaler used for STM32 communication with the ICM42688P.
-      Lower divisors increase transfer speed, while higher divisors provide
-      more signal margin.
+      Fastest SCK the ICM42688P is driven at. The part is rated to 24 MHz;
+      the range here refuses anything above that, and the build picks the
+      slowest SPI2 prescaler at or under this value from the live APB1 clock.
 
-config STM32_IMU_SPI_PRESCALER_DIV2
-    bool "div2"
-
-config STM32_IMU_SPI_PRESCALER_DIV4
-    bool "div4"
-
-config STM32_IMU_SPI_PRESCALER_DIV8
-    bool "div8"
-
-config STM32_IMU_SPI_PRESCALER_DIV16
-    bool "div16"
-
-config STM32_IMU_SPI_PRESCALER_DIV32
-    bool "div32"
-
-config STM32_IMU_SPI_PRESCALER_DIV64
-    bool "div64"
-
-config STM32_IMU_SPI_PRESCALER_DIV128
-    bool "div128"
-
-config STM32_IMU_SPI_PRESCALER_DIV256
-    bool "div256"
-
-endchoice
 
 config STM32_IMU_RECOVERY_OVERRUN_THRESHOLD
     int "Overrun panic threshold (faults)"
@@ -2445,10 +2091,17 @@ config STM32_FAST_LOOP_HZ
       watermark interrupt is what drives them, so this sets the watermark
       rather than the other way round: the build computes
 
-        watermark records = gyro ODR / fast loop rate
+        watermark records = record rate / fast loop rate
 
-      and fails if that is not a whole number in 1..128. Raising the gyro
-      ODR therefore keeps this rate and reads more records per interrupt.
+      where the record rate is the gyro ODR scaled by CLKIN/32000 when the
+      external clock is enabled, not the nominal ODR the menu names. A 32768 Hz
+      crystal makes a nominal 8 kHz part record at 8192 Hz, so 1024 Hz divides
+      evenly and 1000 Hz does not.
+
+      and fails if that is not a whole number, or if those records do not fit
+      the 2048-byte FIFO. How many fit depends on the record width, so
+      enabling HiRes lowers the ceiling. Raising the gyro ODR keeps this rate
+      and reads more records per interrupt.
 
 config STM32_IMU_FIFO_HOLD_LAST
     bool "Hold last FIFO sample"
@@ -2472,11 +2125,8 @@ config STM32_IMU_FIFO_HIRES_EN
 endmenu
 
 endmenu
-endmenu
 
-menu "GPS"
-
-menu "M10"
+menu "GPS (M10)"
 
 menu "UART"
 
@@ -2824,29 +2474,348 @@ config STM32_GPS_M10_TP1_POL_RISING
 
 endmenu
 endmenu
+
+menu "Battery Monitor"
+
+config STM32_BATTERY_SAMPLE_PERIOD_MS
+    int "Sample period (ms)"
+    range 1 1000
+    default 100
+    help
+      Period for reading the battery voltage/current ADC channels. Lower
+      values update telemetry faster but spend more slow-loop time sampling
+      analog inputs. The driver still filters the readings before publishing.
+
+config STM32_BATTERY_ADC_REFERENCE_MV
+    int "ADC reference voltage (mV)"
+    range 1000 3600
+    default 3300
+    help
+      VDDA/reference voltage used by ADC1 in millivolts. Set this to the
+      measured 3.3 V rail if it differs from the nominal value; voltage and
+      current accuracy are directly proportional to this setting.
+
+config STM32_BATTERY_ADC_OVERSAMPLE_COUNT
+    int "ADC oversample count"
+    range 1 64
+    default 16
+    help
+      Number of ADC conversion pairs averaged each battery sample period.
+      Increase to reduce analog noise; decrease to reduce sampling time.
+
+config STM32_BATTERY_FILTER_ALPHA_PERMILLE
+    int "Filter alpha (permille)"
+    range 1 1000
+    default 250
+    help
+      Low-pass filter coefficient in thousandths. 1000 publishes each new
+      sample directly; lower values smooth voltage/current telemetry more.
+
+config STM32_BATTERY_ADC_TIMEOUT_US
+    int "ADC conversion timeout (us)"
+    range 100 10000
+    default 1000
+    help
+      Maximum time allowed for each ADC conversion before the sample is
+      discarded and the previous battery reading is retained.
+
+menu "Voltage"
+
+config STM32_BATTERY_VOLTAGE_MULTIPLIER_MILLI
+    int "Voltage multiplier x1000"
+    range 1000 100000
+    default 11000
+    help
+      Battery-voltage multiplier in thousandths applied to the ADC pin
+      voltage. For example, use 11000 when 1.000 V on PC0 represents 11.000 V
+      battery voltage. Calibrate this from measured pack voltage versus ADC
+      pin voltage.
+
+config STM32_BATTERY_VOLTAGE_OFFSET_MV
+    int "Voltage offset (mV)"
+    range -2000 2000
+    default 0
+    help
+      Signed correction added after voltage scaling. Use this to remove a
+      small fixed offset after the divider multiplier is calibrated.
+
+config STM32_BATTERY_CELL_COUNT
+    int "Cell count"
+    range 1 12
+    default 4
+    help
+      Battery cell count used to estimate remaining percentage from pack
+      voltage. This does not affect the reported pack voltage.
+
+config STM32_BATTERY_CELL_EMPTY_MV
+    int "Empty cell voltage (mV)"
+    range 2500 3800
+    default 3500
+    help
+      Per-cell voltage treated as 0 percent for telemetry percentage. Choose a
+      conservative loaded voltage for the battery chemistry you use.
+
+config STM32_BATTERY_CELL_FULL_MV
+    int "Full cell voltage (mV)"
+    range 3600 4400
+    default 4200
+    help
+      Per-cell voltage treated as 100 percent for telemetry percentage.
+
 endmenu
 
-menu "Button"
+menu "Current"
 
-config STM32_BUTTON_ACTIVE_LOW
-    bool "Button active low"
-    default n
+config STM32_BATTERY_CURRENT_SCALE_MA_PER_V
+    int "Current scale (mA/V)"
+    range 1 500000
+    default 50000
     help
-      Treat a low GPIO level as button-pressed on the STM32 board input.
+      Current-sensor scale in milliamps per volt at PC1. For example, use
+      50000 when 1.000 V on the current ADC input represents 50.000 A.
+      Calibrate this from a known current load.
 
-config STM32_BUTTON_DEBOUNCE_MS
-    int "Debounce time (ms)"
-    range 0 1000
-    default 50
+config STM32_BATTERY_CURRENT_OFFSET_MV
+    int "Current zero offset (mV)"
+    range -3300 3300
+    default 0
     help
-      Minimum stable time required before a button state change is accepted.
+      ADC pin voltage that represents zero current, in millivolts. Most ESC
+      current outputs are ground-referenced and should stay at 0 unless the
+      sensor has a mid-rail or fixed zero-current offset.
 
-config STM32_BUTTON_LONG_PRESS_MS
-    int "Long press time (ms)"
-    range 0 10000
-    default 500
+config STM32_BATTERY_CURRENT_DEADBAND_MA
+    int "Current deadband (mA)"
+    range 0 5000
+    default 250
     help
-      Hold time required before the button reports a long-press event.
+      Absolute current below this value is reported as zero and not integrated
+      into consumed mAh. This suppresses idle ADC noise.
+
+config STM32_BATTERY_INITIAL_MAH_DRAWN
+    int "Initial consumed capacity (mAh)"
+    range 0 100000
+    default 0
+    help
+      Initial consumed capacity used at boot. Keep this at 0 for a fresh
+      battery; raise it only when resuming from a known partially used pack.
+
+endmenu
+
+endmenu
+
+menu "EEPROM (SPI1 flash)"
+
+config STM32_EE_SPI1_MAX_SCK_HZ
+    int "Maximum SCK frequency (Hz)"
+    range 100000 42000000
+    default 21000000
+    help
+      Fastest SCK the external flash backing EEPROM emulation is driven at.
+      The build picks the slowest SPI1 prescaler that stays at or under this
+      from the live APB2 clock, so changing the clock tree keeps the bus
+      inside the part's rating instead of silently rescaling it.
+
+
+endmenu
+
+menu "DShot TIM1"
+
+choice
+    prompt "DShot mode"
+    default STM32_DSHOT_TIM1_MODE_300
+    help
+      DShot signaling rate for the TIM1-driven motor outputs.
+
+config STM32_DSHOT_TIM1_MODE_150
+    bool "DShot150"
+
+config STM32_DSHOT_TIM1_MODE_300
+    bool "DShot300"
+
+config STM32_DSHOT_TIM1_MODE_600
+    bool "DShot600"
+
+endchoice
+
+endmenu
+
+menu "ESC Telemetry"
+
+config STM32_ESC_TELEMETRY_BAUD_RATE
+    int "Telemetry UART baud rate"
+    range 9600 2000000
+    default 115200
+    help
+      Baud rate for the ESC KISS telemetry UART link.
+
+config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
+    int "Response timeout (us)"
+    range 100 100000
+    default 2500
+    help
+      Maximum time to wait for an ESC telemetry frame after requesting one
+      before giving up and moving on.
+
+endmenu
+
+endmenu
+
+menu "Services"
+
+menu "FcLink"
+
+config STM32_FCLINK_TELEMETRY_RATE_HZ
+    int "Telemetry rate (Hz)"
+    range 1 255
+    default 25
+    help
+      Requested STM32 telemetry publication rate for the FcLink protocol.
+
+      ESP32 advertises this value back to STM32 during the FcLink handshake so
+      both ends use the same telemetry-rate setting, but the user-facing
+      ownership lives under the STM32 FcLink menu because it describes STM32
+      telemetry behavior.
+
+menu "UART"
+
+comment "Baud rate lives under Common -> FcLink"
+
+choice
+    prompt "Word length"
+    default STM32_FCLINK_UART_WORD_LENGTH_9BITS
+    help
+      USART1 word length for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_FCLINK_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_FCLINK_UART_STOP_BITS_1
+    help
+      USART1 stop-bit configuration for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_FCLINK_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_FCLINK_UART_PARITY_EVEN
+    help
+      USART1 parity mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_PARITY_NONE
+    bool "None"
+
+config STM32_FCLINK_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_FCLINK_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_FCLINK_UART_MODE_TX_RX
+    help
+      USART1 direction mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_MODE_RX
+    bool "RX"
+
+config STM32_FCLINK_UART_MODE_TX
+    bool "TX"
+
+config STM32_FCLINK_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
+    help
+      USART1 hardware flow control for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_FCLINK_UART_OVERSAMPLING_16
+    help
+      USART1 oversampling mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_FCLINK_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+endmenu
+
+endmenu
+
+menu "MSP"
+
+# Identity reported over MSP on the USB CDC port. A configurator will not admit
+# a board exists until it has read this block back, so these are the strings the
+# user sees once the port is open — distinct from the USB descriptor strings,
+# which only decide whether the port is offered in the first place.
+
+config STM32_MSP_BOARD_IDENTIFIER
+    string "Board identifier"
+    default "RAVN"
+    help
+      Four-character board identifier returned by MSP_BOARD_INFO. Shorter
+      values are space-padded and longer ones truncated, because the field is
+      a fixed four bytes on the wire.
+
+config STM32_MSP_BOARD_NAME
+    string "Board name"
+    default "32Raven"
+    help
+      Human-readable board name returned by MSP_BOARD_INFO, shown in the
+      configurator's board field.
+
+config STM32_MSP_MANUFACTURER_ID
+    string "Manufacturer ID"
+    default "RAVN"
+    help
+      Manufacturer identifier returned by MSP_BOARD_INFO. Cosmetic — displayed
+      alongside the board name.
+
+config STM32_MSP_CRAFT_NAME
+    string "Craft name"
+    default "32Raven"
+    help
+      Craft name returned by MSP_NAME, the user-facing label a configurator
+      shows for this airframe.
 
 endmenu
 
@@ -3005,14 +2974,6 @@ config STM32_RC_RECEIVER_CRSF_HEARTBEAT_PERIOD_MS
       Interval between CRSF heartbeat frames sent from the flight controller
       back through the RC receiver. Set to 0 to disable heartbeat telemetry.
 
-config STM32_RC_RECEIVER_CRSF_HEARTBEAT_START_DELAY_MS
-    int "Initial delay (ms)"
-    range 0 10000
-    default 0
-    help
-      Delay before the first heartbeat frame after boot. Use this to stagger
-      startup traffic so multiple telemetry topics do not all fire at once.
-
 config STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY
     int "Priority"
     range 0 15
@@ -3032,14 +2993,6 @@ config STM32_RC_RECEIVER_CRSF_GPS_PERIOD_MS
     help
       Interval between CRSF GPS telemetry frames sent back to the radio. Set
       to 0 to disable GPS telemetry on the RC receiver link.
-
-config STM32_RC_RECEIVER_CRSF_GPS_START_DELAY_MS
-    int "Initial delay (ms)"
-    range 0 10000
-    default 200
-    help
-      Delay before the first CRSF GPS telemetry frame after boot. This helps
-      spread telemetry topics across time instead of bursting them together.
 
 config STM32_RC_RECEIVER_CRSF_GPS_PRIORITY
     int "Priority"
@@ -3085,14 +3038,6 @@ config STM32_RC_RECEIVER_CRSF_BATTERY_PERIOD_MS
     help
       Interval between CRSF battery telemetry frames sent back to the radio.
       Set to 0 to disable battery telemetry on the RC receiver link.
-
-config STM32_RC_RECEIVER_CRSF_BATTERY_START_DELAY_MS
-    int "Initial delay (ms)"
-    range 0 10000
-    default 400
-    help
-      Delay before the first CRSF battery telemetry frame after boot. This
-      helps stagger telemetry bursts across the receiver link.
 
 config STM32_RC_RECEIVER_CRSF_BATTERY_PRIORITY
     int "Priority"
@@ -3256,98 +3201,6 @@ config STM32_RC_MAP_THROTTLE
 endmenu
 endmenu
 
-menu "LED"
-
-config STM32_LED_ACTIVE_LOW
-    bool "LED active low"
-    default y
-    help
-      Treat a low GPIO level as LED-on for the on-board user LED. The LED
-      pin itself is fixed by the board map and is not user-tunable.
-
-endmenu
-
-menu "DShot TIM1"
-
-choice
-    prompt "DShot mode"
-    default STM32_DSHOT_TIM1_MODE_300
-    help
-      DShot signaling rate for the TIM1-driven motor outputs.
-
-config STM32_DSHOT_TIM1_MODE_150
-    bool "DShot150"
-
-config STM32_DSHOT_TIM1_MODE_300
-    bool "DShot300"
-
-config STM32_DSHOT_TIM1_MODE_600
-    bool "DShot600"
-
-endchoice
-
-endmenu
-
-menu "Time Base"
-
-config STM32_TIMEBASE_TIM2_PRESCALER
-    int "TIM2 prescaler"
-    range 0 65535
-    default 83
-    help
-      TIM2 prescaler value. With APB1 timer clock = 84 MHz, a value of 83
-      yields a 1 MHz tick (one microsecond per count).
-
-config STM32_TIMEBASE_TIM2_PERIOD
-    hex "TIM2 period"
-    default 0xFFFFFFFF
-    help
-      TIM2 auto-reload period. The default 0xFFFFFFFF gives a free-running
-      32-bit microsecond counter.
-
-config STM32_TIMEBASE_TIM5_PRESCALER
-    int "TIM5 prescaler"
-    range 0 65535
-    default 85
-    help
-      TIM5 prescaler value used by the periodic scheduler tick.
-
-config STM32_TIMEBASE_TIM5_PERIOD
-    int "TIM5 period"
-    range 0 4294967295
-    default 999
-    help
-      TIM5 auto-reload period used by the periodic scheduler tick.
-      Default of 999 with the default prescaler yields a 1 kHz tick.
-
-config STM32_TIMEBASE_TIM5_AUTORELOAD_PRELOAD
-    bool "TIM5 auto-reload preload"
-    default y
-    help
-      Buffer TIM5 ARR writes through the preload register so updates take
-      effect at the next update event rather than immediately.
-
-endmenu
-
-menu "ESC Telemetry"
-
-config STM32_ESC_TELEMETRY_BAUD_RATE
-    int "Telemetry UART baud rate"
-    range 9600 2000000
-    default 115200
-    help
-      Baud rate for the ESC KISS telemetry UART link.
-
-config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
-    int "Response timeout (us)"
-    range 100 100000
-    default 2500
-    help
-      Maximum time to wait for an ESC telemetry frame after requesting one
-      before giving up and moving on.
-
-endmenu
-
 menu "ESC Service"
 
 config STM32_ESC_SERVICE_DSHOT_GAP_BITS
@@ -3388,33 +3241,71 @@ config STM32_ESC_SERVICE_COMMAND_REPEAT_COUNT
 
 endmenu
 
-menu "Multirotor Mixer"
+endmenu
 
-config STM32_MULTIROTOR_MIXER_IDLE_MILLI
-    int "Motor idle floor (x1000)"
+menu "Flight Control"
+
+menu "AHRS"
+
+config STM32_AHRS_KP_ACCEL_MILLI
+    int "Proportional gain on accel tilt error (x1000)"
+    range 0 100000
+    default 1000
+    help
+      kp_accel for the Mahony complementary filter, scaled by 1000
+      (1000 = 1.0). Controls how strongly the accel-derived gravity
+      reference pulls the quaternion toward truth. Time constant of
+      at-rest convergence is roughly 1/kp seconds. Typical values
+      0.5-4.0; default 1.0 matches PX4's ATT_W_ACC ballpark.
+
+config STM32_AHRS_KI_BIAS_MILLI
+    int "Integral gain for gyro-bias estimator (x1000)"
+    range 0 1000
+    default 10
+    help
+      ki_bias for the Mahony complementary filter, scaled by 1000
+      (10 = 0.01). Controls how quickly the gyro-bias estimator
+      learns. Always gated by the quiescent gyro-trust attenuation
+      below — bias only updates when the drone is near-rest.
+
+config STM32_AHRS_ACCEL_TRUST_FULL_DEV_MILLI
+    int "Accel trust: full-trust band (x1000)"
+    range 0 1000
+    default 20
+    help
+      Accel correction has weight 1.0 when |a|/g is within ±this
+      deviation of 1.0, scaled by 1000 (20 = ±0.02 = ±2 % of 1 g).
+      Tight value defends against contaminated accel during sustained
+      maneuvers; widen for real HW with motor vibration.
+
+config STM32_AHRS_ACCEL_TRUST_ZERO_DEV_MILLI
+    int "Accel trust: zero-trust band (x1000)"
     range 0 1000
     default 50
     help
-      Per-motor floor when armed, scaled by 1000 (50 = 0.05 = 5% of full
-      throttle). Outputs from the mixer are clamped to be no lower than
-      this value while armed, so the motors stay spinning during low-
-      throttle maneuvers instead of dropping to a stop. Set just above
-      the motor stall RPM — crossing it stops the motor and recovery
-      isn't free.
+      Accel correction weight smoothly decays to 0 by |a|/g deviation
+      = this value, scaled by 1000 (50 = ±0.05 = ±5 %). Must be ≥
+      full-trust band; setting equal disables soft attenuation. Default
+      rejects sustained tilts above ~18°.
 
-config STM32_PILOT_THROTTLE_MIN_MILLI
-    int "Pilot throttle at stick=0 (x1000)"
-    range 0 1000
-    default 80
+config STM32_AHRS_GYRO_QUIESCENT_FULL_MILLI
+    int "Bias-update gate: full-update gyro threshold (rad/s, x1000)"
+    range 0 100000
+    default 50
     help
-      Thrust commanded at pilot stick=0, scaled by 1000 (80 = 0.08).
-      The pilot's stick range [0, 1] is linearly remapped to
-      [pilot_throttle_min, 1] before reaching the mixer. At stick=0
-      the drone descends if pilot_throttle_min is below the airframe's
-      hover thrust (e.g., 0.08 for most hobby quads where hover ≈
-      0.3-0.5). PX4 equivalent: MPC_MANTHR_MIN (default 0.08). Tune
-      via pilot_input::SetThrottleMin — too low gives a free-fall
-      feel; too high makes the drone climb at min stick.
+      Gyro-bias estimator updates at full weight when |gyro| <= this
+      value (rad/s scaled by 1000; 50 = 0.05 rad/s ≈ 3°/s). Drone is
+      considered "at rest" for bias-update purposes below this rate.
+
+config STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI
+    int "Bias-update gate: zero-update gyro threshold (rad/s, x1000)"
+    range 0 100000
+    default 200
+    help
+      Gyro-bias estimator update weight smoothly decays to 0 by |gyro|
+      = this value (rad/s scaled by 1000; 200 = 0.20 rad/s ≈ 12°/s).
+      Above this rate the bias estimator is frozen — drone is actively
+      maneuvering and accel is unreliable.
 
 endmenu
 
@@ -3621,70 +3512,6 @@ config STM32_RATE_CTRL_YAW_OUTPUT_LPF_ALPHA_MILLI
 
 endmenu
 
-menu "AHRS"
-
-config STM32_AHRS_KP_ACCEL_MILLI
-    int "Proportional gain on accel tilt error (x1000)"
-    range 0 100000
-    default 1000
-    help
-      kp_accel for the Mahony complementary filter, scaled by 1000
-      (1000 = 1.0). Controls how strongly the accel-derived gravity
-      reference pulls the quaternion toward truth. Time constant of
-      at-rest convergence is roughly 1/kp seconds. Typical values
-      0.5-4.0; default 1.0 matches PX4's ATT_W_ACC ballpark.
-
-config STM32_AHRS_KI_BIAS_MILLI
-    int "Integral gain for gyro-bias estimator (x1000)"
-    range 0 1000
-    default 10
-    help
-      ki_bias for the Mahony complementary filter, scaled by 1000
-      (10 = 0.01). Controls how quickly the gyro-bias estimator
-      learns. Always gated by the quiescent gyro-trust attenuation
-      below — bias only updates when the drone is near-rest.
-
-config STM32_AHRS_ACCEL_TRUST_FULL_DEV_MILLI
-    int "Accel trust: full-trust band (x1000)"
-    range 0 1000
-    default 20
-    help
-      Accel correction has weight 1.0 when |a|/g is within ±this
-      deviation of 1.0, scaled by 1000 (20 = ±0.02 = ±2 % of 1 g).
-      Tight value defends against contaminated accel during sustained
-      maneuvers; widen for real HW with motor vibration.
-
-config STM32_AHRS_ACCEL_TRUST_ZERO_DEV_MILLI
-    int "Accel trust: zero-trust band (x1000)"
-    range 0 1000
-    default 50
-    help
-      Accel correction weight smoothly decays to 0 by |a|/g deviation
-      = this value, scaled by 1000 (50 = ±0.05 = ±5 %). Must be ≥
-      full-trust band; setting equal disables soft attenuation. Default
-      rejects sustained tilts above ~18°.
-
-config STM32_AHRS_GYRO_QUIESCENT_FULL_MILLI
-    int "Bias-update gate: full-update gyro threshold (rad/s, x1000)"
-    range 0 100000
-    default 50
-    help
-      Gyro-bias estimator updates at full weight when |gyro| <= this
-      value (rad/s scaled by 1000; 50 = 0.05 rad/s ≈ 3°/s). Drone is
-      considered "at rest" for bias-update purposes below this rate.
-
-config STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI
-    int "Bias-update gate: zero-update gyro threshold (rad/s, x1000)"
-    range 0 100000
-    default 200
-    help
-      Gyro-bias estimator update weight smoothly decays to 0 by |gyro|
-      = this value (rad/s scaled by 1000; 200 = 0.20 rad/s ≈ 12°/s).
-      Above this rate the bias estimator is frozen — drone is actively
-      maneuvering and accel is unreliable.
-
-endmenu
-
 menu "Attitude Controller"
 
 config STM32_ATT_CTRL_ROLL_KP_MILLI
@@ -3742,6 +3569,38 @@ config STM32_ATT_CTRL_YAW_RATE_CLAMP_MILLI
       (4000 = 4.0 rad/s). Yaw typically wants a lower max-rate than
       roll/pitch because the yaw axis has the smallest motor authority
       on a QuadX.
+
+endmenu
+
+menu "Multirotor Mixer"
+
+config STM32_MULTIROTOR_MIXER_IDLE_MILLI
+    int "Motor idle floor (x1000)"
+    range 0 1000
+    default 50
+    help
+      Per-motor floor when armed, scaled by 1000 (50 = 0.05 = 5% of full
+      throttle). Outputs from the mixer are clamped to be no lower than
+      this value while armed, so the motors stay spinning during low-
+      throttle maneuvers instead of dropping to a stop. Set just above
+      the motor stall RPM — crossing it stops the motor and recovery
+      isn't free.
+
+config STM32_PILOT_THROTTLE_MIN_MILLI
+    int "Pilot throttle at stick=0 (x1000)"
+    range 0 1000
+    default 80
+    help
+      Thrust commanded at pilot stick=0, scaled by 1000 (80 = 0.08).
+      The pilot's stick range [0, 1] is linearly remapped to
+      [pilot_throttle_min, 1] before reaching the mixer. At stick=0
+      the drone descends if pilot_throttle_min is below the airframe's
+      hover thrust (e.g., 0.08 for most hobby quads where hover ≈
+      0.3-0.5). PX4 equivalent: MPC_MANTHR_MIN (default 0.08). Tune
+      via pilot_input::SetThrottleMin — too low gives a free-fall
+      feel; too high makes the drone climb at min stick.
+
+endmenu
 
 endmenu
 
