@@ -25,7 +25,7 @@ static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 // 70% of the fast period. Measured from the last fast tick, so a fixed figure
 // stops protecting anything once the loop runs faster than it was written for.
 static constexpr uint32_t kSlowBudgetFromFastUs =
-    (1000000u / kFastLoopHz) * 70u / 100u;
+    (1000000u * 70u) / (kFastLoopHz * 100u);
 static constexpr bool kEnableImuDebugLog = false;
 static constexpr bool kEnableEspLogs = false;
 // Bench: 1 Hz raw battery/current dump, for calibrating the voltage
