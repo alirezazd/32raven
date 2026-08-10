@@ -283,6 +283,7 @@ constexpr uint8_t kInfoDirReversed = 17;
 constexpr uint8_t kInfoBiDirection = 18;
 constexpr uint8_t kInfoMotorKv = 26;
 constexpr uint8_t kInfoMotorPoles = 27;
+constexpr uint8_t kInfoInputType = 46;
 
 constexpr uint8_t kLayoutVersionMin = 2;
 constexpr uint8_t kLayoutVersionMax = 3;
@@ -309,6 +310,7 @@ void EscTelemetry::PublishInfo() {
     info.reversed = frame_buf_[kInfoDirReversed] != 0u;
     info.bidirectional = frame_buf_[kInfoBiDirection] != 0u;
     info.motor_kv_raw = frame_buf_[kInfoMotorKv];
+    info.input_type = frame_buf_[kInfoInputType];
     info.motor_poles = frame_buf_[kInfoMotorPoles];
     info.valid = true;
   }

@@ -196,3 +196,45 @@ bandwidth but changes no structure.
 Deferred because no non-quad airframe is planned. Unifying the declaration is the half worth
 doing first if the mixer is being touched anyway; the timer work only becomes real when a frame
 with more than four motors does.
+
+### #11 — Warn the pilot when an ESC starts derating — 🎯 CRITICAL
+
+AM32 carries its own thermal and current limits at settings-page bytes 43 and 44, and starts
+pulling power back when a motor reaches them. The flight controller already reads the matching
+telemetry — `Sample::temperature_c` and `Sample::current_centiamps` — but knows neither
+threshold, so a derate arrives as unexplained thrust loss. The rate controller responds by
+winding up I-term against a limiter it cannot see.
+
+Both bytes sit in the 17–46 window that is identical across AM32 eeprom layouts 2 and 3, so
+reading them needs no version handling, only two more fields in `EscTelemetry::Info`.
+
+The harder half is the warning itself. There is no screen on the aircraft, but CRSF reaches the
+transmitter and two mechanisms already exist:
+
+- **`CRSF_FRAMETYPE_FLIGHT_MODE` (0x21)** carries a free-text string that EdgeTX and OpenTX
+  render as the `FM` telemetry field. Betaflight and INAV use it for `!ERR` and `!FS!`.
+- **Temperature as a telemetry sensor (0x0D)** lets the radio's own Logical Switches and
+  Special Functions fire a voice callout, which beats a screen nobody is looking at mid-flight.
+
+Both frame types are already listed in the `TODO(crsf)` at `crsf_link_service.hpp`, so this
+lands as part of filling that table in rather than as new transport work.
+
+Deliberately not a panic: an ESC derating is a degraded aircraft the pilot may still want to
+land, not a reason to stop the motors.
+
+### #12 — Decide what a desync looks like from the flight controller — 🎯 CRITICAL
+
+`stall_protection` (byte 29) and `stuck_rotor_protection` (byte 22) change what the ESC does
+when a motor loses sync: whether it cuts, retries, or keeps trying to drive a rotor that is not
+turning. Each choice presents differently in telemetry — eRPM collapsing to zero, current
+spiking, or both recovering after a pause — and the flight controller currently interprets none
+of it. A desync today reads as a motor that simply stopped producing thrust.
+
+Both bytes are in the version-stable window, so the settings are readable now. What is missing
+is the decision of what the FC should do with each combination, which has to come before any
+detector: a mixer that compensates for a motor the ESC is about to restart makes the recovery
+worse than doing nothing.
+
+Settle the policy against the ESC's configured behaviour first, then decide whether the
+firmware check should constrain those two settings the way it now constrains input type and
+direction.

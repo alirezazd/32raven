@@ -41,6 +41,8 @@ enum class Stm32 : uint32_t {
   kGpioInvalidPort,
   kEscTelemetryInitFailed,
   kEscServiceInitFailed,
+  kEscInputTypeNotDshot,
+  kEscDirectionReversed,
   kCrsfLinkInitFailed,
   kDshotCodecInvalidArg,
   // GPS

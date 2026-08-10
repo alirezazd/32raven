@@ -14,6 +14,11 @@
 // them.
 static constexpr uint32_t kTestThrottleTimeoutUs = 500000u;
 
+// AM32's inputType enum, of which these three end up driving DShot.
+static constexpr uint8_t kInputTypeAuto = 0;
+static constexpr uint8_t kInputTypeDshot = 1;
+static constexpr uint8_t kInputTypeDshotEdtArm = 4;
+
 uint16_t EscService::ThrustToDshot(float thrust) {
   if (thrust <= 0.0f) return DShotCodec::kMotorStop;
   if (thrust >= 1.0f) return DShotCodec::kThrottleMax;
@@ -69,6 +74,7 @@ void EscService::Poll(uint32_t now_us) {
   if (telemetry_ != nullptr) {
     telemetry_->Poll(now_us);
     PublishTelemetryState();
+    CheckEscFirmware();
   }
 
   if (command_.active &&
@@ -105,6 +111,41 @@ void EscService::Poll(uint32_t now_us) {
            static_cast<int32_t>(cfg_.idle_period_us))) {
     if (SendIdleFrame(now_us)) {
       last_idle_send_us_ = now_us;
+    }
+  }
+}
+
+// Checked once per motor, when that ESC's settings first arrive -- there is no
+// earlier moment, since an ESC only answers once it is powered and has armed.
+// An ESC that never answers is not a failure: a bench session on USB alone has
+// no battery and reaches none of them.
+void EscService::CheckEscFirmware() {
+  if (!cfg_.firmware_checks) {
+    return;
+  }
+  for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
+    const uint8_t bit = static_cast<uint8_t>(1u << i);
+    if ((info_checked_mask_ & bit) != 0u) {
+      continue;
+    }
+    const EscTelemetry::Info info = telemetry_->GetInfo(i);
+    if (!info.valid) {
+      continue;
+    }
+    info_checked_mask_ |= bit;
+
+    // Auto detects DShot and both DShot modes drive it; servo, serial and
+    // DroneCAN leave the ESC deaf to every frame this board sends.
+    if (info.input_type != kInputTypeAuto &&
+        info.input_type != kInputTypeDshot &&
+        info.input_type != kInputTypeDshotEdtArm) {
+      Panic(ErrorCode::Stm32::kEscInputTypeNotDshot);
+    }
+
+    // Direction belongs to the mixer here. An ESC reversing on top of it turns
+    // one motor against the airframe, and nothing downstream can see it.
+    if (info.reversed) {
+      Panic(ErrorCode::Stm32::kEscDirectionReversed);
     }
   }
 }

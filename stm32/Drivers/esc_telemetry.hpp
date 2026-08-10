@@ -29,15 +29,17 @@ class EscTelemetry {
     bool valid = false;
   };
 
-  // The settings an ESC reports about itself. Raw bytes are decoded only after
-  // eeprom_version is recognised, because the layout below byte 17 has already
-  // been reshuffled once between revisions.
+  // The settings an ESC reports about itself, decoded only once eeprom_version
+  // names a layout whose offsets we have checked.
   struct Info {
     uint8_t eeprom_version = 0;
     uint8_t firmware_major = 0;
     uint8_t firmware_minor = 0;
     uint8_t motor_poles = 0;
     uint8_t motor_kv_raw = 0;
+    // AM32's inputType enum: 0 auto, 1 dshot, 2 servo, 3 serial, 4 dshot with
+    // EDT arming, 5 DroneCAN.
+    uint8_t input_type = 0;
     bool reversed = false;
     bool bidirectional = false;
     bool valid = false;

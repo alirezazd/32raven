@@ -1497,6 +1497,7 @@ def _esc_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "command_repeat_count": sym_int(
             kconf, "STM32_ESC_SERVICE_COMMAND_REPEAT_COUNT"
         ),
+        "firmware_checks": sym_bool(kconf, "STM32_ESC_SERVICE_FIRMWARE_CHECKS"),
     }
 
 

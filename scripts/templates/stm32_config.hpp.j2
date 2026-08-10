@@ -380,6 +380,7 @@ inline constexpr EscService::Config kEscServiceConfig = {
     .command_period_us = {{ esc_service.command_period_us }},
     .telemetry_request_period_us = {{ esc_service.telemetry_request_period_us }},
     .command_repeat_count = {{ esc_service.command_repeat_count }},
+    .firmware_checks = {{ 'true' if esc_service.firmware_checks else 'false' }},
 };
 
 inline constexpr multirotor_mixer::Mixer::Config kMultirotorMixerConfig = {

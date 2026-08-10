@@ -17,6 +17,7 @@ class EscService {
     uint32_t command_period_us;
     uint32_t telemetry_request_period_us;
     uint8_t command_repeat_count;
+    bool firmware_checks;
   };
 
   enum class DshotCommand : uint16_t {
@@ -95,6 +96,7 @@ class EscService {
   static constexpr uint32_t kInfoRetryPeriodUs = 250000u;
 
   static uint16_t NormalizeMotorValue(uint16_t value);
+  void CheckEscFirmware();
   void PollEscInfo(uint32_t now_us);
   [[nodiscard]] bool StopAll(uint32_t now_us);
   [[nodiscard]] bool SendIdleFrame(uint32_t now_us);
@@ -116,6 +118,7 @@ class EscService {
   uint32_t dropped_write_count_ = 0;
   uint32_t info_last_attempt_us_ = 0;
   uint8_t info_attempts_[DShotCodec::kMotorCount] = {};
+  uint8_t info_checked_mask_ = 0;
   uint8_t info_cursor_ = 0;
   uint8_t next_telemetry_motor_ = 0;
 };

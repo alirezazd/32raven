@@ -51,6 +51,10 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 ESC telemetry init failed";
     case ErrorCode::Stm32::kEscServiceInitFailed:
       return "STM32 ESC service init failed";
+    case ErrorCode::Stm32::kEscInputTypeNotDshot:
+      return "STM32 ESC input type is not DShot";
+    case ErrorCode::Stm32::kEscDirectionReversed:
+      return "STM32 ESC direction reversed in firmware";
     case ErrorCode::Stm32::kCrsfLinkInitFailed:
       return "STM32 CRSF link init failed";
     case ErrorCode::Stm32::kDshotCodecInvalidArg:
