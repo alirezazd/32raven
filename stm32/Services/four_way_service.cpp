@@ -44,8 +44,8 @@ constexpr char kInterfaceName[] = "m4wFCIntf";
 
 // The bootloader dialects, of which only imARM_BLB is implemented here. The
 // value is accepted and dropped because Connect derives the real mode from the
-// device signature, exactly as the reference does; narrowing the range further
-// would reject modes every shipping flight controller accepts.
+// device signature; rejecting the others here would refuse modes every shipping
+// flight controller accepts.
 constexpr uint8_t kModeSilBlb = 1;
 constexpr uint8_t kModeArmBlb = 4;
 
@@ -127,7 +127,6 @@ void FourWayService::Feed(uint8_t byte) {
       break;
 
     case Parse::kLength:
-      // Zero length means a full 256-byte payload.
       param_count_ = (byte == 0u) ? 256u : byte;
       crc_ = checksum::XModemUpdate(crc_, byte);
       param_index_ = 0;
@@ -308,10 +307,9 @@ void FourWayService::Dispatch() {
       return;
     }
 
-    // SiLabs and Atmel paths. The two eeprom commands answer differently
-    // because the reference does: it writes no ARM case for either, so the read
-    // lands on an invalid-command default and the write on a device-error
-    // preset. Matching that matters more than the pair looking consistent.
+    // SiLabs and Atmel paths, which no ARM target serves. The two eeprom
+    // commands answer differently on purpose: configurators read that pairing
+    // as "wrong device family" rather than "this ESC failed".
     case kCmdDeviceEraseAll:
     case kCmdDeviceReadEeprom:
       Respond(Ack::kInvalidCommand);
@@ -330,7 +328,7 @@ void FourWayService::Dispatch() {
 void FourWayService::Respond(Ack ack) {
   // Zero length means 256 parameters, so an empty reply cannot be encoded --
   // the host would wait for 256 bytes that never come. Ack-only responses
-  // carry one padding byte, as BLHeli's own implementation does.
+  // carry one padding byte instead.
   if (reply_len_ == 0u) {
     ReplyBuf()[0] = 0u;
     reply_len_ = 1u;

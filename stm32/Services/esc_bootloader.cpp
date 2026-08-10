@@ -40,8 +40,7 @@ void RestoreAlternate(const board::BoardPin &pin) {
 
 // Twelve zero bytes to let the bootloader's auto-baud settle, then the literal
 // greeting it matches on. Sent without a CRC: there is no connection yet, and
-// the bootloader is not listening for one until there is. Betaflight also
-// carries an eight-zero form, but no shipping STM32 target selects it.
+// the bootloader is not listening for one until there is.
 constexpr uint8_t kWake[] = {0,   0,   0,   0,   0,   0,   0,
                              0,   0,   0,   0,   0,   0x0D, 'B',
                              'L', 'H', 'e', 'l', 'i', 0xF4, 0x7D};

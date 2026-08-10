@@ -144,8 +144,7 @@ void EscTelemetry::Poll(uint32_t now_us) {
     ProcessByte(byte, now_us);
   }
 
-  // A reply that never came would otherwise leave the window sized for info,
-  // and no telemetry frame would ever match again.
+  // A reply that never came would otherwise leave the window sized for info.
   if (expected_frame_size_ == kInfoFrameSize &&
       static_cast<uint32_t>(now_us - expected_since_us_) > kInfoTimeoutUs) {
     expected_motor_ = kNoMotor;
@@ -273,9 +272,9 @@ bool EscTelemetry::ExpectedMotorActive(uint32_t now_us) const {
          cfg_.response_timeout_us;
 }
 
-// Byte offsets into AM32's settings page. Everything below 17 was reshuffled
-// when the layout went from 2 to 3 -- these four did not move, which is the
-// whole reason only these four are read.
+// Byte offsets into AM32's settings page. Bytes 17-46 are identical in layouts
+// 2 and 3; below 17 and above 46 they are not, so anything read from outside
+// that window needs its own per-version offset.
 namespace {
 constexpr uint8_t kInfoEepromVersion = 1;
 constexpr uint8_t kInfoVersionMajor = 3;
