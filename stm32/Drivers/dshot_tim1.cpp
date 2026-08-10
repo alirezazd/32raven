@@ -54,14 +54,17 @@ void DShotTim1::Init(const Config &config) {
   }
   initialized_ = true;
 
-  // The tree the config was solved against has to be the tree RCC ended up
-  // programmed with, or every bit period below is scaled by the discrepancy.
+  // Apb2TimerHz reads RCC's live prescaler and SystemCoreClock rather than the
+  // config, so this fires when Rcc::Init has not run yet -- SystemCoreClock is
+  // still the 16 MHz startup default -- or when the prescaler write did not
+  // take. Either would scale every bit period below by the discrepancy.
   if (config.timer_clock_hz != Rcc::Apb2TimerHz()) {
     Panic(ErrorCode::Stm32::kDshotClockMismatch);
   }
 
+  // Guards the division below; a mode outside the enum has no wire rate.
   const uint32_t bit_rate_hz = BitRateHz(config.mode);
-  if (bit_rate_hz == 0u || config.timer_clock_hz == 0u) {
+  if (bit_rate_hz == 0u) {
     Panic(ErrorCode::Stm32::kDshotInitFailed);
   }
 
