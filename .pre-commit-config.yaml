@@ -68,10 +68,30 @@ repos:
         files: '\.(c|cpp)$'
 
       # Runs the generators to see which symbols they actually read, so it has
-      # to re-check everything whenever either side of the pair moves.
+      # to re-check everything whenever either side of the pair moves. The
+      # hygiene hook shares that trigger: both read the whole Kconfig, so
+      # neither can be scoped to the staged paths.
       - id: check-config-staleness
         name: Stale Kconfig symbols
         entry: uv run --quiet --script scripts/lint/check_config_staleness.py
         language: system
         pass_filenames: false
-        files: '^(config/(Kconfig|32raven\.config)|scripts/(kconfig_gen|generate_.*)\.py|scripts/templates/.*\.j2)$'
+        files: &config_surface '^(config/(Kconfig|32raven\.config)|scripts/(kconfig_gen|generate_.*)\.py|scripts/templates/.*\.j2)$'
+
+      - id: check-config-hygiene
+        name: Kconfig hygiene
+        entry: uv run --quiet --script scripts/lint/check_config_hygiene.py
+        language: system
+        pass_filenames: false
+        files: *config_surface
+
+      # Needs a compilation database and the cross toolchain's own headers, so
+      # like check-unused-includes it skips rather than fails when the tree has
+      # not been built. Driver headers matter too: a field added there is
+      # exactly what goes unassigned.
+      - id: check-config-coverage
+        name: Unassigned config fields
+        entry: uv run --quiet --script scripts/lint/check_config_coverage.py
+        language: system
+        pass_filenames: false
+        files: '^(scripts/templates/.*\.j2|scripts/generate_.*\.py|(esp32|stm32)/.*\.hpp)$'
