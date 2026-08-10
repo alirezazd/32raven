@@ -6,7 +6,10 @@
 # Scans source code for forbidden headers, keywords, and dynamic-allocation APIs.
 # Returns 1 (error) if found, 0 (ok) if clean.
 
-EXCLUDE_DIRS=(.git build cmake third_party)
+# .docker and .venv are gitignored local caches holding a whole C++ toolchain
+# and its standard library, so a bare run finds <iostream> in someone else's
+# headers and fails for anyone who has built through Docker. CI never has them.
+EXCLUDE_DIRS=(.git build cmake third_party .docker .venv)
 FORBIDDEN_HEADERS="iostream sstream locale regex vector list map set unordered_map unordered_set"
 FORBIDDEN_KEYWORDS=" new" # Space prefix to avoid matching 'newline' etc.
 FORBIDDEN_FREERTOS_DYNAMIC_APIS="xTaskCreate xTaskCreatePinnedToCore xQueueCreate xSemaphoreCreateBinary xSemaphoreCreateCounting xSemaphoreCreateMutex xSemaphoreCreateRecursiveMutex xTimerCreate xEventGroupCreate xStreamBufferCreate xMessageBufferCreate pvPortMalloc"
