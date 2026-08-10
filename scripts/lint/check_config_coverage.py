@@ -23,8 +23,10 @@ does, so the omission is invisible to the build:
 
 Field names come from clang's AST, so nested and inherited members resolve
 properly. Designators come from the initialiser's own tokens, because the
-Python bindings do not expose designated-initialiser nodes. Anything that
-cannot be resolved is reported as skipped rather than passed over silently.
+Python bindings do not expose designated-initialiser nodes. A config this
+cannot read -- initialised positionally, or an array of configs -- fails as
+[unchecked] rather than passing, because a check that stays quiet about what
+it skipped reads exactly like a check that found nothing wrong.
 
 Needs a compilation database. Without one it skips, like check_unused_includes.
 """
@@ -151,44 +153,62 @@ def _field_paths(cursor, clang, depth: int = 0) -> list[str]:
     return paths
 
 
-def _designator_paths(tokens: list[str]) -> set[str]:
+def _designator_paths(tokens: list[str]) -> tuple[set[str], set[str]]:
     """Dotted designator paths in an aggregate initialiser's token stream.
 
     Tracks brace depth so `.tx = { .periods = { .hb_ms = ...` yields
     `tx.periods.hb_ms` rather than three unrelated names.
+
+    Returns (braced, whole), split by what the designator's value was, because
+    the two cover different things. `.tx = {...}` opens a sub-aggregate whose
+    own leaves can still be left out, so it covers only itself. `.tx = kShared`
+    copies the sub-object entire, so it covers every leaf beneath it too.
     """
-    paths: set[str] = set()
+    braced: set[str] = set()
+    whole: set[str] = set()
     stack: list[str] = []
-    pending: str | None = None
     i = 0
     while i < len(tokens):
         tok = tokens[i]
         if tok == "." and i + 2 < len(tokens) and tokens[i + 2] == "=":
-            pending = tokens[i + 1]
+            name = tokens[i + 1]
+            path = ".".join([s for s in stack if s] + [name])
             i += 3
             if i < len(tokens) and tokens[i] == "{":
-                # Record the field itself as well as descending into it. A
-                # braced value need not carry designators of its own -- an
-                # array of positional values is still an assignment -- and only
-                # leaf paths are compared, so naming a parent matches nothing
-                # that its children would have matched.
-                paths.add(".".join([s for s in stack if s] + [pending]))
-                stack.append(pending)
-                pending = None
+                # A braced value need not carry designators of its own -- an
+                # array of positional values is still an assignment -- so the
+                # field is recorded before descending into it.
+                braced.add(path)
+                stack.append(name)
                 i += 1
-            elif pending is not None:
-                # Braces that carry no designator of their own still nest, so
-                # they sit on the stack as blanks and drop out of the path.
-                paths.add(".".join([s for s in stack if s] + [pending]))
-                pending = None
+            else:
+                whole.add(path)
             continue
         if tok == "{":
+            # Braces that carry no designator of their own still nest, so they
+            # sit on the stack as blanks and drop out of the path.
             stack.append("")
         elif tok == "}":
             if stack:
                 stack.pop()
         i += 1
-    return {p for p in paths if p and not p.startswith(".")}
+    return (
+        {p for p in braced if not p.startswith(".")},
+        {p for p in whole if not p.startswith(".")},
+    )
+
+
+def _is_covered(field: str, braced: set[str], whole: set[str]) -> bool:
+    """Whether a declared leaf was assigned by any designator in the tokens.
+
+    The prefix walk applies to `whole` only. Extending it to `braced` would
+    make every sub-aggregate vouch for leaves it never named, which is the one
+    thing this check exists to catch.
+    """
+    if field in braced or field in whole:
+        return True
+    parts = field.split(".")
+    return any(".".join(parts[:i]) in whole for i in range(1, len(parts)))
 
 
 def main() -> int:
@@ -201,7 +221,6 @@ def main() -> int:
     problems: list[str] = []
     skipped: list[str] = []
     per_target: dict[str, int] = {}
-    checked = 0
 
     for header_rel, db_rel in TARGETS:
         per_target.setdefault(header_rel, 0)
@@ -229,6 +248,15 @@ def main() -> int:
                 continue
             if not str(cursor.location.file or "").endswith(header.name):
                 continue
+            if cursor.type.kind == ci.TypeKind.CONSTANTARRAY:
+                element = cursor.type.element_type.get_declaration()
+                if element is not None and _field_paths(element, ci):
+                    problems.append(
+                        f"[unchecked] {header_rel}: {cursor.spelling} is an array "
+                        f"of {element.spelling}; this check reads one initialiser "
+                        "per variable and does not walk array elements"
+                    )
+                continue
             decl = cursor.type.get_declaration()
             if decl is None or not decl.is_definition():
                 continue
@@ -236,12 +264,23 @@ def main() -> int:
             if not declared:
                 continue
             tokens = [t.spelling for t in cursor.get_tokens()]
-            used = _designator_paths(tokens)
-            if not used:
-                continue  # not an aggregate written with designators
-            checked += 1
+            braced, whole = _designator_paths(tokens)
+            if not braced and not whole:
+                # No designators at all. Copy-initialised from another constant
+                # assigns every field, and that constant is checked in its own
+                # right; a brace without designators is exactly the silent
+                # default this check exists to catch, so it cannot be waved past.
+                if "{" in tokens:
+                    problems.append(
+                        f"[unchecked] {header_rel}: {cursor.spelling} is "
+                        f"initialised without designators, so none of "
+                        f"{decl.spelling}'s fields were checked"
+                    )
+                else:
+                    per_target[header_rel] += 1
+                continue
             per_target[header_rel] += 1
-            missing = [f for f in declared if f not in used]
+            missing = [f for f in declared if not _is_covered(f, braced, whole)]
             for field in missing:
                 problems.append(
                     f"[unset]    {header_rel}: {cursor.spelling}.{field} is never "
