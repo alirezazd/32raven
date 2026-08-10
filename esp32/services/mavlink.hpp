@@ -41,17 +41,11 @@ class Mavlink {
         uint16_t gpos_ms = 0;
         uint16_t batt_ms = 0;
         uint16_t rc_ms = 0;
-        uint16_t esc_ms = 2000;
+        uint16_t esc_ms = 0;
       } periods;
 
       struct Schedule {
         uint16_t hb_deadline_ms = 0;
-        uint16_t gps_start_delay_ms = 0;
-        uint16_t att_start_delay_ms = 0;
-        uint16_t gpos_start_delay_ms = 0;
-        uint16_t batt_start_delay_ms = 0;
-        uint16_t rc_start_delay_ms = 0;
-        uint16_t esc_start_delay_ms = 1200;
       } schedule;
     } tx;
   };

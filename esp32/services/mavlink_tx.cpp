@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <type_traits>
 
 #include "../../third_party/mavlink/standard/mavlink_msg_autopilot_version.h"
@@ -15,6 +16,7 @@
 #include "flight_mode.hpp"
 #include "mavlink.hpp"
 #include "panic.hpp"
+#include "slot_stagger.hpp"
 #include "system.hpp"
 
 namespace {
@@ -238,20 +240,74 @@ Mavlink::TxFrameState Mavlink::StartStatusTextFrame(const StatusText &work) {
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
+namespace {
+
+// Only one frame leaves per tick, so streams that come due together do not
+// interleave -- they serialise into a burst, and because rescheduling advances
+// by period rather than from now, that opening phase persists for the life of
+// the link. Giving each stream its own slot spaces the first frames out, and
+// deriving the offset from the slot rather than configuring it per stream
+// keeps a collision from being introduced by hand.
+//
+// The heartbeat is a slot like any other. Its deadline can pull it earlier, but
+// it still reschedules by period, so leaving it out of the ladder only means
+// its offset is fixed at zero and whatever lands there collides with it.
+enum class TxSlot : uint32_t {
+  kHb,
+  kSys,
+  kGps,
+  kAtt,
+  kGpos,
+  kBatt,
+  kRc,
+  kEsc,
+  kCount,
+};
+
+constexpr uint16_t kSysStatusPeriodMs = 1000;
+
+constexpr uint32_t kSlotPeriodsMs[] = {
+    kMavlinkConfig.tx.periods.hb_ms,
+    kSysStatusPeriodMs,
+    kMavlinkConfig.tx.periods.gps_ms,
+    kMavlinkConfig.tx.periods.att_ms,
+    kMavlinkConfig.tx.periods.gpos_ms,
+    kMavlinkConfig.tx.periods.batt_ms,
+    kMavlinkConfig.tx.periods.rc_ms,
+    kMavlinkConfig.tx.periods.esc_ms,
+};
+static_assert(std::size(kSlotPeriodsMs) ==
+                  static_cast<std::size_t>(TxSlot::kCount),
+              "a TxSlot has no period here, so its offset goes unchecked");
+
+// 210 ms measured best against today's stream set. Pick keeps it while it
+// clears every slot and moves to the next value up when a period is retuned
+// onto it, so adding a stream cannot quietly reinstate the collision.
+constexpr uint32_t kTxSlotSpacingTargetMs = 210;
+constexpr uint32_t kTxSlotStaggerMs =
+    slot_stagger::Pick(kTxSlotSpacingTargetMs, kSlotPeriodsMs);
+static_assert(kTxSlotStaggerMs != 0,
+              "no spacing near the target clears every configured TX period, "
+              "so some stream would sit permanently in phase with the ladder");
+
+constexpr uint32_t StaggerMs(TxSlot slot) {
+  return static_cast<uint32_t>(slot) * kTxSlotStaggerMs;
+}
+
+}  // namespace
+
 void Mavlink::InitTxSchedule(const Config::Tx &cfg_tx, uint32_t now_ms,
                              bool force_heartbeat_due) {
-  constexpr uint16_t sys_status_start_delay_ms = 250;
-
   tx_schedule_.last_hb_done_ms =
       force_heartbeat_due ? (now_ms - cfg_tx.schedule.hb_deadline_ms) : now_ms;
-  tx_schedule_.next_hb_ms = now_ms;
-  tx_schedule_.next_sys_ms = now_ms + sys_status_start_delay_ms;
-  tx_schedule_.next_gps_ms = now_ms + cfg_tx.schedule.gps_start_delay_ms;
-  tx_schedule_.next_att_ms = now_ms + cfg_tx.schedule.att_start_delay_ms;
-  tx_schedule_.next_gpos_ms = now_ms + cfg_tx.schedule.gpos_start_delay_ms;
-  tx_schedule_.next_batt_ms = now_ms + cfg_tx.schedule.batt_start_delay_ms;
-  tx_schedule_.next_rc_ms = now_ms + cfg_tx.schedule.rc_start_delay_ms;
-  tx_schedule_.next_esc_ms = now_ms + cfg_tx.schedule.esc_start_delay_ms;
+  tx_schedule_.next_hb_ms = now_ms + StaggerMs(TxSlot::kHb);
+  tx_schedule_.next_sys_ms = now_ms + StaggerMs(TxSlot::kSys);
+  tx_schedule_.next_gps_ms = now_ms + StaggerMs(TxSlot::kGps);
+  tx_schedule_.next_att_ms = now_ms + StaggerMs(TxSlot::kAtt);
+  tx_schedule_.next_gpos_ms = now_ms + StaggerMs(TxSlot::kGpos);
+  tx_schedule_.next_batt_ms = now_ms + StaggerMs(TxSlot::kBatt);
+  tx_schedule_.next_rc_ms = now_ms + StaggerMs(TxSlot::kRc);
+  tx_schedule_.next_esc_ms = now_ms + StaggerMs(TxSlot::kEsc);
 }
 
 bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
@@ -387,9 +443,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
 }
 
 Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
-  constexpr uint16_t sys_status_ms = 1000;
-
-  tx_schedule_.next_sys_ms += sys_status_ms;
+  tx_schedule_.next_sys_ms += kSysStatusPeriodMs;
 
   uint32_t sensors_present = 0;
   uint32_t sensors_enabled = 0;
