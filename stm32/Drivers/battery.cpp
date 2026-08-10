@@ -56,8 +56,8 @@ void Battery::Init(const Config &cfg) {
   }
 
   if (cfg.sample_period_us == 0u || cfg.adc_reference_mv == 0u ||
-      cfg.oversample_count == 0u || cfg.filter_alpha_permille == 0u ||
-      cfg.filter_alpha_permille > 1000u || cfg.adc_timeout_us == 0u ||
+      cfg.oversample_count == 0u || cfg.filter_alpha <= 0.0f ||
+      cfg.filter_alpha > 1.0f || cfg.adc_timeout_us == 0u ||
       cfg.voltage_multiplier_milli == 0u || cfg.current_scale_ma_per_v == 0u ||
       cfg.cell_count == 0u || cfg.cell_empty_mv >= cfg.cell_full_mv ||
       cfg.voltage_adc_channel == cfg.current_adc_channel) {
@@ -177,7 +177,7 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
     filtered_current_a_ = measured_current_a;
     filter_valid_ = true;
   } else {
-    const float alpha = static_cast<float>(cfg_.filter_alpha_permille) / kMilli;
+    const float alpha = cfg_.filter_alpha;
     filtered_voltage_v_ += alpha * (measured_voltage_v - filtered_voltage_v_);
     filtered_current_a_ += alpha * (measured_current_a - filtered_current_a_);
   }

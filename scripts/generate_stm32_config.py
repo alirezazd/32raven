@@ -1509,6 +1509,11 @@ def _multirotor_mixer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _iir_alpha_from_tau(time_constant: float, sample_period: float) -> float:
+    """First-order IIR coefficient; both arguments in the same time unit."""
+    return sample_period / (sample_period + time_constant)
+
+
 def _iir_alpha(cutoff_hz: int, sample_hz: int) -> float:
     """First-order IIR coefficient for a corner frequency, at the sample rate.
 
@@ -1519,8 +1524,7 @@ def _iir_alpha(cutoff_hz: int, sample_hz: int) -> float:
     """
     if cutoff_hz == 0:
         return 1.0
-    period_s = 1.0 / sample_hz
-    return period_s / (period_s + 1.0 / (2.0 * math.pi * cutoff_hz))
+    return _iir_alpha_from_tau(1.0 / (2.0 * math.pi * cutoff_hz), 1.0 / sample_hz)
 
 
 def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
@@ -1773,8 +1777,9 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             _solve_rcc_clock(kconf) // _apb_divider(kconf, 2)
         ),
         "oversample_count": sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT"),
-        "filter_alpha_permille": sym_int(
-            kconf, "STM32_BATTERY_FILTER_ALPHA_PERMILLE"
+        "filter_alpha": _iir_alpha_from_tau(
+            sym_int(kconf, "STM32_BATTERY_FILTER_TIME_CONSTANT_MS"),
+            sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS"),
         ),
         "adc_timeout_us": sym_int(kconf, "STM32_BATTERY_ADC_TIMEOUT_US"),
         "voltage_multiplier_milli": sym_int(

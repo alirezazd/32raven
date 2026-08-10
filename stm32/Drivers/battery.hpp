@@ -17,7 +17,7 @@ class Battery {
     uint8_t voltage_adc_channel;
     uint8_t current_adc_channel;
     uint8_t oversample_count;
-    uint16_t filter_alpha_permille;
+    float filter_alpha;
     uint16_t adc_timeout_us;
     uint32_t voltage_multiplier_milli;
     int32_t voltage_offset_mv;

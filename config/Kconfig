@@ -2507,13 +2507,16 @@ config STM32_BATTERY_ADC_OVERSAMPLE_COUNT
       Number of ADC conversion pairs averaged each battery sample period.
       Increase to reduce analog noise; decrease to reduce sampling time.
 
-config STM32_BATTERY_FILTER_ALPHA_PERMILLE
-    int "Filter alpha (permille)"
-    range 1 1000
-    default 250
+config STM32_BATTERY_FILTER_TIME_CONSTANT_MS
+    int "Filter time constant (ms)"
+    range 0 10000
+    default 300
     help
-      Low-pass filter coefficient in thousandths. 1000 publishes each new
-      sample directly; lower values smooth voltage/current telemetry more.
+      Time the filtered voltage and current take to cover 63% of a step, for
+      the first-order IIR on both readings. 0 publishes each new sample
+      directly; higher values smooth telemetry more. The IIR coefficient is
+      derived from this and the sample period above, so the smoothing stays
+      put when the sample period changes rather than moving with it.
 
 config STM32_BATTERY_ADC_TIMEOUT_US
     int "ADC conversion timeout (us)"
