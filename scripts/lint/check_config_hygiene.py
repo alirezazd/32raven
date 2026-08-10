@@ -85,39 +85,75 @@ def check_defaults_build_a_legal_board(problems: list[str]) -> None:
             )
 
 
+# PINMAP_ENTRIES fields that name where a pin sits: the port or signal choice
+# arms, and the pin-number int. active_low_sym rides in the same table but sets
+# polarity, not position, so it belongs with the ordinary tunables.
+_PLACEMENT_FIELDS = frozenset({"port_options", "choice_options", "pin_int_symbol"})
+_TUNABLE_FIELDS = frozenset({"active_low_sym"})
+
+
+def _pin_entries() -> tuple:
+    import importlib
+
+    return getattr(
+        importlib.import_module("generate_stm32_config"), "PINMAP_ENTRIES", ()
+    )
+
+
+def _symbol_strings(value: object) -> set[str]:
+    """Symbol names a field holds. A dict maps symbol -> pin, so only its keys."""
+    if isinstance(value, dict):
+        return {k for k in value if isinstance(k, str)}
+    return {value} if isinstance(value, str) else set()
+
+
 def _pin_map_symbols() -> set[str]:
-    """Symbol names the STM32 pin-map tables name.
+    """Kconfig symbols that place a pin on the STM32 board map.
 
     A pin bonded out on exactly one pad still has to reach the generated pin
     map, because that is what the collision and alternate-function checks read.
     Its choice therefore has one arm on purpose, and is not bloat.
     """
-    import importlib
+    return {
+        name
+        for entry in _pin_entries()
+        for field in _PLACEMENT_FIELDS
+        for name in _symbol_strings(getattr(entry, field, None))
+    }
 
-    found: set[str] = set()
-    seen: set[int] = set()
 
-    def walk(obj: object, depth: int) -> None:
-        if depth > 8 or id(obj) in seen:
-            return
-        seen.add(id(obj))
-        if isinstance(obj, str):
-            found.add(obj)
-        elif isinstance(obj, dict):
-            for key, value in obj.items():
-                walk(key, depth + 1)
-                walk(value, depth + 1)
-        elif isinstance(obj, (list, tuple, set, frozenset)):
-            for item in obj:
-                walk(item, depth + 1)
-        else:
-            fields = getattr(obj, "__dict__", None)
-            if isinstance(fields, dict):
-                for value in fields.values():
-                    walk(value, depth + 1)
+def check_pin_map_fields_are_classified(
+    kconf: kconfiglib.Kconfig, problems: list[str]
+) -> None:
+    """Every symbol-bearing field of a pin entry has to be placement or tunable.
 
-    walk(getattr(importlib.import_module("generate_stm32_config"), "PINMAP_ENTRIES", ()), 0)
-    return found
+    The two checks reading _pin_map_symbols fail in opposite directions: a
+    placement symbol left out lets a stale pin default through, and a tunable
+    swept in reports a board that merely set it as one that cannot exist. A new
+    field holding symbols must therefore not default quietly into either.
+    """
+    import dataclasses
+
+    known = _PLACEMENT_FIELDS | _TUNABLE_FIELDS
+    for entry in _pin_entries():
+        if not dataclasses.is_dataclass(entry):
+            continue
+        for field in dataclasses.fields(entry):
+            if field.name in known:
+                continue
+            value = getattr(entry, field.name, None)
+            held = (
+                {s for s in (*value, *value.values()) if isinstance(s, str)}
+                if isinstance(value, dict)
+                else {value} if isinstance(value, str) else set()
+            )
+            stray = sorted(n for n in held if n in kconf.syms)
+            if stray:
+                problems.append(
+                    f"[pinmap]   {type(entry).__name__}.{field.name} holds Kconfig "
+                    f"symbol(s) {', '.join(stray)} but is classified as neither "
+                    "placement nor tunable, so _pin_map_symbols ignores it"
+                )
 
 
 def check_pin_defaults_match_the_board(problems: list[str]) -> None:
@@ -240,6 +276,7 @@ def main() -> int:
     kconf = _load(with_saved_config=True)
 
     check_defaults_build_a_legal_board(problems)
+    check_pin_map_fields_are_classified(kconf, problems)
     check_pin_defaults_match_the_board(problems)
     check_single_arm_choices(kconf, problems)
     check_int_symbols_have_ranges(kconf, problems)
