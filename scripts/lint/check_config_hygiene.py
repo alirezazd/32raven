@@ -75,7 +75,11 @@ def check_defaults_build_a_legal_board(problems: list[str]) -> None:
         module = importlib.import_module(module_name)
         try:
             _call(getattr(module, validate_name), _load(with_saved_config=False))
-        except Exception as exc:  # noqa: BLE001 - the generator's own error is the message
+        # SystemExit derives from BaseException, and the generators raise it as
+        # readily as ValueError. Catching Exception alone would let a generator
+        # that rejects its own defaults kill this check instead of be reported
+        # by it -- the one outcome the check exists to prevent.
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
             problems.append(
                 f"[defaults] {module_name} rejects the Kconfig defaults: {exc}"
             )
