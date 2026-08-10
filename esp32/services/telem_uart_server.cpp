@@ -10,11 +10,11 @@ int TelemUartServer::Receive(std::span<uint8_t> dst) {
   return UartTelem::GetInstance().ReadBytes(dst, /*timeout_ms=*/0);
 }
 
-int TelemUartServer::Send(std::span<const uint8_t> data) {
-  if (data.empty()) {
+int TelemUartServer::Send(std::span<const uint8_t> bytes) {
+  if (bytes.empty()) {
     return 0;
   }
-  return UartTelem::GetInstance().WriteBytes(data);
+  return UartTelem::GetInstance().WriteBytes(bytes);
 }
 
 bool TelemUartServer::IsReady() const {

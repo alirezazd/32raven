@@ -256,8 +256,8 @@ int UdpServer::Receive(std::span<uint8_t> dst) {
   return static_cast<int>(copied);
 }
 
-int UdpServer::Send(std::span<const uint8_t> data) {
-  if (!running_ || fd_ < 0 || data.empty()) {
+int UdpServer::Send(std::span<const uint8_t> bytes) {
+  if (!running_ || fd_ < 0 || bytes.empty()) {
     return 0;
   }
 
@@ -300,7 +300,7 @@ int UdpServer::Send(std::span<const uint8_t> data) {
   };
 
   if (!download_cap_enabled_) {
-    return static_cast<int>(send_chunk(data.data(), data.size()));
+    return static_cast<int>(send_chunk(bytes.data(), bytes.size()));
   }
 
   const auto on_download_overflow = [this](unsigned dropped_bytes) {
@@ -324,20 +324,20 @@ int UdpServer::Send(std::span<const uint8_t> data) {
       (buffered < kDownloadBufferBytes)
           ? (static_cast<size_t>(kDownloadBufferBytes) - buffered)
           : 0;
-  if (data.size() > free_bytes) {
-    on_download_overflow(static_cast<unsigned>(data.size()));
+  if (bytes.size() > free_bytes) {
+    on_download_overflow(static_cast<unsigned>(bytes.size()));
     return 0;
   }
 
   const size_t wrote =
-      download_shaper_buffer_.PushBlock(data.data(), data.size());
-  if (wrote != data.size()) {
-    on_download_overflow(static_cast<unsigned>(data.size() - wrote));
+      download_shaper_buffer_.PushBlock(bytes.data(), bytes.size());
+  if (wrote != bytes.size()) {
+    on_download_overflow(static_cast<unsigned>(bytes.size() - wrote));
     return 0;
   }
   download_overflow_count_ = 0;
 
   flush_download_buffer();
 
-  return static_cast<int>(data.size());
+  return static_cast<int>(bytes.size());
 }

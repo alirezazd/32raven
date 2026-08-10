@@ -414,9 +414,9 @@ bool Programmer::Boot() {
   return true;
 }
 
-bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
+bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *bytes,
                                  size_t len) {
-  if (!data || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
+  if (!bytes || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
     return false;
   }
 
@@ -444,15 +444,15 @@ bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
     return false;
   }
 
-  // Data: N (len-1), Data bytes, Checksum (N ^ data[0] ^ ... ^ data[len-1])
+  // Data: N (len-1), Data bytes, Checksum (N ^ bytes[0] ^ ... ^ bytes[len-1])
   uint8_t n = (uint8_t)(len - 1);
   uint8_t cs = n;
   for (size_t i = 0; i < len; ++i) {
-    cs ^= data[i];
+    cs ^= bytes[i];
   }
 
   ctx_.uart->WriteByte(n);
-  ctx_.uart->WriteBytes({data, len});
+  ctx_.uart->WriteBytes({bytes, len});
   ctx_.uart->WriteByte(cs);
   ctx_.uart->DrainTx(ctx_.cfg.sync_timeout_ms);
 
@@ -466,8 +466,8 @@ bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *data,
   return true;
 }
 
-bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *data, size_t len) {
-  if (!data || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
+bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *bytes, size_t len) {
+  if (!bytes || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
     return false;
   }
 
@@ -512,7 +512,7 @@ bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *data, size_t len) {
 
   // Receive bytes
   int r = ctx_.uart->ReadBytes(
-      {data, len},
+      {bytes, len},
       ctx_.cfg.sync_timeout_ms + (len / 10));  // extra time for bytes
   if (r != (int)len) {
     ESP_LOGE(kTag, "READ_MEM read data failed exp=%u got=%d", (unsigned)len, r);
@@ -566,25 +566,25 @@ void Programmer::Abort(SmTick) {
   }
 }
 
-size_t Programmer::PushBytes(std::span<const uint8_t> data, SmTick now) {
+size_t Programmer::PushBytes(std::span<const uint8_t> bytes, SmTick now) {
   if (!ctx_.ready) return 0;  // not ready to accept bytes
   if (Error() || Done()) return 0;
 
   const size_t free = RbFree(ctx_.head, ctx_.tail, Ctx::kBufCap);
-  const size_t take = (data.size() <= free) ? data.size() : free;
+  const size_t take = (bytes.size() <= free) ? bytes.size() : free;
 
   if (take > 0) {
     const size_t until_wrap = std::min(take, Ctx::kBufCap - ctx_.tail);
-    std::memcpy(ctx_.buf + ctx_.tail, data.data(), until_wrap);
-    std::memcpy(ctx_.buf, data.data() + until_wrap, take - until_wrap);
+    std::memcpy(ctx_.buf + ctx_.tail, bytes.data(), until_wrap);
+    std::memcpy(ctx_.buf, bytes.data() + until_wrap, take - until_wrap);
     ctx_.tail = (ctx_.tail + take) % Ctx::kBufCap;
   }
 
-  if (take < data.size()) {
+  if (take < bytes.size()) {
     ctx_.overflow = true;
   }
 
-  // Advance internal SM even if data is empty (lets it finish draining /
+  // Advance internal SM even when the span is empty (lets it finish draining /
   // finalize)
   sm_.Step(now);
   return take;
@@ -625,9 +625,9 @@ size_t Programmer::TargetWriteChunkLimit(const Ctx &c) const {
              : esp32_limits::kProgrammerStm32BlockBytes;
 }
 
-bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len) {
+bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *bytes, size_t len) {
   if (c.target == Target::kEsp32) {
-    return WriteEsp32Chunk(c, data, len);
+    return WriteEsp32Chunk(c, bytes, len);
   }
 
   const auto placement =
@@ -643,7 +643,7 @@ bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len) {
     return false;
   }
 
-  if (!WriteStm32Block(placement->flash_addr, data, len)) {
+  if (!WriteStm32Block(placement->flash_addr, bytes, len)) {
     ESP_LOGE(kTag, "Write failed at addr 0x%08X",
              (unsigned)placement->flash_addr);
     return false;
@@ -744,8 +744,8 @@ bool Programmer::BeginEsp32Ota(Ctx &c) {
   return true;
 }
 
-bool Programmer::WriteEsp32Chunk(Ctx &c, const uint8_t *data, size_t len) {
-  const esp_err_t err = esp_ota_write(c.ota_handle, data, len);
+bool Programmer::WriteEsp32Chunk(Ctx &c, const uint8_t *bytes, size_t len) {
+  const esp_err_t err = esp_ota_write(c.ota_handle, bytes, len);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_ota_write failed: %s", esp_err_to_name(err));
     c.err = static_cast<uint32_t>(ErrorCode::Esp32::kProgrammerOtaWriteFailed);
@@ -804,12 +804,12 @@ bool Programmer::ActivateEsp32Ota(Ctx &c) {
 }
 
 bool Programmer::ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset,
-                                         uint8_t *data, size_t len) const {
-  if (c.ota_part == nullptr || data == nullptr || len == 0) {
+                                         uint8_t *bytes, size_t len) const {
+  if (c.ota_part == nullptr || bytes == nullptr || len == 0) {
     return false;
   }
 
-  esp_err_t err = esp_partition_read(c.ota_part, offset, data, len);
+  esp_err_t err = esp_partition_read(c.ota_part, offset, bytes, len);
   if (err != ESP_OK) {
     ESP_LOGE(kTag, "esp_partition_read failed at offset 0x%08X: %s",
              (unsigned)offset, esp_err_to_name(err));

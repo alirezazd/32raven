@@ -19,7 +19,7 @@ class IMavlinkTransport {
   virtual int Receive(std::span<uint8_t> dst) = 0;
 
   // Bytes written, <0 on error.
-  virtual int Send(std::span<const uint8_t> data) = 0;
+  virtual int Send(std::span<const uint8_t> bytes) = 0;
 
   // Ready means there is somewhere to send: UDP needs an associated station,
   // USB CDC an enumerated host.

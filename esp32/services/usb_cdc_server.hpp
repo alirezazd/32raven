@@ -29,7 +29,7 @@ class UsbCdcServer : public IMavlinkTransport {
   }
 
   int Receive(std::span<uint8_t> dst) override;
-  int Send(std::span<const uint8_t> data) override;
+  int Send(std::span<const uint8_t> bytes) override;
   bool IsReady() const override;
   void ClearPeer() override;
 

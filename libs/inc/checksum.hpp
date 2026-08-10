@@ -20,9 +20,9 @@ inline uint8_t Dvbs2Update(uint8_t crc, uint8_t byte) {
   return crc;
 }
 
-[[nodiscard]] inline uint8_t Dvbs2(std::span<const uint8_t> data) {
+[[nodiscard]] inline uint8_t Dvbs2(std::span<const uint8_t> bytes) {
   uint8_t crc = 0;
-  for (const uint8_t byte : data) {
+  for (const uint8_t byte : bytes) {
     crc = Dvbs2Update(crc, byte);
   }
   return crc;
@@ -39,9 +39,9 @@ inline uint16_t XModemUpdate(uint16_t crc, uint8_t byte) {
   return crc;
 }
 
-[[nodiscard]] inline uint16_t XModem(std::span<const uint8_t> data) {
+[[nodiscard]] inline uint16_t XModem(std::span<const uint8_t> bytes) {
   uint16_t crc = 0;
-  for (const uint8_t byte : data) {
+  for (const uint8_t byte : bytes) {
     crc = XModemUpdate(crc, byte);
   }
   return crc;

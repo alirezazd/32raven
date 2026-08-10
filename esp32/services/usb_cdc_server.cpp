@@ -46,11 +46,11 @@ int UsbCdcServer::Receive(std::span<uint8_t> dst) {
                                     /*ticks_to_wait=*/0);
 }
 
-int UsbCdcServer::Send(std::span<const uint8_t> data) {
-  if (!driver_installed_ || data.empty()) {
+int UsbCdcServer::Send(std::span<const uint8_t> bytes) {
+  if (!driver_installed_ || bytes.empty()) {
     return 0;
   }
-  return usb_serial_jtag_write_bytes(data.data(), data.size(),
+  return usb_serial_jtag_write_bytes(bytes.data(), bytes.size(),
                                      kSendTimeoutTicks);
 }
 

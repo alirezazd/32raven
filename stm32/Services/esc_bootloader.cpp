@@ -204,13 +204,13 @@ uint8_t EscBootloader::ReadAck(uint16_t attempts) {
   return kBlbNone;
 }
 
-bool EscBootloader::SendPayload(std::span<const uint8_t> data) {
-  if (data.empty()) {
+bool EscBootloader::SendPayload(std::span<const uint8_t> bytes) {
+  if (bytes.empty()) {
     return false;
   }
 
   uint16_t crc = 0;
-  for (uint8_t byte : data) {
+  for (uint8_t byte : bytes) {
     crc = checksum::Arc16Update(crc, byte);
   }
   const uint8_t trailer[] = {
@@ -218,7 +218,7 @@ bool EscBootloader::SendPayload(std::span<const uint8_t> data) {
       static_cast<uint8_t>(crc >> 8),
   };
 
-  uart_->Send(data.data(), data.size());
+  uart_->Send(bytes.data(), bytes.size());
   uart_->Send(trailer, sizeof(trailer));
   return true;
 }
@@ -261,8 +261,8 @@ bool EscBootloader::SetAddress(uint16_t address) {
 
 // The one command answered with silence: a byte back means the bootloader
 // rejected the header, so anything other than a timeout is the failure.
-bool EscBootloader::SetBuffer(std::span<const uint8_t> data) {
-  const size_t len = data.size();
+bool EscBootloader::SetBuffer(std::span<const uint8_t> bytes) {
+  const size_t len = bytes.size();
   const uint8_t cmd[] = {
       kCmdSetBuffer,
       0,
@@ -272,7 +272,7 @@ bool EscBootloader::SetBuffer(std::span<const uint8_t> data) {
   if (!SendCommand(cmd) || ReadAck(kAckImmediate) != kBlbNone) {
     return false;
   }
-  return SendPayload(data) && ReadAck(kAckBuffer) == kBlbSuccess;
+  return SendPayload(bytes) && ReadAck(kAckBuffer) == kBlbSuccess;
 }
 
 bool EscBootloader::ReadFlash(uint16_t address, uint8_t *out, uint16_t len) {
@@ -303,11 +303,11 @@ bool EscBootloader::PageErase(uint8_t page) {
 }
 
 bool EscBootloader::WriteFlash(uint16_t address,
-                               std::span<const uint8_t> data) {
-  if (!connected_ || data.empty() || data.size() > kMaxTransferBytes) {
+                               std::span<const uint8_t> bytes) {
+  if (!connected_ || bytes.empty() || bytes.size() > kMaxTransferBytes) {
     return false;
   }
-  if (!SetAddress(address) || !SetBuffer(data)) {
+  if (!SetAddress(address) || !SetBuffer(bytes)) {
     return false;
   }
 
@@ -318,11 +318,11 @@ bool EscBootloader::WriteFlash(uint16_t address,
 // A mismatch is kept apart from a failure: the link worked and the flash does
 // not hold what was written, which is the one outcome retrying cannot fix.
 EscBootloader::VerifyResult EscBootloader::VerifyFlash(
-    uint16_t address, std::span<const uint8_t> data) {
-  if (!connected_ || data.empty() || data.size() > kMaxTransferBytes) {
+    uint16_t address, std::span<const uint8_t> bytes) {
+  if (!connected_ || bytes.empty() || bytes.size() > kMaxTransferBytes) {
     return VerifyResult::kFailed;
   }
-  if (!SetAddress(address) || !SetBuffer(data)) {
+  if (!SetAddress(address) || !SetBuffer(bytes)) {
     return VerifyResult::kFailed;
   }
 

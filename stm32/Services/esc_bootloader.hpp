@@ -56,8 +56,8 @@ class EscBootloader {
 
   bool ReadFlash(uint16_t address, uint8_t *out, uint16_t len);
   bool PageErase(uint8_t page);
-  bool WriteFlash(uint16_t address, std::span<const uint8_t> data);
-  VerifyResult VerifyFlash(uint16_t address, std::span<const uint8_t> data);
+  bool WriteFlash(uint16_t address, std::span<const uint8_t> bytes);
+  VerifyResult VerifyFlash(uint16_t address, std::span<const uint8_t> bytes);
 
   bool KeepAlive();
   bool Reset(uint8_t motor_index, bool reboot);
@@ -75,11 +75,11 @@ class EscBootloader {
   bool SendWake();
   bool ReadBootInfo(DeviceInfo &out);
   bool SendCommand(std::span<const uint8_t> cmd);
-  bool SendPayload(std::span<const uint8_t> data);
+  bool SendPayload(std::span<const uint8_t> bytes);
   bool ReadFramed(uint8_t *out, uint16_t len);
   uint8_t ReadAck(uint16_t attempts);
   bool SetAddress(uint16_t address);
-  bool SetBuffer(std::span<const uint8_t> data);
+  bool SetBuffer(std::span<const uint8_t> bytes);
 
   UartSoft *uart_ = nullptr;
   bool initialized_ = false;

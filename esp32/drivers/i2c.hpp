@@ -51,7 +51,7 @@ class I2c {
   bool Probe(uint16_t address) const;
 
   void Transmit(i2c_master_dev_handle_t device,
-                std::span<const uint8_t> data) const;
+                std::span<const uint8_t> bytes) const;
   void MultiBufferTransmit(
       i2c_master_dev_handle_t device,
       std::span<i2c_master_transmit_multi_buffer_info_t> buffers) const;

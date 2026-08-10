@@ -64,7 +64,7 @@ class Programmer {
 
   // Feed bytes and internally advance writing SM.
   // Returns bytes accepted (may be < n for backpressure).
-  size_t PushBytes(std::span<const uint8_t> data, SmTick now);
+  size_t PushBytes(std::span<const uint8_t> bytes, SmTick now);
 
   bool Ready() const;  // handshake done, ready to accept bytes
   bool Done() const;
@@ -171,7 +171,7 @@ class Programmer {
   void NrstPulse(uint32_t pulse_ms);
   bool BeginTargetSession(Ctx &c);
   size_t TargetWriteChunkLimit(const Ctx &c) const;
-  bool WriteTargetChunk(Ctx &c, const uint8_t *data, size_t len);
+  bool WriteTargetChunk(Ctx &c, const uint8_t *bytes, size_t len);
   bool FinalizeTargetWrite(Ctx &c);
   size_t TargetVerifyChunkSize(const Ctx &c) const;
   [[nodiscard]] std::optional<size_t> ReadTargetVerifyChunk(
@@ -179,19 +179,19 @@ class Programmer {
   bool CompleteSuccessfulProgram(Ctx &c);
 
   bool BeginEsp32Ota(Ctx &c);
-  bool WriteEsp32Chunk(Ctx &c, const uint8_t *data, size_t len);
+  bool WriteEsp32Chunk(Ctx &c, const uint8_t *bytes, size_t len);
   bool FinalizeEsp32Ota(Ctx &c);
   bool ActivateEsp32Ota(Ctx &c);
-  bool ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset, uint8_t *data,
+  bool ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset, uint8_t *bytes,
                                size_t len) const;
 
   bool BeginStm32Session(Ctx &c);
   bool EnterStm32Bootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
   bool GetStm32BootloaderInfo();  // CMD_GET (0x00)
   bool EraseStm32Sectors();       // STM32 targeted EXT_ERASE preserving EEPROM
-  bool WriteStm32Block(uint32_t addr, const uint8_t *data,
+  bool WriteStm32Block(uint32_t addr, const uint8_t *bytes,
                        size_t len);  // CMD_WRITE_MEMORY (0x31)
-  bool ReadStm32Block(uint32_t addr, uint8_t *data,
+  bool ReadStm32Block(uint32_t addr, uint8_t *bytes,
                       size_t len);  // CMD_READ_MEMORY (0x11)
   Ctx ctx_{};
   StateMachine<Ctx> sm_{ctx_};

@@ -79,12 +79,12 @@ bool I2c<Inst>::Probe(uint16_t address) const {
 
 template <I2cInstance Inst>
 void I2c<Inst>::Transmit(i2c_master_dev_handle_t device,
-                         std::span<const uint8_t> data) const {
-  if (data.empty()) {
+                         std::span<const uint8_t> bytes) const {
+  if (bytes.empty()) {
     Panic(ErrorCode::Esp32::kI2cInvalidArg);
   }
 
-  if (i2c_master_transmit(device, data.data(), data.size(),
+  if (i2c_master_transmit(device, bytes.data(), bytes.size(),
                           static_cast<int>(cfg_.bus.transfer_timeout_ms)) !=
       ESP_OK) {
     Panic(ErrorCode::Esp32::kI2cOperationFailed);
