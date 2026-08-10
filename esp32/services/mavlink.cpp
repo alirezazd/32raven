@@ -63,7 +63,7 @@ void Mavlink::SetTelemetryLink(bool enabled) {
 
   if (enabled) {
     const uint32_t now_ms = Sys().Timebase().NowMs();
-    InitTxSchedule(cfg_.tx, now_ms, true);
+    InitTxSchedule(now_ms, true);
     next_tx_poll_ms_ = now_ms;
     link_enabled_ = true;
     return;
@@ -72,7 +72,7 @@ void Mavlink::SetTelemetryLink(bool enabled) {
   link_enabled_ = false;
   udp_tx_.pending_param_queue_.Clear();
   udp_tx_.param_stream_ = TxState::ParamStreamIdle{};
-  InitTxSchedule(cfg_.tx, 0);
+  InitTxSchedule(0);
   rc_map_apply_.Reset();
   rc_calibration_apply_.Reset();
   transport_->ClearPeer();

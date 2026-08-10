@@ -437,8 +437,7 @@ class Mavlink {
       rc_calibration_apply_{};
 
   bool ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const;
-  void InitTxSchedule(const Config::Tx &cfg_tx, uint32_t now_ms,
-                      bool force_heartbeat_due = false);
+  void InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due = false);
 
   // Frame builders (only the ELRS-supported set)
   TxFrameState StartHeartbeatFrame(const Config::Tx &cfg_tx, uint32_t now_ms);

@@ -296,10 +296,12 @@ constexpr uint32_t StaggerMs(TxSlot slot) {
 
 }  // namespace
 
-void Mavlink::InitTxSchedule(const Config::Tx &cfg_tx, uint32_t now_ms,
-                             bool force_heartbeat_due) {
+// The offsets come from a ladder solved at compile time against kMavlinkConfig,
+// so this schedules that configuration and no other. It takes no config for
+// that reason: a parameter would suggest the offsets follow whatever is passed.
+void Mavlink::InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due) {
   tx_schedule_.last_hb_done_ms =
-      force_heartbeat_due ? (now_ms - cfg_tx.schedule.hb_deadline_ms) : now_ms;
+      force_heartbeat_due ? (now_ms - cfg_.tx.schedule.hb_deadline_ms) : now_ms;
   tx_schedule_.next_hb_ms = now_ms + StaggerMs(TxSlot::kHb);
   tx_schedule_.next_sys_ms = now_ms + StaggerMs(TxSlot::kSys);
   tx_schedule_.next_gps_ms = now_ms + StaggerMs(TxSlot::kGps);
