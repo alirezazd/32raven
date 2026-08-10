@@ -762,6 +762,24 @@ def _imu_fifo_capacity_records(kconf: kconfiglib.Kconfig) -> int:
     return ICM42688P_FIFO_BYTES // _imu_packet_bytes(kconf)
 
 
+def _whole_hz(value: str, who: str) -> int:
+    """An ODR the arithmetic downstream can actually carry.
+
+    The watermark record count and the fast loop rate are both whole Hz, so a
+    fractional ODR has no integer that is not a lie about it. Parsing to int
+    through float truncated the part's 12.5 Hz setting to 12 and derived every
+    rate from there, 4% adrift with nothing to say so.
+    """
+    hz = float(value)
+    if not hz.is_integer():
+        raise ValueError(
+            f"the {who} ODR of {value} Hz is not a whole number of Hz; the "
+            "FIFO watermark and the fast loop rate are both derived from it "
+            "as integers, so pick 25 Hz or faster"
+        )
+    return int(hz)
+
+
 def _imu_record_rate_hz(kconf: kconfiglib.Kconfig) -> int:
     """Records the FIFO actually fills per second.
 
@@ -771,8 +789,8 @@ def _imu_record_rate_hz(kconf: kconfiglib.Kconfig) -> int:
     drives the control loop follows the real rate, not the label, so anything
     deriving a loop period from the nominal value is off by that ratio.
     """
-    gyro_odr_hz = int(float(choice_value(kconf, GYRO_ODR_HZ)))
-    accel_odr_hz = int(float(choice_value(kconf, ACCEL_ODR_HZ)))
+    gyro_odr_hz = _whole_hz(choice_value(kconf, GYRO_ODR_HZ), "gyro")
+    accel_odr_hz = _whole_hz(choice_value(kconf, ACCEL_ODR_HZ), "accel")
 
     # One FIFO record carries both sensors, so a split ODR leaves the record
     # rate — and therefore the loop rate — undefined by this arithmetic.
@@ -1187,7 +1205,10 @@ def _dshot_tim1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     timer_hz = _timer_clock_hz(hclk // apb2_div, apb2_div)
 
     bit_rate = DSHOT_BIT_RATE_HZ[mode]
-    ticks = round(timer_hz / bit_rate)
+    # Round half up in integers. round() is half-to-even, so a period landing
+    # exactly on .5 would go to the nearer even tick count rather than the
+    # longer one, and float division can only add error to an exact ratio.
+    ticks = (timer_hz + bit_rate // 2) // bit_rate
     if ticks < DSHOT_MIN_PERIOD_TICKS or ticks >= DSHOT_MAX_PERIOD_TICKS:
         raise SystemExit(
             f"{mode} needs a {ticks}-tick bit period at TIM1's "
