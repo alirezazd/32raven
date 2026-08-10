@@ -377,19 +377,6 @@ config ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US
     help
       Clock stretch timeout applied to the panel device.
 
-config ESP32_DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT
-    int "Glitch ignore count"
-    range 0 15
-    default 7
-    help
-      Hardware glitch filter threshold in I2C module clock cycles.
-
-config ESP32_DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP
-    bool "Enable internal pull-up"
-    default y
-    help
-      Enable the ESP32 internal pull-ups on the panel I2C pins.
-
 endmenu
 
 endmenu
@@ -482,12 +469,82 @@ config ESP32_TELEM_UART_TX_BUFFER_SIZE
 
 endmenu
 
+menu "Wifi"
+
+menu "Access Point"
+
+config ESP32_WIFI_AP_SSID
+    string "SSID"
+    default "32Raven"
+    help
+      Wi-Fi SoftAP SSID advertised by the ESP32.
+
+config ESP32_WIFI_AP_PASSWORD
+    string "Password"
+    default "32Raven@1234"
+    help
+      Wi-Fi SoftAP password. Leave empty to run the access point as an open
+      network.
+
+config ESP32_WIFI_AP_CHANNEL
+    int "Channel"
+    range 1 13
+    default 1
+    help
+      Primary 2.4 GHz Wi-Fi channel used by the access point.
+
+config ESP32_WIFI_AP_MAX_CONNECTIONS
+    int "Max connections"
+    range 1 10
+    default 1
+    help
+      Maximum number of stations allowed to associate with the SoftAP. ESP32-C3
+      supports up to 10.
+
+config ESP32_WIFI_AP_BEACON_INTERVAL_TU
+    int "Beacon interval (TU)"
+    range 100 60000
+    default 100
+    help
+      Access point beacon interval in time units. This must be a multiple of
+      100 and follows the ESP-IDF SoftAP limits.
+
+config ESP32_WIFI_AP_HIDDEN
+    bool "Hidden SSID"
+    default n
+    help
+      Do not broadcast the SSID in beacons.
+
+endmenu
+
+menu "Protected Management Frames"
+
+config ESP32_WIFI_PMF_CAPABLE
+    bool "Capable"
+    default y
+    help
+      Advertise PMF capability for the SoftAP.
+
+config ESP32_WIFI_PMF_REQUIRED
+    bool "Required"
+    default n
+    help
+      Require PMF for clients connecting to the SoftAP. This also requires PMF
+      capable to be enabled.
+
+endmenu
+
+endmenu
+
 endmenu
 
 menu "Services"
 
 menu "UI"
 
+# The panel gates the prompt, not the value: the generator emits the UI block
+# unconditionally, and a `depends on` here would withhold the default too,
+# leaving these with no value at all on a tree that has not enabled the panel.
 config ESP32_DISPLAY_MANAGER_FPS_CAP
     int "FPS cap" if ESP32_DISPLAY_PANEL_ENABLE
     range 1 60
@@ -739,91 +796,6 @@ endmenu
 
 menu "Network"
 
-menu "Wifi"
-
-menu "Access Point"
-
-config ESP32_WIFI_AP_SSID
-    string "SSID"
-    default "32Raven"
-    help
-      Wi-Fi SoftAP SSID advertised by the ESP32.
-
-config ESP32_WIFI_AP_PASSWORD
-    string "Password"
-    default "32Raven@1234"
-    help
-      Wi-Fi SoftAP password. Leave empty to run the access point as an open
-      network.
-
-config ESP32_WIFI_AP_CHANNEL
-    int "Channel"
-    range 1 13
-    default 1
-    help
-      Primary 2.4 GHz Wi-Fi channel used by the access point.
-
-config ESP32_WIFI_AP_MAX_CONNECTIONS
-    int "Max connections"
-    range 1 10
-    default 1
-    help
-      Maximum number of stations allowed to associate with the SoftAP. ESP32-C3
-      supports up to 10.
-
-config ESP32_WIFI_AP_BEACON_INTERVAL_TU
-    int "Beacon interval (TU)"
-    range 100 60000
-    default 100
-    help
-      Access point beacon interval in time units. This must be a multiple of
-      100 and follows the ESP-IDF SoftAP limits.
-
-config ESP32_WIFI_AP_HIDDEN
-    bool "Hidden SSID"
-    default n
-    help
-      Do not broadcast the SSID in beacons.
-
-endmenu
-
-menu "Protected Management Frames"
-
-config ESP32_WIFI_PMF_CAPABLE
-    bool "Capable"
-    default y
-    help
-      Advertise PMF capability for the SoftAP.
-
-config ESP32_WIFI_PMF_REQUIRED
-    bool "Required"
-    default n
-    help
-      Require PMF for clients connecting to the SoftAP. This also requires PMF
-      capable to be enabled.
-
-endmenu
-
-choice
-    prompt "Power save"
-    default ESP32_WIFI_POWER_SAVE_NONE
-    help
-      Wi-Fi driver power-save mode applied after starting the SoftAP. The
-      current known-good setting is no power save.
-
-config ESP32_WIFI_POWER_SAVE_NONE
-    bool "None"
-
-config ESP32_WIFI_POWER_SAVE_MIN_MODEM
-    bool "Minimum modem"
-
-config ESP32_WIFI_POWER_SAVE_MAX_MODEM
-    bool "Maximum modem"
-
-endchoice
-
-endmenu
-
 menu "TCP Server"
 
 config ESP32_TCP_SERVER_CTRL_PORT
@@ -839,20 +811,6 @@ config ESP32_TCP_SERVER_DATA_PORT
     default 9001
     help
       TCP port used for binary data streaming and programming payloads.
-
-config ESP32_TCP_SERVER_BACKLOG
-    int "Listen backlog"
-    range 1 8
-    default 1
-    help
-      Maximum number of pending connection requests queued per listening
-      socket.
-
-config ESP32_TCP_SERVER_NONBLOCKING
-    bool "Non-blocking sockets"
-    default y
-    help
-      Use non-blocking listening and client sockets.
 
 menu "Keepalive"
 

@@ -147,8 +147,11 @@ DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS = 1
 DISPLAY_PANEL_I2C_TIMEOUT_MAX_MS = 1000
 DISPLAY_PANEL_I2C_SCL_WAIT_MIN_US = 0
 DISPLAY_PANEL_I2C_SCL_WAIT_MAX_US = 200000
-DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT_MIN = 0
-DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT_MAX = 15
+# ESP-IDF's own default filter width. The panel shares a short board trace with
+# nothing else on the bus, so there is no glitch to tune this against.
+DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT = 7
+# The panel module brings no pull-ups of its own.
+DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP = True
 DISPLAY_PANEL_SETTLE_TIME_MIN_MS = 0
 DISPLAY_PANEL_SETTLE_TIME_MAX_MS = 1000
 DISPLAY_MANAGER_FPS_CAP_MIN = 1
@@ -161,8 +164,14 @@ TONE_PLAYER_VOLUME_MIN = 0
 TONE_PLAYER_VOLUME_MAX = 10
 TCP_SERVER_PORT_MIN = 1
 TCP_SERVER_PORT_MAX = 65535
-TCP_SERVER_BACKLOG_MIN = 1
-TCP_SERVER_BACKLOG_MAX = 8
+# One control client and one data client, and the accept paths close anything
+# past those on the spot -- so a deeper queue holds connections that can only be
+# accepted and dropped.
+TCP_SERVER_BACKLOG = 1
+# Accept and receive are polled from the state machine every tick. A blocking
+# socket would park that loop inside accept() until a client turned up, which
+# stops the panel, the buttons and the link along with it.
+TCP_SERVER_NONBLOCKING = True
 TCP_SERVER_KEEPALIVE_IDLE_MIN_S = 0
 TCP_SERVER_KEEPALIVE_IDLE_MAX_S = 3600
 TCP_SERVER_KEEPALIVE_INTERVAL_MIN_S = 1
@@ -198,11 +207,9 @@ TELEM_UART_BAUD_RATE_CHOICES = {
     "ESP32_TELEM_UART_BAUD_460800": "460800",
 }
 
-WIFI_POWER_SAVE_CHOICES = {
-    "ESP32_WIFI_POWER_SAVE_NONE": "WIFI_PS_NONE",
-    "ESP32_WIFI_POWER_SAVE_MIN_MODEM": "WIFI_PS_MIN_MODEM",
-    "ESP32_WIFI_POWER_SAVE_MAX_MODEM": "WIFI_PS_MAX_MODEM",
-}
+# Power save is a station-mode behaviour: a SoftAP has to stay awake to beacon,
+# and this part never runs as a station.
+WIFI_POWER_SAVE = "WIFI_PS_NONE"
 
 UI_TRANSITION_SPEED_CHOICES = {
     "ESP32_WIDGET_UI_TRANSITION_SPEED_1X": "1",
@@ -355,13 +362,11 @@ _INT_RANGES: tuple[tuple[str, int, int], ...] = (
     ("ESP32_DISPLAY_PANEL_I2C_CLOCK_HZ", DISPLAY_PANEL_I2C_CLOCK_MIN_HZ, DISPLAY_PANEL_I2C_CLOCK_MAX_HZ),
     ("ESP32_DISPLAY_PANEL_I2C_TIMEOUT_MS", DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS, DISPLAY_PANEL_I2C_TIMEOUT_MAX_MS),
     ("ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US", DISPLAY_PANEL_I2C_SCL_WAIT_MIN_US, DISPLAY_PANEL_I2C_SCL_WAIT_MAX_US),
-    ("ESP32_DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT", DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT_MIN, DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT_MAX),
     ("ESP32_DISPLAY_PANEL_SETTLE_TIME_MS", DISPLAY_PANEL_SETTLE_TIME_MIN_MS, DISPLAY_PANEL_SETTLE_TIME_MAX_MS),
     ("ESP32_DISPLAY_MANAGER_FPS_CAP", DISPLAY_MANAGER_FPS_CAP_MIN, DISPLAY_MANAGER_FPS_CAP_MAX),
     ("ESP32_TONE_PLAYER_VOLUME", TONE_PLAYER_VOLUME_MIN, TONE_PLAYER_VOLUME_MAX),
     ("ESP32_TCP_SERVER_CTRL_PORT", TCP_SERVER_PORT_MIN, TCP_SERVER_PORT_MAX),
     ("ESP32_TCP_SERVER_DATA_PORT", TCP_SERVER_PORT_MIN, TCP_SERVER_PORT_MAX),
-    ("ESP32_TCP_SERVER_BACKLOG", TCP_SERVER_BACKLOG_MIN, TCP_SERVER_BACKLOG_MAX),
     ("ESP32_TCP_SERVER_KEEPALIVE_IDLE_S", TCP_SERVER_KEEPALIVE_IDLE_MIN_S, TCP_SERVER_KEEPALIVE_IDLE_MAX_S),
     ("ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S", TCP_SERVER_KEEPALIVE_INTERVAL_MIN_S, TCP_SERVER_KEEPALIVE_INTERVAL_MAX_S),
     ("ESP32_TCP_SERVER_KEEPALIVE_COUNT", TCP_SERVER_KEEPALIVE_COUNT_MIN, TCP_SERVER_KEEPALIVE_COUNT_MAX),
@@ -549,13 +554,9 @@ def _button_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _display_i2c_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "glitch_ignore_cnt": sym_int(
-            kconf, "ESP32_DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT"
-        ),
+        "glitch_ignore_cnt": DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT,
         "xfer_timeout_ms": sym_int(kconf, "ESP32_DISPLAY_PANEL_I2C_TIMEOUT_MS"),
-        "enable_internal_pullup": sym_bool(
-            kconf, "ESP32_DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP"
-        ),
+        "enable_internal_pullup": DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP,
     }
 
 
@@ -584,8 +585,8 @@ def _tcp_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "ctrl_port": sym_int(kconf, "ESP32_TCP_SERVER_CTRL_PORT"),
         "data_port": sym_int(kconf, "ESP32_TCP_SERVER_DATA_PORT"),
-        "backlog": sym_int(kconf, "ESP32_TCP_SERVER_BACKLOG"),
-        "nonblocking": sym_bool(kconf, "ESP32_TCP_SERVER_NONBLOCKING"),
+        "backlog": TCP_SERVER_BACKLOG,
+        "nonblocking": TCP_SERVER_NONBLOCKING,
         "keepalive_idle_s": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_IDLE_S"),
         "keepalive_intvl_s": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S"),
         "keepalive_cnt": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_COUNT"),
@@ -670,7 +671,7 @@ def _wifi_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "capable": sym_bool(kconf, "ESP32_WIFI_PMF_CAPABLE"),
             "required": sym_bool(kconf, "ESP32_WIFI_PMF_REQUIRED"),
         },
-        "power_save": choice_value(kconf, WIFI_POWER_SAVE_CHOICES),
+        "power_save": WIFI_POWER_SAVE,
     }
 
 
