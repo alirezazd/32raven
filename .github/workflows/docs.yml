@@ -9,9 +9,23 @@ name: Docs
 # firmware toolchain is installed — keeps this job fast and independent of the
 # firmware build.
 
+# Both triggers carry the same filter. A firmware-only push cannot change a
+# page -- the handbook transcludes only from docs/ -- so rebuilding and
+# republishing the site for one is waste. config/Kconfig has to stay in the
+# list even though it renders nothing: check_docs.py validates every CONFIG_
+# citation against it, which is what catches a renamed symbol quoted in a
+# build guide. GitHub Actions does not expand YAML anchors, hence the copy.
 on:
   push:
     branches: [ master ]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'config/Kconfig'
+      - 'scripts/lint/check_docs.py'
+      - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'docs/**'
@@ -22,10 +36,6 @@ on:
       - 'scripts/lint/check_docs.py'
       - '.github/workflows/docs.yml'
 
-concurrency:
-  group: docs-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -34,6 +44,11 @@ jobs:
     name: Build handbook (strict)
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    # Superseding a build is free; superseding a deploy is not, so the two
+    # carry separate groups rather than one workflow-level one.
+    concurrency:
+      group: docs-build-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v7
         with:
@@ -66,6 +81,11 @@ jobs:
     if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
+    # Never cancelled: a half-applied Pages deployment leaves the environment
+    # describing a commit it did not publish. A superseded run waits instead.
+    concurrency:
+      group: docs-deploy-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
