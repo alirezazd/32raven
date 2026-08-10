@@ -2022,31 +2022,33 @@ config STM32_IMU_GYRO_AAF_DISABLE
       vibration above Nyquist (ODR/2) fold back into the gyro band. Keep
       enabled unless you have a specific reason.
 
-config STM32_IMU_GYRO_AAF_DELT
-    int "Gyro AAF DELT"
-    range 0 63
-    default 13
+choice
+    prompt "Gyro AAF cutoff"
+    default STM32_IMU_GYRO_AAF_585HZ
     help
-      Raw DELT field (bits[5:0] of GYRO_CONFIG_STATIC3). DELT=13 →
-      585 Hz cutoff at ODR=8 kHz (PX4 reference). For lowest-lag,
-      Betaflight LOW_LATENCY: DELT=21 (997 Hz).
+      Anti-alias filter corner for the gyro. The three registers behind it
+      (DELT, DELT_SQR, BITSHIFT) are a tabulated triple from datasheet
+      section 5.3, not a formula, so the build writes the whole row rather
+      than letting the three be set apart. Lower is quieter, higher is
+      lower latency; Betaflight's default is 258 Hz and its LOW_LATENCY
+      preset is 997 Hz.
 
-config STM32_IMU_GYRO_AAF_DELT_SQR
-    int "Gyro AAF DELT_SQR"
-    range 0 4095
-    default 170
-    help
-      Raw DELT_SQR field (12-bit, packed across GYRO_CONFIG_STATIC4 LSB +
-      STATIC5 high nibble). DELT_SQR = DELT^2 per datasheet table.
+config STM32_IMU_GYRO_AAF_258HZ
+    bool "258 Hz"
 
-config STM32_IMU_GYRO_AAF_BITSHIFT
-    int "Gyro AAF BITSHIFT"
-    range 0 15
-    default 8
-    help
-      Raw BITSHIFT field (bits[7:4] of GYRO_CONFIG_STATIC5). See
-      datasheet table for the (DELT, DELT_SQR, BITSHIFT) triple
-      mapping to the target cutoff.
+config STM32_IMU_GYRO_AAF_536HZ
+    bool "536 Hz"
+
+config STM32_IMU_GYRO_AAF_585HZ
+    bool "585 Hz"
+
+config STM32_IMU_GYRO_AAF_997HZ
+    bool "997 Hz"
+
+config STM32_IMU_GYRO_AAF_1962HZ
+    bool "1962 Hz"
+
+endchoice
 
 config STM32_IMU_ACCEL_AAF_DISABLE
     bool "Disable accel AAF"
@@ -2055,28 +2057,30 @@ config STM32_IMU_ACCEL_AAF_DISABLE
       Disable the accelerometer analog-path anti-alias filter. Default OFF
       — same reasoning as the gyro AAF.
 
-config STM32_IMU_ACCEL_AAF_DELT
-    int "Accel AAF DELT"
-    range 0 63
-    default 13
+choice
+    prompt "Accel AAF cutoff"
+    default STM32_IMU_ACCEL_AAF_585HZ
     help
-      Raw DELT field (bits[6:1] of ACCEL_CONFIG_STATIC2). DELT=13 →
-      585 Hz cutoff at ODR=8 kHz (PX4 reference).
+      Anti-alias filter corner for the accelerometer, from the same
+      datasheet table as the gyro's. Betaflight pins the accel to 258 Hz
+      regardless of the gyro setting.
 
-config STM32_IMU_ACCEL_AAF_DELT_SQR
-    int "Accel AAF DELT_SQR"
-    range 0 4095
-    default 170
-    help
-      Raw DELT_SQR field (12-bit, packed across ACCEL_CONFIG_STATIC3 LSB +
-      STATIC4 high nibble). DELT_SQR = DELT^2 per datasheet table.
+config STM32_IMU_ACCEL_AAF_258HZ
+    bool "258 Hz"
 
-config STM32_IMU_ACCEL_AAF_BITSHIFT
-    int "Accel AAF BITSHIFT"
-    range 0 15
-    default 8
-    help
-      Raw BITSHIFT field (bits[7:4] of ACCEL_CONFIG_STATIC4).
+config STM32_IMU_ACCEL_AAF_536HZ
+    bool "536 Hz"
+
+config STM32_IMU_ACCEL_AAF_585HZ
+    bool "585 Hz"
+
+config STM32_IMU_ACCEL_AAF_997HZ
+    bool "997 Hz"
+
+config STM32_IMU_ACCEL_AAF_1962HZ
+    bool "1962 Hz"
+
+endchoice
 
 endmenu
 
@@ -3338,14 +3342,16 @@ config STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI
       Per-axis torque output magnitude limit, scaled by 1000 (1000 = 1.0).
       Matches the mixer's torque input range. Applies to all three axes.
 
-config STM32_RATE_CTRL_DLPF_ALPHA_MILLI
-    int "D-term LPF alpha (x1000)"
-    range 1 1000
-    default 1000
+config STM32_RATE_CTRL_DLPF_CUTOFF_HZ
+    int "D-term LPF cutoff (Hz)"
+    range 0 4000
+    default 0
     help
-      First-order IIR coefficient on the D path, scaled by 1000. 1000 = no
-      filtering; smaller values smooth out gyro noise on the derivative
-      term at the cost of phase lag. Applies to all three axes.
+      Corner frequency of the first-order IIR on the D path. 0 disables
+      filtering. Lower smooths gyro noise on the derivative term at the
+      cost of phase lag. Applies to all three axes. The IIR coefficient is
+      derived from this and the fast loop rate, so the corner stays put
+      when the loop rate changes rather than moving with it.
 
 config STM32_RATE_CTRL_ROLL_KP_MILLI
     int "Roll Kp (x1000)"
@@ -3384,15 +3390,16 @@ config STM32_RATE_CTRL_ROLL_SP_RATE_LIMIT
       Default 100 rad/s^2 takes ~60 ms to traverse the full +-6 rad/s
       stick range.
 
-config STM32_RATE_CTRL_ROLL_SP_LPF_ALPHA_MILLI
-    int "Roll setpoint LPF alpha (x1000)"
-    range 1 1000
-    default 300
+config STM32_RATE_CTRL_ROLL_SP_LPF_CUTOFF_HZ
+    int "Roll setpoint LPF cutoff (Hz)"
+    range 0 4000
+    default 70
     help
-      First-order IIR coefficient applied to the roll-rate setpoint
-      after slew limiting, scaled by 1000. 1000 disables filtering.
-      Only consulted when smoothing is on. Default 300 corresponds to
-      ~53 Hz cutoff at the 1 kHz fast tick.
+      Corner frequency of the first-order IIR applied to the roll-rate
+      setpoint after slew limiting. 0 disables filtering, and it is only
+      consulted when smoothing is on. The coefficient is derived from this
+      and the fast loop rate, so the corner stays where it was put instead
+      of moving with the loop.
 
 config STM32_RATE_CTRL_PITCH_KP_MILLI
     int "Pitch Kp (x1000)"
@@ -3423,13 +3430,13 @@ config STM32_RATE_CTRL_PITCH_SP_RATE_LIMIT
       Slew-rate cap on the pitch-rate setpoint, in rad/s^2. See the
       roll equivalent for details.
 
-config STM32_RATE_CTRL_PITCH_SP_LPF_ALPHA_MILLI
-    int "Pitch setpoint LPF alpha (x1000)"
-    range 1 1000
-    default 300
+config STM32_RATE_CTRL_PITCH_SP_LPF_CUTOFF_HZ
+    int "Pitch setpoint LPF cutoff (Hz)"
+    range 0 4000
+    default 70
     help
-      First-order IIR coefficient on the pitch-rate setpoint, scaled
-      by 1000. See the roll equivalent for details.
+      Corner frequency of the first-order IIR on the pitch-rate setpoint.
+      See the roll equivalent for details.
 
 config STM32_RATE_CTRL_YAW_KP_MILLI
     int "Yaw Kp (x1000)"
@@ -3463,13 +3470,13 @@ config STM32_RATE_CTRL_YAW_SP_RATE_LIMIT
       Slew-rate cap on the yaw-rate setpoint, in rad/s^2. See the roll
       equivalent for details.
 
-config STM32_RATE_CTRL_YAW_SP_LPF_ALPHA_MILLI
-    int "Yaw setpoint LPF alpha (x1000)"
-    range 1 1000
-    default 300
+config STM32_RATE_CTRL_YAW_SP_LPF_CUTOFF_HZ
+    int "Yaw setpoint LPF cutoff (Hz)"
+    range 0 4000
+    default 70
     help
-      First-order IIR coefficient on the yaw-rate setpoint, scaled by
-      1000. See the roll equivalent for details.
+      Corner frequency of the first-order IIR on the yaw-rate setpoint.
+      See the roll equivalent for details.
 
 config STM32_RATE_CTRL_ITERM_FREEZE_BELOW_THROTTLE_MILLI
     int "Freeze integrators when pilot throttle below (x1000)"
@@ -3498,17 +3505,16 @@ config STM32_RATE_CTRL_I_FACTOR_ERROR_THRESH_MILLI
       transient error accumulates a huge I-term. Applied uniformly to
       all three axes. Set to 0 to disable.
 
-config STM32_RATE_CTRL_YAW_OUTPUT_LPF_ALPHA_MILLI
-    int "Yaw torque output LPF alpha (x1000)"
-    range 1 1000
-    default 800
+config STM32_RATE_CTRL_YAW_OUTPUT_LPF_CUTOFF_HZ
+    int "Yaw torque output LPF cutoff (Hz)"
+    range 0 4000
+    default 650
     help
-      First-order IIR coefficient on the yaw torque output (post-PID,
-      pre-mixer), scaled by 1000 (800 = 0.8, 1000 = no filtering).
-      Smaller = more aggressive smoothing; suppresses high-frequency
-      torque transients from rotor acceleration on the weak yaw axis.
-      PX4 equivalent: `_output_lpf_yaw`. Roll/pitch outputs are
-      unfiltered (no equivalent option).
+      Corner frequency of the first-order IIR on the yaw torque output
+      (post-PID, pre-mixer). 0 disables filtering. Lower is more
+      aggressive smoothing; suppresses high-frequency torque transients
+      from rotor acceleration on the weak yaw axis. PX4 equivalent:
+      `_output_lpf_yaw`. Roll/pitch outputs are unfiltered.
 
 endmenu
 

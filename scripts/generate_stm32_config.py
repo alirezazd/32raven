@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import math
 import pathlib
 import sys
 from dataclasses import dataclass
@@ -71,6 +72,22 @@ USB_STRING_DESCRIPTOR_MAX_BYTES = 255
 SPI_PRESCALER_DIVISORS = (2, 4, 8, 16, 32, 64, 128, 256)
 # Twin of Icm42688p::kMaxSckHz; also the ceiling on STM32_IMU_SPI_MAX_SCK_HZ.
 ICM42688P_MAX_SCK_HZ = 24_000_000
+
+# ICM-42688P anti-alias filter, datasheet section 5.3. The three register
+# fields are a tabulated triple, not a formula -- DELT_SQR is 170 where DELT is
+# 13 and 440 where DELT is 21, neither of which is DELT squared -- so the row
+# is written whole rather than letting the three be configured apart. The
+# 585 Hz row is cited from PX4's InvenSense_ICM42688P_registers.hpp, the rest
+# from Betaflight's aafLUT42688.
+AAF_TRIPLES = {
+    "258": (6, 36, 10),
+    "536": (12, 144, 8),
+    "585": (13, 170, 8),
+    "997": (21, 440, 6),
+    "1962": (37, 1376, 4),
+}
+GYRO_AAF_CHOICES = {f"STM32_IMU_GYRO_AAF_{hz}HZ": hz for hz in AAF_TRIPLES}
+ACCEL_AAF_CHOICES = {f"STM32_IMU_ACCEL_AAF_{hz}HZ": hz for hz in AAF_TRIPLES}
 
 # ADC_CCR.ADCPRE selects these dividers of PCLK2, and RM0090 Table 67 caps
 # ADCCLK at 36 MHz. The field value is the index of its divider here, so an
@@ -760,6 +777,12 @@ def _imu_fifo_capacity_records(kconf: kconfiglib.Kconfig) -> int:
     field, and simply never fires -- taking the fast loop with it.
     """
     return ICM42688P_FIFO_BYTES // _imu_packet_bytes(kconf)
+
+
+def _aaf_fields(cutoff_hz: str) -> dict[str, int]:
+    """The register row for an AAF corner, as three named fields."""
+    delt, delt_sqr, bitshift = AAF_TRIPLES[cutoff_hz]
+    return {"delt": delt, "delt_sqr": delt_sqr, "bitshift": bitshift}
 
 
 def _whole_hz(value: str, who: str) -> int:
@@ -1486,8 +1509,24 @@ def _multirotor_mixer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _iir_alpha(cutoff_hz: int, sample_hz: int) -> float:
+    """First-order IIR coefficient for a corner frequency, at the sample rate.
+
+    alpha is a function of the sample period, so storing alpha instead of the
+    corner pins the coefficient and lets the corner move: the same 0.1 that
+    filters at 18 Hz on a 1024 Hz loop filters at 36 Hz on a 2048 Hz one, with
+    nothing in the configuration to say the filter changed. 0 means no filter.
+    """
+    if cutoff_hz == 0:
+        return 1.0
+    period_s = 1.0 / sample_hz
+    return period_s / (period_s + 1.0 / (2.0 * math.pi * cutoff_hz))
+
+
 def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    def axis_gains(axis: str) -> dict[str, int]:
+    loop_hz = _fast_loop_hz(kconf)
+
+    def axis_gains(axis: str) -> dict[str, object]:
         return {
             "kp_milli": sym_int(kconf, f"STM32_RATE_CTRL_{axis}_KP_MILLI"),
             "ki_milli": sym_int(kconf, f"STM32_RATE_CTRL_{axis}_KI_MILLI"),
@@ -1495,8 +1534,8 @@ def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "sp_rate_limit": sym_int(
                 kconf, f"STM32_RATE_CTRL_{axis}_SP_RATE_LIMIT"
             ),
-            "sp_lpf_alpha_milli": sym_int(
-                kconf, f"STM32_RATE_CTRL_{axis}_SP_LPF_ALPHA_MILLI"
+            "sp_lpf_alpha": _iir_alpha(
+                sym_int(kconf, f"STM32_RATE_CTRL_{axis}_SP_LPF_CUTOFF_HZ"), loop_hz
             ),
         }
 
@@ -1506,15 +1545,17 @@ def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             kconf, "STM32_RATE_CTRL_INTEGRATOR_CLAMP_MILLI"
         ),
         "output_clamp_milli": sym_int(kconf, "STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI"),
-        "d_term_lpf_alpha_milli": sym_int(kconf, "STM32_RATE_CTRL_DLPF_ALPHA_MILLI"),
+        "d_term_lpf_alpha": _iir_alpha(
+            sym_int(kconf, "STM32_RATE_CTRL_DLPF_CUTOFF_HZ"), loop_hz
+        ),
         "iterm_freeze_below_throttle_milli": sym_int(
             kconf, "STM32_RATE_CTRL_ITERM_FREEZE_BELOW_THROTTLE_MILLI"
         ),
         "i_factor_error_thresh_milli": sym_int(
             kconf, "STM32_RATE_CTRL_I_FACTOR_ERROR_THRESH_MILLI"
         ),
-        "yaw_output_lpf_alpha_milli": sym_int(
-            kconf, "STM32_RATE_CTRL_YAW_OUTPUT_LPF_ALPHA_MILLI"
+        "yaw_output_lpf_alpha": _iir_alpha(
+            sym_int(kconf, "STM32_RATE_CTRL_YAW_OUTPUT_LPF_CUTOFF_HZ"), loop_hz
         ),
         "roll": axis_gains("ROLL"),
         "pitch": axis_gains("PITCH"),
@@ -1681,15 +1722,11 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         },
         "gyro_aaf": {
             "dis": sym_bool(kconf, "STM32_IMU_GYRO_AAF_DISABLE"),
-            "delt": sym_int(kconf, "STM32_IMU_GYRO_AAF_DELT"),
-            "delt_sqr": sym_int(kconf, "STM32_IMU_GYRO_AAF_DELT_SQR"),
-            "bitshift": sym_int(kconf, "STM32_IMU_GYRO_AAF_BITSHIFT"),
+            **_aaf_fields(choice_value(kconf, GYRO_AAF_CHOICES)),
         },
         "accel_aaf": {
             "dis": sym_bool(kconf, "STM32_IMU_ACCEL_AAF_DISABLE"),
-            "delt": sym_int(kconf, "STM32_IMU_ACCEL_AAF_DELT"),
-            "delt_sqr": sym_int(kconf, "STM32_IMU_ACCEL_AAF_DELT_SQR"),
-            "bitshift": sym_int(kconf, "STM32_IMU_ACCEL_AAF_BITSHIFT"),
+            **_aaf_fields(choice_value(kconf, ACCEL_AAF_CHOICES)),
         },
         "fifo": {
             "watermark_records": _imu_watermark_records(kconf),

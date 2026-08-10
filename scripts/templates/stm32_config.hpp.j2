@@ -416,13 +416,13 @@ inline constexpr RateController::Config kRateControllerConfig = {
         },
         .smoother = {
             .rate_limit = static_cast<float>({{ axis.sp_rate_limit }}),
-            .lpf_alpha = {{ axis.sp_lpf_alpha_milli }} * 0.001f,
+            .lpf_alpha = {{ '%.6f' | format(axis.sp_lpf_alpha) }}f,
         },
-        .d_term_lpf_alpha = {{ rate_controller.d_term_lpf_alpha_milli }} * 0.001f,
+        .d_term_lpf_alpha = {{ '%.6f' | format(rate_controller.d_term_lpf_alpha) }}f,
     },
 {% endfor %}
     .iterm_freeze_below_throttle = {{ rate_controller.iterm_freeze_below_throttle_milli }} * 0.001f,
-    .yaw_output_lpf_alpha = {{ rate_controller.yaw_output_lpf_alpha_milli }} * 0.001f,
+    .yaw_output_lpf_alpha = {{ '%.6f' | format(rate_controller.yaw_output_lpf_alpha) }}f,
 };
 
 {# Mahony complementary-filter gains for the AHRS. All six knobs are
