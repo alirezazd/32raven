@@ -41,7 +41,7 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 # emitted by generate_stm32_config.py from PINMAP_ENTRIES. Hand-edited pin
 # entries no longer exist — adding a new pin means adding to PINMAP_ENTRIES
 # and a Kconfig knob, never editing this file's parsed source list.
-STM32_CONFIG_HPP = REPO_ROOT / "stm32" / "Drivers" / "Inc" / "stm32_config.hpp"
+STM32_CONFIG_HPP = REPO_ROOT / "stm32" / "Drivers" / "stm32_config.hpp"
 DECL_SOURCES = (STM32_CONFIG_HPP,)
 SEARCH_DIRS = [
     REPO_ROOT / "stm32" / "Core",

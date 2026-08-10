@@ -19,7 +19,7 @@ repos:
       # just re-dirty what we fixed. The Search Console token is served back
       # byte-for-byte, so a newline appended to it fails verification.
       - id: end-of-file-fixer
-        exclude: &not_ours '^(third_party/.*|stm32/lib/CMSIS_F4xx/.*|stm32/Core/(Src|Inc)/(system_)?stm32f4xx.*|docs/google[0-9a-f]+\.html|config/32raven\.config|.*_(config|limits)\.hpp)$'
+        exclude: &not_ours '^(third_party/.*|stm32/lib/CMSIS_F4xx/.*|stm32/Core/(system_)?stm32f4xx.*|docs/google[0-9a-f]+\.html|config/32raven\.config|.*_(config|limits)\.hpp)$'
       - id: trailing-whitespace
         # Source only. In a .patch or a fixture, trailing space is content.
         files: '\.(c|h|cpp|hpp|py|j2|md|ya?ml)$'

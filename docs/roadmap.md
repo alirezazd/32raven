@@ -126,7 +126,7 @@ to settle three things together:
 
 ### #9 — Share the FcLink frame parser — 🧊 DEFERRED
 
-The byte-at-a-time receive state machine exists twice, in `stm32/Services/Src/fc_link.cpp` and
+The byte-at-a-time receive state machine exists twice, in `stm32/Services/fc_link.cpp` and
 `esp32/services/fc_link.cpp` — same seven states, same transitions, same field accumulation,
 plus an `RxState` enum and an `rx_pkt_internal_` struct declared identically in both headers.
 

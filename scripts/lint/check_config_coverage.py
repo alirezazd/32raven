@@ -39,7 +39,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 # Generated headers and the build whose flags parse them.
 TARGETS = (
     ("esp32/main/esp32_config.hpp", "build/Ninja/esp32/compile_commands.json"),
-    ("stm32/Drivers/Inc/stm32_config.hpp", "build/Ninja/stm32/compile_commands.json"),
+    ("stm32/Drivers/stm32_config.hpp", "build/Ninja/stm32/compile_commands.json"),
 )
 
 MAX_DEPTH = 6

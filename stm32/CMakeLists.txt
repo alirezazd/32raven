@@ -63,11 +63,11 @@ set(STM32_EE_SCHEMA_GENERATOR
 set(STM32_EE_SCHEMA_TEMPLATE
     "${STM32_CONFIG_TEMPLATE_DIR}/ee_schema.hpp.j2")
 set(STM32_RUNTIME_CONFIG_HPP
-    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Inc/stm32_config.hpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/stm32_config.hpp")
 set(STM32_LIMITS_HPP
-    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Inc/stm32_limits.hpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/stm32_limits.hpp")
 set(STM32_EE_SCHEMA_HPP
-    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/Inc/ee_schema.hpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/Drivers/ee_schema.hpp")
 
 # Validate the freshly-generated stm32_config.hpp against ST's silicon pin /
 # AF data as part of header generation. Catches typo'd alternate functions,
@@ -132,47 +132,47 @@ add_subdirectory(cmake/stm32cubemx)
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
-    Core/Src/stm32f4xx_it.c
-    Core/Src/syscalls.c
-    Core/Src/sysmem.c
-    Core/Src/main.cpp
-    Core/Src/system.cpp
-    Drivers/Src/rcc.cpp
-    Drivers/Src/gpio.cpp
-    Drivers/Src/time_base.cpp
-    Drivers/Src/led.cpp
-    Drivers/Src/battery.cpp
-    Drivers/Src/esc_telemetry.cpp
+    Core/stm32f4xx_it.c
+    Core/syscalls.c
+    Core/sysmem.c
+    Core/main.cpp
+    Core/system.cpp
+    Drivers/rcc.cpp
+    Drivers/gpio.cpp
+    Drivers/time_base.cpp
+    Drivers/led.cpp
+    Drivers/battery.cpp
+    Drivers/esc_telemetry.cpp
 
-    Drivers/Src/dshot_tim1.cpp
-    Drivers/Src/spi.cpp
-    Drivers/Src/button.cpp
-    Drivers/Src/uart.cpp
-    Drivers/Src/uart_soft.cpp
-    Drivers/Src/usb_cdc.cpp
-    Drivers/Src/m10.cpp
-    Drivers/Src/icm42688p.cpp
-    Drivers/Src/rc_receiver.cpp
-    Drivers/Src/ee.cpp
-    Core/Src/printf_impl.cpp
-    Core/Src/cxa_atexit_stub.cpp
-    Core/Src/states.cpp
-    Services/Src/m10_service.cpp
-    Services/Src/crsf_link_service.cpp
-    Services/Src/config_storage.cpp
-    Services/Src/dshot_codec.cpp
-    Services/Src/esc_service.cpp
-    Services/Src/msp_service.cpp
-    Services/Src/four_way_service.cpp
-    Services/Src/esc_bootloader.cpp
-    Services/Src/stat_publisher.cpp
-    Services/Src/fc_link.cpp
-    Services/Src/command_handler.cpp
-    Core/Src/panic.cpp
-    Services/Src/multirotor_mixer.cpp
-    Services/Src/ahrs.cpp
-    Services/Src/rate_controller.cpp
-    Services/Src/attitude_controller.cpp
+    Drivers/dshot_tim1.cpp
+    Drivers/spi.cpp
+    Drivers/button.cpp
+    Drivers/uart.cpp
+    Drivers/uart_soft.cpp
+    Drivers/usb_cdc.cpp
+    Drivers/m10.cpp
+    Drivers/icm42688p.cpp
+    Drivers/rc_receiver.cpp
+    Drivers/ee.cpp
+    Core/printf_impl.cpp
+    Core/cxa_atexit_stub.cpp
+    Core/states.cpp
+    Services/m10_service.cpp
+    Services/crsf_link_service.cpp
+    Services/config_storage.cpp
+    Services/dshot_codec.cpp
+    Services/esc_service.cpp
+    Services/msp_service.cpp
+    Services/four_way_service.cpp
+    Services/esc_bootloader.cpp
+    Services/stat_publisher.cpp
+    Services/fc_link.cpp
+    Services/command_handler.cpp
+    Core/panic.cpp
+    Services/multirotor_mixer.cpp
+    Services/ahrs.cpp
+    Services/rate_controller.cpp
+    Services/attitude_controller.cpp
     ../libs/src/error_code.cpp
 )
 
@@ -183,9 +183,9 @@ add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
-    Drivers/Inc
-    Core/Inc
-    Services/Inc
+    Drivers
+    Core
+    Services
     lib
     ../libs/inc
 )
@@ -233,7 +233,7 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -Wl,--gc-sections
     # Route vsnprintf / snprintf through nanoprintf
-    # (stm32/Core/Src/printf_impl.cpp). newlib's nano-svfprintf
+    # (stm32/Core/printf_impl.cpp). newlib's nano-svfprintf
     # pulled in _malloc_r / _free_r / _sbrk for unbounded conversions;
     # nanoprintf is allocation-free, so those symbols leave the binary
     # entirely once the linker stops needing newlib's printf object.
@@ -246,7 +246,7 @@ target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
 # so it internalizes those wrappers as "uncalled" and the references dangle.
 # Compiling this one tiny TU without LTO leaves the __wrap_* symbols as real,
 # linker-visible symbols. (No LTO loss — it's just the nanoprintf shim.)
-set_source_files_properties(Core/Src/printf_impl.cpp PROPERTIES
+set_source_files_properties(Core/printf_impl.cpp PROPERTIES
     COMPILE_OPTIONS "-fno-lto")
 
 # Remove wrong libob.a library dependency when using cpp files

@@ -301,7 +301,7 @@ DSHOT_TIM1_MODE_CHOICES = {
 }
 
 # ---- System clock choice maps --------------------------------------------
-# The Rcc enum classes are hand-written in stm32/Drivers/Inc/rcc.hpp
+# The Rcc enum classes are hand-written in stm32/Drivers/rcc.hpp
 # (matching the SPI / UART pattern: enum values are HAL register bits, so the
 # C++ side can `static_cast` straight into the HAL init structs). These dicts
 # only carry the Kconfig-symbol -> C++-enum-value mapping the generator needs

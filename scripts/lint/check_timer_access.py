@@ -25,12 +25,12 @@ REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 # Each entry needs a reason, because "it was easier" is not one.
 ALLOWED = {
     # Owns the timer.
-    "stm32/Drivers/Src/time_base.cpp",
-    "stm32/Drivers/Inc/time_base.hpp",
+    "stm32/Drivers/time_base.cpp",
+    "stm32/Drivers/time_base.hpp",
     # Runs after a fault, when System may be the thing that faulted.
-    "stm32/Core/Src/panic.cpp",
+    "stm32/Core/panic.cpp",
     # Bit-banged UART: several reads per bit with interrupts masked.
-    "stm32/Drivers/Src/uart_soft.cpp",
+    "stm32/Drivers/uart_soft.cpp",
 }
 
 PATTERN = re.compile(r"\bTIM2\s*->\s*CNT\b")

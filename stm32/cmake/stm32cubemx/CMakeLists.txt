@@ -9,7 +9,7 @@ set(MX_Defines_Syms
 
 # STM32CubeMX generated include paths
 set(MX_Include_Dirs
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core
 )
 
 # Vendored CMSIS — included SYSTEM so the compiler and clangd treat it as an
@@ -21,9 +21,9 @@ set(MX_System_Include_Dirs
 # STM32CubeMX generated application sources
 set(MX_Application_Src
 
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/stm32f4xx_it.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/sysmem.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/syscalls.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/stm32f4xx_it.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/sysmem.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/syscalls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../startup_stm32f407xx.s
 )
 
@@ -31,7 +31,7 @@ set(MX_Application_Src
 # (CMSIS headers only, no USE_HAL_DRIVER), so the STM32F4xx_HAL_Driver sources
 # that CubeMX listed here were removed along with the driver tree itself.
 set(STM32_Drivers_Src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/Src/system_stm32f4xx.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/system_stm32f4xx.c
 )
 
 # Drivers Midllewares

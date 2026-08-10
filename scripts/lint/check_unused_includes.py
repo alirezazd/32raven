@@ -44,7 +44,7 @@ BUILD_DIRS = [REPO / "build/Ninja/stm32", REPO / "build/Ninja/esp32"]
 SKIP = re.compile(
     r"^(third_party/|stm32/lib/|esp32/ui/assets/bitmap/"
     r"|stm32/Core/(Src|Inc)/(system_)?stm32f4xx"
-    r"|stm32/Core/Src/(syscalls|sysmem)\.c$"
+    r"|stm32/Core/(syscalls|sysmem)\.c$"
     r"|.*_(config|limits|schema)\.hpp$)"
 )
 
