@@ -23,10 +23,11 @@ does, so the omission is invisible to the build:
 
 Field names come from clang's AST, so nested and inherited members resolve
 properly. Designators come from the initialiser's own tokens, because the
-Python bindings do not expose designated-initialiser nodes. A config this
-cannot read -- initialised positionally, or an array of configs -- fails as
-[unchecked] rather than passing, because a check that stays quiet about what
-it skipped reads exactly like a check that found nothing wrong.
+Python bindings do not expose designated-initialiser nodes. Arrays of configs
+are walked element by element. A config this cannot read -- one initialised
+positionally, say -- fails as [unchecked] rather than passing, because a check
+that stays quiet about what it skipped reads exactly like a check that found
+nothing wrong.
 
 Needs a compilation database. Without one it skips, like check_unused_includes.
 """
@@ -211,6 +212,77 @@ def _is_covered(field: str, braced: set[str], whole: set[str]) -> bool:
     return any(".".join(parts[:i]) in whole for i in range(1, len(parts)))
 
 
+def _split_elements(tokens: list[str]) -> list[list[str]] | None:
+    """Token slice per element of a braced initialiser, outer braces dropped.
+
+    None when there is no braced initialiser or the braces do not balance.
+    Parentheses and brackets are tracked so a comma inside `f(a, b)` or an
+    array bound does not read as an element boundary.
+    """
+    try:
+        start = tokens.index("{")
+    except ValueError:
+        return None
+    elements: list[list[str]] = []
+    current: list[str] = []
+    depth = 0
+    nesting = 0
+    for tok in tokens[start:]:
+        if tok == "{":
+            depth += 1
+            if depth == 1:
+                continue
+        elif tok == "}":
+            depth -= 1
+            if depth == 0:
+                if current:
+                    elements.append(current)
+                return elements
+        elif tok in ("(", "["):
+            nesting += 1
+        elif tok in (")", "]"):
+            nesting -= 1
+        elif tok == "," and depth == 1 and nesting == 0:
+            if current:
+                elements.append(current)
+            current = []
+            continue
+        current.append(tok)
+    return None
+
+
+def _aggregate_problems(
+    tokens: list[str], declared: list[str], label: str, type_name: str
+) -> tuple[list[str], bool]:
+    """Coverage problems for one initialiser, and whether it could be read.
+
+    Shared by a config variable and by each element of an array of them, so the
+    two cannot drift into judging the same initialiser differently.
+    """
+    braced, whole = _designator_paths(tokens)
+    if not braced and not whole:
+        if "{" in tokens:
+            return (
+                [
+                    f"[unchecked] {label} is initialised without designators, so "
+                    f"none of {type_name}'s fields were checked"
+                ],
+                False,
+            )
+        # Copy-initialised from a named constant, which assigns every field and
+        # is checked in its own right wherever it is defined.
+        return ([], True)
+    return (
+        [
+            f"[unset]    {label}.{field} is never assigned, so it silently "
+            f"takes {type_name}'s default"
+            for field in declared
+            if not _is_covered(field, braced, whole)
+        ],
+        True,
+    )
+
+
 def main() -> int:
     try:
         import clang.cindex as ci
@@ -248,43 +320,46 @@ def main() -> int:
                 continue
             if not str(cursor.location.file or "").endswith(header.name):
                 continue
-            if cursor.type.kind == ci.TypeKind.CONSTANTARRAY:
-                element = cursor.type.element_type.get_declaration()
-                if element is not None and _field_paths(element, ci):
-                    problems.append(
-                        f"[unchecked] {header_rel}: {cursor.spelling} is an array "
-                        f"of {element.spelling}; this check reads one initialiser "
-                        "per variable and does not walk array elements"
-                    )
-                continue
-            decl = cursor.type.get_declaration()
+            is_array = cursor.type.kind == ci.TypeKind.CONSTANTARRAY
+            value_type = cursor.type.element_type if is_array else cursor.type
+            decl = value_type.get_declaration()
             if decl is None or not decl.is_definition():
                 continue
             declared = _field_paths(decl, ci)
             if not declared:
                 continue
             tokens = [t.spelling for t in cursor.get_tokens()]
-            braced, whole = _designator_paths(tokens)
-            if not braced and not whole:
-                # No designators at all. Copy-initialised from another constant
-                # assigns every field, and that constant is checked in its own
-                # right; a brace without designators is exactly the silent
-                # default this check exists to catch, so it cannot be waved past.
-                if "{" in tokens:
-                    problems.append(
-                        f"[unchecked] {header_rel}: {cursor.spelling} is "
-                        f"initialised without designators, so none of "
-                        f"{decl.spelling}'s fields were checked"
-                    )
-                else:
-                    per_target[header_rel] += 1
+
+            if not is_array:
+                found, counted = _aggregate_problems(
+                    tokens, declared, f"{header_rel}: {cursor.spelling}", decl.spelling
+                )
+                problems += found
+                per_target[header_rel] += int(counted)
                 continue
-            per_target[header_rel] += 1
-            missing = [f for f in declared if not _is_covered(f, braced, whole)]
-            for field in missing:
+
+            elements = _split_elements(tokens)
+            if elements is None:
                 problems.append(
-                    f"[unset]    {header_rel}: {cursor.spelling}.{field} is never "
-                    f"assigned, so it silently takes {decl.spelling}'s default"
+                    f"[unchecked] {header_rel}: {cursor.spelling} is an array of "
+                    f"{decl.spelling} with no readable initialiser"
+                )
+                continue
+            for index, element in enumerate(elements):
+                found, counted = _aggregate_problems(
+                    element,
+                    declared,
+                    f"{header_rel}: {cursor.spelling}[{index}]",
+                    decl.spelling,
+                )
+                problems += found
+                per_target[header_rel] += int(counted)
+            # Elements past the initialiser list are value-initialised, which is
+            # the same silent default as a field left out of a designator list.
+            for index in range(len(elements), cursor.type.element_count):
+                problems.append(
+                    f"[unset]    {header_rel}: {cursor.spelling}[{index}] has no "
+                    f"initialiser, so every {decl.spelling} field takes its default"
                 )
 
     for note in skipped:
