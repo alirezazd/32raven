@@ -203,8 +203,10 @@ class Icm42688p {
 
   static constexpr uint32_t kExternalClockMinHz = 31000u;
   static constexpr uint32_t kExternalClockMaxHz = 50000u;
-  static constexpr uint32_t kExternalClockOdrReferenceHz = 32000u;
-  static constexpr uint32_t kExternalClockTimestampReferenceHz = 32768u;
+  // Properties of the part, not of the board: the frequencies the datasheet
+  // quotes its ODRs and its timestamp resolution against. CLKIN scales both.
+  static constexpr uint32_t kNominalOdrReferenceHz = 32000u;
+  static constexpr uint32_t kNominalTimestampReferenceHz = 32768u;
   static constexpr uint32_t kTimestampScaleQ16 = 1u << 16;
 
   // Buffer sized for worst-case Packet4 (20-byte record); Packet3 fills

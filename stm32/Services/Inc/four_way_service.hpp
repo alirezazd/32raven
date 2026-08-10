@@ -105,7 +105,7 @@ class FourWayService {
   static_assert(sizeof(frame_) >= kMaxParams + kFrameOverhead);
   // A reply the ring cannot take whole is dropped, not truncated, so the ring
   // is sized from this buffer rather than from the largest frame seen so far.
-  static_assert(sizeof(frame_) <= stm32_limits::kUsbCdcTxRingSize - 1);
+  static_assert(sizeof(frame_) <= UsbCdc::kTxRingSize - 1);
 
   uint8_t selected_esc_ = 0;
 

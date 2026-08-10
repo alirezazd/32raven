@@ -121,6 +121,17 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
     Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
   }
 
+  // A watermark past the FIFO's capacity in bytes still fits the 12-bit field
+  // and is written without complaint; the level is simply never reached, so
+  // the interrupt that drives the fast loop never fires.
+  const uint32_t watermark_bytes =
+      static_cast<uint32_t>(cfg.fifo.watermark_records) *
+      (cfg.fifo.hires ? Icm42688pReg::kPacket4Bytes
+                      : Icm42688pReg::kPacket3Bytes);
+  if (watermark_bytes > Icm42688pReg::kFifoBytes) {
+    Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
+  }
+
   if (cfg.rates.gyro != cfg.rates.accel) {
     Panic(ErrorCode::Stm32::kImuOdrMismatch);
   }
@@ -825,8 +836,8 @@ uint32_t Icm42688p::EffectiveOdrHz(
 
   return static_cast<uint32_t>(
       (static_cast<uint64_t>(odr_hz) * external_clock.frequency_hz +
-       kExternalClockOdrReferenceHz / 2u) /
-      kExternalClockOdrReferenceHz);
+       kNominalOdrReferenceHz / 2u) /
+      kNominalOdrReferenceHz);
 }
 
 uint32_t Icm42688p::TimestampTickScaleQ16(
@@ -836,7 +847,7 @@ uint32_t Icm42688p::TimestampTickScaleQ16(
   }
 
   return static_cast<uint32_t>(
-      ((static_cast<uint64_t>(kExternalClockTimestampReferenceHz) << 16u) +
+      ((static_cast<uint64_t>(kNominalTimestampReferenceHz) << 16u) +
        external_clock.frequency_hz / 2u) /
       external_clock.frequency_hz);
 }

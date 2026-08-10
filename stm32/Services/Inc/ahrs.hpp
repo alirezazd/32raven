@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Alireza Azadi
 
 // AHRS — Mahony complementary filter on the unit quaternion.
-// Fuses body-frame gyro (1 kHz prediction) with body-frame accel
+// Fuses body-frame gyro (prediction) with body-frame accel
 // (gravity reference) into a drift-bounded orientation. Runs once per
 // fast tick.
 // Gains (Config):

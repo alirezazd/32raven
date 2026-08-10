@@ -377,6 +377,8 @@ constexpr uint16_t kPacket2Bytes = 8;
 constexpr uint16_t kPacket3Bytes = 16;
 constexpr uint16_t kPacket4Bytes = 20;
 
+constexpr uint16_t kFifoBytes = 2048;
+
 static constexpr uint32_t OdrHz(Odr odr) {
   switch (odr) {
     case Odr::k32kHz:

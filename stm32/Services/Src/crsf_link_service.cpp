@@ -4,6 +4,7 @@
 #include "crsf_link_service.hpp"
 
 #include <cstring>
+#include <iterator>
 #include <span>
 
 #include "checksum.hpp"
@@ -11,11 +12,30 @@
 #include "fc_link.hpp"
 #include "panic.hpp"
 #include "rc_receiver.hpp"
+#include "slot_stagger.hpp"
 #include "stm32_config.hpp"
 #include "uart.hpp"
 #include "vehicle_state.hpp"
 
 namespace {
+
+// Ordered by TelemetryTopic; the count is cross-checked in PrimeScheduler,
+// which is where that private enum is nameable.
+constexpr uint32_t kTopicPeriodsUs[] = {
+    kCrsfLinkConfig.heartbeat.period_us,
+    kCrsfLinkConfig.gps.period_us,
+    kCrsfLinkConfig.battery.period_us,
+};
+
+// 200 ms spaces the three topics across half a heartbeat. Pick keeps it while
+// it clears every topic and moves to the next value up when a period is
+// retuned onto it, so adding a topic cannot quietly reinstate the collision.
+constexpr uint32_t kTopicSpacingTargetUs = 200000u;
+constexpr uint32_t kTopicStaggerUs =
+    slot_stagger::Pick(kTopicSpacingTargetUs, kTopicPeriodsUs);
+static_assert(kTopicStaggerUs != 0,
+              "no spacing near the target clears every configured topic "
+              "period, so a topic would open in phase with the ladder");
 
 constexpr uint8_t kCrsfSerialSyncByte = 0xC8u;
 constexpr uint8_t kCrsfBroadcastAddress = 0x00u;
@@ -322,14 +342,23 @@ bool CrsfLinkService::SendScheduledTelemetry(uint32_t now_us) {
 }
 
 void CrsfLinkService::PrimeScheduler(uint32_t now_us) {
+  static_assert(std::size(kTopicPeriodsUs) ==
+                    static_cast<size_t>(TelemetryTopic::kCount),
+                "a TelemetryTopic has no period here, so its offset goes "
+                "unchecked");
+
   if (scheduler_started_) {
     return;
   }
 
+  // One frame leaves per poll, so topics that come due together serialise into
+  // a burst instead of interleaving. Rescheduling advances from the send rather
+  // than by period, so a collision decays instead of persisting -- but it costs
+  // the loser a frame every cycle until it does. Deriving the offset from the
+  // slot keeps the spacing without a knob per topic.
   for (size_t i = 0; i < telemetry_states_.size(); ++i) {
-    const auto topic = static_cast<TelemetryTopic>(i);
     telemetry_states_[i] = TopicState{
-        .next_due_us = now_us + GetTelemetryTopicConfig(topic).start_delay_us,
+        .next_due_us = now_us + (static_cast<uint32_t>(i) * kTopicStaggerUs),
         .last_sent_us = 0,
     };
   }

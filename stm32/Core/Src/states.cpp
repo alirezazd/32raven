@@ -32,7 +32,10 @@ constexpr float kStabilizeMaxTiltRad = 0.5236f;  // ≈ 30°
 static constexpr uint32_t kLossPanicPerSec =
     Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u;  // 0.5%
 static constexpr uint32_t kLossPanicConsecutiveSec = 3;
-static constexpr uint32_t kSlowBudgetFromFastUs = 700;
+// 70% of the fast period. Measured from the last fast tick, so a fixed figure
+// stops protecting anything once the loop runs faster than it was written for.
+static constexpr uint32_t kSlowBudgetFromFastUs =
+    (1000000u / kFastLoopHz) * 70u / 100u;
 static constexpr bool kEnableImuDebugLog = false;
 static constexpr bool kEnableEspLogs = false;
 // Bench: 1 Hz raw battery/current dump, for calibrating the voltage
@@ -134,7 +137,7 @@ static void FastTickFlightLoop(AppContext &ctx,
   // No tx_online check yet — disarmed mixer + disarmed ESC means worst
   // case is harmlessly computing zeros from stale RC.
   {
-    constexpr float fast_dt_sec = 0.001f;
+    constexpr float fast_dt_sec = kFastLoopDtSec;
     constexpr float max_rate_roll_pitch = 6.0f;  // rad/s, ~340 deg/s
     constexpr float max_rate_yaw = 4.0f;         // rad/s, ~230 deg/s
 

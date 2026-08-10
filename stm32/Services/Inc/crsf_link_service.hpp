@@ -19,7 +19,6 @@ class CrsfLinkService {
  public:
   struct TopicConfig {
     uint32_t period_us = 0;
-    uint32_t start_delay_us = 0;
     uint32_t max_silence_us = 0;
     uint8_t priority = 0;
     bool send_on_change = false;

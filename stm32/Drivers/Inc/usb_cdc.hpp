@@ -26,6 +26,16 @@ struct UsbCdcConfig {
 
 class UsbCdc {
  public:
+  // One slot is spent on RingBuffer's full/empty discrimination, so a ring
+  // holds Size - 1 bytes. TX must swallow a whole frame in one push: a short
+  // write is dropped rather than truncated, which costs the host a timeout. RX
+  // additionally keeps one bulk packet free, because the driver refuses to
+  // re-arm the OUT endpoint below that and the host is NAKed until it can.
+  static constexpr size_t kTxRingSize = stm32_limits::kUsbCdcMaxFrameBytes + 1;
+  static constexpr size_t kRxRingSize = stm32_limits::kUsbCdcMaxFrameBytes +
+                                        stm32_limits::kUsbCdcBulkMaxPacketBytes +
+                                        1;
+
   static UsbCdc &GetInstance();
 
   // Samples the SOF frame counter. Unplugging raises no interrupt with VBUS
@@ -111,8 +121,8 @@ class UsbCdc {
   UsbCdcConfig cfg_{};
   bool initialized_ = false;
 
-  RingBuffer<uint8_t, stm32_limits::kUsbCdcRxRingSize> rx_ring_;
-  RingBuffer<uint8_t, stm32_limits::kUsbCdcTxRingSize> tx_ring_;
+  RingBuffer<uint8_t, kRxRingSize> rx_ring_;
+  RingBuffer<uint8_t, kTxRingSize> tx_ring_;
 
   SetupPacket setup_{};
   LineCoding line_coding_{115200u, 0u, 0u, 8u};
