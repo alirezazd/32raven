@@ -4,6 +4,8 @@
 #pragma once
 #include <cstdint>
 
+#include "stm32_limits.hpp"
+
 struct DShotTim1Timings {
   uint16_t arr;
   uint16_t t1h;
@@ -41,9 +43,10 @@ class DShotTim1 {
     return 0u;
   }
 
-  // The zero and one symbols sit at 37.5% and 75% of the bit period, so a
-  // short period quantises both coarsely; below this they start to converge.
-  static constexpr uint32_t kMinPeriodTicks = 20u;
+  // The generator rejects a rate whose bit period falls outside these, so the
+  // runtime check cannot disagree with the build-time one.
+  static constexpr uint32_t kMinPeriodTicks = stm32_limits::kDshotMinPeriodTicks;
+  static constexpr uint32_t kMaxPeriodTicks = stm32_limits::kDshotMaxPeriodTicks;
 
   static bool IsBusy() { return GetInstance().busy_; }
 

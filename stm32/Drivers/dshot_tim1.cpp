@@ -11,8 +11,6 @@
 #include "rcc.hpp"
 #include "stm32f4xx.h"
 
-// local helpers
-
 static uint16_t DivRoundU16(uint32_t num, uint32_t den) {
   return static_cast<uint16_t>((num + (den / 2u)) / den);
 }
@@ -46,8 +44,6 @@ static inline void Dma2Stream5ClearFlags() {
                 DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5;
 }
 
-// driver init
-
 void DShotTim1::Init(const Config &config) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kDshotInitFailed);
@@ -72,7 +68,7 @@ void DShotTim1::Init(const Config &config) {
   // just under an integer, and a tick lost here shifts every edge in the frame.
   const uint32_t period_ticks =
       (config.timer_clock_hz + bit_rate_hz / 2u) / bit_rate_hz;
-  if (period_ticks < kMinPeriodTicks || period_ticks > 0x10000u) {
+  if (period_ticks < kMinPeriodTicks || period_ticks > kMaxPeriodTicks) {
     Panic(ErrorCode::Stm32::kDshotPeriodUnrepresentable);
   }
   const uint16_t period = static_cast<uint16_t>(period_ticks - 1u);
@@ -97,8 +93,6 @@ void DShotTim1::Init(const Config &config) {
   StartOutputsOnce();
   busy_ = false;
 }
-
-// peripheral setup (direct register)
 
 void DShotTim1::DmaInit() {
   RCC->AHB1ENR |= RCC_AHB1ENR_DMA2EN;
@@ -138,8 +132,6 @@ void DShotTim1::Tim1Init(uint16_t period) {
   // Load PSC / ARR / RCR now (HAL's base-init issues the same update event).
   TIM1->EGR = TIM_EGR_UG;
 }
-
-// runtime
 
 void DShotTim1::StartOutputsOnce() {
   // Outputs idle low (CCRx = 0); start the counter free-running. DShot frames

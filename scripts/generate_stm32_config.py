@@ -1159,6 +1159,8 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
         "max_watermark_records": _imu_watermark_records(kconf),
         "rc_enabled_indices": enabled_rc_indices,
         "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
+        "dshot_min_period_ticks": DSHOT_MIN_PERIOD_TICKS,
+        "dshot_max_period_ticks": DSHOT_MAX_PERIOD_TICKS,
         "usb_cdc_max_frame_bytes": USB_CDC_MAX_FRAME_BYTES,
         "usb_cdc_bulk_max_packet_bytes": USB_BULK_MAX_PACKET_BYTES,
         "usb_cdc_ep0_max_packet_bytes": USB_EP0_MAX_PACKET_BYTES,
@@ -1201,12 +1203,13 @@ DSHOT_BIT_RATE_HZ: dict[str, int] = {
     "DShotMode::kDshot300": 300_000,
     "DShotMode::kDshot600": 600_000,
 }
-# The zero and one symbols are 37.5% and 75% of the bit period, so a short
-# period quantises both coarsely. Twenty ticks holds that error under 2.5%,
-# which every DShot receiver tolerates; below it the two symbols start to
-# converge.
+# The symbols sit at 37.5% and 75% of the bit period and each rounds to a whole
+# tick, so the worst case is half a tick, or 50/N percent of the period. Twenty
+# holds that to 2.5%. It is a budget, not a cliff: multiples of eight land
+# exactly, and the two symbols stay far apart well below this.
 DSHOT_MIN_PERIOD_TICKS = 20
-# TIM1's ARR is 16 bits.
+# ARR is 16 bits and holds ticks - 1, so this many ticks is the most it can
+# express.
 DSHOT_MAX_PERIOD_TICKS = 0x10000
 # An ESC locks to the frame, not to a nominal rate, but a bit period that does
 # not divide evenly leaves every edge off by the rounding error.
@@ -1232,11 +1235,11 @@ def _dshot_tim1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     # exactly on .5 would go to the nearer even tick count rather than the
     # longer one, and float division can only add error to an exact ratio.
     ticks = (timer_hz + bit_rate // 2) // bit_rate
-    if ticks < DSHOT_MIN_PERIOD_TICKS or ticks >= DSHOT_MAX_PERIOD_TICKS:
+    if ticks < DSHOT_MIN_PERIOD_TICKS or ticks > DSHOT_MAX_PERIOD_TICKS:
         raise SystemExit(
             f"{mode} needs a {ticks}-tick bit period at TIM1's "
             f"{timer_hz / 1e6:g} MHz, outside the usable "
-            f"{DSHOT_MIN_PERIOD_TICKS}..{DSHOT_MAX_PERIOD_TICKS - 1} range. "
+            f"{DSHOT_MIN_PERIOD_TICKS}..{DSHOT_MAX_PERIOD_TICKS} range. "
             "Choose a slower DShot rate or a finer APB2 divider."
         )
     error = abs(timer_hz / ticks - bit_rate) / bit_rate

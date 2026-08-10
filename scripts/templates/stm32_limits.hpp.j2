@@ -23,6 +23,8 @@ inline constexpr std::size_t kUsbCdcStringDescriptorBytes = {{ usb_cdc_string_de
 inline constexpr std::size_t kUsbCdcMaxFrameBytes = {{ usb_cdc_max_frame_bytes }};
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
 inline constexpr uint8_t kBatteryAdcResolutionBits = {{ battery_adc_resolution_bits }};
+inline constexpr uint32_t kDshotMinPeriodTicks = {{ dshot_min_period_ticks }};
+inline constexpr uint32_t kDshotMaxPeriodTicks = {{ dshot_max_period_ticks }};
 inline constexpr uint16_t kBatteryAdcMaxRaw =
     (uint16_t{1} << kBatteryAdcResolutionBits) - uint16_t{1};
 inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};
