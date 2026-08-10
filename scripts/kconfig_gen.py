@@ -75,10 +75,21 @@ def sym_hex_literal(kconf: kconfiglib.Kconfig, name: str) -> str:
 
 
 def choice_value(kconf: kconfiglib.Kconfig, mapping: dict[str, str]) -> str:
-    """Return the rendered value for whichever boolean in `mapping` is set."""
+    """Return the rendered value for whichever boolean in `mapping` is set.
+
+    A choice whose prompt is gated off selects nothing, where a gated int still
+    takes its default. Falling back to the declared default gives a generator
+    that reads the choice unconditionally the value the menu would have shown,
+    rather than a crash on a tree that has not enabled the feature.
+    """
     for symbol_name, value in mapping.items():
         if sym_bool(kconf, symbol_name):
             return value
+    choice = sym(kconf, next(iter(mapping))).choice
+    if choice is not None:
+        for default, cond in choice.defaults:
+            if kconfiglib.expr_value(cond) and default.name in mapping:
+                return mapping[default.name]
     raise ValueError(f"no selected symbol in choice {tuple(mapping.keys())}")
 
 

@@ -278,10 +278,11 @@ def _validate_gpio_num(kconf: kconfiglib.Kconfig, name: str) -> None:
 def _validate_int_range(
     kconf: kconfiglib.Kconfig, name: str, minimum: int, maximum: int
 ) -> None:
-    # A symbol whose `depends on` is unmet carries no value at all, and reading
-    # it raises on the empty string rather than saying which knob is off. It is
-    # not reachable in this configuration, so there is nothing to police.
-    if sym(kconf, name).visibility == 0:
+    # Skip on the absence of a value, not on an invisible prompt: a knob behind
+    # a feature that is off still has its default, still reaches the generated
+    # header, and so still has to be in range. Only a symbol carrying nothing at
+    # all is unpoliceable, and sym_int would raise on its empty string.
+    if not sym(kconf, name).str_value:
         return
     value = sym_int(kconf, name)
     if not minimum <= value <= maximum:

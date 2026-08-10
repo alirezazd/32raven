@@ -61,28 +61,36 @@ def _call(fn, kconf: kconfiglib.Kconfig):
 
 
 def check_defaults_build_a_legal_board(problems: list[str]) -> None:
-    """Every generator must accept the Kconfig defaults with no .config at all.
+    """Every generator must run to completion on the Kconfig defaults alone.
 
     The saved configuration masks its own defaults, so a `default` line can name
     a pin the board reassigned years ago and nothing says so until someone
     builds a fresh checkout or resets the menu.
+
+    The context functions are exercised alongside the validator because passing
+    validation is not the same as producing a header: a symbol behind a feature
+    that defaults off carries no value, validation skips it as unreachable, and
+    the context function that reads it anyway is where the run actually dies.
     """
     import importlib
 
-    for module_name, (validate_name, _) in GENERATORS.items():
-        if not validate_name:
-            continue
+    for module_name, (validate_name, context_names) in GENERATORS.items():
         module = importlib.import_module(module_name)
-        try:
-            _call(getattr(module, validate_name), _load(with_saved_config=False))
-        # SystemExit derives from BaseException, and the generators raise it as
-        # readily as ValueError. Catching Exception alone would let a generator
-        # that rejects its own defaults kill this check instead of be reported
-        # by it -- the one outcome the check exists to prevent.
-        except (Exception, SystemExit) as exc:  # noqa: BLE001
-            problems.append(
-                f"[defaults] {module_name} rejects the Kconfig defaults: {exc}"
-            )
+        for entry_name in (validate_name, *context_names):
+            fn = getattr(module, entry_name, None) if entry_name else None
+            if fn is None:
+                continue
+            try:
+                _call(fn, _load(with_saved_config=False))
+            # SystemExit derives from BaseException, and the generators raise it
+            # as readily as ValueError. Catching Exception alone would let a
+            # generator that rejects its own defaults kill this check instead of
+            # be reported by it -- the one outcome the check exists to prevent.
+            except (Exception, SystemExit) as exc:  # noqa: BLE001
+                problems.append(
+                    f"[defaults] {module_name}.{entry_name} fails on the Kconfig "
+                    f"defaults: {exc}"
+                )
 
 
 # PINMAP_ENTRIES fields that name where a pin sits: the port or signal choice

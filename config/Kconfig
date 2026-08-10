@@ -489,35 +489,31 @@ menu "Services"
 menu "UI"
 
 config ESP32_DISPLAY_MANAGER_FPS_CAP
-    int "FPS cap"
+    int "FPS cap" if ESP32_DISPLAY_PANEL_ENABLE
     range 1 60
     default 30
-    depends on ESP32_DISPLAY_PANEL_ENABLE
     help
       Maximum update and flush rate for the UI loop.
 
 config ESP32_WIDGET_UI_TIMEOUT_S
-    int "Screen timeout (seconds)"
+    int "Screen timeout (seconds)" if ESP32_DISPLAY_PANEL_ENABLE
     range 0 255
     default 30
-    depends on ESP32_DISPLAY_PANEL_ENABLE
     help
       Turn the display off after the selected number of seconds without UI
       activity. Set to 0 to disable the timeout.
 
 config ESP32_WIDGET_BOOT_TIMEOUT_S
-    int "Timeout (seconds)"
+    int "Timeout (seconds)" if ESP32_DISPLAY_PANEL_ENABLE
     range 0 15
     default 3
-    depends on ESP32_DISPLAY_PANEL_ENABLE
     help
       Show the boot widget for the selected number of seconds after display
       initialization. Set to 0 to disable it.
 
 choice
-    prompt "Screen transition speed"
+    prompt "Screen transition speed" if ESP32_DISPLAY_PANEL_ENABLE
     default ESP32_WIDGET_UI_TRANSITION_SPEED_2X
-    depends on ESP32_DISPLAY_PANEL_ENABLE
     help
       Select the swipe speed preset for major UI screen transitions such as
       switching between Serving, MAVLink WiFi, and DFU screens.
