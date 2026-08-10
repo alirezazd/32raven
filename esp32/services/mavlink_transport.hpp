@@ -6,29 +6,25 @@
 #include <cstdint>
 #include <span>
 
-// Abstract transport for the Mavlink service. Selected at build time via the
-// `Mavlink -> Transport` Kconfig choice (default WiFi UDP). The Mavlink class
-// owns an IMavlinkTransport* and is agnostic to the underlying I/O — adding
-// a new physical link (e.g. SiK telemetry over UART) is one new impl + one
-// branch in system.cpp.
+// Swapped at run time by the state machine, not chosen at build time: the same
+// Mavlink instance moves between the telem UART, UDP and USB CDC as states
+// change. Implementations therefore differ in what a read returns and in
+// whether a peer exists at all, which is what the methods below pin down.
 class IMavlinkTransport {
  public:
   virtual ~IMavlinkTransport() = default;
 
-  // Non-blocking. Returns the number of bytes copied into `dst`, 0 if no
-  // data available, <0 on error. Implementations may return a single
-  // datagram (UDP) or a stream chunk (USB CDC); the MAVLink parser handles
-  // either.
+  // Non-blocking: bytes copied, 0 when nothing is buffered, <0 on error. May
+  // return a whole datagram (UDP) or part of a stream (USB CDC).
   virtual int Receive(std::span<uint8_t> dst) = 0;
 
-  // Returns the number of bytes actually written, <0 on error.
+  // Bytes written, <0 on error.
   virtual int Send(std::span<const uint8_t> data) = 0;
 
-  // True when the transport is ready to deliver outbound frames to a peer
-  // (UDP: associated WiFi station present; USB CDC: USB host enumerated).
+  // Ready means there is somewhere to send: UDP needs an associated station,
+  // USB CDC an enumerated host.
   virtual bool IsReady() const = 0;
 
-  // Drop any latched peer state on hard reset signals. UDP forgets the
-  // last-seen client; USB has no peer notion and may no-op.
+  // Forget the peer. UDP drops the last-seen client; USB has no peer and no-ops.
   virtual void ClearPeer() = 0;
 };

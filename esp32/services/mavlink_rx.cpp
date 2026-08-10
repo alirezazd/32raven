@@ -28,11 +28,9 @@ void Mavlink::ServiceUdpRx() {
   }
 }
 
-// Incoming MAVLink dispatch: decode requests, mutate local state, and queue
-// deferred responses for the TX scheduler.
+// Nothing here transmits: handlers mutate local state or queue a reply, and
+// the TX scheduler sends it later.
 void Mavlink::HandleMessage(const mavlink_message_t &msg) {
-  // Incoming MAVLink only mutates local state or queues replies. Actual
-  // transmission is deferred to the worker-side TX scheduler.
   switch (msg.msgid) {
     case MAVLINK_MSG_ID_HEARTBEAT: {
       Sys().Led().SetPattern(LED::Pattern::kDoubleBlink, 300, 1);

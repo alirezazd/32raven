@@ -18,7 +18,6 @@ Mavlink &Mavlink::GetInstance() {
   return instance;
 }
 
-// Lifecycle and top-level poll entry points.
 void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport) {
   if (transport == nullptr) {
     Panic(ErrorCode::Esp32::kMavlinkInitFailed);
@@ -30,10 +29,8 @@ void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport) {
 
   cfg_ = cfg;
 
-  // `transport_` is a required dependency after initialization; service code
-  // assumes this assignment succeeded and does not re-check for null on every
-  // tick. SetTransport swaps it as the state machine moves between the telemetry,
-  // UDP and USB paths.
+  // Non-null from here on, which is why the service does not re-check it on
+  // every tick.
   transport_ = transport;
   ResetParamState();
   SetTelemetryLink(false);

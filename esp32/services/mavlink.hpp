@@ -59,16 +59,11 @@ class Mavlink {
 
   void Init(const Config &cfg, IMavlinkTransport *transport);
 
-  // Swap the underlying physical link without re-initializing the MAVLink
-  // service. Used by MavlinkWifiState / MavlinkUsbState / ServingState to
-  // route TX/RX through the transport that matches the current SM state.
-  // Safe to call from the SM task; clears in-flight TX and drops any
-  // remembered peer on the previous transport so a stale UDP address is
-  // not carried into a serial swap.
+  // Swaps the link without re-initializing the service. Clears the in-flight
+  // frame and the previous transport's peer, so a stale UDP address cannot be
+  // carried into a serial swap.
   void SetTransport(IMavlinkTransport *transport);
 
-  // Main task: services incoming MAVLink control traffic, pending FC-link side
-  // effects, and rate-limited outbound MAVLink frames.
   void Poll(uint32_t now_ms);
   void SetTelemetryLink(bool enabled);
   template <typename T>
@@ -439,7 +434,6 @@ class Mavlink {
   bool ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const;
   void InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due = false);
 
-  // Frame builders (only the ELRS-supported set)
   TxFrameState StartHeartbeatFrame(const Config::Tx &cfg_tx, uint32_t now_ms);
   TxFrameState StartSysStatusFrame();
   std::optional<TxFrameState> StartGpsRawIntFrame(const Config::Tx &cfg_tx);
@@ -449,7 +443,6 @@ class Mavlink {
   std::optional<TxFrameState> StartBatteryStatusFrame(const Config::Tx &cfg_tx);
   std::optional<TxFrameState> StartEscStatusFrame(const Config::Tx &cfg_tx);
 
-  // Pick next stream to send when idle (hb has priority)
   std::optional<TxFrameState> StartNextScheduledFrame(const Config::Tx &cfg_tx,
                                                       uint32_t now_ms);
 };
