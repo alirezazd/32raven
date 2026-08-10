@@ -137,6 +137,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/sysmem.c
     Core/Src/main.cpp
     Core/Src/system.cpp
+    Drivers/Src/rcc.cpp
     Drivers/Src/gpio.cpp
     Drivers/Src/time_base.cpp
     Drivers/Src/led.cpp

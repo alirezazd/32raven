@@ -33,11 +33,18 @@ from kconfig_gen import (  # noqa: E402
 from kconfig_gen import run as run_generator  # noqa: E402
 
 ICM42688P_FIFO_BYTES = 2048
+# Twins of Icm42688pReg::kPacket3Bytes / kPacket4Bytes. HiRes selects Packet4,
+# so the record size -- and with it how many records the FIFO holds -- follows
+# STM32_IMU_FIFO_HIRES_EN rather than being fixed.
 ICM42688P_PACKET3_BYTES = 16
+ICM42688P_PACKET4_BYTES = 20
+# Twin of Icm42688p::kNominalOdrReferenceHz. A property of the part, not of the
+# board: the datasheet ODRs are quoted against the part's own 32 kHz oscillator,
+# so driving CLKIN instead scales every one of them by CLKIN/32000.
+IMU_NOMINAL_ODR_REFERENCE_HZ = 32000
 FCLINK_TELEMETRY_RATE_MIN = 1
 FCLINK_TELEMETRY_RATE_MAX = 255
 BATTERY_ADC_RESOLUTION_BITS = 12
-BATTERY_ADC_MAX_RAW = (1 << BATTERY_ADC_RESOLUTION_BITS) - 1
 
 # Largest single frame either USB dialect can emit, taken from the frame buffers
 # in MspService and FourWayService rather than from the wire: both are sized
@@ -57,24 +64,19 @@ USB_CDC_SERIAL_CHARS = 24
 # and bLength is one byte, so no descriptor can exceed 255.
 USB_STRING_DESCRIPTOR_HEADER_BYTES = 2
 USB_STRING_DESCRIPTOR_MAX_BYTES = 255
-# One slot is spent on RingBuffer's full/empty discrimination, so a ring holds
-# Size - 1 bytes. TX must swallow a whole frame in one push: a short write is
-# dropped rather than truncated, which costs the host a timeout. RX additionally
-# keeps one bulk packet free, because the driver refuses to re-arm the OUT
-# endpoint below that and the host is NAKed until it can.
-USB_CDC_TX_RING_SIZE = USB_CDC_MAX_FRAME_BYTES + 1
-USB_CDC_RX_RING_SIZE = USB_CDC_MAX_FRAME_BYTES + USB_BULK_MAX_PACKET_BYTES + 1
 
+# SPI_CR1.BR selects these dividers of the peripheral's own APB clock. A knob
+# naming the divider rather than the rate means the same setting is a different
+# SCK on SPI1 (APB2) and SPI2 (APB1), and moves silently when the tree does.
+SPI_PRESCALER_DIVISORS = (2, 4, 8, 16, 32, 64, 128, 256)
+# Twin of Icm42688p::kMaxSckHz; also the ceiling on STM32_IMU_SPI_MAX_SCK_HZ.
+ICM42688P_MAX_SCK_HZ = 24_000_000
 
-SPI_PRESCALER_CHOICES = {
-    f"STM32_IMU_SPI_PRESCALER_DIV{n}": f"SpiPrescaler::kDiv{n}"
-    for n in (2, 4, 8, 16, 32, 64, 128, 256)
-}
-
-EE_SPI1_PRESCALER_CHOICES = {
-    f"STM32_EE_SPI1_PRESCALER_DIV{n}": f"SpiPrescaler::kDiv{n}"
-    for n in (2, 4, 8, 16, 32, 64, 128, 256)
-}
+# ADC_CCR.ADCPRE selects these dividers of PCLK2, and RM0090 Table 67 caps
+# ADCCLK at 36 MHz. The field value is the index of its divider here, so an
+# APB2 above 8 * 36 MHz has no legal setting rather than a slower one.
+ADC_PRESCALER_DIVISORS = (2, 4, 6, 8)
+ADC_MAX_CLOCK_HZ = 36_000_000
 
 M10_BAUD_RATE_CHOICES = {
     "STM32_GPS_M10_BAUD_9600": "M10::BaudRate::k9600",
@@ -299,48 +301,48 @@ DSHOT_TIM1_MODE_CHOICES = {
 }
 
 # ---- System clock choice maps --------------------------------------------
-# The system_clock enum classes are hand-written in stm32/Core/Inc/system.hpp
+# The Rcc enum classes are hand-written in stm32/Drivers/Inc/rcc.hpp
 # (matching the SPI / UART pattern: enum values are HAL register bits, so the
 # C++ side can `static_cast` straight into the HAL init structs). These dicts
 # only carry the Kconfig-symbol -> C++-enum-value mapping the generator needs
 # to render `kSystemDefault` in stm32_config.hpp.
 
-def _system_clock_choices(
+def _rcc_choices(
     enum_cpp_name: str, kconfig_to_value: dict[str, str]
 ) -> dict[str, str]:
-    """Build a Kconfig sym -> `System::<Enum>::<value>` dict."""
+    """Build a Kconfig sym -> `Rcc::<Enum>::<value>` dict."""
     return {
-        sym: f"System::{enum_cpp_name}::{cpp_name}"
+        sym: f"Rcc::{enum_cpp_name}::{cpp_name}"
         for sym, cpp_name in kconfig_to_value.items()
     }
 
 
-SYSTEM_OSC_CHOICES = _system_clock_choices(
+RCC_OSC_CHOICES = _rcc_choices(
     "Oscillator",
-    {"STM32_SYSTEM_OSC_HSI": "kHsi", "STM32_SYSTEM_OSC_HSE": "kHse"},
+    {"STM32_RCC_OSC_HSI": "kHsi", "STM32_RCC_OSC_HSE": "kHse"},
 )
-SYSTEM_PLL_P_CHOICES = _system_clock_choices(
+RCC_PLL_P_CHOICES = _rcc_choices(
     "PllP",
-    {f"STM32_SYSTEM_PLL_P_DIV{n}": f"kDiv{n}" for n in (2, 4, 6, 8)},
+    {f"STM32_RCC_PLL_P_DIV{n}": f"kDiv{n}" for n in (2, 4, 6, 8)},
 )
-SYSTEM_AHB_DIV_CHOICES = _system_clock_choices(
+RCC_AHB_DIV_CHOICES = _rcc_choices(
     "AhbDiv",
     {
-        f"STM32_SYSTEM_AHB_DIV{n}": f"kDiv{n}"
+        f"STM32_RCC_AHB_DIV{n}": f"kDiv{n}"
         for n in (1, 2, 4, 8, 16, 64, 128, 256, 512)
     },
 )
-SYSTEM_APB_DIV_CHOICES = _system_clock_choices(
+RCC_APB_DIV_CHOICES = _rcc_choices(
     "ApbDiv",
-    {f"STM32_SYSTEM_APB1_DIV{n}": f"kDiv{n}" for n in (1, 2, 4, 8, 16)},
+    {f"STM32_RCC_APB1_DIV{n}": f"kDiv{n}" for n in (1, 2, 4, 8, 16)},
 )
-SYSTEM_APB2_DIV_CHOICES = _system_clock_choices(
+RCC_APB2_DIV_CHOICES = _rcc_choices(
     "ApbDiv",
-    {f"STM32_SYSTEM_APB2_DIV{n}": f"kDiv{n}" for n in (1, 2, 4, 8, 16)},
+    {f"STM32_RCC_APB2_DIV{n}": f"kDiv{n}" for n in (1, 2, 4, 8, 16)},
 )
-SYSTEM_VOLTAGE_SCALE_CHOICES = _system_clock_choices(
+RCC_VOLTAGE_SCALE_CHOICES = _rcc_choices(
     "VoltageScale",
-    {f"STM32_SYSTEM_VOLTAGE_SCALE{n}": f"kScale{n}" for n in (1, 2)},
+    {f"STM32_RCC_VOLTAGE_SCALE{n}": f"kScale{n}" for n in (1, 2)},
 )
 
 
@@ -741,8 +743,59 @@ def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
     return "M10::UartDataBits::k7"
 
 
-def _imu_fifo_capacity_records() -> int:
-    return ICM42688P_FIFO_BYTES // ICM42688P_PACKET3_BYTES
+def _imu_packet_bytes(kconf: kconfiglib.Kconfig) -> int:
+    return (
+        ICM42688P_PACKET4_BYTES
+        if sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN")
+        else ICM42688P_PACKET3_BYTES
+    )
+
+
+def _imu_fifo_capacity_records(kconf: kconfiglib.Kconfig) -> int:
+    """Records the FIFO holds, which depends on how wide a record is.
+
+    The watermark is programmed in bytes, so measuring capacity in Packet3
+    records while the chip is writing Packet4 ones overstates it by a quarter.
+    A watermark past the real ceiling is written cleanly, fits the 12-bit
+    field, and simply never fires -- taking the fast loop with it.
+    """
+    return ICM42688P_FIFO_BYTES // _imu_packet_bytes(kconf)
+
+
+def _imu_record_rate_hz(kconf: kconfiglib.Kconfig) -> int:
+    """Records the FIFO actually fills per second.
+
+    Mirrors Icm42688p::EffectiveOdrHz. The nominal ODRs assume the part's own
+    32 kHz oscillator; driven from CLKIN they scale by CLKIN/32000, so a 32768
+    Hz crystal makes a nominal 8 kHz part run at 8192 Hz. The interrupt that
+    drives the control loop follows the real rate, not the label, so anything
+    deriving a loop period from the nominal value is off by that ratio.
+    """
+    gyro_odr_hz = int(float(choice_value(kconf, GYRO_ODR_HZ)))
+    accel_odr_hz = int(float(choice_value(kconf, ACCEL_ODR_HZ)))
+
+    # One FIFO record carries both sensors, so a split ODR leaves the record
+    # rate — and therefore the loop rate — undefined by this arithmetic.
+    if gyro_odr_hz != accel_odr_hz:
+        raise ValueError(
+            f"gyro ODR ({gyro_odr_hz} Hz) and accel ODR ({accel_odr_hz} Hz) "
+            "must match; the FIFO watermark is derived from a single record rate"
+        )
+    if not sym_bool(kconf, "STM32_IMU_EXTERNAL_CLOCK_ENABLED"):
+        return gyro_odr_hz
+
+    clkin_hz = sym_int(kconf, "STM32_IMU_EXTERNAL_CLOCK_FREQ_HZ")
+    scaled = (gyro_odr_hz * clkin_hz + IMU_NOMINAL_ODR_REFERENCE_HZ // 2) // (
+        IMU_NOMINAL_ODR_REFERENCE_HZ
+    )
+    if scaled * IMU_NOMINAL_ODR_REFERENCE_HZ != gyro_odr_hz * clkin_hz:
+        raise ValueError(
+            f"a {clkin_hz} Hz CLKIN scales the {gyro_odr_hz} Hz ODR to a "
+            "fractional record rate, so no whole watermark gives a fixed loop "
+            f"period; ODR x CLKIN ({gyro_odr_hz * clkin_hz}) has to be a whole "
+            f"multiple of {IMU_NOMINAL_ODR_REFERENCE_HZ}"
+        )
+    return scaled
 
 
 def _imu_watermark_records(kconf: kconfiglib.Kconfig) -> int:
@@ -753,32 +806,33 @@ def _imu_watermark_records(kconf: kconfiglib.Kconfig) -> int:
     the record rate divided by this. Deriving it the other way round keeps the
     loop rate fixed when the gyro ODR changes.
     """
-    gyro_odr_hz = float(choice_value(kconf, GYRO_ODR_HZ))
-    accel_odr_hz = float(choice_value(kconf, ACCEL_ODR_HZ))
+    record_rate_hz = _imu_record_rate_hz(kconf)
     loop_hz = sym_int(kconf, "STM32_FAST_LOOP_HZ")
 
-    # One FIFO record carries both sensors, so a split ODR leaves the record
-    # rate — and therefore the loop rate — undefined by this arithmetic.
-    if gyro_odr_hz != accel_odr_hz:
-        raise ValueError(
-            f"gyro ODR ({gyro_odr_hz:g} Hz) and accel ODR ({accel_odr_hz:g} Hz) "
-            "must match; the FIFO watermark is derived from a single record rate"
-        )
     if loop_hz <= 0:
         raise ValueError("CONFIG_STM32_FAST_LOOP_HZ must be > 0")
-    if gyro_odr_hz < loop_hz:
+    if record_rate_hz < loop_hz:
         raise ValueError(
-            f"gyro ODR ({gyro_odr_hz:g} Hz) cannot drive a {loop_hz} Hz fast loop"
+            f"a {record_rate_hz} Hz record rate cannot drive a {loop_hz} Hz "
+            "fast loop"
         )
 
-    records = gyro_odr_hz / loop_hz
-    if records != int(records):
-        raise ValueError(
-            f"gyro ODR ({gyro_odr_hz:g} Hz) is not a whole multiple of "
-            f"CONFIG_STM32_FAST_LOOP_HZ ({loop_hz} Hz), so the watermark "
-            "interrupt would drift against the loop period"
+    records, remainder = divmod(record_rate_hz, loop_hz)
+    if remainder:
+        achievable = sorted(
+            {record_rate_hz // n for n in range(1, record_rate_hz + 1)
+             if record_rate_hz % n == 0 and record_rate_hz // n <= record_rate_hz},
+            reverse=True,
         )
-    return int(records)
+        near = [hz for hz in achievable if loop_hz // 2 <= hz <= loop_hz * 2]
+        raise ValueError(
+            f"CONFIG_STM32_FAST_LOOP_HZ ({loop_hz} Hz) does not divide the "
+            f"{record_rate_hz} Hz record rate, so every tick would land a "
+            "fraction of a record early or late and the controller timestep "
+            "would never match the interval it integrates over. "
+            f"Nearby exact rates: {', '.join(str(hz) for hz in near) or 'none'}"
+        )
+    return records
 
 
 def _resolve_pin(
@@ -950,12 +1004,16 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         )
 
     watermark_records = _imu_watermark_records(kconf)
-    hardware_max_records = _imu_fifo_capacity_records()
+    hardware_max_records = _imu_fifo_capacity_records(kconf)
     if watermark_records > hardware_max_records:
+        packet_bytes = _imu_packet_bytes(kconf)
         raise ValueError(
             f"a {sym_int(kconf, 'STM32_FAST_LOOP_HZ')} Hz fast loop at this gyro "
             f"ODR needs {watermark_records} FIFO records, over the ICM42688P "
-            f"capacity of {hardware_max_records}"
+            f"capacity of {hardware_max_records} "
+            f"({ICM42688P_FIFO_BYTES} bytes / {packet_bytes}-byte "
+            f"{'Packet4' if packet_bytes == ICM42688P_PACKET4_BYTES else 'Packet3'} "
+            "records)"
         )
 
     rc_map = _rc_map(kconf)
@@ -1034,10 +1092,7 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
         "max_watermark_records": _imu_watermark_records(kconf),
         "rc_enabled_indices": enabled_rc_indices,
         "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
-        "battery_adc_max_raw": BATTERY_ADC_MAX_RAW,
         "usb_cdc_max_frame_bytes": USB_CDC_MAX_FRAME_BYTES,
-        "usb_cdc_rx_ring_size": USB_CDC_RX_RING_SIZE,
-        "usb_cdc_tx_ring_size": USB_CDC_TX_RING_SIZE,
         "usb_cdc_bulk_max_packet_bytes": USB_BULK_MAX_PACKET_BYTES,
         "usb_cdc_ep0_max_packet_bytes": USB_EP0_MAX_PACKET_BYTES,
         "usb_cdc_string_descriptor_bytes": _usb_string_descriptor_bytes(kconf),
@@ -1055,25 +1110,110 @@ PLL_VCO_OUT_HZ = (100_000_000, 432_000_000)
 USB_OTG_FS_HZ = 48_000_000
 SYSCLK_MAX_HZ = 168_000_000
 HSI_HZ = 16_000_000
+APB1_MAX_HZ = 42_000_000
+MICROS_PER_SECOND = 1_000_000
+APB2_MAX_HZ = 84_000_000
+# RM0090 Table 10. One wait state per 30 MHz of HCLK holds for VDD 2.7-3.6 V;
+# the step tightens to 24, 22 and 20 MHz on the lower supply bands. VDD is
+# modelled nowhere in Kconfig, so this constant is where the board's 3.3 V rail
+# is written down -- a shift to a lower rail has to change it.
+FLASH_WAIT_STATE_STEP_HZ = 30_000_000
+# The regulator scale caps SYSCLK: the F407 needs scale 1 above this.
+VOLTAGE_SCALE2_MAX_HZ = 144_000_000
+
+# RM0090 6.2: a timer on an APB bus runs at PCLK when that bus divides by one,
+# and at twice PCLK otherwise. TIMPRE is never written, so the rule is
+# unconditional. This is why APB2 /1 and /2 both leave TIM1 at 168 MHz and only
+# the coarser dividers move it.
+def _timer_clock_hz(pclk_hz: int, apb_divider: int) -> int:
+    return pclk_hz if apb_divider == 1 else pclk_hz * 2
 
 
-def _solve_system_clock(kconf: kconfiglib.Kconfig) -> int:
+DSHOT_BIT_RATE_HZ: dict[str, int] = {
+    "DShotMode::kDshot150": 150_000,
+    "DShotMode::kDshot300": 300_000,
+    "DShotMode::kDshot600": 600_000,
+}
+# The zero and one symbols are 37.5% and 75% of the bit period, so a short
+# period quantises both coarsely. Twenty ticks holds that error under 2.5%,
+# which every DShot receiver tolerates; below it the two symbols start to
+# converge.
+DSHOT_MIN_PERIOD_TICKS = 20
+# TIM1's ARR is 16 bits.
+DSHOT_MAX_PERIOD_TICKS = 0x10000
+# An ESC locks to the frame, not to a nominal rate, but a bit period that does
+# not divide evenly leaves every edge off by the rounding error.
+DSHOT_MAX_BIT_RATE_ERROR = 0.005
+
+
+def _dshot_tim1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    """TIM1's kernel clock, plus a check that the chosen rate lands on it.
+
+    The bit period is the timer clock divided by the DShot rate, so it moves
+    with the APB2 divider while the mode says nothing about it. Emitting the
+    clock and deriving the period in the driver keeps the knob on the intent;
+    checking it here is what stops a coarser APB2 from quietly halving the wire
+    rate while the build stays green and the ESCs stay silent.
+    """
+    mode = choice_value(kconf, DSHOT_TIM1_MODE_CHOICES)
+    hclk = _solve_rcc_clock(kconf)
+    apb2_div = _apb_divider(kconf, 2)
+    timer_hz = _timer_clock_hz(hclk // apb2_div, apb2_div)
+
+    bit_rate = DSHOT_BIT_RATE_HZ[mode]
+    ticks = round(timer_hz / bit_rate)
+    if ticks < DSHOT_MIN_PERIOD_TICKS or ticks >= DSHOT_MAX_PERIOD_TICKS:
+        raise SystemExit(
+            f"{mode} needs a {ticks}-tick bit period at TIM1's "
+            f"{timer_hz / 1e6:g} MHz, outside the usable "
+            f"{DSHOT_MIN_PERIOD_TICKS}..{DSHOT_MAX_PERIOD_TICKS - 1} range. "
+            "Choose a slower DShot rate or a finer APB2 divider."
+        )
+    error = abs(timer_hz / ticks - bit_rate) / bit_rate
+    if error > DSHOT_MAX_BIT_RATE_ERROR:
+        raise SystemExit(
+            f"{mode} would run at {timer_hz / ticks / 1e3:.1f} kbit/s from "
+            f"TIM1's {timer_hz / 1e6:g} MHz ({error * 100:.2f}% off); the "
+            f"limit is {DSHOT_MAX_BIT_RATE_ERROR * 100:g}%. Pick an APB2 "
+            "divider that divides evenly into the DShot rate."
+        )
+    return {"mode": mode, "timer_clock_hz": timer_hz}
+
+
+def _flash_wait_states(hclk_hz: int) -> int:
+    """Wait states HCLK needs, per RM0090 Table 10.
+
+    Not a tunable: there is one correct minimum for a given HCLK and supply,
+    and exceeding it only slows the core. Deriving it is what keeps it attached
+    to the clock -- a hand-set value stays behind when a PLL divider moves, and
+    too few wait states faults on the first fetch after the switch, which
+    presents as a dead board rather than as a misconfiguration.
+    """
+    return -(-hclk_hz // FLASH_WAIT_STATE_STEP_HZ) - 1
+
+
+def _apb_divider(kconf: kconfiglib.Kconfig, bus: int) -> int:
+    choices = RCC_APB_DIV_CHOICES if bus == 1 else RCC_APB2_DIV_CHOICES
+    return int(choice_value(kconf, choices).rsplit("kDiv", 1)[1])
+
+
+def _solve_rcc_clock(kconf: kconfiglib.Kconfig) -> int:
     """Resolve HCLK from the clock tree, checking it against RM0090.
 
     Kconfig ranges police each field alone; nothing checks them against
     each other or against the crystal they divide.
     """
-    # choice_value returns the qualified enumerator (System::PllP::kDiv2).
-    hse = sym_int(kconf, "STM32_SYSTEM_HSE_HZ")
-    use_hse = choice_value(kconf, SYSTEM_OSC_CHOICES).endswith("kHse")
+    # choice_value returns the qualified enumerator (Rcc::PllP::kDiv2).
+    hse = sym_int(kconf, "STM32_RCC_HSE_HZ")
+    use_hse = choice_value(kconf, RCC_OSC_CHOICES).endswith("kHse")
     src_hz = hse if use_hse else HSI_HZ
     src_name = f"HSE {hse / 1e6:g} MHz" if use_hse else f"HSI {HSI_HZ / 1e6:g} MHz"
 
-    pllm = sym_int(kconf, "STM32_SYSTEM_PLL_M")
-    plln = sym_int(kconf, "STM32_SYSTEM_PLL_N")
-    pllp = int(choice_value(kconf, SYSTEM_PLL_P_CHOICES).rsplit("kDiv", 1)[1])
-    pllq = sym_int(kconf, "STM32_SYSTEM_PLL_Q")
-    ahb_div = int(choice_value(kconf, SYSTEM_AHB_DIV_CHOICES).rsplit("kDiv", 1)[1])
+    pllm = sym_int(kconf, "STM32_RCC_PLL_M")
+    plln = sym_int(kconf, "STM32_RCC_PLL_N")
+    pllp = int(choice_value(kconf, RCC_PLL_P_CHOICES).rsplit("kDiv", 1)[1])
+    pllq = sym_int(kconf, "STM32_RCC_PLL_Q")
+    ahb_div = int(choice_value(kconf, RCC_AHB_DIV_CHOICES).rsplit("kDiv", 1)[1])
 
     vco_in = src_hz / pllm
     vco_out = vco_in * plln
@@ -1104,11 +1244,37 @@ def _solve_system_clock(kconf: kconfiglib.Kconfig) -> int:
             f"OTG FS requires exactly 48 MHz"
         )
 
+    # The bus ceilings are the one part of the tree the menu can violate on its
+    # own: every APB divider is offered at every HCLK, and /1 at 168 MHz is
+    # double what either bus is rated for.
+    apb1_div = _apb_divider(kconf, 1)
+    apb2_div = _apb_divider(kconf, 2)
+    for bus, divider, maximum in (
+        (1, apb1_div, APB1_MAX_HZ),
+        (2, apb2_div, APB2_MAX_HZ),
+    ):
+        pclk = (sysclk / ahb_div) / divider
+        if pclk > maximum:
+            errors.append(
+                f"PCLK{bus} is {pclk / 1e6:.1f} MHz (HCLK / APB{bus} divider "
+                f"{divider}); the STM32F407 maximum is {maximum / 1e6:g} MHz"
+            )
+
+    # The scale's ceiling lives in the menu label and nowhere else, so scale 2
+    # at 168 MHz is accepted today and browns out the core logic.
+    scale = choice_value(kconf, RCC_VOLTAGE_SCALE_CHOICES)
+    if scale.endswith("kScale2") and sysclk > VOLTAGE_SCALE2_MAX_HZ:
+        errors.append(
+            f"SYSCLK is {sysclk / 1e6:.1f} MHz on regulator scale 2, which the "
+            f"STM32F407 caps at {VOLTAGE_SCALE2_MAX_HZ / 1e6:g} MHz; "
+            "select scale 1 or lower the PLL"
+        )
+
     if errors:
         raise SystemExit(
             "system clock configuration is invalid:\n  "
             + "\n  ".join(errors)
-            + "\n\nCheck CONFIG_STM32_SYSTEM_HSE_HZ matches the crystal actually "
+            + "\n\nCheck CONFIG_STM32_RCC_HSE_HZ matches the crystal actually "
             "fitted to the board, then the PLL dividers around it."
         )
 
@@ -1121,31 +1287,95 @@ def _solve_system_clock(kconf: kconfiglib.Kconfig) -> int:
     return int(hclk)
 
 
-def _system_clock_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+def _fast_loop_hz(kconf: kconfiglib.Kconfig) -> int:
+    """The rate the control cascade actually ticks at.
+
+    Equal to CONFIG_STM32_FAST_LOOP_HZ in every configuration that builds,
+    because _imu_watermark_records rejects a knob that does not divide the
+    record rate evenly. Taking it from the record rate rather than reading the
+    knob keeps the header carrying the rate the FIFO interrupt produces, which
+    is what kFastLoopDtSec has to integrate over.
+    """
+    return _imu_record_rate_hz(kconf) // _imu_watermark_records(kconf)
+
+
+def _rcc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    hclk_hz = _solve_rcc_clock(kconf)
     return {
-        "hclk_hz": _solve_system_clock(kconf),
-        "oscillator": choice_value(kconf, SYSTEM_OSC_CHOICES),
-        "pllm": sym_int(kconf, "STM32_SYSTEM_PLL_M"),
-        "plln": sym_int(kconf, "STM32_SYSTEM_PLL_N"),
-        "pllp": choice_value(kconf, SYSTEM_PLL_P_CHOICES),
-        "pllq": sym_int(kconf, "STM32_SYSTEM_PLL_Q"),
-        "ahb_divider": choice_value(kconf, SYSTEM_AHB_DIV_CHOICES),
-        "apb1_divider": choice_value(kconf, SYSTEM_APB_DIV_CHOICES),
-        "apb2_divider": choice_value(kconf, SYSTEM_APB2_DIV_CHOICES),
-        "flash_latency": sym_int(kconf, "STM32_SYSTEM_FLASH_LATENCY"),
-        "voltage_scale": choice_value(kconf, SYSTEM_VOLTAGE_SCALE_CHOICES),
+        "hclk_hz": hclk_hz,
+        "flash_latency": _flash_wait_states(hclk_hz),
+        "oscillator": choice_value(kconf, RCC_OSC_CHOICES),
+        "pllm": sym_int(kconf, "STM32_RCC_PLL_M"),
+        "plln": sym_int(kconf, "STM32_RCC_PLL_N"),
+        "pllp": choice_value(kconf, RCC_PLL_P_CHOICES),
+        "pllq": sym_int(kconf, "STM32_RCC_PLL_Q"),
+        "ahb_divider": choice_value(kconf, RCC_AHB_DIV_CHOICES),
+        "apb1_divider": choice_value(kconf, RCC_APB_DIV_CHOICES),
+        "apb2_divider": choice_value(kconf, RCC_APB2_DIV_CHOICES),
+        "voltage_scale": choice_value(kconf, RCC_VOLTAGE_SCALE_CHOICES),
     }
 
 
+def _spi_prescaler(pclk_hz: int, max_sck_hz: int, who: str) -> tuple[str, int]:
+    """Fastest SPI_CR1.BR divider whose SCK still lands at or under max_sck_hz."""
+    for divisor in SPI_PRESCALER_DIVISORS:
+        sck_hz = pclk_hz // divisor
+        if sck_hz <= max_sck_hz:
+            return f"SpiPrescaler::kDiv{divisor}", sck_hz
+    raise ValueError(
+        f"no SPI prescaler brings {pclk_hz} Hz down to the {max_sck_hz} Hz "
+        f"{who} allows; the slowest available is /{SPI_PRESCALER_DIVISORS[-1]}"
+    )
+
+
+def _adc_prescaler(pclk2_hz: int) -> int:
+    """Fastest ADC_CCR.ADCPRE setting whose ADCCLK still lands at or under the cap."""
+    for bits, divisor in enumerate(ADC_PRESCALER_DIVISORS):
+        if pclk2_hz // divisor <= ADC_MAX_CLOCK_HZ:
+            return bits
+    raise ValueError(
+        f"no ADC prescaler brings PCLK2 ({pclk2_hz} Hz) down to the "
+        f"{ADC_MAX_CLOCK_HZ} Hz ADCCLK ceiling; the slowest available is "
+        f"/{ADC_PRESCALER_DIVISORS[-1]}"
+    )
+
+
 def _timebase_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    """TIM2/TIM5 dividers, derived rather than configured.
+
+    Both timers count microseconds, so one prescaler serves both. TIM2 free-runs
+    as the 32-bit microsecond clock; TIM5's period is how many microseconds it
+    counts before releasing a slow-loop pass. A prescaler hand-set against an
+    assumed bus clock is how TIM5 came to tick at 976.74 Hz while every comment
+    called it 1 kHz.
+    """
+    hclk_hz = _solve_rcc_clock(kconf)
+    apb1_div = _apb_divider(kconf, 1)
+    timer_hz = _timer_clock_hz(hclk_hz // apb1_div, apb1_div)
+    prescaler, remainder = divmod(timer_hz, MICROS_PER_SECOND)
+    if remainder:
+        raise ValueError(
+            f"the APB1 timer clock ({timer_hz} Hz) is not a whole number of MHz, "
+            "so no prescaler gives the microsecond tick TIM2 and TIM5 both count"
+        )
+
+    tick_hz = sym_int(kconf, "STM32_TIMEBASE_TIM5_TICK_HZ")
+    tim5_counts, remainder = divmod(MICROS_PER_SECOND, tick_hz)
+    if remainder:
+        raise ValueError(
+            f"CONFIG_STM32_TIMEBASE_TIM5_TICK_HZ ({tick_hz} Hz) does not divide "
+            f"{MICROS_PER_SECOND}, so the tick would land a fraction of a "
+            "microsecond early or late on every period"
+        )
+
     return {
         "tim2": {
-            "prescaler": sym_int(kconf, "STM32_TIMEBASE_TIM2_PRESCALER"),
-            "period": sym_hex_literal(kconf, "STM32_TIMEBASE_TIM2_PERIOD"),
+            "prescaler": prescaler - 1,
+            "period": "0xFFFFFFFF",
         },
         "tim5": {
-            "prescaler": sym_int(kconf, "STM32_TIMEBASE_TIM5_PRESCALER"),
-            "period": sym_int(kconf, "STM32_TIMEBASE_TIM5_PERIOD"),
+            "prescaler": prescaler - 1,
+            "period": tim5_counts - 1,
             "autoreload_preload": sym_bool(
                 kconf, "STM32_TIMEBASE_TIM5_AUTORELOAD_PRELOAD"
             ),
@@ -1351,9 +1581,34 @@ def _m10_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _ee_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    # SPI1 hangs off APB2, so the same divider is a different SCK here than on
+    # the IMU's SPI2.
+    apb2_div = _apb_divider(kconf, 2)
+    prescaler, sck_hz = _spi_prescaler(
+        _solve_rcc_clock(kconf) // apb2_div,
+        sym_int(kconf, "STM32_EE_SPI1_MAX_SCK_HZ"),
+        "the EEPROM flash",
+    )
+    return {"spi1_prescaler": prescaler, "spi1_sck_hz": sck_hz}
+
+
 def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    # SPI2 hangs off APB1. The part is rated to 24 MHz and the flight loop wants
+    # every bit of that, so take the fastest divider the ceiling allows.
+    max_sck_hz = sym_int(kconf, "STM32_IMU_SPI_MAX_SCK_HZ")
+    if max_sck_hz > ICM42688P_MAX_SCK_HZ:
+        raise ValueError(
+            f"CONFIG_STM32_IMU_SPI_MAX_SCK_HZ ({max_sck_hz} Hz) is above the "
+            f"ICM42688P's {ICM42688P_MAX_SCK_HZ} Hz rating"
+        )
+    apb1_div = _apb_divider(kconf, 1)
+    prescaler, sck_hz = _spi_prescaler(
+        _solve_rcc_clock(kconf) // apb1_div, max_sck_hz, "the ICM42688P"
+    )
     return {
-        "spi_prescaler": choice_value(kconf, SPI_PRESCALER_CHOICES),
+        "spi_prescaler": prescaler,
+        "spi_sck_hz": sck_hz,
         "external_clock": {
             "enabled": sym_bool(kconf, "STM32_IMU_EXTERNAL_CLOCK_ENABLED"),
             "frequency_hz": sym_int(kconf, "STM32_IMU_EXTERNAL_CLOCK_FREQ_HZ"),
@@ -1424,9 +1679,15 @@ def _button_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 
 def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    # ADC1 hangs off APB2. Deriving the divider here rather than in the driver
+    # is what turns an APB2 no ADCPRE can bring into range into a build error
+    # instead of a board that panics on its first boot.
     return {
         "sample_period_ms": sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS"),
         "adc_reference_mv": sym_int(kconf, "STM32_BATTERY_ADC_REFERENCE_MV"),
+        "adc_prescaler_bits": _adc_prescaler(
+            _solve_rcc_clock(kconf) // _apb_divider(kconf, 2)
+        ),
         "oversample_count": sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT"),
         "filter_alpha_permille": sym_int(
             kconf, "STM32_BATTERY_FILTER_ALPHA_PERMILLE"
@@ -1455,7 +1716,6 @@ def _crsf_periodic_msg_context(
     prefix = f"STM32_RC_RECEIVER_CRSF_{key.upper()}"
     return {
         "period_ms": sym_int(kconf, f"{prefix}_PERIOD_MS"),
-        "start_delay_ms": sym_int(kconf, f"{prefix}_START_DELAY_MS"),
         "priority": sym_int(kconf, f"{prefix}_PRIORITY"),
         "send_on_change": sym_bool(kconf, f"{prefix}_SEND_ON_CHANGE"),
         "max_silence_ms": sym_int(kconf, f"{prefix}_MAX_SILENCE_MS"),
@@ -1492,9 +1752,6 @@ def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 "period_ms": sym_int(
                     kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PERIOD_MS"
                 ),
-                "start_delay_ms": sym_int(
-                    kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_START_DELAY_MS"
-                ),
                 "priority": sym_int(
                     kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY"
                 ),
@@ -1512,9 +1769,9 @@ def _runtime_context(
         "autogen_warning": autogen_warning(source),
         "pinmap": _pinmap_context(kconf),
         "led": {"active_low": sym_bool(kconf, "STM32_LED_ACTIVE_LOW")},
-        "dshot_tim1": {"mode": choice_value(kconf, DSHOT_TIM1_MODE_CHOICES)},
-        "ee": {"spi1_prescaler": choice_value(kconf, EE_SPI1_PRESCALER_CHOICES)},
-        "system_clock": _system_clock_context(kconf),
+        "dshot_tim1": _dshot_tim1_context(kconf),
+        "ee": _ee_context(kconf),
+        "rcc": _rcc_context(kconf),
         "timebase": _timebase_context(kconf),
         "esc_telemetry": _esc_telemetry_context(kconf),
         "esc_service": _esc_service_context(kconf),
@@ -1523,6 +1780,7 @@ def _runtime_context(
         "fclink": _fclink_context(kconf),
         "m10": _m10_context(kconf),
         "icm42688p": _icm42688p_context(kconf),
+        "fast_loop_hz": _fast_loop_hz(kconf),
         "button": _button_context(kconf),
         "battery": _battery_context(kconf),
         "rc_receiver": _rc_receiver_context(kconf),

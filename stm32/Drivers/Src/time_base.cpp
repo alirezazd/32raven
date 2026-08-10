@@ -36,7 +36,7 @@ void TimeBase::Init(const Config &config) {
   TIM2->CNT = 0;
   TIM2->CR1 |= TIM_CR1_CEN;
 
-  // TIM5: periodic scheduler tick (default 1kHz)
+  // TIM5: periodic scheduler tick; the rate comes from the config.
   RCC->APB1ENR |= RCC_APB1ENR_TIM5EN;
   __DSB();
 

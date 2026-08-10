@@ -7,6 +7,7 @@
 #include <span>
 
 #include "irq_priority.hpp"
+#include "rcc.hpp"
 #include "stm32f4xx.h"
 #include "system.hpp"
 
@@ -115,18 +116,6 @@ USART_TypeDef *Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::UartReg() {
 
 namespace {
 
-uint32_t Apb1Hz() {
-  const uint32_t ppre1 = (RCC->CFGR & RCC_CFGR_PPRE1) >> RCC_CFGR_PPRE1_Pos;
-  const uint32_t div = ppre1 < 4u ? 1u : (1u << (ppre1 - 3u));
-  return SystemCoreClock / div;
-}
-
-uint32_t Apb2Hz() {
-  const uint32_t ppre2 = (RCC->CFGR & RCC_CFGR_PPRE2) >> RCC_CFGR_PPRE2_Pos;
-  const uint32_t div = ppre2 < 4u ? 1u : (1u << (ppre2 - 3u));
-  return SystemCoreClock / div;
-}
-
 // USARTDIV mantissa[15:4] | fraction[3:0] (or [2:0] when OVER8). The x100
 // scaling keeps the fractional part precise without floating point.
 uint32_t ComputeUartBrr(uint32_t pclk_hz, uint32_t baud_rate, bool over8) {
@@ -182,15 +171,15 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Init(
   if constexpr (Inst == UartInstance::kUart1) {
     RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
     (void)RCC->APB2ENR;
-    pclk_hz = Apb2Hz();
+    pclk_hz = Rcc::Apb2Hz();
   } else if constexpr (Inst == UartInstance::kUart2) {
     RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
     (void)RCC->APB1ENR;
-    pclk_hz = Apb1Hz();
+    pclk_hz = Rcc::Apb1Hz();
   } else {
     RCC->APB2ENR |= RCC_APB2ENR_USART6EN;
     (void)RCC->APB2ENR;
-    pclk_hz = Apb2Hz();
+    pclk_hz = Rcc::Apb2Hz();
   }
 
   // Disable while reprogramming so writes to BRR / CR1-3 take effect cleanly.
@@ -217,9 +206,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
   USART_TypeDef *uart = UartReg();
   uint32_t pclk_hz = 0;
   if constexpr (Inst == UartInstance::kUart1 || Inst == UartInstance::kUart6) {
-    pclk_hz = Apb2Hz();
+    pclk_hz = Rcc::Apb2Hz();
   } else {
-    pclk_hz = Apb1Hz();
+    pclk_hz = Rcc::Apb1Hz();
   }
   const bool over8 = (uart->CR1 & USART_CR1_OVER8) != 0u;
 

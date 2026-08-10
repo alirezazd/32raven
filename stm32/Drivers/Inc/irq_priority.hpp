@@ -15,7 +15,7 @@
 //   PendSV (4)                 express bottom-half, just under the IMU path
 //   ESC TLM, USART2/6 + DMA (5) sensor / telemetry traffic
 //   DShot TIM1 DMA (6)         motor frame DMA, kicked by the slow tick
-//   TIM5 slow tick (7)         1 kHz scheduler tick
+//   TIM5 slow tick (7)         releases one slow-loop pass
 //   USART1 / FcLink + DMA (10) ESP32 link, fully background
 // The IMU path is the only thing that can preempt PendSV and starts the chain
 // every other deadline depends on; re-check the sample budget before
@@ -39,7 +39,7 @@ inline constexpr uint32_t kUart6Dma = 5;      // DMA2 Stream1/6
 inline constexpr uint32_t kDshotTim1Dma = 6;  // DMA2 Stream5
 
 // Background
-inline constexpr uint32_t kTimeBaseTim5 = 7;  // 1 kHz slow tick scheduler
+inline constexpr uint32_t kTimeBaseTim5 = 7;  // slow tick scheduler
 inline constexpr uint32_t kUart1 = 10;        // FcLink USART1
 inline constexpr uint32_t kUart1Dma = 10;     // DMA2 Stream2/7
 inline constexpr uint32_t kUsbOtgFs = 11;     // ESC config CDC; host-paced

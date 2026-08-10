@@ -8,6 +8,7 @@
 #include "error_code.hpp"
 #include "irq_priority.hpp"
 #include "panic.hpp"
+#include "rcc.hpp"
 #include "stm32f4xx.h"
 
 // local helpers
@@ -34,18 +35,6 @@ static constexpr uint32_t kOcModePwm1 = 0x6u;
 static constexpr uint32_t kDcrDbaCcr1 = 0x0Du;
 static constexpr uint32_t kDcrBurst4 = 3u;
 
-static uint16_t DshotPeriodTicks(DShotMode mode) {
-  switch (mode) {
-    case DShotMode::kDshot600:
-      return 280u - 1u;
-    case DShotMode::kDshot300:
-      return 560u - 1u;
-    case DShotMode::kDshot150:
-      return 1120u - 1u;
-  }
-  return 280u - 1u;
-}
-
 static inline void Dma2Stream5DisableAndWait() {
   DMA2_Stream5->CR &= ~DMA_SxCR_EN;
   while (DMA2_Stream5->CR & DMA_SxCR_EN) {
@@ -64,9 +53,26 @@ void DShotTim1::Init(const Config &config) {
     Panic(ErrorCode::Stm32::kDshotInitFailed);
   }
   initialized_ = true;
-  // TIM1 (APB2) timer clock is 168MHz: APB2 = 84MHz, doubled because APB2
-  // prescaler != 1. Period ticks scale the bit period (see DshotPeriodTicks).
-  const uint16_t period = DshotPeriodTicks(config.mode);
+
+  // The tree the config was solved against has to be the tree RCC ended up
+  // programmed with, or every bit period below is scaled by the discrepancy.
+  if (config.timer_clock_hz != Rcc::Apb2TimerHz()) {
+    Panic(ErrorCode::Stm32::kDshotClockMismatch);
+  }
+
+  const uint32_t bit_rate_hz = BitRateHz(config.mode);
+  if (bit_rate_hz == 0u || config.timer_clock_hz == 0u) {
+    Panic(ErrorCode::Stm32::kDshotInitFailed);
+  }
+
+  // Round rather than truncate: at a coarse APB2 divider the quotient can land
+  // just under an integer, and a tick lost here shifts every edge in the frame.
+  const uint32_t period_ticks =
+      (config.timer_clock_hz + bit_rate_hz / 2u) / bit_rate_hz;
+  if (period_ticks < kMinPeriodTicks || period_ticks > 0x10000u) {
+    Panic(ErrorCode::Stm32::kDshotPeriodUnrepresentable);
+  }
+  const uint16_t period = static_cast<uint16_t>(period_ticks - 1u);
 
   DmaInit();
   Tim1Init(period);
@@ -75,7 +81,6 @@ void DShotTim1::Init(const Config &config) {
       (kDcrDbaCcr1 << TIM_DCR_DBA_Pos) | (kDcrBurst4 << TIM_DCR_DBL_Pos);
 
   timings_.arr = period;
-  const uint32_t period_ticks = static_cast<uint32_t>(timings_.arr) + 1u;
 
   timings_.t1h = DivRoundU16(period_ticks * kT1Num, kT1Den);
   timings_.t0h = DivRoundU16(period_ticks * kT0Num, kT0Den);

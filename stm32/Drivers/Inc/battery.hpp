@@ -12,6 +12,8 @@ class Battery {
   struct Config {
     uint32_t sample_period_us;
     uint16_t adc_reference_mv;
+    // ADC_CCR.ADCPRE field value, derived from PCLK2 by the config generator.
+    uint8_t adc_prescaler_bits;
     uint8_t voltage_adc_channel;
     uint8_t current_adc_channel;
     uint8_t oversample_count;

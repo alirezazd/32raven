@@ -8,6 +8,7 @@
 #include "error_code.hpp"
 #include "irq_priority.hpp"
 #include "panic.hpp"
+#include "rcc.hpp"
 #include "stm32f4xx.h"
 
 namespace {
@@ -18,14 +19,6 @@ static inline void DmaDisableAndWait(DMA_Stream_TypeDef *stream) {
   stream->CR &= ~DMA_SxCR_EN;
   while ((stream->CR & DMA_SxCR_EN) != 0u) {
   }
-}
-
-uint32_t Apb1PrescalerDivisor() {
-  const uint32_t ppre1 = (RCC->CFGR & RCC_CFGR_PPRE1) >> RCC_CFGR_PPRE1_Pos;
-  if (ppre1 < 4u) {
-    return 1u;
-  }
-  return 1u << (ppre1 - 3u);
 }
 
 uint32_t UsartBrr(uint32_t pclk_hz, uint32_t baud_rate) {
@@ -85,7 +78,7 @@ void EscTelemetry::ConfigureUart() {
   USART3->CR2 = 0;
   USART3->CR3 = 0;
 
-  const uint32_t pclk1_hz = SystemCoreClock / Apb1PrescalerDivisor();
+  const uint32_t pclk1_hz = Rcc::Apb1Hz();
   USART3->BRR = UsartBrr(pclk1_hz, cfg_.baud_rate);
   USART3->CR3 = USART_CR3_DMAR | USART_CR3_EIE;
   USART3->CR1 = USART_CR1_RE | USART_CR1_IDLEIE | USART_CR1_PEIE | USART_CR1_UE;

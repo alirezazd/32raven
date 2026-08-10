@@ -21,11 +21,10 @@ inline constexpr std::size_t kUsbCdcBulkMaxPacketBytes = {{ usb_cdc_bulk_max_pac
 inline constexpr std::size_t kUsbCdcEp0MaxPacketBytes = {{ usb_cdc_ep0_max_packet_bytes }};
 inline constexpr std::size_t kUsbCdcStringDescriptorBytes = {{ usb_cdc_string_descriptor_bytes }};
 inline constexpr std::size_t kUsbCdcMaxFrameBytes = {{ usb_cdc_max_frame_bytes }};
-inline constexpr std::size_t kUsbCdcRxRingSize = {{ usb_cdc_rx_ring_size }};
-inline constexpr std::size_t kUsbCdcTxRingSize = {{ usb_cdc_tx_ring_size }};
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
 inline constexpr uint8_t kBatteryAdcResolutionBits = {{ battery_adc_resolution_bits }};
-inline constexpr uint16_t kBatteryAdcMaxRaw = {{ battery_adc_max_raw }};
+inline constexpr uint16_t kBatteryAdcMaxRaw =
+    (uint16_t{1} << kBatteryAdcResolutionBits) - uint16_t{1};
 inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};
 inline constexpr std::array<uint8_t, kRcEnabledChannelCount> kRcEnabledChannelIndices = {
 {% for channel_index in rc_enabled_indices %}

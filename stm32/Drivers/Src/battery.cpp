@@ -96,8 +96,8 @@ void Battery::InitAdc() {
   RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
   (void)RCC->APB2ENR;
 
-  ADC->CCR &= ~ADC_CCR_ADCPRE;
-  ADC->CCR |= ADC_CCR_ADCPRE_0;  // PCLK2 / 4 = 21 MHz on this clock tree.
+  ADC->CCR = (ADC->CCR & ~ADC_CCR_ADCPRE) |
+             (static_cast<uint32_t>(cfg_.adc_prescaler_bits) << ADC_CCR_ADCPRE_Pos);
 
   ADC1->CR1 = ADC_CR1_SCAN;
   ADC1->CR2 = ADC_CR2_EOCS;

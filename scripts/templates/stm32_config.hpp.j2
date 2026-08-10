@@ -52,25 +52,27 @@ inline const BoardPin {{ p.name }} = {
 inline constexpr uint8_t {{ p.adc_const }} = {{ p.adc_channel }}u;
 {% endif %}
 {% endfor %}
-{# SYSCLK after the AHB divider: what System::Init() publishes as CMSIS's
+{# SYSCLK after the AHB divider. Rcc::Init publishes it as CMSIS's
    SystemCoreClock, in place of SystemCoreClockUpdate() reading it back. #}
-inline constexpr uint32_t kHclkHz = {{ system_clock.hclk_hz }}u;
+inline constexpr uint32_t kHclkHz = {{ rcc.hclk_hz }}u;
 
 }  // namespace board
 
+#include "rcc.hpp"
 #include "system.hpp"
 
-inline constexpr System::Config kSystemDefault = {
-    .oscillator = {{ system_clock.oscillator }},
-    .pllm = {{ system_clock.pllm }},
-    .plln = {{ system_clock.plln }},
-    .pllp = {{ system_clock.pllp }},
-    .pllq = {{ system_clock.pllq }},
-    .ahb_divider = {{ system_clock.ahb_divider }},
-    .apb1_divider = {{ system_clock.apb1_divider }},
-    .apb2_divider = {{ system_clock.apb2_divider }},
-    .flash_latency = {{ system_clock.flash_latency }},
-    .voltage_scale = {{ system_clock.voltage_scale }},
+inline constexpr Rcc::Config kRccConfig = {
+    .oscillator = {{ rcc.oscillator }},
+    .pllm = {{ rcc.pllm }},
+    .plln = {{ rcc.plln }},
+    .pllp = {{ rcc.pllp }},
+    .pllq = {{ rcc.pllq }},
+    .ahb_divider = {{ rcc.ahb_divider }},
+    .apb1_divider = {{ rcc.apb1_divider }},
+    .apb2_divider = {{ rcc.apb2_divider }},
+    .flash_latency = {{ rcc.flash_latency }},
+    .voltage_scale = {{ rcc.voltage_scale }},
+    .hclk_hz = board::kHclkHz,
 };
 
 {# GPIO programming for every pin in the pin map. Mode / pull / speed /
@@ -124,6 +126,13 @@ inline constexpr SpiConfig kEeSpi1Config = {
     .prescaler = {{ ee.spi1_prescaler }},
     .bit_order = SpiBitOrder::kMsbFirst,
 };
+
+// Rate the FIFO watermark interrupt drives the control cascade at, and the
+// only correct timestep for anything it integrates. Derived from the
+// CLKIN-scaled record rate divided by the watermark, and exact by
+// construction: the build rejects a rate that does not divide evenly.
+inline constexpr std::uint32_t kFastLoopHz = {{ fast_loop_hz }}u;
+inline constexpr float kFastLoopDtSec = 1.0f / static_cast<float>(kFastLoopHz);
 
 inline constexpr Icm42688p::Config kIcm42688pConfig = {
     .spi_prescaler = {{ icm42688p.spi_prescaler }},
@@ -210,6 +219,7 @@ inline const Button::Config kButtonConfig = {
 inline constexpr Battery::Config kBatteryConfig = {
     .sample_period_us = {{ battery.sample_period_ms }}u * 1000u,
     .adc_reference_mv = {{ battery.adc_reference_mv }},
+    .adc_prescaler_bits = {{ battery.adc_prescaler_bits }},
     .voltage_adc_channel = board::kEscVbaAdcChannel,
     .current_adc_channel = board::kEscCurAdcChannel,
     .oversample_count = {{ battery.oversample_count }},
@@ -246,15 +256,12 @@ inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
     .heartbeat = {
         .period_us = {{ rc_receiver.crsf.heartbeat.period_ms }}u * 1000u,
-        .start_delay_us =
-            {{ rc_receiver.crsf.heartbeat.start_delay_ms }}u * 1000u,
         .max_silence_us = 0u,
         .priority = {{ rc_receiver.crsf.heartbeat.priority }}u,
         .send_on_change = false,
     },
     .gps = {
         .period_us = {{ rc_receiver.crsf.gps.period_ms }}u * 1000u,
-        .start_delay_us = {{ rc_receiver.crsf.gps.start_delay_ms }}u * 1000u,
         .max_silence_us =
             {{ rc_receiver.crsf.gps.max_silence_ms }}u * 1000u,
         .priority = {{ rc_receiver.crsf.gps.priority }}u,
@@ -262,8 +269,6 @@ inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     },
     .battery = {
         .period_us = {{ rc_receiver.crsf.battery.period_ms }}u * 1000u,
-        .start_delay_us =
-            {{ rc_receiver.crsf.battery.start_delay_ms }}u * 1000u,
         .max_silence_us =
             {{ rc_receiver.crsf.battery.max_silence_ms }}u * 1000u,
         .priority = {{ rc_receiver.crsf.battery.priority }}u,
@@ -321,6 +326,7 @@ inline const LED::Config kLedConfig = {
 
 inline constexpr DShotTim1::Config kDshotTim1Config = {
     .mode = {{ dshot_tim1.mode }},
+    .timer_clock_hz = {{ dshot_tim1.timer_clock_hz }}u,
 };
 
 inline constexpr TimeBaseConfig kTimeBaseConfig = {

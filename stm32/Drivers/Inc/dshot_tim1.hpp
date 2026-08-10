@@ -21,7 +21,29 @@ class DShotTim1 {
 
   struct Config {
     DShotMode mode;
+    // TIM1's kernel clock. The bit period is this divided by the DShot rate,
+    // so it belongs to the clock tree rather than to the mode: an APB2
+    // divider past /2 halves it, and a period frozen against 168 MHz would
+    // put a slower rate on the wire than the mode names.
+    uint32_t timer_clock_hz;
   };
+
+  // Wire rates. Fixed by the protocol, unlike the tick counts they resolve to.
+  static constexpr uint32_t BitRateHz(DShotMode mode) {
+    switch (mode) {
+      case DShotMode::kDshot150:
+        return 150000u;
+      case DShotMode::kDshot300:
+        return 300000u;
+      case DShotMode::kDshot600:
+        return 600000u;
+    }
+    return 0u;
+  }
+
+  // The zero and one symbols sit at 37.5% and 75% of the bit period, so a
+  // short period quantises both coarsely; below this they start to converge.
+  static constexpr uint32_t kMinPeriodTicks = 20u;
 
   static bool IsBusy() { return GetInstance().busy_; }
 

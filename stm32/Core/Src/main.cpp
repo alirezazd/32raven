@@ -3,7 +3,6 @@
 
 #include "ctx.hpp"
 #include "states.hpp"
-#include "stm32_config.hpp"
 #include "system.hpp"
 
 namespace {
@@ -27,7 +26,7 @@ extern "C" void ExpressMain(void) {
 }
 
 int main(void) {
-  System::GetInstance().Init(kSystemDefault);
+  System::GetInstance().Init();
   app.sys = &System::GetInstance();
   app.sm = &sm;
   app.idle_state = &idle_state;
