@@ -47,8 +47,8 @@ about 1.7 µA.
 
     **The reference build already has this switched on**, and expects a 32.768 kHz clock on
     pin 9. If you choose to skip it, turn it off under `make 32raven-menuconfig`
-    → **STM32 → IMU → ICM42688P → Clock** before you fly. The default is off; this build is
-    the exception.
+    → **STM32 → Peripherals → IMU (ICM42688P) → Clock** before you fly. The default is
+    off; this build is the exception.
 
 <div class="grid" markdown>
 

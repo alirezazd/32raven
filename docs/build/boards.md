@@ -65,12 +65,12 @@ The W25Q16 is fitted from the factory. Nothing to wire.
 **The LED and button are the ones the firmware drives.** `D2` on `PA1` is wired in sink mode,
 so it is **active low**. `K1` on `PA0` is **active high**.
 
-**The 8 MHz crystal is why the clock configuration works.** `CONFIG_STM32_SYSTEM_PLL_M` is 8
+**The 8 MHz crystal is why the clock configuration works.** `CONFIG_STM32_RCC_PLL_M` is 8
 and `PLL_N` is 336: 8 MHz ÷ 8 = 1 MHz into the PLL, × 336 = 336 MHz, ÷ 2 = 168 MHz exactly. A
 board with a different crystal needs `PLL_M` changed to keep the PLL input at 1 MHz, or the
 core runs at the wrong speed and every timing in the firmware moves with it. Set it to your
-crystal frequency in MHz under `make 32raven-menuconfig` → **STM32 → System Clock → PLLM
-(input divider, 2..63)**.
+crystal frequency in MHz under `make 32raven-menuconfig` → **STM32 → Peripherals → RCC →
+PLLM (input divider, 2..63)**.
 
 !!! caution
 

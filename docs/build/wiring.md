@@ -45,8 +45,8 @@ The one connection that must be right before anything else works. Cross TX to RX
     **Keep this link short.** The reference build runs the link at **921600 baud**, and long
     unshielded wire inside a frame full of ESC switching noise is a good way to spend an
     evening debugging handshake failures. Twist TX/RX with ground, and if the run has to be
-    long, drop the baud under `make 32raven-menuconfig` → **ESP32 → FcLink → Uart** rather
-    than fight the noise.
+    long, drop the baud under `make 32raven-menuconfig` → **Common → FcLink** rather
+    than fight the noise. Both ends read that one symbol, so there is no pair to keep in sync.
 <!-- --8<-- [end:fclink] -->
 
 ### STM32 programming lines
