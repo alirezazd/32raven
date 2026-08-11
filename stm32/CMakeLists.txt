@@ -76,6 +76,8 @@ set(STM32_EE_SCHEMA_HPP
 # boards silently otherwise.
 set(STM32_PIN_CHECKER
     "${CMAKE_CURRENT_SOURCE_DIR}/../scripts/lint/check_pinmap.py")
+set(STM32_BOARD_TOML
+    "${CMAKE_CURRENT_SOURCE_DIR}/../config/board.toml")
 set(ERROR_CODE_HPP
     "${CMAKE_CURRENT_SOURCE_DIR}/../libs/inc/error_code.hpp")
 
@@ -104,6 +106,7 @@ add_custom_command(
     ${STM32_RUNTIME_CONFIG_TEMPLATE}
     ${STM32_LIMITS_TEMPLATE}
     ${STM32_PIN_CHECKER}
+    ${STM32_BOARD_TOML}
     ${ERROR_CODE_HPP}
     COMMENT "Generating + validating STM32 configuration headers"
     VERBATIM)

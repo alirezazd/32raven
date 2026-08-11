@@ -1,0 +1,17 @@
+# Board facts ST's pin data cannot know.
+#
+# ST's tables say which pins can carry a signal on this package. They cannot
+# say which of those pins this board has already spent. Pins listed here are
+# removed from every signal's legal set, and any pin map entry that lands on
+# one is rejected at generation time.
+#
+# Pins a peripheral holds because ST offers it no alternative are NOT listed:
+# the generator derives those from the signal tables. This file is only for
+# pins claimed by something outside the pin map.
+#
+# PB3/PB4/PA15 are deliberately absent. They are JTAG-only (JTDO, NJTRST,
+# JTDI) and the board debugs over SWD, so SPI1 is free to use them.
+
+[reserved]
+PA13 = "SWDIO - reassigning it costs the debugger and SWD flashing"
+PA14 = "SWCLK - reassigning it costs the debugger and SWD flashing"

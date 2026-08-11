@@ -15,6 +15,7 @@ from __future__ import annotations
 import math
 import pathlib
 import sys
+import tomllib
 from dataclasses import dataclass
 
 import kconfiglib
@@ -913,10 +914,94 @@ def _validate_pinmap_entry(
             )
 
 
+BOARD_TOML = pathlib.Path(__file__).resolve().parent.parent / "config" / "board.toml"
+
+
+def _board_reserved_pins() -> dict[str, str]:
+    """Pins spent by something outside the pin map, mapped to the reason."""
+    with BOARD_TOML.open("rb") as fp:
+        return tomllib.load(fp).get("reserved", {})
+
+
+def _legal_signal_pins(
+    db: PinConstraints, reserved: set[str]
+) -> dict[str, set[str]]:
+    """Pins each signal may still be offered: ST's list minus what is spent.
+
+    A signal ST gives no alternative holds its pin unconditionally, so that pin
+    leaves every other signal's list -- which can strand a second signal on one
+    option in turn, so this settles rather than running a single pass.
+    """
+    available = {
+        entry.signal: {p.pin for p in db.pins_for_signal(entry.signal)} - reserved
+        for entry in PINMAP_ENTRIES
+        if isinstance(entry, _SignalPin)
+    }
+
+    spent: dict[str, str] = {}
+    while True:
+        newly = {
+            next(iter(pins)): signal
+            for signal, pins in available.items()
+            if len(pins) == 1 and next(iter(pins)) not in spent
+        }
+        if not newly:
+            return available
+        spent.update(newly)
+        for signal in available:
+            available[signal] -= {
+                pin for pin, owner in spent.items() if owner != signal
+            }
+            if not available[signal]:
+                raise ValueError(
+                    f"no pin left for {signal}: every pin ST allows on this "
+                    "package is either held by a peripheral with no alternative "
+                    "or reserved in config/board.toml"
+                )
+
+
 def _validate_pinmap(kconf: kconfiglib.Kconfig) -> None:
     db = PinConstraints.load_default()
+    reserved = _board_reserved_pins()
+
+    # A reservation for a pin that does not exist protects nothing while
+    # reading as though it does.
+    for pin_name in sorted(reserved):
+        if not db.is_valid_pin(pin_name):
+            raise ValueError(
+                f"config/board.toml reserves {pin_name}, which is not a pin on "
+                "the STM32F407V package"
+            )
+
+    legal = _legal_signal_pins(db, set(reserved))
+
     for entry in PINMAP_ENTRIES:
         _validate_pinmap_entry(db, kconf, entry)
+
+        pin_name, _, _ = _resolve_pin(kconf, entry)
+        if pin_name in reserved:
+            raise ValueError(
+                f"pinmap {entry.board_const}: {pin_name} is reserved in "
+                f"config/board.toml -- {reserved[pin_name]}"
+            )
+
+        # The offered list is written twice, in the Kconfig and in the entry
+        # above. Neither states why a pin is absent, so an option ST allows can
+        # go missing without anything noticing.
+        if isinstance(entry, _SignalPin):
+            offered = set(entry.choice_options.values())
+            expected = legal[entry.signal]
+            if offered != expected:
+                detail = []
+                if expected - offered:
+                    detail.append(f"never offered: {sorted(expected - offered)}")
+                if offered - expected:
+                    detail.append(f"offered but spent: {sorted(offered - expected)}")
+                raise ValueError(
+                    f"pinmap {entry.board_const}: {entry.signal} offers "
+                    f"{sorted(offered)} but the legal set is {sorted(expected)} "
+                    f"({'; '.join(detail)})"
+                )
 
 
 def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:

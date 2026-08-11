@@ -186,8 +186,11 @@ def main() -> int:
         if len(owners) > 1:
             _emit(
                 "ERROR",
-                f"pin {pin_id} is claimed by multiple BoardPin entries: {owners}. "
-                f"Combine into one entry (e.g. kFooMisoMosi) or remove a duplicate.",
+                f"pin {pin_id} is claimed by {len(owners)} BoardPin entries: "
+                f"{owners}. Two peripherals cannot share a pad -- move one of "
+                f"them to a free pin under STM32 -> Pin Map. If instead this is "
+                f"one peripheral driving the pad twice, the two declarations "
+                f"belong in a single entry (e.g. kFooMisoMosi).",
             )
             errors += 1
 
