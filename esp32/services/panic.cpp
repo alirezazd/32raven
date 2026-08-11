@@ -18,13 +18,15 @@ static constexpr const char *kTag = "panic";
 
 namespace {
 
-// The panic task formats and ships a backtrace, so it needs a real stack,
-// and it has to outrank anything that could be wedged when it is woken.
-static constexpr uint32_t kPanicTaskStackWords = 4096;
+// The DFU recovery loop runs here rather than on the stack of
+// whatever panicked, and measures ~3.7 KB deep, so there is little to give
+// back. The priority has to outrank anything that could be wedged when it is
+// woken.
+static constexpr uint32_t kPanicTaskStackBytes = 4096;
 static constexpr UBaseType_t kPanicTaskPrio = 24;
 static_assert(kPanicTaskPrio < configMAX_PRIORITIES);
 static StaticTask_t s_panic_task_buffer;
-static StackType_t s_panic_task_stack[kPanicTaskStackWords];
+static StackType_t s_panic_task_stack[kPanicTaskStackBytes];
 static TaskHandle_t s_panic_task_handle = nullptr;
 
 [[noreturn]] void RunPanicLoop(uint32_t code);
@@ -43,7 +45,7 @@ void EnsurePanicTaskStarted() {
   }
 
   s_panic_task_handle = xTaskCreateStaticPinnedToCore(
-      PanicTask, "panic", kPanicTaskStackWords, nullptr, kPanicTaskPrio,
+      PanicTask, "panic", kPanicTaskStackBytes, nullptr, kPanicTaskPrio,
       s_panic_task_stack, &s_panic_task_buffer, 0);
 }
 
@@ -308,8 +310,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
     last_written_ = current_written;
   }
 
-  if (!prog_.Done() &&
-      (now - last_activity_) > Programmer::kStallTimeoutMs) {
+  if (!prog_.Done() && (now - last_activity_) > Programmer::kStallTimeoutMs) {
     prog_.Abort(now);
     Exit(Raw(ErrorCode::Esp32::kProgrammerTimedOut),
          NetworkAction::kStopNetwork);

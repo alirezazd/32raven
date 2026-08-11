@@ -23,7 +23,10 @@ extern "C" {
 namespace {
 
 constexpr const char *kTag = "ui";
-constexpr uint32_t kTaskStackDepthWords = 3072;
+// MainUiWidget's render path is the deep one -- float formatting inside
+// RenderMode puts the worst case near 2.7 KB, well past what the task's own
+// frames suggest.
+constexpr uint32_t kTaskStackBytes = 3584;
 constexpr TimeMs kUiFadeOutDurationMs = 2000;
 constexpr uint8_t kUiFadeOutInterval = 0;
 portMUX_TYPE g_ui_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -246,7 +249,7 @@ std::optional<Ui::PeerUsbState> Ui::PeerUsb(uint32_t now_ms) const {
 
 void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   static StaticTask_t task_buffer;
-  static StackType_t task_stack[kTaskStackDepthWords];
+  static StackType_t task_stack[kTaskStackBytes];
 
   cfg_ = cfg;
   if (panel == nullptr || cfg_.fps_cap == 0) {
@@ -268,7 +271,7 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   next_step_ms_ = 0;
   boot_widget_->SetNextWidget(main_ui_widget_);
   if (task_handle_ == nullptr) {
-    task_handle_ = xTaskCreateStatic(TaskEntry, "display", kTaskStackDepthWords,
+    task_handle_ = xTaskCreateStatic(TaskEntry, "display", kTaskStackBytes,
                                      this, 1, task_stack, &task_buffer);
     if (task_handle_ == nullptr) {
       Panic(ErrorCode::Esp32::kUiInitFailed);

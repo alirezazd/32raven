@@ -78,16 +78,6 @@ void TonePlayer::PlayBuiltin(BuiltinTone tone, int volume) {
   (void)PlayRtttl(rtttl, volume);
 }
 
-void TonePlayer::Stop() {
-  if (request_queue_ == nullptr) {
-    return;
-  }
-  xQueueReset((QueueHandle_t)request_queue_);
-  if (task_handle_ != nullptr) {
-    xTaskNotifyGive((TaskHandle_t)task_handle_);
-  }
-}
-
 void TonePlayer::TaskEntry(void *param) {
   static_cast<TonePlayer *>(param)->Task();
 }
@@ -95,15 +85,6 @@ void TonePlayer::TaskEntry(void *param) {
 void TonePlayer::Task() {
   while (true) {
     if (playing_) {
-      if (ulTaskNotifyTake(pdTRUE, 0) > 0) {
-        playing_ = false;
-        score_ = nullptr;
-        cursor_ = nullptr;
-        next_change_ms_ = 0;
-        buzzer_->Stop();
-        continue;
-      }
-
       const TimeMs now = Sys().Timebase().NowMs();
       if (TimeReached(now, next_change_ms_)) {
         const std::optional<NoteEvent> event = ParseNextNote();
@@ -120,14 +101,7 @@ void TonePlayer::Task() {
       }
 
       const TimeMs wait_ms = next_change_ms_ - now;
-      if (ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait_ms > 0 ? wait_ms : 1)) >
-          0) {
-        playing_ = false;
-        score_ = nullptr;
-        cursor_ = nullptr;
-        next_change_ms_ = 0;
-        buzzer_->Stop();
-      }
+      vTaskDelay(pdMS_TO_TICKS(wait_ms > 0 ? wait_ms : 1));
       continue;
     }
 

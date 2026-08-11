@@ -8,7 +8,6 @@
 #include <optional>
 
 #include "buzzer.hpp"
-#include "esp32_limits.hpp"
 #include "message.hpp"
 #include "timebase.hpp"
 
@@ -32,7 +31,6 @@ class TonePlayer {
 
   bool PlayRtttl(const char *rtttl, int volume = -1);
   void PlayBuiltin(BuiltinTone tone, int volume = -1);
-  void Stop();
   bool IsPlaying() const { return playing_; }
 
  private:
