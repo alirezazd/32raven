@@ -1080,23 +1080,15 @@ menu "USART6 (RC Receiver)"
 # PC6/PC7 is the only USART6 pair bonded out on the F407V package — port G,
 # which carries ST's alternative, is not available here.
 
-choice
-    prompt "TX pin"
-    default STM32_UART6_TX_PIN_PC6
+comment "PC6/PC7 are fixed: the package bonds out no other USART6 pair"
 
 config STM32_UART6_TX_PIN_PC6
-    bool "PC6 (AF8)"
-
-endchoice
-
-choice
-    prompt "RX pin"
-    default STM32_UART6_RX_PIN_PC7
+    bool
+    default y
 
 config STM32_UART6_RX_PIN_PC7
-    bool "PC7 (AF8)"
-
-endchoice
+    bool
+    default y
 
 endmenu
 
@@ -1105,7 +1097,7 @@ endmenu
 menu "USB (OTG FS Device)"
 
 # The USB device port the ESC configurator talks to. PA11/PA12 is the only
-# OTG FS pair on the F407V package, so these choices exist to keep the pins
+# OTG FS pair on the F407V package, so these symbols exist to keep the pins
 # in the generated pin map (and under its collision checks) rather than to
 # offer a real alternative.
 #
@@ -1113,23 +1105,15 @@ menu "USB (OTG FS Device)"
 # is PA9, both already spoken for by USART1 to the ESP32. The driver therefore
 # forces device mode and runs with VBUS sensing disabled.
 
-choice
-    prompt "D- pin"
-    default STM32_USB_DM_PIN_PA11
+comment "PA11/PA12 are fixed: the package bonds out no other OTG FS pair"
 
 config STM32_USB_DM_PIN_PA11
-    bool "PA11 (AF10)"
-
-endchoice
-
-choice
-    prompt "D+ pin"
-    default STM32_USB_DP_PIN_PA12
+    bool
+    default y
 
 config STM32_USB_DP_PIN_PA12
-    bool "PA12 (AF10)"
-
-endchoice
+    bool
+    default y
 
 endmenu
 
@@ -1137,7 +1121,8 @@ menu "Motors (TIM1 DShot)"
 
 # TIM1 has just two pin options per channel on the F407V package: PORTA or
 # PORTE, both AF1. Default to PE9/PE11/PE13/PE14 to match the current PCB
-# routing. Re-route to PA8/PA9/PA10/PA11 for variants that break out PORTA.
+# routing. Channels 1-3 can move to PA8/PA9/PA10 for variants that break out
+# PORTA; channel 4 cannot, because its PORTA pin is PA11 and USB D- holds it.
 
 menu "Motor 1 (TIM1_CH1)"
 
@@ -1189,17 +1174,11 @@ endmenu
 
 menu "Motor 4 (TIM1_CH4)"
 
-choice
-    prompt "Pin"
-    default STM32_DSHOT_MOTOR4_PE14
-
-config STM32_DSHOT_MOTOR4_PA11
-    bool "PA11 (AF1)"
+comment "PE14 is fixed: TIM1_CH4's other pin, PA11, is USB D-"
 
 config STM32_DSHOT_MOTOR4_PE14
-    bool "PE14 (AF1)"
-
-endchoice
+    bool
+    default y
 
 endmenu
 
@@ -1846,49 +1825,7 @@ endmenu
 
 menu "Accelerometer"
 
-choice
-    prompt "Accel ODR"
-    default STM32_IMU_ACCEL_ODR_8KHZ
-    help
-      Output data rate programmed into the ICM42688P accelerometer.
-
-config STM32_IMU_ACCEL_ODR_32KHZ
-    bool "32 kHz"
-
-config STM32_IMU_ACCEL_ODR_16KHZ
-    bool "16 kHz"
-
-config STM32_IMU_ACCEL_ODR_8KHZ
-    bool "8 kHz"
-
-config STM32_IMU_ACCEL_ODR_4KHZ
-    bool "4 kHz"
-
-config STM32_IMU_ACCEL_ODR_2KHZ
-    bool "2 kHz"
-
-config STM32_IMU_ACCEL_ODR_1KHZ
-    bool "1 kHz"
-
-config STM32_IMU_ACCEL_ODR_500HZ
-    bool "500 Hz"
-
-config STM32_IMU_ACCEL_ODR_200HZ
-    bool "200 Hz"
-
-config STM32_IMU_ACCEL_ODR_100HZ
-    bool "100 Hz"
-
-config STM32_IMU_ACCEL_ODR_50HZ
-    bool "50 Hz"
-
-config STM32_IMU_ACCEL_ODR_25HZ
-    bool "25 Hz"
-
-config STM32_IMU_ACCEL_ODR_12_5HZ
-    bool "12.5 Hz"
-
-endchoice
+comment "Accel ODR follows the gyro ODR: one FIFO record carries both"
 
 choice
     prompt "Accel full scale"

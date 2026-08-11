@@ -256,10 +256,6 @@ ODR_CHOICES = {
     "STM32_IMU_GYRO_ODR_12_5HZ": "Icm42688pReg::Odr::k12_5Hz",
 }
 
-ACCEL_ODR_CHOICES = {
-    key.replace("GYRO", "ACCEL"): value for key, value in ODR_CHOICES.items()
-}
-
 # The same choice in Hz, so the FIFO watermark can be derived from it.
 GYRO_ODR_HZ = {
     "STM32_IMU_GYRO_ODR_32KHZ": "32000",
@@ -275,10 +271,6 @@ GYRO_ODR_HZ = {
     "STM32_IMU_GYRO_ODR_25HZ": "25",
     "STM32_IMU_GYRO_ODR_12_5HZ": "12.5",
 }
-ACCEL_ODR_HZ = {
-    key.replace("GYRO", "ACCEL"): value for key, value in GYRO_ODR_HZ.items()
-}
-
 GYRO_FS_CHOICES = {
     "STM32_IMU_GYRO_FS_2000DPS": "Icm42688pReg::GyroFs::k2000dps",
     "STM32_IMU_GYRO_FS_1000DPS": "Icm42688pReg::GyroFs::k1000dps",
@@ -599,7 +591,6 @@ PINMAP_ENTRIES: tuple = (
         board_const="kDshotMotor4",
         signal="TIM1_CH4",
         choice_options={
-            "STM32_DSHOT_MOTOR4_PA11": "PA11",
             "STM32_DSHOT_MOTOR4_PE14": "PE14",
         },
     ),
@@ -799,15 +790,7 @@ def _imu_record_rate_hz(kconf: kconfiglib.Kconfig) -> int:
     deriving a loop period from the nominal value is off by that ratio.
     """
     gyro_odr_hz = _whole_hz(choice_value(kconf, GYRO_ODR_HZ), "gyro")
-    accel_odr_hz = _whole_hz(choice_value(kconf, ACCEL_ODR_HZ), "accel")
 
-    # One FIFO record carries both sensors, so a split ODR leaves the record
-    # rate — and therefore the loop rate — undefined by this arithmetic.
-    if gyro_odr_hz != accel_odr_hz:
-        raise ValueError(
-            f"gyro ODR ({gyro_odr_hz} Hz) and accel ODR ({accel_odr_hz} Hz) "
-            "must match; the FIFO watermark is derived from a single record rate"
-        )
     if not sym_bool(kconf, "STM32_IMU_EXTERNAL_CLOCK_ENABLED"):
         return gyro_odr_hz
 
@@ -1718,9 +1701,12 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "enabled": sym_bool(kconf, "STM32_IMU_EXTERNAL_CLOCK_ENABLED"),
             "frequency_hz": sym_int(kconf, "STM32_IMU_EXTERNAL_CLOCK_FREQ_HZ"),
         },
+        # One FIFO record carries both sensors, so a split rate would leave the
+        # record rate -- and with it the loop rate -- undefined. Both fields
+        # take the same Odr enumerator.
         "rates": {
             "gyro": choice_value(kconf, ODR_CHOICES),
-            "accel": choice_value(kconf, ACCEL_ODR_CHOICES),
+            "accel": choice_value(kconf, ODR_CHOICES),
         },
         "fs": {
             "gyro": choice_value(kconf, GYRO_FS_CHOICES),
