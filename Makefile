@@ -118,6 +118,8 @@ esp32: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target esp32
 	@printf "\n"
 	$(RUN) uv run --quiet --script tools/esp32_size_metrics.py --build-dir "$(BUILD_DIR)/esp32"
+	@printf "\n"
+	$(RUN) uv run --quiet --script tools/esp32_stack_check.py --build-dir "$(BUILD_DIR)/esp32"
 
 stm32: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target stm32
