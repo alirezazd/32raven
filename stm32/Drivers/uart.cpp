@@ -3,6 +3,7 @@
 
 #include "uart.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <span>
 
@@ -12,8 +13,15 @@
 #include "system.hpp"
 
 namespace {
-// Mask IRQ priorities 5 and lower while updating shared UART TX state.
-static constexpr uint32_t kMaskPri = (5u << (8u - __NVIC_PRIO_BITS)) & 0xFFu;
+// FlushTx has to shut out the TX-DMA completion and error handlers, the only
+// other writers of tx_busy_ / last_dma_len_. BASEPRI blocks every priority at
+// or above the value written, so one constant covering all three
+// instantiations takes the most urgent of them, not the least.
+static constexpr uint32_t kMaskPri =
+    (std::min({irq_priority::kUart1Dma, irq_priority::kUart2Dma,
+               irq_priority::kUart6Dma})
+     << (8u - __NVIC_PRIO_BITS)) &
+    0xFFu;
 
 struct BasepriGuard {
   uint32_t old;

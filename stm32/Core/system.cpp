@@ -122,7 +122,7 @@ void System::CoreInit() {
   FLASH->ACR |= FLASH_ACR_ICEN;
   FLASH->ACR |= FLASH_ACR_DCEN;
   FLASH->ACR |= FLASH_ACR_PRFTEN;
-  NVIC_SetPriorityGrouping(0x3U);  // group 4: 4 preempt bits, 0 sub
+  NVIC_SetPriorityGrouping(irq_priority::kPriorityGrouping);
 }
 
 void System::InitComponent(Component c) {
