@@ -15,8 +15,7 @@
 class TonePlayer {
  public:
   static constexpr uint8_t kMaxVolume = 10;
-  static constexpr std::size_t kPendingRequestQueueDepth =
-      esp32_limits::kTonePlayerPendingRequestQueueDepth;
+  static constexpr std::size_t kPendingRequestQueueDepth = 5;
 
   using BuiltinTone = message::Tone;
 

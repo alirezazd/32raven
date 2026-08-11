@@ -11,14 +11,6 @@
 #include "stm32_config.hpp"
 #include "system.hpp"
 
-namespace {
-
-// Max tilt Stabilize commands at full stick deflection (rad). 30° is a
-// conservative beginner default; FPV builds run 45–55°.
-constexpr float kStabilizeMaxTiltRad = 0.5236f;  // ≈ 30°
-
-}  // namespace
-
 static constexpr uint32_t kLossPanicPerSec =
     Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u;  // 0.5%
 static constexpr uint32_t kLossPanicConsecutiveSec = 3;
@@ -128,8 +120,8 @@ static void FastTickFlightLoop(AppContext &ctx,
   // case is harmlessly computing zeros from stale RC.
   {
     constexpr float fast_dt_sec = kFastLoopDtSec;
-    constexpr float max_rate_roll_pitch = 6.0f;  // rad/s, ~340 deg/s
-    constexpr float max_rate_yaw = 4.0f;         // rad/s, ~230 deg/s
+    constexpr float max_rate_roll_pitch = kPilotAcroMaxRateRollPitch;
+    constexpr float max_rate_yaw = kPilotAcroMaxRateYaw;
 
     const RcData &rc = ctx.sys->Vehicle().GetRc();
 
@@ -175,9 +167,9 @@ static void FastTickFlightLoop(AppContext &ctx,
       // yaw (yaw bypasses the attitude loop). Direct quaternion build is
       // cheaper than AngleAxis and avoids template bloat.
       const float roll_des_rad =
-          RcReceiver::NormalizedAxis(rc.roll_us) * kStabilizeMaxTiltRad;
+          RcReceiver::NormalizedAxis(rc.roll_us) * kPilotStabilizeMaxTiltRad;
       const float pitch_des_rad =
-          RcReceiver::NormalizedAxis(rc.pitch_us) * kStabilizeMaxTiltRad;
+          RcReceiver::NormalizedAxis(rc.pitch_us) * kPilotStabilizeMaxTiltRad;
 
       const float half_roll = 0.5f * roll_des_rad;
       const float half_pitch = 0.5f * pitch_des_rad;
@@ -342,11 +334,11 @@ static void StepSlow(AppContext &ctx, SmTick now) {
         const uint32_t v_pin_mv =
             (static_cast<uint32_t>(batt.LastVoltageRaw()) *
              kBatteryConfig.adc_reference_mv) /
-            stm32_limits::kBatteryAdcMaxRaw;
+            Battery::kAdcMaxRaw;
         const uint32_t i_pin_mv =
             (static_cast<uint32_t>(batt.LastCurrentRaw()) *
              kBatteryConfig.adc_reference_mv) /
-            stm32_limits::kBatteryAdcMaxRaw;
+            Battery::kAdcMaxRaw;
 
         // Independent cross-check: the AM32 ESCs report their own current
         // over USART3, which never passes through the analog scale. Pack

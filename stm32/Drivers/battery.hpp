@@ -9,6 +9,12 @@
 
 class Battery {
  public:
+  // The F407 ADC is 12-bit and the driver never programs a lower resolution,
+  // so full scale is fixed rather than configured.
+  static constexpr uint8_t kAdcResolutionBits = 12;
+  static constexpr uint16_t kAdcMaxRaw =
+      (uint16_t{1} << kAdcResolutionBits) - uint16_t{1};
+
   struct Config {
     uint32_t sample_period_us;
     uint16_t adc_reference_mv;

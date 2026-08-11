@@ -33,26 +33,6 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 ESP32C3_GPIO_MIN = 0
 ESP32C3_GPIO_MAX = 21
-FCLINK_TELEMETRY_RATE_MIN = 1
-FCLINK_TELEMETRY_RATE_MAX = 255
-FCLINK_INVALID_PACKET_THRESHOLD_MIN = 1
-FCLINK_INVALID_PACKET_THRESHOLD_MAX = 255
-FCLINK_HANDSHAKE_ATTEMPTS_MIN = 1
-FCLINK_HANDSHAKE_ATTEMPTS_MAX = 1000
-FCLINK_HANDSHAKE_RETRY_PERIOD_MIN_MS = 1
-FCLINK_HANDSHAKE_RETRY_PERIOD_MAX_MS = 1000
-UART_BUFFER_SIZE_MIN = 256
-UART_BUFFER_SIZE_MAX = 16384
-MAVLINK_SYSID_MIN = 1
-MAVLINK_SYSID_MAX = 255
-MAVLINK_COMPID_MIN = 0
-MAVLINK_COMPID_MAX = 255
-MAVLINK_HEARTBEAT_PERIOD_MIN_MS = 1
-MAVLINK_HEARTBEAT_PERIOD_MAX_MS = 60000
-MAVLINK_TX_PERIOD_MIN_MS = 0
-MAVLINK_TX_PERIOD_MAX_MS = 60000
-MAVLINK_HEARTBEAT_DEADLINE_MIN_MS = 1
-MAVLINK_HEARTBEAT_DEADLINE_MAX_MS = 60000
 MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL = 0xFF
 
 # MAVLink runtime metadata (the parts that aren't Kconfig-tunable today).
@@ -64,18 +44,12 @@ MAVLINK_SYSTEM_STATUS_FRESH_MS = 3000
 # PX4 airframe ID reported as the SYS_AUTOSTART parameter. The heartbeat
 # hardcodes MAV_TYPE_QUADROTOR, so any other value here would describe an
 # airframe the same link contradicts a second later.
-MAVLINK_SYS_AUTOSTART_QUAD_X = 4001
 
 # Panic background task (FreeRTOS).
-PANIC_TASK_STACK_DEPTH_WORDS = 4096
-PANIC_TASK_PRIORITY = 24
 
 # SSD1306 panel hardware geometry. Fixed by the chosen 72x40 display module
 # and its controller. Everything that follows from these three -- page count,
 # framebuffer size, column offset -- is derived in ssd1306_panel.hpp.
-DISPLAY_PANEL_WIDTH_PX = 72
-DISPLAY_PANEL_HEIGHT_PX = 40
-DISPLAY_PANEL_CONTROLLER_WIDTH_PX = 128
 
 # Compile-time buffer / queue sizes used as template parameters. These size
 # member arrays inside driver headers, so they have to be constants the
@@ -83,35 +57,15 @@ DISPLAY_PANEL_CONTROLLER_WIDTH_PX = 128
 # tuning choice with a second right answer -- each is the smallest size that
 # absorbs the burst it exists for -- so they are fixed here rather than
 # exposed as Kconfig knobs nobody could set better.
-TCP_SERVER_MAX_LINE_BYTES = 160
-TONE_PLAYER_PENDING_REQUEST_QUEUE_DEPTH = 5
 # Async network events queued while the loop services the previous one.
-TCP_SERVER_EVENT_QUEUE_DEPTH = 8
 # Inbound staging for the DFU download; drained a chunk per app tick.
-TCP_SERVER_DOWNLOAD_BUFFER_BYTES = 4096
 # Parsed FcLink packets held between UART parsing and the app loop.
-FCLINK_RX_QUEUE_DEPTH = 32
 WIFI_AP_SSID_MIN_LEN = 1
 WIFI_AP_SSID_MAX_LEN = 32
 WIFI_AP_PASSWORD_MAX_LEN = 63
 WIFI_AP_PASSWORD_MIN_LEN = 8
-WIFI_AP_CHANNEL_MIN = 1
-WIFI_AP_CHANNEL_MAX = 13
-WIFI_AP_MAX_CONNECTIONS_MIN = 1
-WIFI_AP_MAX_CONNECTIONS_MAX = 10
-WIFI_AP_BEACON_INTERVAL_MIN_TU = 100
-WIFI_AP_BEACON_INTERVAL_MAX_TU = 60000
-PROGRAMMER_RESET_PULSE_MIN_MS = 1
-PROGRAMMER_RESET_PULSE_MAX_MS = 1000
-PROGRAMMER_BOOT_SETTLE_MIN_MS = 1
-PROGRAMMER_BOOT_SETTLE_MAX_MS = 1000
-PROGRAMMER_SYNC_TIMEOUT_MIN_MS = 1
-PROGRAMMER_SYNC_TIMEOUT_MAX_MS = 5000
-PROGRAMMER_SYNC_RETRIES_MIN = 1
-PROGRAMMER_SYNC_RETRIES_MAX = 100
 # AN3155 WRITE_MEMORY carries a count byte holding len-1, so 256 is the most a
 # single block can express, not a chosen buffer size.
-PROGRAMMER_STM32_BLOCK_BYTES = 256
 # In-flight bytes received over the wire before they reach the target. 32 STM32
 # blocks: enough headroom for a TCP burst, and it must stay above the ESP32
 # write chunk, which programmer.hpp static_asserts.
@@ -139,57 +93,8 @@ LEDC_CLAIMS = (
     ("buzzer", "ESP32_BUZZER_LEDC_TIMER", "ESP32_BUZZER_LEDC_CHANNEL",
      "ESP32_BUZZER_LEDC_DUTY_RES_BITS", "ESP32_BUZZER_MAX_NOTE_HZ"),
 )
-PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES = 1
-PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES = PROGRAMMER_STAGING_BUFFER_BYTES
-DISPLAY_PANEL_I2C_CLOCK_MIN_HZ = 10000
-DISPLAY_PANEL_I2C_CLOCK_MAX_HZ = 1000000
-DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS = 1
-DISPLAY_PANEL_I2C_TIMEOUT_MAX_MS = 1000
-DISPLAY_PANEL_I2C_SCL_WAIT_MIN_US = 0
-DISPLAY_PANEL_I2C_SCL_WAIT_MAX_US = 200000
-# ESP-IDF's own default filter width. The panel shares a short board trace with
-# nothing else on the bus, so there is no glitch to tune this against.
-DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT = 7
-# The panel module brings no pull-ups of its own.
-DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP = True
-DISPLAY_PANEL_SETTLE_TIME_MIN_MS = 0
-DISPLAY_PANEL_SETTLE_TIME_MAX_MS = 1000
-DISPLAY_MANAGER_FPS_CAP_MIN = 1
-DISPLAY_MANAGER_FPS_CAP_MAX = 60
-BUTTON_DEBOUNCE_MIN_MS = 0
-BUTTON_DEBOUNCE_MAX_MS = 1000
-BUTTON_PRESS_MIN_MS = 1
-BUTTON_PRESS_MAX_MS = 10000
-TONE_PLAYER_VOLUME_MIN = 0
-TONE_PLAYER_VOLUME_MAX = 10
-TCP_SERVER_PORT_MIN = 1
-TCP_SERVER_PORT_MAX = 65535
-# One control client and one data client, and the accept paths close anything
-# past those on the spot -- so a deeper queue holds connections that can only be
-# accepted and dropped.
-TCP_SERVER_BACKLOG = 1
-# Accept and receive are polled from the state machine every tick. A blocking
-# socket would park that loop inside accept() until a client turned up, which
-# stops the panel, the buttons and the link along with it.
-TCP_SERVER_NONBLOCKING = True
-TCP_SERVER_KEEPALIVE_IDLE_MIN_S = 0
-TCP_SERVER_KEEPALIVE_IDLE_MAX_S = 3600
-TCP_SERVER_KEEPALIVE_INTERVAL_MIN_S = 1
-TCP_SERVER_KEEPALIVE_INTERVAL_MAX_S = 3600
-TCP_SERVER_KEEPALIVE_COUNT_MIN = 1
-TCP_SERVER_KEEPALIVE_COUNT_MAX = 20
-UDP_SERVER_UPLOAD_CAP_MIN_KBITS = 0
-UDP_SERVER_UPLOAD_CAP_MAX_KBITS = 100000
-UDP_SERVER_DOWNLOAD_CAP_MIN_KBITS = 0
-UDP_SERVER_DOWNLOAD_CAP_MAX_KBITS = 100000
-UDP_SERVER_OVERFLOW_THRESHOLD_MIN_PACKETS = 1
-UDP_SERVER_OVERFLOW_THRESHOLD_MAX_PACKETS = 1000
 UDP_SERVER_SHAPER_BUFFER_WINDOW_MS = 300
 UDP_SERVER_SHAPER_BUFFER_MAX_BYTES = 32768
-WIDGET_BOOT_TIMEOUT_MIN_S = 0
-WIDGET_BOOT_TIMEOUT_MAX_S = 15
-WIDGET_UI_TIMEOUT_MIN_S = 0
-WIDGET_UI_TIMEOUT_MAX_S = 255
 
 FCLINK_UART_PARITY_CHOICES = {
     "ESP32_FCLINK_UART_PARITY_NONE": "UartParity::kNone",
@@ -207,9 +112,6 @@ TELEM_UART_BAUD_RATE_CHOICES = {
     "ESP32_TELEM_UART_BAUD_460800": "460800",
 }
 
-# Power save is a station-mode behaviour: a SoftAP has to stay awake to beacon,
-# and this part never runs as a station.
-WIFI_POWER_SAVE = "WIFI_PS_NONE"
 
 UI_TRANSITION_SPEED_CHOICES = {
     "ESP32_WIDGET_UI_TRANSITION_SPEED_1X": "1",
@@ -282,20 +184,6 @@ def _validate_gpio_num(kconf: kconfiglib.Kconfig, name: str) -> None:
         )
 
 
-def _validate_int_range(
-    kconf: kconfiglib.Kconfig, name: str, minimum: int, maximum: int
-) -> None:
-    # Skip on the absence of a value, not on an invisible prompt: a knob behind
-    # a feature that is off still has its default, still reaches the generated
-    # header, and so still has to be in range. Only a symbol carrying nothing at
-    # all is unpoliceable, and sym_int would raise on its empty string.
-    if not sym(kconf, name).str_value:
-        return
-    value = sym_int(kconf, name)
-    if not minimum <= value <= maximum:
-        raise ValueError(f"{name} must be in the range {minimum}..{maximum}")
-
-
 def _udp_shaper_buffer_bytes(cap_kbits: int) -> int:
     if cap_kbits <= 0:
         return 0
@@ -322,62 +210,6 @@ def _validate_unique_gpio_assignments(
         raise ValueError(
             "duplicate ESP32 pin assignments are not allowed: " + "; ".join(duplicates)
         )
-
-
-# ---- Validation tables ---------------------------------------------------
-# Each tuple is (Kconfig symbol, min, max). The shared range constants live
-# at the top of this file. Adding a new int symbol = one new line.
-
-_INT_RANGES: tuple[tuple[str, int, int], ...] = (
-    ("STM32_FCLINK_TELEMETRY_RATE_HZ", FCLINK_TELEMETRY_RATE_MIN, FCLINK_TELEMETRY_RATE_MAX),
-    ("ESP32_FCLINK_INVALID_PACKET_THRESHOLD", FCLINK_INVALID_PACKET_THRESHOLD_MIN, FCLINK_INVALID_PACKET_THRESHOLD_MAX),
-    ("ESP32_FCLINK_HANDSHAKE_ATTEMPTS", FCLINK_HANDSHAKE_ATTEMPTS_MIN, FCLINK_HANDSHAKE_ATTEMPTS_MAX),
-    ("ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS", FCLINK_HANDSHAKE_RETRY_PERIOD_MIN_MS, FCLINK_HANDSHAKE_RETRY_PERIOD_MAX_MS),
-    ("ESP32_FCLINK_UART_RX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
-    ("ESP32_FCLINK_UART_TX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
-    ("ESP32_MAVLINK_IDENTITY_SYSID", MAVLINK_SYSID_MIN, MAVLINK_SYSID_MAX),
-    ("ESP32_MAVLINK_IDENTITY_COMPID", MAVLINK_COMPID_MIN, MAVLINK_COMPID_MAX),
-    ("ESP32_MAVLINK_TX_PERIODS_HB_MS", MAVLINK_HEARTBEAT_PERIOD_MIN_MS, MAVLINK_HEARTBEAT_PERIOD_MAX_MS),
-    ("ESP32_MAVLINK_TX_PERIODS_GPS_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
-    ("ESP32_MAVLINK_TX_PERIODS_ATT_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
-    ("ESP32_MAVLINK_TX_PERIODS_GPOS_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
-    ("ESP32_MAVLINK_TX_PERIODS_BATT_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
-    ("ESP32_MAVLINK_TX_PERIODS_RC_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
-    ("ESP32_MAVLINK_TX_PERIODS_ESC_MS", MAVLINK_TX_PERIOD_MIN_MS, MAVLINK_TX_PERIOD_MAX_MS),
-    ("ESP32_TELEM_UART_RX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
-    ("ESP32_TELEM_UART_TX_BUFFER_SIZE", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
-    ("ESP32_USB_CDC_SERVER_RX_BUFFER_BYTES", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
-    ("ESP32_USB_CDC_SERVER_TX_BUFFER_BYTES", UART_BUFFER_SIZE_MIN, UART_BUFFER_SIZE_MAX),
-    ("ESP32_BUTTON_DEBOUNCE_MS", BUTTON_DEBOUNCE_MIN_MS, BUTTON_DEBOUNCE_MAX_MS),
-    ("ESP32_BUTTON_LONG_PRESS_MS", BUTTON_PRESS_MIN_MS, BUTTON_PRESS_MAX_MS),
-    ("ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS", MAVLINK_HEARTBEAT_DEADLINE_MIN_MS, MAVLINK_HEARTBEAT_DEADLINE_MAX_MS),
-    ("ESP32_WIFI_AP_CHANNEL", WIFI_AP_CHANNEL_MIN, WIFI_AP_CHANNEL_MAX),
-    ("ESP32_WIFI_AP_MAX_CONNECTIONS", WIFI_AP_MAX_CONNECTIONS_MIN, WIFI_AP_MAX_CONNECTIONS_MAX),
-    ("ESP32_WIFI_AP_BEACON_INTERVAL_TU", WIFI_AP_BEACON_INTERVAL_MIN_TU, WIFI_AP_BEACON_INTERVAL_MAX_TU),
-    ("ESP32_PROGRAMMER_RESET_PULSE_MS", PROGRAMMER_RESET_PULSE_MIN_MS, PROGRAMMER_RESET_PULSE_MAX_MS),
-    ("ESP32_PROGRAMMER_BOOT_SETTLE_MS", PROGRAMMER_BOOT_SETTLE_MIN_MS, PROGRAMMER_BOOT_SETTLE_MAX_MS),
-    ("ESP32_PROGRAMMER_SYNC_TIMEOUT_MS", PROGRAMMER_SYNC_TIMEOUT_MIN_MS, PROGRAMMER_SYNC_TIMEOUT_MAX_MS),
-    ("ESP32_PROGRAMMER_SYNC_RETRIES", PROGRAMMER_SYNC_RETRIES_MIN, PROGRAMMER_SYNC_RETRIES_MAX),
-    ("ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES", PROGRAMMER_ESP32_VERIFY_CHUNK_MIN_BYTES, PROGRAMMER_ESP32_VERIFY_CHUNK_MAX_BYTES),
-    ("ESP32_DISPLAY_PANEL_I2C_CLOCK_HZ", DISPLAY_PANEL_I2C_CLOCK_MIN_HZ, DISPLAY_PANEL_I2C_CLOCK_MAX_HZ),
-    ("ESP32_DISPLAY_PANEL_I2C_TIMEOUT_MS", DISPLAY_PANEL_I2C_TIMEOUT_MIN_MS, DISPLAY_PANEL_I2C_TIMEOUT_MAX_MS),
-    ("ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US", DISPLAY_PANEL_I2C_SCL_WAIT_MIN_US, DISPLAY_PANEL_I2C_SCL_WAIT_MAX_US),
-    ("ESP32_DISPLAY_PANEL_SETTLE_TIME_MS", DISPLAY_PANEL_SETTLE_TIME_MIN_MS, DISPLAY_PANEL_SETTLE_TIME_MAX_MS),
-    ("ESP32_DISPLAY_MANAGER_FPS_CAP", DISPLAY_MANAGER_FPS_CAP_MIN, DISPLAY_MANAGER_FPS_CAP_MAX),
-    ("ESP32_TONE_PLAYER_VOLUME", TONE_PLAYER_VOLUME_MIN, TONE_PLAYER_VOLUME_MAX),
-    ("ESP32_TCP_SERVER_CTRL_PORT", TCP_SERVER_PORT_MIN, TCP_SERVER_PORT_MAX),
-    ("ESP32_TCP_SERVER_DATA_PORT", TCP_SERVER_PORT_MIN, TCP_SERVER_PORT_MAX),
-    ("ESP32_TCP_SERVER_KEEPALIVE_IDLE_S", TCP_SERVER_KEEPALIVE_IDLE_MIN_S, TCP_SERVER_KEEPALIVE_IDLE_MAX_S),
-    ("ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S", TCP_SERVER_KEEPALIVE_INTERVAL_MIN_S, TCP_SERVER_KEEPALIVE_INTERVAL_MAX_S),
-    ("ESP32_TCP_SERVER_KEEPALIVE_COUNT", TCP_SERVER_KEEPALIVE_COUNT_MIN, TCP_SERVER_KEEPALIVE_COUNT_MAX),
-    ("ESP32_UDP_SERVER_PORT", TCP_SERVER_PORT_MIN, TCP_SERVER_PORT_MAX),
-    ("ESP32_UDP_SERVER_UPLOAD_CAP_KBITS", UDP_SERVER_UPLOAD_CAP_MIN_KBITS, UDP_SERVER_UPLOAD_CAP_MAX_KBITS),
-    ("ESP32_UDP_SERVER_OVERFLOW_THRESHOLD", UDP_SERVER_OVERFLOW_THRESHOLD_MIN_PACKETS, UDP_SERVER_OVERFLOW_THRESHOLD_MAX_PACKETS),
-    ("ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS", UDP_SERVER_DOWNLOAD_CAP_MIN_KBITS, UDP_SERVER_DOWNLOAD_CAP_MAX_KBITS),
-    ("ESP32_WIDGET_BOOT_TIMEOUT_S", WIDGET_BOOT_TIMEOUT_MIN_S, WIDGET_BOOT_TIMEOUT_MAX_S),
-    ("ESP32_WIDGET_UI_TIMEOUT_S", WIDGET_UI_TIMEOUT_MIN_S, WIDGET_UI_TIMEOUT_MAX_S),
-)
-
 
 def _validate_pin_assignments(kconf: kconfiglib.Kconfig) -> None:
     gpio_symbols = (
@@ -512,8 +344,6 @@ def _ledc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _validate(kconf: kconfiglib.Kconfig) -> None:
     _validate_pin_assignments(kconf)
-    for name, lo, hi in _INT_RANGES:
-        _validate_int_range(kconf, name, lo, hi)
     _validate_wifi(kconf)
     _validate_cross_field(kconf)
 
@@ -554,9 +384,7 @@ def _button_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _display_i2c_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "glitch_ignore_cnt": DISPLAY_PANEL_I2C_GLITCH_IGNORE_CNT,
         "xfer_timeout_ms": sym_int(kconf, "ESP32_DISPLAY_PANEL_I2C_TIMEOUT_MS"),
-        "enable_internal_pullup": DISPLAY_PANEL_I2C_ENABLE_INTERNAL_PULLUP,
     }
 
 
@@ -585,8 +413,6 @@ def _tcp_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "ctrl_port": sym_int(kconf, "ESP32_TCP_SERVER_CTRL_PORT"),
         "data_port": sym_int(kconf, "ESP32_TCP_SERVER_DATA_PORT"),
-        "backlog": TCP_SERVER_BACKLOG,
-        "nonblocking": TCP_SERVER_NONBLOCKING,
         "keepalive_idle_s": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_IDLE_S"),
         "keepalive_intvl_s": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S"),
         "keepalive_cnt": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_COUNT"),
@@ -671,7 +497,6 @@ def _wifi_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "capable": sym_bool(kconf, "ESP32_WIFI_PMF_CAPABLE"),
             "required": sym_bool(kconf, "ESP32_WIFI_PMF_REQUIRED"),
         },
-        "power_save": WIFI_POWER_SAVE,
     }
 
 
@@ -683,7 +508,6 @@ def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "sysid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_SYSID"),
             "compid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_COMPID"),
         },
-        "sys_autostart": MAVLINK_SYS_AUTOSTART_QUAD_X,
         "system_status_fresh_ms": MAVLINK_SYSTEM_STATUS_FRESH_MS,
         "git_hash": git_hash,
         "version_string": firmware_version_string,
@@ -733,8 +557,6 @@ def _runtime_context(
         "wifi": _wifi_context(kconf),
         "mavlink": _mavlink_context(kconf),
         "panic": {
-            "task_stack_depth_words": PANIC_TASK_STACK_DEPTH_WORDS,
-            "task_priority": PANIC_TASK_PRIORITY,
         },
     }
 
@@ -745,21 +567,13 @@ def _limits_context(
     return {
         "autogen_warning": autogen_warning(source),
         "display_panel": {
-            "width": DISPLAY_PANEL_WIDTH_PX,
-            "height": DISPLAY_PANEL_HEIGHT_PX,
-            "controller_width": DISPLAY_PANEL_CONTROLLER_WIDTH_PX,
         },
         "fclink": {
-            "rx_queue_depth": FCLINK_RX_QUEUE_DEPTH,
         },
         "programmer": {
             "staging_buffer_bytes": PROGRAMMER_STAGING_BUFFER_BYTES,
-            "stm32_block_bytes": PROGRAMMER_STM32_BLOCK_BYTES,
         },
         "tcp_server": {
-            "event_queue_depth": TCP_SERVER_EVENT_QUEUE_DEPTH,
-            "download_buffer_bytes": TCP_SERVER_DOWNLOAD_BUFFER_BYTES,
-            "max_line_bytes": TCP_SERVER_MAX_LINE_BYTES,
         },
         "udp_server": {
             "upload_buffer_bytes": _udp_shaper_buffer_bytes(
@@ -770,7 +584,6 @@ def _limits_context(
             ),
         },
         "tone_player": {
-            "pending_request_queue_depth": TONE_PLAYER_PENDING_REQUEST_QUEUE_DEPTH,
         },
     }
 

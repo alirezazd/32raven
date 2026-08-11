@@ -105,9 +105,7 @@ inline constexpr I2cConfig kDisplayI2cConfig = {
         },
     .bus =
         {
-            .glitch_ignore_cnt = {{ display_i2c.glitch_ignore_cnt }},
             .transfer_timeout_ms = {{ display_i2c.xfer_timeout_ms }},
-            .enable_internal_pullup = {{ display_i2c.enable_internal_pullup | cpp_bool }},
         },
 };
 
@@ -141,8 +139,6 @@ inline constexpr TonePlayer::Config kTonePlayerConfig = {
 inline constexpr TcpServer::Config kTcpServerConfig = {
     .ctrl_port = {{ tcp_server.ctrl_port }},
     .data_port = {{ tcp_server.data_port }},
-    .backlog = {{ tcp_server.backlog }},
-    .nonblocking = {{ tcp_server.nonblocking | cpp_bool }},
     .keepalive_idle_s = {{ tcp_server.keepalive_idle_s }},
     .keepalive_intvl_s = {{ tcp_server.keepalive_intvl_s }},
     .keepalive_cnt = {{ tcp_server.keepalive_cnt }},
@@ -233,7 +229,6 @@ inline constexpr WifiController::Config kWifiConfig = {
             .capable = {{ wifi.pmf.capable | cpp_bool }},
             .required = {{ wifi.pmf.required | cpp_bool }},
         },
-    .power_save = {{ wifi.power_save }},
 };
 
 inline constexpr Mavlink::Config kMavlinkConfig = {
@@ -261,12 +256,8 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
         },
 };
 
-inline constexpr std::uint32_t kMavlinkSysAutostart = {{ mavlink.sys_autostart }}u;
 inline constexpr std::uint32_t kMavlinkSystemStatusFreshMs =
     {{ mavlink.system_status_fresh_ms }}u;
 inline constexpr const char *kMavlinkGitHashShort = "{{ mavlink.git_hash }}";
 inline constexpr const char *kMavlinkVersionString = "{{ mavlink.version_string }}";
 inline constexpr std::uint32_t kMavlinkFlightSwVersion = {{ mavlink.flight_sw_version_hex }};
-
-inline constexpr std::size_t kPanicTaskStackDepthWords = {{ panic.task_stack_depth_words }};
-inline constexpr std::uint32_t kPanicTaskPriority = {{ panic.task_priority }}u;

@@ -5,7 +5,6 @@
 
 #include "error_code.hpp"
 #include "panic.hpp"
-#include "stm32_limits.hpp"
 #include "stm32f4xx.h"
 #include "system.hpp"
 
@@ -146,10 +145,10 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
 
   const float voltage_adc_mv =
       (static_cast<float>(voltage_raw) * cfg_.adc_reference_mv) /
-      stm32_limits::kBatteryAdcMaxRaw;
+      Battery::kAdcMaxRaw;
   const float current_adc_mv =
       (static_cast<float>(current_raw) * cfg_.adc_reference_mv) /
-      stm32_limits::kBatteryAdcMaxRaw;
+      Battery::kAdcMaxRaw;
 
   float measured_voltage_v =
       ((voltage_adc_mv * cfg_.voltage_multiplier_milli) / kMilli +

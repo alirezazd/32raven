@@ -13,6 +13,7 @@ class DShotCodec {
   static constexpr uint16_t kMotorStop = 0;
   static constexpr uint16_t kThrottleMin = 48;
   static constexpr uint16_t kThrottleMax = 2047;
+  static constexpr uint16_t kMaxGapBits = 8;
 
   using MotorValues = std::array<uint16_t, kMotorCount>;
   using TelemetryRequests = std::array<bool, kMotorCount>;
@@ -37,7 +38,6 @@ class DShotCodec {
   static uint16_t MakePacket(uint16_t value, bool telemetry);
 
   static constexpr uint16_t kFrameBits = 16;
-  static constexpr uint16_t kMaxGapBits = 8;
   static constexpr uint16_t kMaxBits = kFrameBits + kMaxGapBits;
 
   uint16_t buf_[kMaxBits * kMotorCount] = {};

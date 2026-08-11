@@ -10,7 +10,6 @@
 #include <cstdio>
 #include <cstring>
 
-
 extern "C" {
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"  // IWYU pragma: keep
@@ -20,6 +19,10 @@ extern "C" {
 }
 
 static constexpr const char *kTag = "tcp_server";
+// One data-pump cycle: bounded work per tick, and together the amount the
+// download ring has to be able to swallow without asserting backpressure.
+static constexpr size_t kDataPumpReadBytes = 1024;
+static constexpr int kDataPumpMaxIterations = 4;
 
 // ring buffer helpers
 static inline size_t RbUsed(size_t head, size_t tail, size_t cap) {
@@ -161,8 +164,7 @@ bool TcpServer::SetKeepalive(int fd, const Config &cfg) {
   return true;
 }
 
-bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port, int backlog,
-                                 bool nonblocking) {
+bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port) {
   out_fd = (int)socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
   if (out_fd < 0) return false;
 
@@ -180,13 +182,17 @@ bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port, int backlog,
     return false;
   }
 
-  if (listen(out_fd, backlog) != 0) {
+  // One control client and one data client, and both accept paths close
+  // anything past those on the spot, so a deeper queue would only hold
+  // connections that get accepted and dropped. Zero is not the next step down:
+  // lwIP refuses every SYN once accepts_pending reaches the backlog.
+  if (listen(out_fd, 1) != 0) {
     close(out_fd);
     out_fd = -1;
     return false;
   }
 
-  if (nonblocking) (void)SetNonblock(out_fd);
+  (void)SetNonblock(out_fd);
 
   return true;
 }
@@ -252,7 +258,7 @@ void TcpServer::AcceptCtrl() {
   int fd = accept(ctx_.ctrl_listen_fd, (sockaddr *)&cli, &len);
   if (fd < 0) return;
 
-  if (cfg_.nonblocking) (void)SetNonblock(fd);
+  (void)SetNonblock(fd);
   (void)SetKeepalive(fd, cfg_);
 
   ctx_.ctrl_fd = fd;
@@ -303,7 +309,7 @@ void TcpServer::AcceptData() {
     return;
   }
 
-  if (cfg_.nonblocking) (void)SetNonblock(fd);
+  (void)SetNonblock(fd);
   (void)SetKeepalive(fd, cfg_);
 
   ctx_.data_fd = fd;
@@ -353,8 +359,12 @@ void TcpServer::PumpCtrlRx() {
 void TcpServer::PumpDataRx() {
   if (ctx_.data_fd < 0) return;
 
-  uint8_t buf[1024];
-  for (int iter = 0; iter < 4; ++iter) {  // bounded work
+  static_assert(kDataPumpReadBytes * kDataPumpMaxIterations <= kDownCap,
+                "one pump cycle can outrun the download ring, so flow control "
+                "would engage on every pump rather than under backpressure");
+
+  uint8_t buf[kDataPumpReadBytes];
+  for (int iter = 0; iter < kDataPumpMaxIterations; ++iter) {
     // Flow control: check space before pulling from TCP
     bool enabled = download_enabled_;
     size_t free = RbFree(down_head_, down_tail_, kDownCap);
@@ -458,7 +468,7 @@ bool TcpServer::LinebufAdd(char b) {
     return ctx_.line_len > 0;
   }
 
-  if (ctx_.line_len >= esp32_limits::kTcpServerMaxLineBytes) {
+  if (ctx_.line_len >= TcpServer::kMaxLineBytes) {
     // line too long -> saturate (truncate), drop extra chars
     return false;
   }
@@ -674,17 +684,13 @@ class TcpServer::StListening : public IState<Ctx> {
     // Ensure listen sockets exist
     if (ctx.ctrl_listen_fd < 0) {
       int fd = -1;
-      if (TcpServer::MakeListenSocket(fd, ctx.self->cfg_.ctrl_port,
-                                      ctx.self->cfg_.backlog,
-                                      ctx.self->cfg_.nonblocking)) {
+      if (TcpServer::MakeListenSocket(fd, ctx.self->cfg_.ctrl_port)) {
         ctx.ctrl_listen_fd = fd;
       }
     }
     if (ctx.data_listen_fd < 0) {
       int fd = -1;
-      if (TcpServer::MakeListenSocket(fd, ctx.self->cfg_.data_port,
-                                      ctx.self->cfg_.backlog,
-                                      ctx.self->cfg_.nonblocking)) {
+      if (TcpServer::MakeListenSocket(fd, ctx.self->cfg_.data_port)) {
         ctx.data_listen_fd = fd;
       }
     }

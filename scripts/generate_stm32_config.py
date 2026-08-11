@@ -43,21 +43,7 @@ ICM42688P_PACKET4_BYTES = 20
 # board: the datasheet ODRs are quoted against the part's own 32 kHz oscillator,
 # so driving CLKIN instead scales every one of them by CLKIN/32000.
 IMU_NOMINAL_ODR_REFERENCE_HZ = 32000
-FCLINK_TELEMETRY_RATE_MIN = 1
-FCLINK_TELEMETRY_RATE_MAX = 255
-BATTERY_ADC_RESOLUTION_BITS = 12
 
-# Largest single frame either USB dialect can emit, taken from the frame buffers
-# in MspService and FourWayService rather than from the wire: both are sized
-# payload + 16, and a static_assert in each service holds this to it. The
-# payload is a 256-byte ESC page for four-way and an MSP v1 maximum for MSP.
-USB_CDC_MAX_PAYLOAD_BYTES = 256
-USB_CDC_FRAME_OVERHEAD_BYTES = 16
-USB_CDC_MAX_FRAME_BYTES = USB_CDC_MAX_PAYLOAD_BYTES + USB_CDC_FRAME_OVERHEAD_BYTES
-# USB 2.0 full-speed endpoint payloads, fixed by the specification and matched
-# by the wMaxPacketSize bytes in the configuration descriptor.
-USB_BULK_MAX_PACKET_BYTES = 64
-USB_EP0_MAX_PACKET_BYTES = 64
 # The serial-number string is the 96-bit device UID rendered as hex, so its
 # length is a property of the silicon rather than of any configured string.
 USB_CDC_SERIAL_CHARS = 24
@@ -1037,13 +1023,6 @@ def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:
 def _validate(kconf: kconfiglib.Kconfig) -> None:
     _validate_pinmap(kconf)
 
-    telemetry_rate_hz = sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ")
-    if not FCLINK_TELEMETRY_RATE_MIN <= telemetry_rate_hz <= FCLINK_TELEMETRY_RATE_MAX:
-        raise ValueError(
-            "CONFIG_STM32_FCLINK_TELEMETRY_RATE_HZ must be in the range "
-            f"{FCLINK_TELEMETRY_RATE_MIN}..{FCLINK_TELEMETRY_RATE_MAX}"
-        )
-
     watermark_records = _imu_watermark_records(kconf)
     hardware_max_records = _imu_fifo_capacity_records(kconf)
     if watermark_records > hardware_max_records:
@@ -1081,6 +1060,28 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             "channel compacted into its place"
         )
 
+    # Both AHRS gates ramp from full weight down to zero across the span
+    # between their two thresholds. An inverted pair reads to the runtime as no
+    # gate at all -- weight pinned at 1.0 -- so the accel stays fully trusted
+    # through exactly the sustained maneuver its band exists to reject.
+    for gate, full_sym, zero_sym in (
+        (
+            "accel trust",
+            "STM32_AHRS_ACCEL_TRUST_FULL_DEV_MILLI",
+            "STM32_AHRS_ACCEL_TRUST_ZERO_DEV_MILLI",
+        ),
+        (
+            "gyro quiescence",
+            "STM32_AHRS_GYRO_QUIESCENT_FULL_MILLI",
+            "STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI",
+        ),
+    ):
+        if sym_int(kconf, zero_sym) < sym_int(kconf, full_sym):
+            raise ValueError(
+                f"CONFIG_{zero_sym} must be at least CONFIG_{full_sym}; the "
+                f"{gate} gate treats an inverted pair as no gate at all"
+            )
+
     cell_empty_mv = sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV")
     cell_full_mv = sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV")
     if cell_empty_mv >= cell_full_mv:
@@ -1109,6 +1110,18 @@ def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     channel = sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL")
     enabled = _enabled_rc_channels(kconf)
     return {
+        "acro_max_rate_roll_pitch_milli": sym_int(
+            kconf, "STM32_PILOT_ACRO_MAX_RATE_ROLL_PITCH_MILLI"
+        ),
+        "acro_max_rate_yaw_milli": sym_int(
+            kconf, "STM32_PILOT_ACRO_MAX_RATE_YAW_MILLI"
+        ),
+        # Degrees are what the knob states and radians are what the cascade
+        # wants, so the conversion happens once here rather than at the use
+        # site.
+        "stabilize_max_tilt_rad": (
+            f"{math.radians(sym_int(kconf, 'STM32_PILOT_STABILIZE_MAX_TILT_DEG')):.6f}f"
+        ),
         "slot": sum(1 for index in range(channel - 1) if enabled[index]),
         "threshold_us": sym_int(kconf, "STM32_FLIGHT_MODE_THRESHOLD_US"),
     }
@@ -1158,12 +1171,8 @@ def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str
         "autogen_warning": autogen_warning(source),
         "max_watermark_records": _imu_watermark_records(kconf),
         "rc_enabled_indices": enabled_rc_indices,
-        "battery_adc_resolution_bits": BATTERY_ADC_RESOLUTION_BITS,
         "dshot_min_period_ticks": DSHOT_MIN_PERIOD_TICKS,
         "dshot_max_period_ticks": DSHOT_MAX_PERIOD_TICKS,
-        "usb_cdc_max_frame_bytes": USB_CDC_MAX_FRAME_BYTES,
-        "usb_cdc_bulk_max_packet_bytes": USB_BULK_MAX_PACKET_BYTES,
-        "usb_cdc_ep0_max_packet_bytes": USB_EP0_MAX_PACKET_BYTES,
         "usb_cdc_string_descriptor_bytes": _usb_string_descriptor_bytes(kconf),
     }
 
@@ -1798,7 +1807,11 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         ),
         "current_offset_mv": sym_int(kconf, "STM32_BATTERY_CURRENT_OFFSET_MV"),
         "current_deadband_ma": sym_int(kconf, "STM32_BATTERY_CURRENT_DEADBAND_MA"),
-        "initial_mah_drawn": sym_int(kconf, "STM32_BATTERY_INITIAL_MAH_DRAWN"),
+        # Charge already drawn from the pack on the bench is runtime state, not
+        # a property of the build: honouring a non-zero value would mean a
+        # regenerate, rebuild and reflash between packs. The field stays for
+        # callers that set Config directly; the firmware always boots at zero.
+        "initial_mah_drawn": 0,
     }
 
 

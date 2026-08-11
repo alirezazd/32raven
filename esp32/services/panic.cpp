@@ -18,11 +18,11 @@ static constexpr const char *kTag = "panic";
 
 namespace {
 
-static constexpr uint32_t kPanicTaskStackWords =
-    static_cast<uint32_t>(kPanicTaskStackDepthWords);
-static_assert(kPanicTaskPriority < configMAX_PRIORITIES);
-static constexpr UBaseType_t kPanicTaskPrio =
-    static_cast<UBaseType_t>(kPanicTaskPriority);
+// The panic task formats and ships a backtrace, so it needs a real stack,
+// and it has to outrank anything that could be wedged when it is woken.
+static constexpr uint32_t kPanicTaskStackWords = 4096;
+static constexpr UBaseType_t kPanicTaskPrio = 24;
+static_assert(kPanicTaskPrio < configMAX_PRIORITIES);
 static StaticTask_t s_panic_task_buffer;
 static StackType_t s_panic_task_stack[kPanicTaskStackWords];
 static TaskHandle_t s_panic_task_handle = nullptr;

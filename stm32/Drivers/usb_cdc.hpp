@@ -26,15 +26,26 @@ struct UsbCdcConfig {
 
 class UsbCdc {
  public:
+  // Full-speed bulk and control endpoints are capped at 64 bytes by the USB
+  // 2.0 spec, not by anything this driver chooses.
+  static constexpr size_t kBulkMaxPacketBytes = 64;
+  static constexpr size_t kEp0MaxPacketBytes = 64;
+
+  // Largest single frame either USB dialect can emit. The payload is a
+  // 256-byte ESC page for four-way and an MSP v1 maximum for MSP; both
+  // services size their frame buffers from this and static_assert against it.
+  static constexpr size_t kMaxPayloadBytes = 256;
+  static constexpr size_t kFrameOverheadBytes = 16;
+  static constexpr size_t kMaxFrameBytes = kMaxPayloadBytes + kFrameOverheadBytes;
+
   // One slot is spent on RingBuffer's full/empty discrimination, so a ring
   // holds Size - 1 bytes. TX must swallow a whole frame in one push: a short
   // write is dropped rather than truncated, which costs the host a timeout. RX
   // additionally keeps one bulk packet free, because the driver refuses to
   // re-arm the OUT endpoint below that and the host is NAKed until it can.
-  static constexpr size_t kTxRingSize = stm32_limits::kUsbCdcMaxFrameBytes + 1;
-  static constexpr size_t kRxRingSize = stm32_limits::kUsbCdcMaxFrameBytes +
-                                        stm32_limits::kUsbCdcBulkMaxPacketBytes +
-                                        1;
+  static constexpr size_t kTxRingSize = kMaxFrameBytes + 1;
+  static constexpr size_t kRxRingSize =
+      kMaxFrameBytes + kBulkMaxPacketBytes + 1;
 
   static UsbCdc &GetInstance();
 
@@ -133,8 +144,8 @@ class UsbCdc {
   bool ctrl_in_zlp_ = false;
   bool ctrl_out_is_line_coding_ = false;
 
-  uint8_t bulk_out_buf_[stm32_limits::kUsbCdcBulkMaxPacketBytes]{};
-  uint8_t ctrl_out_buf_[stm32_limits::kUsbCdcEp0MaxPacketBytes]{};
+  uint8_t bulk_out_buf_[kBulkMaxPacketBytes]{};
+  uint8_t ctrl_out_buf_[kEp0MaxPacketBytes]{};
 
   // One buffer suffices: only one control transfer is ever live.
   uint8_t string_desc_buf_[stm32_limits::kUsbCdcStringDescriptorBytes]{};

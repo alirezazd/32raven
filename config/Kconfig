@@ -1954,18 +1954,24 @@ config STM32_IMU_NOTCH_ENABLED
       Enable the ICM42688P hardware gyro notch filter.
 
 config STM32_IMU_NOTCH_FREQ_HZ
-    int "Hardware gyro notch frequency (Hz)"
-    range 0 100000
-    default 0
+    int "Hardware gyro notch frequency (Hz)" if STM32_IMU_NOTCH_ENABLED
+    range 1000 3000
+    default 1000
     help
-      Target center frequency for the hardware gyro notch filter.
+      Target center frequency for the hardware gyro notch filter. The
+      ICM42688P notch only reaches 1000-3000 Hz and the driver clamps to
+      that band, so a value outside it would be silently moved rather
+      than honoured. Read only when the notch is enabled; the enable is
+      what turns the filter off, not a zero here.
 
 config STM32_IMU_NOTCH_BW_IDX
-    int "Hardware gyro notch bandwidth index"
-    range 0 255
+    int "Hardware gyro notch bandwidth index" if STM32_IMU_NOTCH_ENABLED
+    range 0 7
     default 0
     help
-      Raw bandwidth index programmed into the gyro notch filter registers.
+      Raw bandwidth index programmed into the gyro notch filter
+      registers. The register field is three bits wide, so anything past
+      seven cannot reach the silicon.
 
 config STM32_IMU_GYRO_AAF_DISABLE
     bool "Disable gyro AAF"
@@ -2552,14 +2558,6 @@ config STM32_BATTERY_CURRENT_DEADBAND_MA
     help
       Absolute current below this value is reported as zero and not integrated
       into consumed mAh. This suppresses idle ADC noise.
-
-config STM32_BATTERY_INITIAL_MAH_DRAWN
-    int "Initial consumed capacity (mAh)"
-    range 0 100000
-    default 0
-    help
-      Initial consumed capacity used at boot. Keep this at 0 for a fresh
-      battery; raise it only when resuming from a known partially used pack.
 
 endmenu
 
@@ -3166,10 +3164,13 @@ menu "ESC Service"
 
 config STM32_ESC_SERVICE_DSHOT_GAP_BITS
     int "DShot inter-frame gap bits"
-    range 0 64
+    range 0 8
     default 2
     help
-      Number of idle bit times inserted between DShot frames.
+      Number of idle bit times inserted between DShot frames. The codec
+      sizes its frame buffer for at most eight and panics on anything
+      larger, so a wider range here would build a board that halts at
+      init rather than one that runs slightly differently.
 
 config STM32_ESC_SERVICE_IDLE_PERIOD_US
     int "Idle frame period (us)"
@@ -3257,8 +3258,9 @@ config STM32_AHRS_ACCEL_TRUST_ZERO_DEV_MILLI
     help
       Accel correction weight smoothly decays to 0 by |a|/g deviation
       = this value, scaled by 1000 (50 = ±0.05 = ±5 %). Must be ≥
-      full-trust band; setting equal disables soft attenuation. Default
-      rejects sustained tilts above ~18°.
+      full-trust band; setting it equal turns the gate off rather than
+      making it abrupt, leaving the accel fully trusted at every
+      deviation. Default rejects sustained tilts above ~18°.
 
 config STM32_AHRS_GYRO_QUIESCENT_FULL_MILLI
     int "Bias-update gate: full-update gyro threshold (rad/s, x1000)"
@@ -3277,7 +3279,8 @@ config STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI
       Gyro-bias estimator update weight smoothly decays to 0 by |gyro|
       = this value (rad/s scaled by 1000; 200 = 0.20 rad/s ≈ 12°/s).
       Above this rate the bias estimator is frozen — drone is actively
-      maneuvering and accel is unreliable.
+      maneuvering and accel is unreliable. Must be ≥ the full-update
+      threshold; setting it equal never freezes the estimator at all.
 
 endmenu
 
@@ -3600,6 +3603,38 @@ config STM32_FLIGHT_MODE_THRESHOLD_US
       conversion lands on exactly 1000, 1500 and 2000 us. 1250 sits midway
       between the first two detents, so no position is ever near the
       comparison. 1500 would sit exactly on a 3-position switch's centre.
+
+config STM32_PILOT_ACRO_MAX_RATE_ROLL_PITCH_MILLI
+    int "Acro roll/pitch max rate (rad/s, x1000)"
+    range 100 20000
+    default 6000
+    help
+      Body rate a full roll or pitch stick commands in Acro, in rad/s
+      scaled by 1000 (6000 = 6.0 rad/s ~ 344 deg/s). This is the pilot's
+      stick scaling, not the outer loop's rate-setpoint clamp under
+      Attitude Controller: the two agree today and nothing requires them
+      to, so raising one does not raise the other.
+
+config STM32_PILOT_ACRO_MAX_RATE_YAW_MILLI
+    int "Acro yaw max rate (rad/s, x1000)"
+    range 100 20000
+    default 4000
+    help
+      Body rate a full yaw stick commands in Acro, in rad/s scaled by 1000
+      (4000 = 4.0 rad/s ~ 229 deg/s). Lower than roll/pitch because yaw has
+      the least motor authority on a QuadX.
+
+config STM32_PILOT_STABILIZE_MAX_TILT_DEG
+    int "Stabilize max tilt (degrees)"
+    range 5 80
+    default 30
+    help
+      Tilt a full roll or pitch stick commands in Stabilize. 30 is a
+      conservative beginner default; FPV builds run 45-55. Stated in
+      degrees because that is the number pilots reason about; the radians
+      the cascade wants are derived. The ceiling stays well short of 90,
+      where a tilt setpoint stops describing an attitude the controller
+      can hold.
 
 endmenu
 

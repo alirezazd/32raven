@@ -12,12 +12,16 @@ extern "C" {
 #include "esp_err.h"
 }
 
-#include "esp32_limits.hpp"
 #include "programmer.hpp"
 #include "state_machine.hpp"
 
 class TcpServer {
  public:
+  // Longest control line accepted. The longest legitimate one is BEGIN with
+  // every key at maximum -- ten-digit size and crc, a 31-character target --
+  // which comes to 75 bytes. The rest is headroom, not a tight bound.
+  static constexpr size_t kMaxLineBytes = 160;
+
   static TcpServer &GetInstance() {
     static TcpServer inst;
     return inst;
@@ -26,9 +30,6 @@ class TcpServer {
   struct Config {
     uint16_t ctrl_port = 9000;
     uint16_t data_port = 9001;
-    int backlog = 1;
-
-    bool nonblocking = true;
 
     // Keepalive (0 disables)
     int keepalive_idle_s = 10;
@@ -125,7 +126,7 @@ class TcpServer {
     // parser
     // One past the longest accepted line, for the NUL written at line_len
     // before HandleLine sees it.
-    char line_buf[esp32_limits::kTcpServerMaxLineBytes + 1]{};
+    char line_buf[kMaxLineBytes + 1]{};
     size_t line_len = 0;
 
     // timing (if you want accept throttling etc.)
@@ -163,8 +164,7 @@ class TcpServer {
   // Socket helpers
   static bool SetNonblock(int fd);
   static bool SetKeepalive(int fd, const Config &cfg);
-  static bool MakeListenSocket(int &out_fd, uint16_t port, int backlog,
-                               bool nonblocking);
+  static bool MakeListenSocket(int &out_fd, uint16_t port);
 
   Config cfg_{};
   bool running_ = false;
@@ -178,15 +178,20 @@ class TcpServer {
   StCtrl *s_ctrl_ = nullptr;
   StCtrlData *s_ctrldata_ = nullptr;
 
-  // event queue (tiny, bounded)
-  static constexpr size_t kEvtCap = esp32_limits::kTcpServerEventQueueDepth;
+  // Async network events queued while the loop services the previous one. One
+  // control connection issues one verb per line, so the depth is rarely past
+  // one; overflow answers ERR evt_queue_full rather than dropping, so this
+  // trades a little RAM against a spurious error.
+  static constexpr size_t kEvtCap = 8;
   Event evt_q_[kEvtCap]{};
   size_t evt_head_ = 0;
   size_t evt_tail_ = 0;
 
-  // download ring buffer
-  static constexpr size_t kDownCap =
-      esp32_limits::kTcpServerDownloadBufferBytes;
+  // Inbound staging for the DFU download, drained a chunk per app tick and
+  // sized to swallow one whole PumpDataRx cycle. Below that, flow control
+  // engages on every pump instead of only under real backpressure; the pump
+  // static_asserts against this.
+  static constexpr size_t kDownCap = 4096;
   uint8_t down_[kDownCap]{};
   size_t down_head_ = 0;
   size_t down_tail_ = 0;

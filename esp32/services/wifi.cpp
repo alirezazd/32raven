@@ -194,8 +194,9 @@ void WifiController::StartAp() {
   wifi_on_ = true;
   ESP_LOGI(kTag, "AP started SSID=%s", ssid);
 
-  // Apply the configured Wi-Fi driver power-save policy.
-  e = esp_wifi_set_ps(cfg_.power_save);
+  // Power save is a station-mode behaviour and this part only ever runs
+  // as a SoftAP, which has to stay awake to beacon.
+  e = esp_wifi_set_ps(WIFI_PS_NONE);
   if (e != ESP_OK) {
     ESP_LOGW(kTag, "esp_wifi_set_ps: %s", esp_err_to_name(e));
   }

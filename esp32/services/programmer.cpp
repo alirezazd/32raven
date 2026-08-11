@@ -22,6 +22,9 @@ static constexpr char kTag[] = "programmer";
 
 namespace {
 
+// AN3155 caps a single READ_MEM or WRITE_MEM at 256 bytes.
+constexpr std::size_t kStm32BlockBytes = 256;
+
 // STM32 ROM bootloader (AN3155) replies. Plain bytes, not an enum: they come
 // off a UART from a device that may be mid-reset and can hold anything.
 constexpr uint8_t kAck = 0x79;
@@ -416,7 +419,7 @@ bool Programmer::Boot() {
 
 bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *bytes,
                                  size_t len) {
-  if (!bytes || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
+  if (!bytes || len == 0 || len > kStm32BlockBytes) {
     return false;
   }
 
@@ -467,7 +470,7 @@ bool Programmer::WriteStm32Block(uint32_t addr, const uint8_t *bytes,
 }
 
 bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *bytes, size_t len) {
-  if (!bytes || len == 0 || len > esp32_limits::kProgrammerStm32BlockBytes) {
+  if (!bytes || len == 0 || len > kStm32BlockBytes) {
     return false;
   }
 
@@ -622,7 +625,7 @@ bool Programmer::BeginTargetSession(Ctx &c) {
 size_t Programmer::TargetWriteChunkLimit(const Ctx &c) const {
   return (c.target == Target::kEsp32)
              ? Ctx::kWriteChunkCap
-             : esp32_limits::kProgrammerStm32BlockBytes;
+             : kStm32BlockBytes;
 }
 
 bool Programmer::WriteTargetChunk(Ctx &c, const uint8_t *bytes, size_t len) {
@@ -659,7 +662,7 @@ bool Programmer::FinalizeTargetWrite(Ctx &c) {
 size_t Programmer::TargetVerifyChunkSize(const Ctx &c) const {
   return (c.target == Target::kEsp32)
              ? c.cfg.verify.esp32_chunk_bytes
-             : esp32_limits::kProgrammerStm32BlockBytes;
+             : kStm32BlockBytes;
 }
 
 std::optional<size_t> Programmer::ReadTargetVerifyChunk(

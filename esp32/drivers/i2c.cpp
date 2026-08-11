@@ -8,6 +8,12 @@
 
 namespace {
 
+// ESP-IDF's own default filter width. The only bus here is a short board trace
+// carrying nothing but the panel, so there is no glitch to tune against.
+constexpr uint8_t kGlitchIgnoreCnt = 7;
+// The panel module brings no pull-ups of its own.
+constexpr bool kEnableInternalPullup = true;
+
 template <I2cInstance Inst>
 constexpr i2c_port_num_t ToPort() {
   if constexpr (Inst == I2cInstance::kDisplay) {
@@ -33,12 +39,12 @@ void I2c<Inst>::Init(const I2cConfig &cfg) {
   bus_cfg.sda_io_num = cfg_.pins.sda_gpio;
   bus_cfg.scl_io_num = cfg_.pins.scl_gpio;
   bus_cfg.clk_source = I2C_CLK_SRC_DEFAULT;
-  bus_cfg.glitch_ignore_cnt = cfg_.bus.glitch_ignore_cnt;
+  bus_cfg.glitch_ignore_cnt = kGlitchIgnoreCnt;
   bus_cfg.intr_priority = 0;
   // Use synchronous transfers. The display stack issues a burst of setup writes
   // during boot and does not use the callback-based async path.
   bus_cfg.trans_queue_depth = 0;
-  bus_cfg.flags.enable_internal_pullup = cfg_.bus.enable_internal_pullup;
+  bus_cfg.flags.enable_internal_pullup = kEnableInternalPullup;
   bus_cfg.flags.allow_pd = 0;
 
   if (i2c_new_master_bus(&bus_cfg, &bus_) != ESP_OK) {

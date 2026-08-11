@@ -383,6 +383,13 @@ inline constexpr EscService::Config kEscServiceConfig = {
     .firmware_checks = {{ 'true' if esc_service.firmware_checks else 'false' }},
 };
 
+{# Init panics past the codec's gap budget. Checking the configured value here
+   turns a Kconfig range that drifted wider than the codec into a build
+   failure rather than a board that halts at boot. #}
+static_assert(kEscServiceConfig.dshot.gap_bits <= DShotCodec::kMaxGapBits,
+              "CONFIG_STM32_ESC_SERVICE_DSHOT_GAP_BITS is past the codec's "
+              "staging buffer; DShotCodec::Init would panic at boot");
+
 inline constexpr multirotor_mixer::Mixer::Config kMultirotorMixerConfig = {
     .idle = {{ multirotor_mixer.idle_milli }} * 0.001f,
 };
@@ -452,6 +459,9 @@ inline constexpr Ahrs::Config kAhrsConfig = {
 // that channel is enabled.
 inline constexpr std::size_t kFlightModeChannelSlot = {{ flight_mode.slot }};
 inline constexpr std::uint16_t kFlightModeThresholdUs = {{ flight_mode.threshold_us }};
+inline constexpr float kPilotAcroMaxRateRollPitch = {{ flight_mode.acro_max_rate_roll_pitch_milli }} * 0.001f;
+inline constexpr float kPilotAcroMaxRateYaw = {{ flight_mode.acro_max_rate_yaw_milli }} * 0.001f;
+inline constexpr float kPilotStabilizeMaxTiltRad = {{ flight_mode.stabilize_max_tilt_rad }};
 
 inline constexpr AttitudeController::Config kAttitudeControllerConfig = {
 {% for axis_name in ["roll", "pitch", "yaw"] %}

@@ -122,7 +122,7 @@ class MspService {
   uint16_t reply_len_ = 0;
   bool reply_overflow_ = false;
 
-  uint8_t frame_[stm32_limits::kUsbCdcMaxFrameBytes]{};
+  uint8_t frame_[UsbCdc::kMaxFrameBytes]{};
   static_assert(sizeof(frame_) >= kV2HeaderBytes + kMaxPayload + 1u);
   // A reply the ring cannot take whole is dropped, not truncated, so the ring
   // is sized from this buffer rather than from the largest frame seen so far.

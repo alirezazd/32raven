@@ -57,8 +57,8 @@ constexpr uint32_t kCtrlEp = 0u;
 constexpr uint32_t kBulkEp = 1u;    // IN and OUT share the number
 constexpr uint32_t kNotifyEp = 2u;  // IN only; CDC requires it to exist
 
-constexpr uint16_t kEp0MaxPacket = stm32_limits::kUsbCdcEp0MaxPacketBytes;
-constexpr uint16_t kBulkMaxPacket = stm32_limits::kUsbCdcBulkMaxPacketBytes;
+constexpr uint16_t kEp0MaxPacket = UsbCdc::kEp0MaxPacketBytes;
+constexpr uint16_t kBulkMaxPacket = UsbCdc::kBulkMaxPacketBytes;
 constexpr uint16_t kNotifyMaxPacket = 8u;
 
 // The descriptors below spell these out as literal bytes, which no expression

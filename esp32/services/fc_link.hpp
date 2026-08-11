@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <optional>
 
-#include "esp32_limits.hpp"
 #include "message.hpp"
 #include "ring_buffer.hpp"
 #include "uart.hpp"
@@ -51,8 +50,11 @@ class FcLink {
   Config cfg_ = {};
   static constexpr size_t kMaxRxReadBufferSize =
       message::kMaxPayload + message::kPacketOverhead;
-  RingBuffer<message::Packet, esp32_limits::kFcLinkRxPacketQueueDepth + 1>
-      rx_packet_queue_;
+  // Poll parses a whole read before the app loop pops any of it, so the queue
+  // has to hold one buffer's worth of the smallest packet. Overflow panics.
+  static constexpr size_t kRxPacketQueueDepth =
+      kMaxRxReadBufferSize / message::kPacketOverhead;
+  RingBuffer<message::Packet, kRxPacketQueueDepth + 1> rx_packet_queue_;
 
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };
   RxState rx_state_ = RxState::kMagic1;

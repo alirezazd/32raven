@@ -29,8 +29,6 @@ class WifiController {
       bool capable = true;
       bool required = false;
     } pmf;
-
-    wifi_ps_type_t power_save = WIFI_PS_NONE;
   };
 
   void StartAp();

@@ -17,24 +17,14 @@ namespace esp32_limits {
 {# SSD1306 panel geometry.  Hardware-fixed by the chosen 72x40 display.
    Only the measured quantities live here; the page count, framebuffer size
    and column offset that follow from them are derived in ssd1306_panel.hpp. #}
-inline constexpr std::size_t kDisplayPanelWidth = {{ display_panel.width }};
-inline constexpr std::size_t kDisplayPanelHeight = {{ display_panel.height }};
-inline constexpr std::size_t kDisplayPanelControllerWidth = {{ display_panel.controller_width }};
 
 {# Compile-time queue / buffer sizes consumed as template parameters. #}
-inline constexpr std::size_t kFcLinkRxPacketQueueDepth = {{ fclink.rx_queue_depth }};
 
 inline constexpr std::size_t kProgrammerStagingBufferBytes = {{ programmer.staging_buffer_bytes }};
-inline constexpr std::size_t kProgrammerStm32BlockBytes = {{ programmer.stm32_block_bytes }};
 
-inline constexpr std::size_t kTcpServerEventQueueDepth = {{ tcp_server.event_queue_depth }};
-inline constexpr std::size_t kTcpServerDownloadBufferBytes = {{ tcp_server.download_buffer_bytes }};
-inline constexpr std::size_t kTcpServerMaxLineBytes = {{ tcp_server.max_line_bytes }};
 
 inline constexpr std::size_t kUdpServerUploadBufferBytes = {{ udp_server.upload_buffer_bytes }};
 inline constexpr std::size_t kUdpServerDownloadBufferBytes = {{ udp_server.download_buffer_bytes }};
 
-inline constexpr std::size_t kTonePlayerPendingRequestQueueDepth =
-    {{ tone_player.pending_request_queue_depth }};
 
 }  // namespace esp32_limits

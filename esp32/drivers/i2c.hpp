@@ -18,9 +18,7 @@ struct I2cConfig {
   };
 
   struct Bus {
-    uint8_t glitch_ignore_cnt = 7;
     uint32_t transfer_timeout_ms = 100;
-    bool enable_internal_pullup = true;
   };
 
   Pins pins{};

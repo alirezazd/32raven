@@ -30,8 +30,10 @@ class Ssd1306Panel {
     Output output{};
   };
 
-  static constexpr size_t kWidth = esp32_limits::kDisplayPanelWidth;
-  static constexpr size_t kHeight = esp32_limits::kDisplayPanelHeight;
+  // Geometry of the 72x40 glass this driver is written for. Page count,
+  // framebuffer size and column offset all follow from these.
+  static constexpr size_t kWidth = 72;
+  static constexpr size_t kHeight = 40;
   static constexpr size_t kPageCount = kHeight / 8;
   static constexpr size_t kFramebufferSize = kWidth * kPageCount;
 
@@ -52,8 +54,9 @@ class Ssd1306Panel {
  private:
   friend class System;
 
-  static constexpr size_t kControllerWidth =
-      esp32_limits::kDisplayPanelControllerWidth;
+  // The SSD1306 always drives 128 columns regardless of the glass bonded
+  // to it.
+  static constexpr size_t kControllerWidth = 128;
   // The glass sits centred in the controller's column range, so the dead
   // columns split evenly either side.
   static constexpr size_t kColumnOffset = (kControllerWidth - kWidth) / 2;
