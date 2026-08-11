@@ -12,7 +12,7 @@
 
 extern "C" {
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 

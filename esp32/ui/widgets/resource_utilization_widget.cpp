@@ -26,7 +26,7 @@
 
 extern "C" {
 #include "esp_heap_caps.h"
-#include "freertos/FreeRTOS.h"
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 

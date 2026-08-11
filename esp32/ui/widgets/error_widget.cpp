@@ -8,10 +8,6 @@
 
 #include "system.hpp"
 
-extern "C" {
-#include "freertos/FreeRTOS.h"
-}
-
 namespace {
 
 constexpr DisplayTextStyle kTitleStyle{

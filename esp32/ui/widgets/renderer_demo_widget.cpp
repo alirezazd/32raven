@@ -3,8 +3,6 @@
 
 #include "renderer_demo_widget.hpp"
 
-#include <algorithm>
-
 #include "system.hpp"
 #include "timebase.hpp"
 

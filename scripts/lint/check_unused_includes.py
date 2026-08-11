@@ -20,7 +20,10 @@ headers included for a side effect (linker sections, ISR registration) stay put.
 
 Needs a compilation database, i.e. a build must have happened. Without one, or
 without clang-tidy, it skips rather than fails -- the lint CI job installs no
-compiler, so a hard failure there would only ever be about the environment.
+compiler, so a hard failure there would only ever be about the environment. A
+file that has a compile command but does not parse is a different matter and
+fails the check: an unchecked file is an unknown, and an unknown reported as a
+pass is worse than no check at all.
 
 Run:
   uv run --quiet --script scripts/lint/check_unused_includes.py [files...]
@@ -34,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 BUILD_DIRS = [REPO / "build/Ninja/stm32", REPO / "build/Ninja/esp32"]
@@ -48,9 +52,21 @@ SKIP = re.compile(
     r"|.*_(config|limits|schema)\.hpp$)"
 )
 
-# ESP-IDF headers do not parse under clang today, so those TUs yield no
-# answer at all. A sentinel keeps that separate from "no unused includes".
-SKIPPED = "\x00skipped"
+# GCC accepts these, and ESP-IDF puts all three on every ESP32 translation
+# unit. clang's driver rejects an unknown argument outright rather than warning
+# past it, so a command carrying one never reaches the first #include. Stripping
+# them from the compilation database is what puts the ESP32 under this check.
+GCC_ONLY_FLAGS = frozenset(
+    {
+        "-fno-shrink-wrap",
+        "-fno-tree-switch-conversion",
+        "-fstrict-volatile-bitfields",
+    }
+)
+
+# misc-include-cleaner is a C/C++ check, and the database carries the assembly
+# startup file like any other entry.
+SOURCE_SUFFIXES = frozenset({".c", ".cc", ".cpp", ".cxx"})
 
 # Only first-party code. The esp32 compilation database also carries every
 # ESP-IDF component and generated build artifact.
@@ -113,7 +129,33 @@ def toolchain_args(compiler: str) -> list[str]:
     return args
 
 
-def run(path: pathlib.Path, build_dir: pathlib.Path, compiler: str) -> list[str]:
+def parseable(arg: str) -> bool:
+    """Keep only what clang needs to parse the file the way GCC compiled it.
+
+    A -Werror promotion turns every difference between clang's warning set and
+    GCC's into a parse failure -- clang's -Wall catches things in the ESP-IDF
+    headers that GCC's does not. Warnings are the real build's job; this
+    borrows the compile command to parse, nothing more.
+    """
+    return arg not in GCC_ONLY_FLAGS and not arg.startswith("-Werror")
+
+
+def filtered_database(build_dir: pathlib.Path, into: pathlib.Path) -> pathlib.Path:
+    """A copy of build_dir's compilation database clang's driver will accept."""
+    out = into / build_dir.name
+    out.mkdir(parents=True, exist_ok=True)
+    entries = json.loads((build_dir / "compile_commands.json").read_text())
+    for entry in entries:
+        entry["command"] = " ".join(
+            a for a in entry["command"].split() if parseable(a)
+        )
+    (out / "compile_commands.json").write_text(json.dumps(entries))
+    return out
+
+
+def run(
+    path: pathlib.Path, build_dir: pathlib.Path, compiler: str
+) -> tuple[list[str], str | None]:
     extra = [f"--extra-arg={a}" for a in toolchain_args(compiler)]
     proc = subprocess.run(
         [
@@ -130,8 +172,10 @@ def run(path: pathlib.Path, build_dir: pathlib.Path, compiler: str) -> list[str]
         cwd=REPO,
     )
     # A TU that did not parse reports every include as unused. Refuse to guess.
-    if "error:" in proc.stderr or "error:" in proc.stdout:
-        return [SKIPPED]
+    blob = proc.stderr + proc.stdout
+    if "error:" in blob:
+        first = next(line.strip() for line in blob.split("\n") if "error:" in line)
+        return [], first
     findings = []
     for line in proc.stdout.split("\n"):
         match = FINDING_RE.match(line.strip())
@@ -144,7 +188,7 @@ def run(path: pathlib.Path, build_dir: pathlib.Path, compiler: str) -> list[str]
         if SKIP.match(rel):
             continue
         findings.append(f"{rel}:{match['line']}: unused include <{match['header']}>")
-    return findings
+    return findings, None
 
 
 def main() -> int:
@@ -166,7 +210,7 @@ def main() -> int:
     # them through the translation units that include them.
     targets = []
     for p in wanted:
-        if str(p) not in db:
+        if str(p) not in db or p.suffix not in SOURCE_SUFFIXES:
             continue
         try:
             rel = p.relative_to(REPO).as_posix()
@@ -180,20 +224,38 @@ def main() -> int:
         return 0
 
     findings: list[str] = []
-    skipped = 0
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        for result in pool.map(lambda t: run(*t), targets):
-            for item in result:
-                if item is SKIPPED or item == SKIPPED:
-                    skipped += 1
-                else:
-                    findings.append(item)
+    unparsed: list[tuple[str, str]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        cache: dict[pathlib.Path, pathlib.Path] = {}
+        prepared = []
+        for path, build_dir, compiler in targets:
+            if build_dir not in cache:
+                cache[build_dir] = filtered_database(build_dir, pathlib.Path(tmp))
+            prepared.append((path, cache[build_dir], compiler))
 
-    if skipped:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            for (path, _, _), (found, error) in zip(
+                prepared, pool.map(lambda t: run(*t), prepared)
+            ):
+                if error is not None:
+                    unparsed.append((path.relative_to(REPO).as_posix(), error))
+                findings += found
+
+    if unparsed:
         print(
-            f"check_unused_includes: {skipped}/{len(targets)} files did not parse "
-            "under clang and were not checked."
+            f"{len(unparsed)}/{len(targets)} files did not parse, so they were "
+            "not checked:",
+            file=sys.stderr,
         )
+        for rel, error in sorted(unparsed):
+            print(f"  {rel}\n    {error}", file=sys.stderr)
+        print(
+            "\nA compiler flag clang's driver rejects outright is the usual cause;\n"
+            "add it to GCC_ONLY_FLAGS. Coverage is part of the result, so this\n"
+            "fails rather than passing quietly.",
+            file=sys.stderr,
+        )
+        return 1
 
     if findings:
         print("Unused includes:", file=sys.stderr)

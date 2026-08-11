@@ -4,7 +4,6 @@
 #include "rc_channels_widget.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstdio>
 
 #include "system.hpp"

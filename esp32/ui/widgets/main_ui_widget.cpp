@@ -27,7 +27,6 @@
 
 extern "C" {
 #include "esp_random.h"
-#include "freertos/FreeRTOS.h"
 }
 
 namespace {

@@ -7,14 +7,13 @@
 #include <cstring>
 
 #include "error_code.hpp"
-#include "esp32_config.hpp"
 #include "esp_log.h"
 #include "mavlink.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 
 extern "C" {
-#include "freertos/FreeRTOS.h"
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/task.h"
 }
 
