@@ -55,9 +55,8 @@ USB_STRING_DESCRIPTOR_MAX_BYTES = 255
 
 # Every serial link on this board runs 8N1, so a byte costs ten bit times.
 UART_BITS_PER_BYTE_8N1 = 10
-# Twins of the UART_DATA_8_BITS / UART_STOP_BITS_1 the ESP32 driver opens the
-# FcLink port with. Not knobs: that side takes no configuration for either.
-FCLINK_UART_DATA_BITS = 8
+# Twin of the UART_STOP_BITS_1 the ESP32 driver opens the FcLink port with.
+# Not a knob: that side takes no configuration for it.
 FCLINK_UART_STOP_BITS = 1
 # UBX framing is sync(2) + class(1) + id(1) + length(2) + checksum(2). Payload
 # sizes come from the M10 interface description; the driver only writes msgout
@@ -184,9 +183,6 @@ RC_RECEIVER_UART_OVERSAMPLING_CHOICES = _prefixed(
     "STM32_RC_RECEIVER_UART_OVERSAMPLING", _UART_OVERSAMPLING_VALUES
 )
 
-FCLINK_UART_PARITY_CHOICES = _prefixed(
-    "COMMON_FCLINK_UART_PARITY", _UART_PARITY_VALUES
-)
 FCLINK_UART_OVERSAMPLING_CHOICES = _prefixed(
     "STM32_FCLINK_UART_OVERSAMPLING", _UART_OVERSAMPLING_VALUES
 )
@@ -1762,22 +1758,10 @@ def _attitude_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]
 
 
 def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    # USART1's M bit counts parity as part of the word, so eight data bits is a
-    # nine-bit word with parity and an eight-bit one without. Folded here rather
-    # than configured: eight-bit-plus-even would put seven data bits on a wire
-    # the other end reads as eight.
-    parity = choice_value(kconf, FCLINK_UART_PARITY_CHOICES)
-    parity_bits = 0 if parity.endswith("kNone") else 1
-    word_length = _UART_WORD_LENGTH_VALUES[
-        f"{FCLINK_UART_DATA_BITS + parity_bits}BITS"
-    ]
-
     return {
         "telemetry_rate_hz": sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ"),
         "uart": {
-            "word_length": word_length,
             "stop_bits": _UART_STOP_BITS_VALUES[str(FCLINK_UART_STOP_BITS)],
-            "parity": parity,
             "over_sampling": choice_value(kconf, FCLINK_UART_OVERSAMPLING_CHOICES),
         },
     }

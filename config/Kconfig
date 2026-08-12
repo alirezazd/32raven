@@ -50,29 +50,14 @@ config COMMON_FCLINK_BAUD_5000000
 
 endchoice
 
-choice
-    prompt "Parity"
-    default COMMON_FCLINK_UART_PARITY_EVEN
-    help
-      Shared because both ends must agree, and each expresses it differently:
-      parity is its own field on the ESP32, part of the word length on the
-      STM32 (8 data bits + parity is a 9-bit word).
-
-      Even is the only setting that builds -- not for error detection, which
-      the frame CRC16 already covers, but because the programmer reaches the
-      STM32's ROM bootloader over this UART and AN3155 specifies it as 8E1.
-      Give the programmer its own framing and this opens up.
-
-config COMMON_FCLINK_UART_PARITY_NONE
-    bool "None"
-
-config COMMON_FCLINK_UART_PARITY_EVEN
-    bool "Even"
-
-config COMMON_FCLINK_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
+# No parity setting: the programmer reaches the STM32's ROM bootloader over
+# this UART and AN3155 specifies 8E1, so Even was the only option that built.
+# It buys no error detection the frame CRC16 does not already give -- CRC-16-
+# CCITT catches every odd-weight error across the whole frame, which is a
+# superset of what a parity bit sees -- and it costs an eleventh bit per byte
+# on a link running at under a tenth of its capacity. Both firmwares spell it
+# out in their generated headers. Give the programmer its own framing first if
+# you want this back.
 
 config COMMON_FCLINK_EXCHANGE_INTERVAL_MS
     int "Peer exchange interval (ms)"

@@ -96,12 +96,6 @@ LEDC_CLAIMS = (
 UDP_SERVER_SHAPER_BUFFER_WINDOW_MS = 300
 UDP_SERVER_SHAPER_BUFFER_MAX_BYTES = 32768
 
-FCLINK_UART_PARITY_CHOICES = {
-    "COMMON_FCLINK_UART_PARITY_NONE": "UartParity::kNone",
-    "COMMON_FCLINK_UART_PARITY_EVEN": "UartParity::kEven",
-    "COMMON_FCLINK_UART_PARITY_ODD": "UartParity::kOdd",
-}
-
 TELEM_UART_BAUD_RATE_CHOICES = {
     "ESP32_TELEM_UART_BAUD_9600": "9600",
     "ESP32_TELEM_UART_BAUD_19200": "19200",
@@ -449,7 +443,6 @@ def _usb_cdc_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _fclink_uart_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "parity": choice_value(kconf, FCLINK_UART_PARITY_CHOICES),
         "rx_buf": sym_int(kconf, "ESP32_FCLINK_UART_RX_BUFFER_SIZE"),
         "tx_buf": sym_int(kconf, "ESP32_FCLINK_UART_TX_BUFFER_SIZE"),
     }

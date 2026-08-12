@@ -81,7 +81,6 @@ EXHAUSTIVE_RANGE_SPAN = 64
 def _fingerprint(kconf: kconfiglib.Kconfig) -> str:
     """Every header this configuration would produce, hashed into one value."""
     env = kconfig_gen.template_env()
-    generate_common_config._validate(kconf)
     parts = [
         kconfig_gen.render_template(
             env,

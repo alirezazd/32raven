@@ -92,9 +92,12 @@ inline constexpr auto kFcLinkTelemetryIntervalMs = 1000u / kFcLinkTelemetryRateH
 
 inline constexpr UartConfig kUart1Config = {
     .baud_rate = common_config::kFcLinkBaud,
-    .word_length = {{ fclink.uart.word_length }},
+    // 8E1, fixed: the programmer reaches this MCU's own ROM bootloader over
+    // this UART and AN3155 specifies even parity. USART1's M bit counts parity
+    // as part of the word, so eight data bits plus parity is a nine-bit word.
+    .word_length = UartWordLength::k9Bits,
     .stop_bits = {{ fclink.uart.stop_bits }},
-    .parity = {{ fclink.uart.parity }},
+    .parity = UartParity::kEven,
     .mode = UartMode::kTxRx,
     .hw_flow_control = UartHwFlowControl::kNone,
     .over_sampling = {{ fclink.uart.over_sampling }},
