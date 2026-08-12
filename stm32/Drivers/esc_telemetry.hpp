@@ -12,8 +12,14 @@ class EscTelemetry {
  public:
   static constexpr uint8_t kMotorCount = 4;
 
+  // Fixed by the KISS protocol, not by this board. 8N1, so ten bit times per
+  // byte; a timeout at or below one frame time expires mid-reply every time.
+  static constexpr uint32_t kBaudRate = 115200;
+  static constexpr uint8_t kKissFrameSize = 10;
+  static constexpr uint32_t kMinResponseTimeoutUs =
+      (kKissFrameSize * 10u * 1000000u + kBaudRate - 1u) / kBaudRate;
+
   struct Config {
-    uint32_t baud_rate;
     uint32_t response_timeout_us;
   };
 
@@ -84,7 +90,6 @@ class EscTelemetry {
 
   static constexpr uint16_t kRxDmaSize = 64;
   static constexpr uint16_t kRxRingSize = 256;
-  static constexpr uint8_t kKissFrameSize = 10;
   // 48 settings bytes plus a CRC8, the whole of AM32's makeInfoPacket.
   static constexpr uint8_t kInfoFrameSize = 49;
   static constexpr uint8_t kNoMotor = 0xFF;

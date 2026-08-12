@@ -56,6 +56,26 @@ FCLINK_BAUD_CHOICES = {
 }
 
 
+def _validate(kconf: kconfiglib.Kconfig) -> None:
+    """Reject a link framing the STM32's ROM bootloader will not answer.
+
+    The programmer reaches that bootloader over the FcLink UART, switching the
+    baud and carrying the parity through, and AN3155 specifies it as 8E1. So
+    the runtime parity is what a DFU session speaks -- and the STM32 is flashed
+    over this path, making a wrong setting the one you would have to flash to
+    undo. Checked here because the symbol is shared by both boards.
+    """
+    if not kconf.syms["COMMON_FCLINK_UART_PARITY_EVEN"].tri_value:
+        raise ValueError(
+            "CONFIG_COMMON_FCLINK_UART_PARITY has to be Even: the programmer "
+            "reuses the FcLink UART to reach the STM32's ROM bootloader, which "
+            "AN3155 specifies as 8E1, and Uart::SetBaudRate carries the parity "
+            "into the DFU session unchanged. None or Odd leaves the bootloader "
+            "silent and takes over-the-air flashing with it. Give the "
+            "programmer its own framing first if you want to move this."
+        )
+
+
 def fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     exchange_interval_ms = sym_int(kconf, "COMMON_FCLINK_EXCHANGE_INTERVAL_MS")
     return {
@@ -81,6 +101,8 @@ def main() -> int:
     kconf = kconfiglib.Kconfig(str(kconfig_path))
     if config_path.exists():
         kconf.load_config(str(config_path))
+
+    _validate(kconf)
 
     text = render_template(
         template_env(),

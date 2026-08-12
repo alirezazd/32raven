@@ -53,6 +53,26 @@ USB_CDC_SERIAL_CHARS = 24
 USB_STRING_DESCRIPTOR_HEADER_BYTES = 2
 USB_STRING_DESCRIPTOR_MAX_BYTES = 255
 
+# Every serial link on this board runs 8N1, so a byte costs ten bit times.
+UART_BITS_PER_BYTE_8N1 = 10
+# Twins of the UART_DATA_8_BITS / UART_STOP_BITS_1 the ESP32 driver opens the
+# FcLink port with. Not knobs: that side takes no configuration for either.
+FCLINK_UART_DATA_BITS = 8
+FCLINK_UART_STOP_BITS = 1
+# UBX framing is sync(2) + class(1) + id(1) + length(2) + checksum(2). Payload
+# sizes come from the M10 interface description; the driver only writes msgout
+# keys, so nothing else in the tree knows what the link carries.
+UBX_FRAMING_BYTES = 8
+UBX_NAV_PAYLOAD_BYTES = {
+    "STM32_GPS_M10_MSG_NAV_PVT": 92,
+    "STM32_GPS_M10_MSG_NAV_DOP": 18,
+    "STM32_GPS_M10_MSG_NAV_COV": 64,
+    "STM32_GPS_M10_MSG_NAV_EOE": 4,
+}
+# Headroom for what this cannot size: CFG acknowledgements, NMEA when enabled,
+# and the M10's own jitter in emitting an epoch.
+UBX_MAX_LINK_UTILISATION = 0.8
+
 # SPI_CR1.BR selects these dividers of the peripheral's own APB clock. A knob
 # naming the divider rather than the rate means the same setting is a different
 # SCK on SPI1 (APB2) and SPI2 (APB1), and moves silently when the tree does.
@@ -167,20 +187,8 @@ RC_RECEIVER_UART_OVERSAMPLING_CHOICES = _prefixed(
     "STM32_RC_RECEIVER_UART_OVERSAMPLING", _UART_OVERSAMPLING_VALUES
 )
 
-FCLINK_UART_WORD_LENGTH_CHOICES = _prefixed(
-    "STM32_FCLINK_UART_WORD_LENGTH", _UART_WORD_LENGTH_VALUES
-)
-FCLINK_UART_STOP_BITS_CHOICES = _prefixed(
-    "STM32_FCLINK_UART_STOP_BITS", _UART_STOP_BITS_VALUES
-)
 FCLINK_UART_PARITY_CHOICES = _prefixed(
-    "STM32_FCLINK_UART_PARITY", _UART_PARITY_VALUES
-)
-FCLINK_UART_MODE_CHOICES = _prefixed(
-    "STM32_FCLINK_UART_MODE", _UART_MODE_VALUES
-)
-FCLINK_UART_HW_FLOW_CONTROL_CHOICES = _prefixed(
-    "STM32_FCLINK_UART_HW_FLOW_CONTROL", _UART_HW_FLOW_VALUES
+    "COMMON_FCLINK_UART_PARITY", _UART_PARITY_VALUES
 )
 FCLINK_UART_OVERSAMPLING_CHOICES = _prefixed(
     "STM32_FCLINK_UART_OVERSAMPLING", _UART_OVERSAMPLING_VALUES
@@ -1158,6 +1166,73 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             "CONFIG_STM32_BATTERY_CELL_FULL_MV"
         )
 
+    # Checked even when TP1 is disabled: the pair is written either way, and
+    # the M10 clamps rather than refusing, so a bad pair is silent.
+    tp1_period_us = sym_int(kconf, "STM32_GPS_M10_TP1_PERIOD")
+    tp1_len_us = sym_int(kconf, "STM32_GPS_M10_TP1_LEN")
+    if tp1_len_us >= tp1_period_us:
+        raise ValueError(
+            f"CONFIG_STM32_GPS_M10_TP1_LEN ({tp1_len_us} us) must be shorter "
+            f"than CONFIG_STM32_GPS_M10_TP1_PERIOD ({tp1_period_us} us); a "
+            "pulse cannot outlast the period that repeats it"
+        )
+
+    _validate_gps_link_budget(kconf)
+    _validate_battery_sample_budget(kconf)
+
+
+def _validate_gps_link_budget(kconf: kconfiglib.Kconfig) -> None:
+    """The enabled UBX set at the configured rate against UART2's baud.
+
+    An M10 given more per epoch than the link carries falls behind rather than
+    dropping the surplus, so position ages with the fix type still healthy.
+    """
+    enabled_bytes = sum(
+        payload + UBX_FRAMING_BYTES
+        for sym, payload in UBX_NAV_PAYLOAD_BYTES.items()
+        if sym_bool(kconf, sym)
+    )
+    if enabled_bytes == 0:
+        return
+
+    rate_meas_ms = sym_int(kconf, "STM32_GPS_M10_RATE_MEAS_MS")
+    baud = int(choice_value(kconf, M10_UART_BAUD_RATE_CHOICES))
+    epochs_per_sec = MILLIS_PER_SECOND / rate_meas_ms
+    needed_bps = enabled_bytes * UART_BITS_PER_BYTE_8N1 * epochs_per_sec
+    budget_bps = baud * UBX_MAX_LINK_UTILISATION
+    if needed_bps > budget_bps:
+        raise ValueError(
+            f"the enabled UBX messages are {enabled_bytes} bytes per epoch, "
+            f"which at CONFIG_STM32_GPS_M10_RATE_MEAS_MS ({rate_meas_ms} ms) "
+            f"needs {needed_bps / 1000:.1f} kbit/s of a {baud} baud link "
+            f"({needed_bps / baud:.0%}, over the "
+            f"{UBX_MAX_LINK_UTILISATION:.0%} this leaves for it). Raise "
+            "CONFIG_STM32_GPS_M10_BAUD, slow the measurement rate, or turn off "
+            "a message"
+        )
+
+
+def _validate_battery_sample_budget(kconf: kconfiglib.Kconfig) -> None:
+    """The worst-case blocking read against the period it has to fit in.
+
+    ReadAdcPair polls two conversions per oversample on the main loop, each
+    with its own timeout, so the worst case lands exactly when the ADC has
+    stopped answering and the rest of the loop still has to run.
+    """
+    oversample = sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT")
+    timeout_us = sym_int(kconf, "STM32_BATTERY_ADC_TIMEOUT_US")
+    period_us = sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS") * MICROS_PER_MILLI
+    worst_case_us = oversample * 2 * timeout_us
+    if worst_case_us >= period_us:
+        raise ValueError(
+            f"a stalled ADC blocks the main loop for "
+            f"{worst_case_us} us (CONFIG_STM32_BATTERY_ADC_OVERSAMPLE_COUNT "
+            f"{oversample} x 2 conversions x "
+            f"CONFIG_STM32_BATTERY_ADC_TIMEOUT_US {timeout_us} us), which does "
+            f"not fit the {period_us} us "
+            "CONFIG_STM32_BATTERY_SAMPLE_PERIOD_MS gives it"
+        )
+
 
 def _enabled_rc_channels(kconf: kconfiglib.Kconfig) -> list[bool]:
     return [
@@ -1258,6 +1333,8 @@ SYSCLK_MAX_HZ = 168_000_000
 HSI_HZ = 16_000_000
 APB1_MAX_HZ = 42_000_000
 MICROS_PER_SECOND = 1_000_000
+MICROS_PER_MILLI = 1_000
+MILLIS_PER_SECOND = 1_000
 APB2_MAX_HZ = 84_000_000
 # RM0090 Table 10. One wait state per 30 MHz of HCLK holds for VDD 2.7-3.6 V;
 # the step tightens to 24, 22 and 20 MHz on the lower supply bands. VDD is
@@ -1535,7 +1612,6 @@ def _timebase_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _esc_telemetry_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "baud_rate": sym_int(kconf, "STM32_ESC_TELEMETRY_BAUD_RATE"),
         "response_timeout_us": sym_int(
             kconf, "STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US"
         ),
@@ -1591,8 +1667,15 @@ def _multirotor_mixer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 
 def _iir_alpha_from_tau(time_constant: float, sample_period: float) -> float:
-    """First-order IIR coefficient; both arguments in the same time unit."""
-    return sample_period / (sample_period + time_constant)
+    """First-order IIR coefficient; both arguments in the same time unit.
+
+    The exact pole mapping. T/(T+tau) looks equivalent and is not: it
+    undershoots by more the closer the filter runs to the sample rate, which
+    is where a knob stops meaning what it says. Zero disables.
+    """
+    if time_constant <= 0.0:
+        return 1.0
+    return 1.0 - math.exp(-sample_period / time_constant)
 
 
 def _iir_alpha(cutoff_hz: int, sample_hz: int) -> float:
@@ -1684,16 +1767,22 @@ def _attitude_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]
 
 
 def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    # USART1's M bit counts parity as part of the word, so eight data bits is a
+    # nine-bit word with parity and an eight-bit one without. Folded here rather
+    # than configured: eight-bit-plus-even would put seven data bits on a wire
+    # the other end reads as eight.
+    parity = choice_value(kconf, FCLINK_UART_PARITY_CHOICES)
+    parity_bits = 0 if parity.endswith("kNone") else 1
+    word_length = _UART_WORD_LENGTH_VALUES[
+        f"{FCLINK_UART_DATA_BITS + parity_bits}BITS"
+    ]
+
     return {
         "telemetry_rate_hz": sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ"),
         "uart": {
-            "word_length": choice_value(kconf, FCLINK_UART_WORD_LENGTH_CHOICES),
-            "stop_bits": choice_value(kconf, FCLINK_UART_STOP_BITS_CHOICES),
-            "parity": choice_value(kconf, FCLINK_UART_PARITY_CHOICES),
-            "mode": choice_value(kconf, FCLINK_UART_MODE_CHOICES),
-            "hw_flow_control": choice_value(
-                kconf, FCLINK_UART_HW_FLOW_CONTROL_CHOICES
-            ),
+            "word_length": word_length,
+            "stop_bits": _UART_STOP_BITS_VALUES[str(FCLINK_UART_STOP_BITS)],
+            "parity": parity,
             "over_sampling": choice_value(kconf, FCLINK_UART_OVERSAMPLING_CHOICES),
         },
     }

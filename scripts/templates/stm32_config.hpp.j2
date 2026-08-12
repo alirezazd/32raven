@@ -95,8 +95,8 @@ inline constexpr UartConfig kUart1Config = {
     .word_length = {{ fclink.uart.word_length }},
     .stop_bits = {{ fclink.uart.stop_bits }},
     .parity = {{ fclink.uart.parity }},
-    .mode = {{ fclink.uart.mode }},
-    .hw_flow_control = {{ fclink.uart.hw_flow_control }},
+    .mode = UartMode::kTxRx,
+    .hw_flow_control = UartHwFlowControl::kNone,
     .over_sampling = {{ fclink.uart.over_sampling }},
 };
 
@@ -342,9 +342,14 @@ inline constexpr TimeBaseConfig kTimeBaseConfig = {
 };
 
 inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
-    .baud_rate = {{ esc_telemetry.baud_rate }},
     .response_timeout_us = {{ esc_telemetry.response_timeout_us }},
 };
+
+static_assert(kEscTelemetryConfig.response_timeout_us >
+                  EscTelemetry::kMinResponseTimeoutUs,
+              "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US is shorter than "
+              "a KISS frame takes at the ESC's fixed baud, so every request "
+              "would expire mid-reply");
 
 inline constexpr UsbCdcConfig kUsbCdcConfig = {
     .vendor_id = {{ usb_cdc.vendor_id }},
@@ -365,11 +370,21 @@ inline constexpr UartSoftConfig kEscBootloaderUartConfig = {
     .start_bit_timeout_us = 2000u,
 };
 
+{# MSP gives each field 16 bits and the casts below would wrap silently, so
+   the range is checked first. #}
+static_assert(kFastLoopHz <= UINT16_MAX &&
+                  (1000000u + kFastLoopHz / 2u) / kFastLoopHz <= UINT16_MAX,
+              "CONFIG_STM32_FAST_LOOP_HZ does not fit MSP's 16-bit rate and "
+              "cycle-time fields; a configurator would read a wrapped value");
+
 inline constexpr MspService::Config kMspServiceConfig = {
     .board_identifier = {{ msp.board_identifier }},
     .board_name = {{ msp.board_name }},
     .manufacturer_id = {{ msp.manufacturer_id }},
     .craft_name = {{ msp.craft_name }},
+    .loop_rate_hz = static_cast<uint16_t>(kFastLoopHz),
+    .loop_period_us =
+        static_cast<uint16_t>((1000000u + kFastLoopHz / 2u) / kFastLoopHz),
 };
 
 inline constexpr EscService::Config kEscServiceConfig = {

@@ -53,7 +53,7 @@ void EscTelemetry::Init(const Config &cfg) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
-  if (cfg.baud_rate == 0u || cfg.response_timeout_us == 0u) {
+  if (cfg.response_timeout_us == 0u) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
   cfg_ = cfg;
@@ -79,7 +79,7 @@ void EscTelemetry::ConfigureUart() {
   USART3->CR3 = 0;
 
   const uint32_t pclk1_hz = Rcc::Apb1Hz();
-  USART3->BRR = UsartBrr(pclk1_hz, cfg_.baud_rate);
+  USART3->BRR = UsartBrr(pclk1_hz, kBaudRate);
   USART3->CR3 = USART_CR3_DMAR | USART_CR3_EIE;
   USART3->CR1 = USART_CR1_RE | USART_CR1_IDLEIE | USART_CR1_PEIE | USART_CR1_UE;
 }
@@ -328,6 +328,9 @@ void EscTelemetry::PublishFrame(uint32_t now_us) {
 
   Sample sample{};
   sample.timestamp_us = now_us;
+  // KISS telemetry sends temperature as a two's-complement byte, so widening
+  // into the int16_t field must sign-extend.
+  // NOLINTNEXTLINE(bugprone-signed-char-misuse)
   sample.temperature_c = static_cast<int8_t>(frame_buf_[0]);
   sample.voltage_centivolts = LoadBe16(&frame_buf_[1]);
   sample.current_centiamps = LoadBe16(&frame_buf_[3]);

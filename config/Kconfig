@@ -50,6 +50,30 @@ config COMMON_FCLINK_BAUD_5000000
 
 endchoice
 
+choice
+    prompt "Parity"
+    default COMMON_FCLINK_UART_PARITY_EVEN
+    help
+      Shared because both ends must agree, and each expresses it differently:
+      parity is its own field on the ESP32, part of the word length on the
+      STM32 (8 data bits + parity is a 9-bit word).
+
+      Even is the only setting that builds -- not for error detection, which
+      the frame CRC16 already covers, but because the programmer reaches the
+      STM32's ROM bootloader over this UART and AN3155 specifies it as 8E1.
+      Give the programmer its own framing and this opens up.
+
+config COMMON_FCLINK_UART_PARITY_NONE
+    bool "None"
+
+config COMMON_FCLINK_UART_PARITY_EVEN
+    bool "Even"
+
+config COMMON_FCLINK_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
 config COMMON_FCLINK_EXCHANGE_INTERVAL_MS
     int "Peer exchange interval (ms)"
     range 50 2000
@@ -383,24 +407,7 @@ endmenu
 
 menu "FcLink UART"
 
-comment "Baud rate lives under Common -> FcLink"
-
-choice
-    prompt "Parity"
-    default ESP32_FCLINK_UART_PARITY_EVEN
-    help
-      UART parity for the ESP32 side of FcLink.
-
-config ESP32_FCLINK_UART_PARITY_NONE
-    bool "None"
-
-config ESP32_FCLINK_UART_PARITY_EVEN
-    bool "Even"
-
-config ESP32_FCLINK_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
+comment "Baud rate and parity live under Common -> FcLink"
 
 config ESP32_FCLINK_UART_RX_BUFFER_SIZE
     int "RX buffer size (bytes)"
@@ -1988,21 +1995,17 @@ config STM32_FAST_LOOP_HZ
     range 1 32000
     default 1000
     help
-      Rate at which the attitude and rate controllers run. The FIFO
-      watermark interrupt is what drives them, so this sets the watermark
-      rather than the other way round: the build computes
+      Rate at which the attitude and rate controllers run. The FIFO watermark
+      interrupt drives them, so this sets the watermark rather than the other
+      way round:
 
         watermark records = record rate / fast loop rate
 
-      where the record rate is the gyro ODR scaled by CLKIN/32000 when the
-      external clock is enabled, not the nominal ODR the menu names. A 32768 Hz
-      crystal makes a nominal 8 kHz part record at 8192 Hz, so 1024 Hz divides
-      evenly and 1000 Hz does not.
-
-      and fails if that is not a whole number, or if those records do not fit
-      the 2048-byte FIFO. How many fit depends on the record width, so
-      enabling HiRes lowers the ceiling. Raising the gyro ODR keeps this rate
-      and reads more records per interrupt.
+      The build fails if that is not whole, or if the records overflow the
+      2048-byte FIFO (HiRes widens records, lowering the ceiling). Record rate
+      is the gyro ODR scaled by CLKIN/32000, not the nominal ODR the menu
+      names: a 32768 Hz crystal makes a nominal 8 kHz part record at 8192 Hz,
+      so 1024 divides evenly and 1000 does not.
 
 config STM32_IMU_FIFO_HOLD_LAST
     bool "Hold last FIFO sample"
@@ -2015,13 +2018,11 @@ config STM32_IMU_FIFO_HIRES_EN
     bool "Enable 20-bit HiRes FIFO (Packet4)"
     default y
     help
-      Switch the FIFO from 16-bit Packet3 (16-byte records) to 20-bit
-      Packet4 (20-byte records). HiRes mode delivers 18-bit accel + 19-bit
-      gyro precision at fixed sensitivities (8192 LSB/g, 131 LSB/dps); the
-      FSR setting is forced to ±16g + ±2000 dps internally regardless of
-      ACCEL_FS_SEL / GYRO_FS_SEL (datasheet §6.1). Matches PX4 reference
-      driver default. Disable for bringup / characterization against
-      legacy silicon flashed with older firmware.
+      Switch the FIFO from Packet3 (16-byte records) to Packet4 (20-byte),
+      giving 18-bit accel + 19-bit gyro at fixed sensitivities (8192 LSB/g,
+      131 LSB/dps). Note the FSR menus stop applying: HiRes forces ±16g and
+      ±2000 dps internally regardless of ACCEL_FS_SEL / GYRO_FS_SEL
+      (datasheet §6.1). Wider records also lower the FIFO watermark ceiling.
 
 endmenu
 
@@ -2538,12 +2539,10 @@ endmenu
 
 menu "ESC Telemetry"
 
-config STM32_ESC_TELEMETRY_BAUD_RATE
-    int "Telemetry UART baud rate"
-    range 9600 2000000
-    default 115200
-    help
-      Baud rate for the ESC KISS telemetry UART link.
+# No baud knob: KISS telemetry is 115200 8N1 and the ESC cannot negotiate, so
+# it is spelled out in the generated header like the bootloader's 19200. The
+# timeout stays configurable -- it trades how long a missing reply is waited
+# for, and the build rejects one shorter than a frame takes.
 
 config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
     int "Response timeout (us)"
@@ -2575,89 +2574,18 @@ config STM32_FCLINK_TELEMETRY_RATE_HZ
 
 menu "UART"
 
-comment "Baud rate lives under Common -> FcLink"
+comment "Baud rate and parity live under Common -> FcLink"
 
-choice
-    prompt "Word length"
-    default STM32_FCLINK_UART_WORD_LENGTH_9BITS
-    help
-      USART1 word length for the STM32 side of FcLink.
+# No word length or stop bits: the ESP32 driver opens this port at 8N1 and
+# takes no configuration for either, so a knob could only be turned to a
+# framing the other end cannot match -- surfacing as a handshake that never
+# completes. Word length is derived from the shared parity symbol.
 
-config STM32_FCLINK_UART_WORD_LENGTH_8BITS
-    bool "8 bits"
-
-config STM32_FCLINK_UART_WORD_LENGTH_9BITS
-    bool "9 bits"
-
-endchoice
-
-choice
-    prompt "Stop bits"
-    default STM32_FCLINK_UART_STOP_BITS_1
-    help
-      USART1 stop-bit configuration for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_STOP_BITS_1
-    bool "1"
-
-config STM32_FCLINK_UART_STOP_BITS_2
-    bool "2"
-
-endchoice
-
-choice
-    prompt "Parity"
-    default STM32_FCLINK_UART_PARITY_EVEN
-    help
-      USART1 parity mode for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_PARITY_NONE
-    bool "None"
-
-config STM32_FCLINK_UART_PARITY_EVEN
-    bool "Even"
-
-config STM32_FCLINK_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
-
-choice
-    prompt "Mode"
-    default STM32_FCLINK_UART_MODE_TX_RX
-    help
-      USART1 direction mode for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_MODE_RX
-    bool "RX"
-
-config STM32_FCLINK_UART_MODE_TX
-    bool "TX"
-
-config STM32_FCLINK_UART_MODE_TX_RX
-    bool "TX/RX"
-
-endchoice
-
-choice
-    prompt "Hardware flow control"
-    default STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
-    help
-      USART1 hardware flow control for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_NONE
-    bool "None"
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS
-    bool "RTS"
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_CTS
-    bool "CTS"
-
-config STM32_FCLINK_UART_HW_FLOW_CONTROL_RTS_CTS
-    bool "RTS/CTS"
-
-endchoice
+# No direction mode: FcLink is bidirectional by definition, so half-duplex is
+# not a setting of it. No hardware flow control either -- backpressure here is
+# StatPublisher deciding what to publish, and RTS/CTS would put a stall of
+# unbounded length inside a main-loop pass that is budgeted. Both are spelled
+# out in the generated header.
 
 choice
     prompt "Oversampling"
@@ -3391,38 +3319,38 @@ config STM32_RATE_CTRL_ITERM_FREEZE_BELOW_THROTTLE_MILLI
     range 0 1000
     default 50
     help
-      When the pilot's commanded throttle is below this value (scaled by
-      1000; 50 = 0.05), the per-axis rate integrators are frozen for that
-      tick. Filter state still advances so D-term and last_error stay
-      consistent, but the I-term does not accumulate. Prevents wind-up
-      during descent throttle when the mixer's airmode floor denies the
-      controller authority anyway — without this, accumulated I-term
-      dumps as a spike when the pilot raises throttle for flare. Set to
-      0 to disable (always commit integrator).
+      Below this commanded throttle (scaled by 1000; 50 = 0.05) the per-axis
+      rate integrators stop accumulating, though filter state still advances
+      so D-term and last_error stay consistent. Prevents wind-up on descent
+      throttle, where the mixer's airmode floor denies the controller
+      authority anyway and the stored I-term would dump as a spike when the
+      pilot raises throttle to flare. 0 disables.
 
 config STM32_RATE_CTRL_I_FACTOR_ERROR_THRESH_MILLI
     int "I-factor error threshold (rad/s, x1000)"
     range 0 100000
     default 7000
     help
-      Soft I-gain attenuation. When per-axis rate error magnitude reaches
-      this threshold (in rad/s, scaled by 1000; 7000 = 7.0 rad/s ≈ PX4's
-      hard-coded 400 deg/s), the I-term branch effectively scales to 0;
-      below it, ramps as 1 - (error/threshold)^2 back up to full Ki.
-      Prevents the post-flip / stick-whip "bounce-back" where a large
-      transient error accumulates a huge I-term. Applied uniformly to
-      all three axes. Set to 0 to disable.
+      Soft I-gain attenuation, all three axes. Ki scales as
+      1 - (error/threshold)^2, reaching 0 at this rate error (rad/s x1000;
+      7000 = 7.0 rad/s ≈ PX4's hard-coded 400 deg/s). Prevents the
+      post-flip / stick-whip bounce-back, where a large transient error
+      accumulates a huge I-term. 0 disables.
 
 config STM32_RATE_CTRL_YAW_OUTPUT_LPF_CUTOFF_HZ
     int "Yaw torque output LPF cutoff (Hz)"
     range 0 4000
-    default 650
+    default 150
     help
       Corner frequency of the first-order IIR on the yaw torque output
       (post-PID, pre-mixer). 0 disables filtering. Lower is more
       aggressive smoothing; suppresses high-frequency torque transients
       from rotor acceleration on the weak yaw axis. PX4 equivalent:
       `_output_lpf_yaw`. Roll/pitch outputs are unfiltered.
+
+      A one-pole corner only means anything below Nyquist -- 512 Hz at a
+      1024 Hz loop. Higher and the coefficient saturates toward 1.0, which
+      is no filter while the menu still names a frequency.
 
 endmenu
 
@@ -3505,14 +3433,12 @@ config STM32_PILOT_THROTTLE_MIN_MILLI
     range 0 1000
     default 80
     help
-      Thrust commanded at pilot stick=0, scaled by 1000 (80 = 0.08).
-      The pilot's stick range [0, 1] is linearly remapped to
-      [pilot_throttle_min, 1] before reaching the mixer. At stick=0
-      the drone descends if pilot_throttle_min is below the airframe's
-      hover thrust (e.g., 0.08 for most hobby quads where hover ≈
-      0.3-0.5). PX4 equivalent: MPC_MANTHR_MIN (default 0.08). Tune
-      via pilot_input::SetThrottleMin — too low gives a free-fall
-      feel; too high makes the drone climb at min stick.
+      Thrust commanded at pilot stick=0, scaled by 1000 (80 = 0.08). Stick
+      range [0, 1] is remapped to [this, 1] before the mixer, so the drone
+      descends at stick=0 while this sits below hover thrust (0.3-0.5 on most
+      hobby quads). Too low feels like free-fall; too high climbs at min
+      stick. Runtime setter is RcReceiver::SetThrottleMin. PX4 equivalent:
+      MPC_MANTHR_MIN (default 0.08).
 
 endmenu
 

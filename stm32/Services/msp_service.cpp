@@ -489,7 +489,7 @@ bool MspService::BuildReply(uint16_t command) {
       }
       Push8(kMcuTypeF40x);
       Push8(0);      // configuration state
-      Push16(1000);  // gyro sample rate, Hz
+      Push16(cfg_.loop_rate_hz);
       Push32(0);     // configuration problems
       return true;
     }
@@ -519,7 +519,7 @@ bool MspService::BuildReply(uint16_t command) {
       if (vehicle_state_->GetGps().fix_type >= 2u) {
         sensors |= kSensorGps;
       }
-      Push16(1000);  // cycle time, us
+      Push16(cfg_.loop_period_us);
       Push16(0);     // i2c errors
       Push16(sensors);
       Push32(0);  // flight mode flags

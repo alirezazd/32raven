@@ -27,6 +27,9 @@ class MspService {
     const char *board_name;
     const char *manufacturer_id;
     const char *craft_name;
+    // Two views of one tick, so both are folded from kFastLoopHz.
+    uint16_t loop_rate_hz;
+    uint16_t loop_period_us;
   };
 
   void Init(const Config &cfg, UsbCdc &usb, VehicleState &vehicle_state,
