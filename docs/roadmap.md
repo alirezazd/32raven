@@ -265,3 +265,35 @@ Until then the mode is refused rather than flown. `EscService::CheckEscFirmware`
 throttle as reverse — so the forward-only values `ThrustToDshot` produces would drive that
 motor backwards across the bottom half of its range, on an aircraft whose mixer believes it is
 commanding lift.
+
+### #14 — The gyro decimation aliases into the loop band — 🟢 SUPPORTING
+
+`Ahrs::Update` reduces each FIFO batch to one sample by averaging it:
+`state_.gyro_body_rad_s = gyro_accum / batch.count` in `ahrs.cpp`. That is a boxcar of eight
+records at 8192 Hz decimated to the 1024 Hz loop, and a boxcar is a weak anti-alias filter —
+its first null lands at 1024 Hz, while the rate that matters is Nyquist at **512 Hz**.
+
+The gyro's own anti-alias filter is configured at **585 Hz**
+(`CONFIG_STM32_IMU_GYRO_AAF_585HZ`), which is above that. Everything between 512 and 585 Hz
+therefore folds down into the loop band, where it arrives indistinguishable from real airframe
+motion and the rate controller acts on it. Prop wash and frame resonance both live up there.
+
+Raising the loop to 2048 Hz is the fix: Nyquist moves to 1024 Hz, clear of the AAF corner.
+Lowering the AAF instead does not work — the next step below 585 Hz is 536 Hz, still above a
+512 Hz Nyquist, and the one after that is 258 Hz, which costs more loop bandwidth than the
+aliasing does.
+
+Two constraints to carry into that change:
+
+- **The 8192 Hz record rate exists because CLKIN is enabled.** The datasheet quotes the 8 kHz
+  ODR against a 32 kHz reference, and the 32768 Hz external clock scales it. 2048 divides 8192
+  exactly; it does not divide the 8000 Hz the part produces on its internal oscillator. So
+  raising the loop rate and disabling `STM32_IMU_EXTERNAL_CLOCK_ENABLED` are mutually
+  exclusive, and the generator already rejects the combination.
+- **`STM32_FAST_LOOP_HZ` stays a knob.** It sets the FIFO watermark rather than the other way
+  round, and the build already fails when the division is not whole. Deriving it from the ODR
+  would remove the one place this trade-off is visible.
+
+Not urgent on its own: it is a fidelity limit rather than a fault, and it has been flying this
+way. Worth doing at the same time as any other change to the fast loop, since the watermark,
+the loop rate and the filter corner all have to move together.
