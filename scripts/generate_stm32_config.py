@@ -69,9 +69,6 @@ UBX_NAV_PAYLOAD_BYTES = {
     "STM32_GPS_M10_MSG_NAV_COV": 64,
     "STM32_GPS_M10_MSG_NAV_EOE": 4,
 }
-# Headroom for what this cannot size: CFG acknowledgements, NMEA when enabled,
-# and the M10's own jitter in emitting an epoch.
-UBX_MAX_LINK_UTILISATION = 0.8
 
 # SPI_CR1.BR selects these dividers of the peripheral's own APB clock. A knob
 # naming the divider rather than the rate means the same setting is a different
@@ -1184,8 +1181,9 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
 def _validate_gps_link_budget(kconf: kconfiglib.Kconfig) -> None:
     """The enabled UBX set at the configured rate against UART2's baud.
 
-    An M10 given more per epoch than the link carries falls behind rather than
-    dropping the surplus, so position ages with the fix type still healthy.
+    An epoch that takes longer to send than the interval before the next one
+    starts leaves the link permanently behind, so the fix that arrives is
+    older than the one being measured.
     """
     enabled_bytes = sum(
         payload + UBX_FRAMING_BYTES
@@ -1197,18 +1195,16 @@ def _validate_gps_link_budget(kconf: kconfiglib.Kconfig) -> None:
 
     rate_meas_ms = sym_int(kconf, "STM32_GPS_M10_RATE_MEAS_MS")
     baud = int(choice_value(kconf, M10_UART_BAUD_RATE_CHOICES))
-    epochs_per_sec = MILLIS_PER_SECOND / rate_meas_ms
-    needed_bps = enabled_bytes * UART_BITS_PER_BYTE_8N1 * epochs_per_sec
-    budget_bps = baud * UBX_MAX_LINK_UTILISATION
-    if needed_bps > budget_bps:
+    epoch_ms = (
+        enabled_bytes * UART_BITS_PER_BYTE_8N1 * MILLIS_PER_SECOND
+    ) / baud
+    if epoch_ms > rate_meas_ms:
         raise ValueError(
-            f"the enabled UBX messages are {enabled_bytes} bytes per epoch, "
-            f"which at CONFIG_STM32_GPS_M10_RATE_MEAS_MS ({rate_meas_ms} ms) "
-            f"needs {needed_bps / 1000:.1f} kbit/s of a {baud} baud link "
-            f"({needed_bps / baud:.0%}, over the "
-            f"{UBX_MAX_LINK_UTILISATION:.0%} this leaves for it). Raise "
-            "CONFIG_STM32_GPS_M10_BAUD, slow the measurement rate, or turn off "
-            "a message"
+            f"the enabled UBX messages are {enabled_bytes} bytes, which take "
+            f"{epoch_ms:.1f} ms to send at {baud} baud -- longer than the "
+            f"{rate_meas_ms} ms CONFIG_STM32_GPS_M10_RATE_MEAS_MS leaves "
+            "before the next epoch starts. Raise CONFIG_STM32_GPS_M10_BAUD, "
+            "slow the measurement rate, or turn off a message"
         )
 
 
