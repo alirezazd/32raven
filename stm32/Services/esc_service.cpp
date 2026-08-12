@@ -147,6 +147,14 @@ void EscService::CheckEscFirmware() {
     if (info.reversed) {
       Panic(ErrorCode::Stm32::kEscDirectionReversed);
     }
+
+    // 3D reads the lower half of the throttle range as reverse, and
+    // ThrustToDshot spans the whole range forward-only -- everything below
+    // half thrust would drive that motor backwards. Roadmap #13 is the signed
+    // thrust chain that would make the mode meaningful.
+    if (info.bidirectional) {
+      Panic(ErrorCode::Stm32::kEsc3dModeEnabled);
+    }
   }
 }
 

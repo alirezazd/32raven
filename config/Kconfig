@@ -3071,8 +3071,9 @@ config STM32_ESC_SERVICE_FIRMWARE_CHECKS
     default y
     help
       Panic when an ESC reports settings this airframe cannot fly with: an
-      input mode that is not DShot, or a direction reversed in ESC firmware
-      when the flight controller owns direction. Checked per motor as each
+      input mode that is not DShot, a direction reversed in ESC firmware when
+      the flight controller owns direction, or 3D mode, which would read
+      everything below half thrust as reverse. Checked per motor as each
       ESC first reports; an ESC that never reports is not a failure, so a
       bench session with no battery still runs. Turn this off only to bring
       up an ESC whose settings are known wrong.

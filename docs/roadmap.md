@@ -238,3 +238,30 @@ worse than doing nothing.
 Settle the policy against the ESC's configured behaviour first, then decide whether the
 firmware check should constrain those two settings the way it now constrains input type and
 direction.
+
+### #13 — Signed thrust, so 3D mode means something — 🧊 DEFERRED
+
+The thrust chain is unsigned end to end. `MultirotorMixer::Mix` clamps every motor to
+`[idle, 1]`, and `EscService::ThrustToDshot` maps that onto `kMotorStop` plus
+`[kThrottleMin, kThrottleMax]` — stop or forward, with no third case. Nothing in the cascade
+can ask a motor to push the other way.
+
+Two halves of the feature are already in the tree, which is why this is worth recording rather
+than leaving implicit. `EscService::DshotCommand` declares `k3dModeOff` and `k3dModeOn` and
+neither is ever sent, and `EscTelemetry::Info::bidirectional` is parsed from settings byte 18.
+
+What it needs: signed thrust `[-1, 1]` through the mixer and both controllers, a three-way
+`ThrustToDshot` over the 3D split (`48–1047` reverse, `1048–2047` forward), `k3dModeOn` actually
+issued, a configurator path to enable it, and a settings re-read to confirm the ESC took it.
+`kEscDirectionReversed` has to be revisited in the same pass — with 3D on, which way a motor
+turns stops being the fixed property that check assumes.
+
+Deferred because no planned flight mode wants it. Autolevel and autonomous flight only ever ask
+a motor for *less* lift, never for lift in the other direction; reverse thrust is an acro
+capability, and this airframe is not being built for acro.
+
+Until then the mode is refused rather than flown. `EscService::CheckEscFirmware` panics with
+`kEsc3dModeEnabled` when a motor reports it, because an ESC in 3D reads everything below half
+throttle as reverse — so the forward-only values `ThrustToDshot` produces would drive that
+motor backwards across the bottom half of its range, on an aircraft whose mixer believes it is
+commanding lift.
