@@ -61,7 +61,7 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   recovery_cfg_ = cfg.recovery;
   accel_calibration_ = ConfigStorage::LoadOrInitImuAccelCalibration(ee);
 
-  System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(10));
+  System::GetInstance().Time().DelayMicros(MillisToMicros(10));
   spi.SetPrescaler(cfg.spi_prescaler);
 
   CheckWhoAmI();
@@ -93,7 +93,7 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   // Datasheet: no register writes for 200us after OFF->ON transition.
   System::GetInstance().Time().DelayMicros(200);
   // Allow gyro to settle / become valid.
-  System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(50));
+  System::GetInstance().Time().DelayMicros(MillisToMicros(50));
 
   spi.EnableIrqs(irq_priority::kImuSpiDma);
   NVIC_SetPriority(board::kImuInt.exti_irqn, irq_priority::kImuInt);
@@ -393,8 +393,7 @@ void Icm42688p::HandleOverrunFault() {
   overrun_.fetch_add(1, std::memory_order_relaxed);
 
   const uint64_t now_us = System::GetInstance().Time().Micros();
-  const uint64_t window_us =
-      static_cast<uint64_t>(SECONDS_TO_MICROS(recovery_cfg_.overrun_window_s));
+  const uint64_t window_us = SecondsToMicros(recovery_cfg_.overrun_window_s);
 
   if (last_overrun_fault_us_ == 0 ||
       (now_us - last_overrun_fault_us_) > window_us) {
@@ -500,6 +499,9 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   }
 
   // Packet3 temperature byte is at 0x0D and timestamp stays at 0x0E..0x0F.
+  // The byte is two's complement and temp_raw is int16_t to also hold Packet4's
+  // 16-bit form, so widening it must sign-extend.
+  // NOLINTNEXTLINE(bugprone-signed-char-misuse)
   out.temp_raw = static_cast<int8_t>(rec[0x0D]);
   const uint16_t ts16 = LoadBe16(&rec[0x0E]);
 
@@ -608,7 +610,10 @@ bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
 void Icm42688p::PublishLatestBatch(const SampleBatch &batch) {
   published_batch_ = batch;
 
-  // Publish payload then publish sequence (release).
+  // Publish payload then publish sequence (release). ValidateConfig rejects a
+  // zero watermark, so the batch always holds at least one sample; the
+  // analyzer cannot carry that across the call.
+  // NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
   tick_seq_.store(batch.samples[batch.count - 1u].seq,
                   std::memory_order_release);
   publish_cnt_.fetch_add(1, std::memory_order_relaxed);
@@ -671,15 +676,15 @@ Icm42688p::SampleBatch Icm42688p::GetLatestBatch() const {
 
 void Icm42688p::CalibrateGyro() {
   const uint32_t duration_us =
-      SECONDS_TO_MICROS(calibration_cfg_.gyro_duration_s);
+      SecondsToMicros(calibration_cfg_.gyro_duration_s);
   const uint32_t timeout_us =
-      SECONDS_TO_MICROS(calibration_cfg_.gyro_timeout_s);
+      SecondsToMicros(calibration_cfg_.gyro_timeout_s);
   const uint32_t still_threshold_raw =
       calibration_cfg_.gyro_still_threshold_raw;
   const uint32_t odr_hz = gyro_odr_hz_;
   const uint64_t sample_count_u64 =
-      ((uint64_t)duration_us * odr_hz + SECONDS_TO_MICROS(1) - 1ULL) /
-      SECONDS_TO_MICROS(1);
+      ((uint64_t)duration_us * odr_hz + SecondsToMicros(1) - 1ULL) /
+      SecondsToMicros(1);
 
   const uint32_t sample_count =
       sample_count_u64 == 0 ? 1u : static_cast<uint32_t>(sample_count_u64);
@@ -770,7 +775,7 @@ void Icm42688p::CalibrateGyro() {
   (void)ReadReg(Reg::kIntStatus);
   WriteReg(Reg::kPwrMgmt0, prev_pwr);
   time.DelayMicros(200);
-  time.DelayMicros(MILLIS_TO_MICROS(50));
+  time.DelayMicros(MillisToMicros(50));
   WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadReg(Reg::kIntStatus);
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
@@ -803,13 +808,13 @@ void Icm42688p::CheckWhoAmI() {
   const uint32_t start = time.Micros();
 
   SetBank(0);
-  while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
+  while ((uint32_t)(time.Micros() - start) < MillisToMicros(1000)) {
     const uint8_t id = ReadReg(Reg::kWhoAmI);
     if (id == WHO_AM_I_ICM42688P || id == WHO_AM_I_ICM42686P) {
       who_am_i_ = id;
       return;
     }
-    time.DelayMicros(MILLIS_TO_MICROS(10));
+    time.DelayMicros(MillisToMicros(10));
   }
 
   Panic(ErrorCode::Stm32::kImuWhoAmIFail);
@@ -822,7 +827,7 @@ void Icm42688p::SoftReset() {
   v |= 0x01u;  // SOFT_RESET_CONFIG = 1, preserve SPI_MODE + reserved
   WriteReg(Reg::kDeviceConfig, v);
 
-  System::GetInstance().Time().DelayMicros(MILLIS_TO_MICROS(1));
+  System::GetInstance().Time().DelayMicros(MillisToMicros(1));
   SetBank(0);
 }
 
@@ -996,7 +1001,7 @@ void Icm42688p::ConfigureFifo() {
 
 void Icm42688p::SetupDmaBuffer() {
   // Fixed-burst FIFO reads: read exactly watermark_records packets per IRQ.
-  for (uint16_t i = 0; i < sizeof(fifo_tx_); i++) {
+  for (size_t i = 0; i < sizeof(fifo_tx_); i++) {
     fifo_tx_[i] = 0xFFu;
   }
   fifo_tx_[0] =

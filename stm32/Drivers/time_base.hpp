@@ -8,8 +8,12 @@
 
 #include "stm32f4xx.h"  // for TIM2 (used inline by Micros())
 
-#define SECONDS_TO_MICROS(s) ((s) * 1000000u)
-#define MILLIS_TO_MICROS(ms) ((ms) * 1000u)
+// Wide on purpose: a microsecond count overflows 32 bits at 4295 seconds, so
+// multiplying in the argument's own width truncates a long interval and then
+// widens the wrong answer. Callers that hold the result in a uint32_t are
+// saying the interval is short.
+constexpr uint64_t SecondsToMicros(uint64_t s) { return s * 1000000ull; }
+constexpr uint64_t MillisToMicros(uint64_t ms) { return ms * 1000ull; }
 
 struct TimeBaseConfig {
   struct Tim2 {

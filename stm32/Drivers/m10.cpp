@@ -29,7 +29,7 @@ void M10::WaitForReady() {
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
 
-  while ((uint32_t)(time.Micros() - start) < MILLIS_TO_MICROS(1000)) {
+  while ((uint32_t)(time.Micros() - start) < MillisToMicros(1000)) {
     uart.FlushRx();
 
     SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, ValsetLayer::kRam);
@@ -37,7 +37,7 @@ void M10::WaitForReady() {
       return;
     }
 
-    time.DelayMicros(MILLIS_TO_MICROS(50));
+    time.DelayMicros(MillisToMicros(50));
   }
 
   Panic(ErrorCode::Stm32::kGpsNotResponding);

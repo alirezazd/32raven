@@ -287,7 +287,7 @@ static void StepSlow(AppContext &ctx, SmTick now) {
   if (imu.ImuPathOverrun() > 0) {
     const uint32_t current_us = micros();
     const uint32_t fault_led_period_us =
-        MILLIS_TO_MICROS(kIcm42688pConfig.recovery.fault_led_period_ms);
+        MillisToMicros(kIcm42688pConfig.recovery.fault_led_period_ms);
 
     if ((current_us - g_fault_led_last_toggle_us) >= fault_led_period_us) {
       ctx.sys->Led().Toggle();
@@ -295,7 +295,7 @@ static void StepSlow(AppContext &ctx, SmTick now) {
     }
 
     if (kEnableEspLogs &&
-        (current_us - g_fault_log_last_us) >= SECONDS_TO_MICROS(1)) {
+        (current_us - g_fault_log_last_us) >= SecondsToMicros(1)) {
       ctx.sys->FcLinkSvc().SendLog(
           "IMU_FAULT ovr=%lu dma=%lu prs=%lu hdr=%lu", imu.ImuPathOverrun(),
           imu.DmaStartFailCount(), imu.ParseFailCount(), imu.LastBadHeader());
@@ -324,7 +324,7 @@ static void StepSlow(AppContext &ctx, SmTick now) {
       static uint32_t last_batt_log_us = 0;
       const uint32_t batt_now_us = micros();
       if (last_batt_log_us == 0u ||
-          (batt_now_us - last_batt_log_us) >= SECONDS_TO_MICROS(1)) {
+          (batt_now_us - last_batt_log_us) >= SecondsToMicros(1)) {
         last_batt_log_us = batt_now_us;
 
         auto &batt = ctx.sys->Batt();
@@ -575,7 +575,7 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->FcLinkSvc().Poll();
 
   if (last_status_send_us_ == 0u ||
-      (current_time - last_status_send_us_) >= SECONDS_TO_MICROS(1)) {
+      (current_time - last_status_send_us_) >= SecondsToMicros(1)) {
     last_status_send_us_ = current_time;
     ctx.sys->StatPubSvc().PublishTelemetry(ctx, current_time, 0u);
 
