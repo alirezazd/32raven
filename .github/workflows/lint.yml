@@ -17,6 +17,12 @@ jobs:
           # The message check walks every commit, not the worktree.
           fetch-depth: 0
 
+      # The config checks run the generators, and STM32 pin validation reads
+      # the vendored ST pin database. Only that one: the rest of third_party is
+      # C++ this job never compiles.
+      - name: Submodules
+        run: git submodule update --init --depth 1 third_party/stm32_open_pin_data
+
       - uses: astral-sh/setup-uv@v9.0.0
 
       # Every checker discovers its own files through git, so the checkout must
