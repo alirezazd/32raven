@@ -4,6 +4,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "error_code.hpp"
@@ -340,14 +341,22 @@ const char *Mavlink::ParamSetResultName(ParamSetResult result) {
 
 std::optional<Mavlink::ParamRef> Mavlink::TryResolveRcCalibrationParam(
     const char *param_id) {
-  unsigned channel = 0;
-  char suffix[6] = {};
-  if (std::sscanf(param_id, "RC%u_%5s", &channel, suffix) != 2) {
+  // param_id arrives from the network. sscanf("%u") is undefined on a value
+  // too large for the type, where strtoul is defined to saturate at ULONG_MAX,
+  // which the range check below then rejects.
+  if (param_id[0] != 'R' || param_id[1] != 'C') {
+    return std::nullopt;
+  }
+  const char *digits = param_id + 2;
+  char *end = nullptr;
+  const unsigned long channel = std::strtoul(digits, &end, 10);
+  if (end == digits || *end != '_') {
     return std::nullopt;
   }
   if (channel < 1u || channel > message::kRcCalibrationChannelCount) {
     return std::nullopt;
   }
+  const char *const suffix = end + 1;
 
   const uint8_t channel_index = static_cast<uint8_t>(channel - 1u);
   const uint16_t channel_offset =
@@ -714,6 +723,10 @@ Mavlink::ParamSetResult Mavlink::TrySetRcCalibrationParam(
     ESP_LOGW(kTag, "RC_CAL write rejected: current calibration unavailable");
     return ParamSetResult::kMissingBaseConfig;
   }
+  // Overwritten by every arm below, but a scoped enum can still hold a value
+  // outside its enumerators, and the log call further down would then read an
+  // uninitialised pointer.
+  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
   const char *field_name = "MIN";
 
   switch (param.field) {
@@ -799,6 +812,9 @@ bool Mavlink::EnsureParamDependencyRequested(ParamDependency dependency) {
   }
 
   message::MsgId request_id = message::MsgId::kPing;
+  // Same reasoning as field_name above: the switch covers every enumerator,
+  // but not every value the type can hold.
+  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
   const char *description = "";
   ParamRequestState *request = nullptr;
   switch (dependency) {

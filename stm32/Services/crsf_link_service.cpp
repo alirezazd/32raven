@@ -3,6 +3,7 @@
 
 #include "crsf_link_service.hpp"
 
+#include <cmath>
 #include <cstring>
 #include <iterator>
 #include <span>
@@ -103,21 +104,21 @@ uint32_t EncodeBatteryVoltageTenths(float voltage_v) {
   if (voltage_v <= 0.0f) {
     return 0;
   }
-  return (uint32_t)(voltage_v * 10.0f + 0.5f);
+  return static_cast<uint32_t>(std::lround(voltage_v * 10.0f));
 }
 
 uint32_t EncodeBatteryCurrentTenths(float current_a) {
   if (current_a <= 0.0f) {
     return 0;
   }
-  return (uint32_t)(current_a * 10.0f + 0.5f);
+  return static_cast<uint32_t>(std::lround(current_a * 10.0f));
 }
 
 uint32_t EncodeMah(float mah_drawn) {
   if (mah_drawn <= 0.0f) {
     return 0;
   }
-  return (uint32_t)(mah_drawn + 0.5f);
+  return static_cast<uint32_t>(std::lround(mah_drawn));
 }
 
 void StoreBe16(uint8_t *dst, uint16_t value) {

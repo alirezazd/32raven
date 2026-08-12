@@ -3,6 +3,7 @@
 
 #include "stat_publisher.hpp"
 
+#include <cmath>
 #include <cstdint>
 
 #include "common_config.hpp"
@@ -24,7 +25,7 @@ uint16_t StatPublisher::BatteryVoltageMv(const BatteryData &battery) {
   }
 
   const uint32_t voltage_mv =
-      static_cast<uint32_t>(battery.voltage * 1000.0f + 0.5f);
+      static_cast<uint32_t>(std::lround(battery.voltage * 1000.0f));
   return voltage_mv > UINT16_MAX ? UINT16_MAX
                                  : static_cast<uint16_t>(voltage_mv);
 }

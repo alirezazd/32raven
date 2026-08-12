@@ -131,11 +131,15 @@ Battery::AdcPair Battery::ReadAdcPair() {
     current_acc += ADC1->DR & ADC_DR_DATA;
   }
 
+  // Init rejects a zero oversample_count, which the analyzer cannot carry in
+  // from there.
+  // NOLINTBEGIN(clang-analyzer-core.DivideZero)
   return AdcPair{
       static_cast<uint16_t>(voltage_acc / cfg_.oversample_count),
       static_cast<uint16_t>(current_acc / cfg_.oversample_count),
       true,
   };
+  // NOLINTEND(clang-analyzer-core.DivideZero)
 }
 
 void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,

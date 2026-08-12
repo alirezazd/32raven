@@ -764,9 +764,6 @@ bool UsbCdc::HandleStandardRequest(const SetupPacket &setup) {
     }
 
     case kReqSetInterface:
-      ControlSendZlp();
-      return true;
-
     case kReqClearFeature:
     case kReqSetFeature:
       ControlSendZlp();

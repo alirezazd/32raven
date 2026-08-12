@@ -3,6 +3,7 @@
 
 #include "fc_link.hpp"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -237,9 +238,9 @@ void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
     msg.rpm[i] = src.rpm;
     msg.electrical_rpm[i] = src.electrical_rpm;
     msg.voltage_centivolts[i] =
-        static_cast<uint16_t>(src.voltage * 100.0f + 0.5f);
+        static_cast<uint16_t>(std::lround(src.voltage * 100.0f));
     msg.current_centiamps[i] =
-        static_cast<uint16_t>(src.current * 100.0f + 0.5f);
+        static_cast<uint16_t>(std::lround(src.current * 100.0f));
     msg.consumption_mah[i] = src.consumption_mah;
     msg.temperature_c[i] = src.temperature_c;
   }

@@ -326,6 +326,9 @@ void TcpServer::PumpCtrlRx() {
 
   uint8_t buf[256];
   for (int iter = 0; iter < 4; ++iter) {  // bounded work per tick
+    // Re-checked each pass: a command handled below is free to drop the
+    // connection, and the next recv would then run on a closed socket.
+    if (ctx_.ctrl_fd < 0) return;
     int r = recv(ctx_.ctrl_fd, buf, sizeof(buf), 0);
     if (r > 0) {
       // feed bytes into line parser (PART 3 implements linebuf_add_ and

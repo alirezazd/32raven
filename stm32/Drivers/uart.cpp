@@ -128,12 +128,14 @@ namespace {
 // scaling keeps the fractional part precise without floating point.
 uint32_t ComputeUartBrr(uint32_t pclk_hz, uint32_t baud_rate, bool over8) {
   const uint32_t scale = over8 ? 2u : 4u;
-  const uint64_t div_x100 =
-      (static_cast<uint64_t>(pclk_hz) * 25u) / (scale * baud_rate);
+  const uint64_t div_x100 = (static_cast<uint64_t>(pclk_hz) * 25u) /
+                            (static_cast<uint64_t>(scale) * baud_rate);
   const uint32_t mantissa = static_cast<uint32_t>(div_x100 / 100u);
   const uint32_t frac_units = over8 ? 8u : 16u;
   const uint32_t frac_x100 =
-      static_cast<uint32_t>(div_x100 - mantissa * 100u) * frac_units + 50u;
+      static_cast<uint32_t>(div_x100 - static_cast<uint64_t>(mantissa) * 100u) *
+          frac_units +
+      50u;
   const uint32_t fraction = frac_x100 / 100u;
   if (over8) {
     return (mantissa << 4u) | ((fraction & 0xF8u) << 1u) | (fraction & 0x07u);
@@ -351,9 +353,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
   }
 
   // Low/high flag register selected by stream index (Stream5 lives in high).
-  if constexpr (Inst == UartInstance::kUart1) {
-    dma->LIFCR = clear_flags;
-  } else if constexpr (Inst == UartInstance::kUart2) {
+  if constexpr (Inst == UartInstance::kUart2) {
     dma->HIFCR = clear_flags;
   } else {
     dma->LIFCR = clear_flags;
@@ -442,9 +442,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::StartRxDma() {
   while (s->CR & DMA_SxCR_EN) {
   }
 
-  if constexpr (Inst == UartInstance::kUart1) {
-    dma->LIFCR = clear_flags;
-  } else if constexpr (Inst == UartInstance::kUart2) {
+  if constexpr (Inst == UartInstance::kUart2) {
     dma->HIFCR = clear_flags;
   } else {
     dma->LIFCR = clear_flags;

@@ -15,6 +15,9 @@ void Mavlink::HandleMissionMessage(const mavlink_message_t &msg) {
       }
       break;
     }
+    // Listed rather than folded into the default: an ACK is a message we know
+    // about and deliberately ignore, which is not the same as an unknown one.
+    // NOLINTNEXTLINE(bugprone-branch-clone)
     case MAVLINK_MSG_ID_MISSION_ACK:
       break;
     default:

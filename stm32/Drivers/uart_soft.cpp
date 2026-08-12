@@ -41,6 +41,9 @@ void UartSoft::Init(const UartSoftConfig &config) {
   // realise 125000 -- off by 8.5%, which desynchronises inside one byte and
   // looks like a dead ESC rather than a misconfigured one. Rejected here
   // rather than debugged on a bench.
+  // The guard above bounds baud_rate to 1..1000000, so the inner division is
+  // at least 1. The analyzer does not carry that constraint this far.
+  // NOLINTNEXTLINE(clang-analyzer-core.DivideZero)
   const uint32_t realised = 1000000u / (1000000u / config.baud_rate);
   const uint32_t deviation = (realised > config.baud_rate)
                                  ? realised - config.baud_rate
