@@ -57,8 +57,8 @@ std::array<float, 3> RateController::ComputeTorque(
   // pending_u_unsat_ stays unfiltered, so back-calc reads the LPF transient as
   // mild saturation — fine near alpha 1, I just drains slightly faster.
   const float yaw_torque =
-      yaw_output_lpf_alpha_ * yaw_raw +
-      (1.0f - yaw_output_lpf_alpha_) * yaw_output_lpf_prev_;
+      (yaw_output_lpf_alpha_ * yaw_raw) +
+      ((1.0f - yaw_output_lpf_alpha_) * yaw_output_lpf_prev_);
   yaw_output_lpf_prev_ = yaw_torque;
   return {roll_torque, pitch_torque, yaw_torque};
 }

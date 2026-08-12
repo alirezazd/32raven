@@ -133,8 +133,9 @@ uint32_t ComputeUartBrr(uint32_t pclk_hz, uint32_t baud_rate, bool over8) {
   const uint32_t mantissa = static_cast<uint32_t>(div_x100 / 100u);
   const uint32_t frac_units = over8 ? 8u : 16u;
   const uint32_t frac_x100 =
-      static_cast<uint32_t>(div_x100 - static_cast<uint64_t>(mantissa) * 100u) *
-          frac_units +
+      (static_cast<uint32_t>(div_x100 -
+                             (static_cast<uint64_t>(mantissa) * 100u)) *
+       frac_units) +
       50u;
   const uint32_t fraction = frac_x100 / 100u;
   if (over8) {

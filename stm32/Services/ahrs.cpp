@@ -24,7 +24,7 @@ bool IsConfigValid(const Ahrs::Config &cfg) {
 
 // Cubic-Hermite smoothstep on [0, 1]: zero derivative at both endpoints,
 // branchless, ~3 FMAs on Cortex-M4.
-inline float SmoothStep01(float t) { return t * t * (3.0f - 2.0f * t); }
+inline float SmoothStep01(float t) { return t * t * (3.0f - (2.0f * t)); }
 
 // Two-sided trust weight: 1.0 within ±full_dev of the centre, smooth
 // ramp to 0.0 by ±zero_dev, 0.0 beyond. When zero_dev <= full_dev the

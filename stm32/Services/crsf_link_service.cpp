@@ -97,7 +97,7 @@ int32_t MmToMetersRounded(int32_t millimeters) {
 }
 
 uint32_t EncodeGroundSpeedKphTenths(uint16_t speed_cm_s) {
-  return ((uint32_t)speed_cm_s * 36u + 5u) / 10u;
+  return (((uint32_t)speed_cm_s * 36u) + 5u) / 10u;
 }
 
 uint32_t EncodeBatteryVoltageTenths(float voltage_v) {

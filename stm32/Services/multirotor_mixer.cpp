@@ -139,8 +139,8 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   // Step 1: pre-yaw setpoint (mix R, P, T into per-motor command).
   float sp[4];
   for (int i = 0; i < 4; ++i) {
-    sp[i] = roll[i] * in.roll_torque + pitch[i] * in.pitch_torque +
-            thrust_z[i] * in.thrust;
+    sp[i] = (roll[i] * in.roll_torque) + (pitch[i] * in.pitch_torque) +
+            (thrust_z[i] * in.thrust);
   }
 
   const float min_lim = cfg_.idle;
@@ -157,7 +157,8 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   }
 
   // Step 6: yaw desat with relaxed upper limit (PX4 mixYaw).
-  const float max_expanded = max_lim + (max_lim - min_lim) * kMinimumYawMargin;
+  const float max_expanded =
+      max_lim + ((max_lim - min_lim) * kMinimumYawMargin);
   DesaturateActuators(sp, yaw, min_lim, max_expanded);
 
   // Step 7: thrust desat with the real upper limit, decrease-only.

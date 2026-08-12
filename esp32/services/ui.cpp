@@ -53,7 +53,7 @@ float SwipeProgress(float t, float accel_ratio, float decel_ratio) {
 
   const float cruise_ratio = std::max(0.0f, 1.0f - accel_ratio - decel_ratio);
   const float velocity =
-      1.0f / (cruise_ratio + 0.5f * (accel_ratio + decel_ratio));
+      1.0f / (cruise_ratio + (0.5f * (accel_ratio + decel_ratio)));
 
   if (accel_ratio > 0.0f && t < accel_ratio) {
     return 0.5f * velocity * t * t / accel_ratio;
@@ -61,7 +61,7 @@ float SwipeProgress(float t, float accel_ratio, float decel_ratio) {
 
   const float accel_distance = 0.5f * velocity * accel_ratio;
   if (t < accel_ratio + cruise_ratio) {
-    return accel_distance + velocity * (t - accel_ratio);
+    return accel_distance + (velocity * (t - accel_ratio));
   }
 
   if (decel_ratio <= 0.0f) {
@@ -71,7 +71,7 @@ float SwipeProgress(float t, float accel_ratio, float decel_ratio) {
   const float u = t - accel_ratio - cruise_ratio;
   const float cruise_distance = velocity * cruise_ratio;
   const float decel_distance =
-      velocity * u - 0.5f * velocity * u * u / decel_ratio;
+      (velocity * u) - (0.5f * velocity * u * u / decel_ratio);
   return Clamp01(accel_distance + cruise_distance + decel_distance);
 }
 
@@ -366,9 +366,9 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
     case AppState::kMavlinkUsb:
-      // TODO(ui): Placeholder: re-uses the WiFi MAVLink screen until a USB-specific
-      // widget lands. The text path is the same; only the underlying
-      // transport differs.
+      // TODO(ui): Placeholder: re-uses the WiFi MAVLink screen until a
+      // USB-specific widget lands. The text path is the same; only the
+      // underlying transport differs.
       return MainScreen::kMavlinkWifiDisconnected;
     case AppState::kProgram:
       if (Sys().Programmer().IsVerifying()) {

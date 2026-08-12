@@ -517,7 +517,7 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
         if (d >= (unsigned)base) break;
 
         any = true;
-        v = v * (uint64_t)base + (uint64_t)d;
+        v = (v * (uint64_t)base) + (uint64_t)d;
         if (v > 0xFFFFFFFFull) return false;
         ++p;
       }

@@ -88,11 +88,23 @@ EXCLUDED = {
     ),
 }
 
+# Checks named one at a time because the module they live in is mostly style.
+# Each of these finds a defect: a cycle the stack bound cannot measure through,
+# a header definition that breaks the one-definition rule, an assignment
+# operator that cannot chain, a const that binds to the wrong side of a
+# pointer, a call that is not safe to make from more than one task, and an
+# arithmetic precedence a reader has to hold in their head.
+NAMED = (
+    "misc-no-recursion",
+    "misc-definitions-in-headers",
+    "misc-unconventional-assign-operator",
+    "misc-misplaced-const",
+    "concurrency-mt-unsafe",
+    "readability-math-missing-parentheses",
+)
+
 CHECKS = ",".join(
-    # misc-no-recursion is named rather than globbed: the rest of misc-* is
-    # style. Recursion is a defect here specifically, because both firmwares
-    # size their stacks from a static bound that a cycle makes unprovable.
-    ["-*", "bugprone-*", "clang-analyzer-*", "performance-*", "misc-no-recursion"]
+    ["-*", "bugprone-*", "clang-analyzer-*", "performance-*", *NAMED]
     + [f"-{name}" for name in sorted(EXCLUDED)]
 )
 

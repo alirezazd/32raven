@@ -61,7 +61,8 @@ extern "C" void SystemOnClockSecurityFailure(void) {
 
   // Re-fix what the panic loop depends on at the new 16 MHz clock: the TIM2 µs
   // tick, and the USART1 panic-telemetry baud against the new PCLK2.
-  TIM2->PSC = static_cast<uint16_t>(Rcc::Apb1TimerHz() / kMicrosPerSecond - 1u);
+  TIM2->PSC =
+      static_cast<uint16_t>((Rcc::Apb1TimerHz() / kMicrosPerSecond) - 1u);
   TIM2->EGR = TIM_EGR_UG;
   Uart1::GetInstance().SetBaudRate(kUart1Config.baud_rate);
 

@@ -67,7 +67,7 @@ void DShotTim1::Init(const Config &config) {
   // Round rather than truncate: at a coarse APB2 divider the quotient can land
   // just under an integer, and a tick lost here shifts every edge in the frame.
   const uint32_t period_ticks =
-      (config.timer_clock_hz + bit_rate_hz / 2u) / bit_rate_hz;
+      (config.timer_clock_hz + (bit_rate_hz / 2u)) / bit_rate_hz;
   if (period_ticks < kMinPeriodTicks || period_ticks > kMaxPeriodTicks) {
     Panic(ErrorCode::Stm32::kDshotPeriodUnrepresentable);
   }

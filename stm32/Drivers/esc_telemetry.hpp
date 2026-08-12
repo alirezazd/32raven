@@ -17,7 +17,7 @@ class EscTelemetry {
   static constexpr uint32_t kBaudRate = 115200;
   static constexpr uint8_t kKissFrameSize = 10;
   static constexpr uint32_t kMinResponseTimeoutUs =
-      (kKissFrameSize * 10u * 1000000u + kBaudRate - 1u) / kBaudRate;
+      ((kKissFrameSize * 10u * 1000000u) + kBaudRate - 1u) / kBaudRate;
 
   struct Config {
     uint32_t response_timeout_us;

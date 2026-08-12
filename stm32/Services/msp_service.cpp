@@ -530,14 +530,14 @@ bool MspService::BuildReply(uint16_t command) {
     case kMspAttitude: {
       const Eigen::Quaternionf &q =
           vehicle_state_->GetImu().attitude_world_to_body;
-      const float sinr = 2.0f * (q.w() * q.x() + q.y() * q.z());
-      const float cosr = 1.0f - 2.0f * (q.x() * q.x() + q.y() * q.y());
+      const float sinr = 2.0f * ((q.w() * q.x()) + (q.y() * q.z()));
+      const float cosr = 1.0f - (2.0f * ((q.x() * q.x()) + (q.y() * q.y())));
       const float roll = std::atan2(sinr, cosr);
-      float sinp = 2.0f * (q.w() * q.y() - q.z() * q.x());
+      float sinp = 2.0f * ((q.w() * q.y()) - (q.z() * q.x()));
       sinp = (sinp > 1.0f) ? 1.0f : ((sinp < -1.0f) ? -1.0f : sinp);
       const float pitch = std::asin(sinp);
-      const float siny = 2.0f * (q.w() * q.z() + q.x() * q.y());
-      const float cosy = 1.0f - 2.0f * (q.y() * q.y() + q.z() * q.z());
+      const float siny = 2.0f * ((q.w() * q.z()) + (q.x() * q.y()));
+      const float cosy = 1.0f - (2.0f * ((q.y() * q.y()) + (q.z() * q.z())));
       const float yaw = std::atan2(siny, cosy);
 
       constexpr float rad_to_decidegrees = 572.9578f;
@@ -641,7 +641,7 @@ bool MspService::BuildReply(uint16_t command) {
         const float thrust = EscService::DshotToThrust(outputs[i]);
         const float span = static_cast<float>(kMaxThrottle - kMinCommand);
         Push16(static_cast<uint16_t>(static_cast<float>(kMinCommand) +
-                                     thrust * span));
+                                     (thrust * span)));
       }
       return true;
     }

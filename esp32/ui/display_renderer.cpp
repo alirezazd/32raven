@@ -244,8 +244,9 @@ bool DisplayRenderer::DrawMosaicBitmap(const PackedBitmap &bitmap,
       static_cast<size_t>(std::max<uint8_t>(block_size_px, 1u));
   for (size_t src_y = 0; src_y < bitmap.height; src_y += block) {
     for (size_t src_x = 0; src_x < bitmap.width; src_x += block) {
-      const size_t sample_x = std::min(src_x + block / 2u, bitmap.width - 1u);
-      const size_t sample_y = std::min(src_y + block / 2u, bitmap.height - 1u);
+      const size_t sample_x = std::min(src_x + (block / 2u), bitmap.width - 1u);
+      const size_t sample_y =
+          std::min(src_y + (block / 2u), bitmap.height - 1u);
       if (!bitmap.Pixel(sample_x, sample_y)) {
         continue;
       }
@@ -288,7 +289,7 @@ bool DisplayRenderer::DrawMosaicTransition(const PackedBitmap &from,
     const float end = descending ? 1.0f : static_cast<float>(max_block);
     return static_cast<uint8_t>(std::clamp(
         std::lround(start +
-                    (end - start) * std::clamp(local_progress, 0.0f, 1.0f)),
+                    ((end - start) * std::clamp(local_progress, 0.0f, 1.0f))),
         1l, static_cast<long>(max_block)));
   };
 
@@ -330,8 +331,9 @@ int16_t DisplayRenderer::ScrollOffsetPx(int16_t content_width_px,
   }
 
   const TimeMs scroll_duration_ms = std::max<TimeMs>(
-      1, (static_cast<TimeMs>(overflow_px) * 1000u + (pixels_per_second - 1u)) /
-             pixels_per_second);
+      1,
+      ((static_cast<TimeMs>(overflow_px) * 1000u) + (pixels_per_second - 1u)) /
+          pixels_per_second);
   const TimeMs cycle_duration_ms = pause_ms + scroll_duration_ms + pause_ms;
   const TimeMs phase_ms = now % cycle_duration_ms;
   if (phase_ms < pause_ms) {

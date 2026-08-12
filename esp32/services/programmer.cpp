@@ -368,7 +368,8 @@ bool Programmer::EraseStm32Sectors() {
   }
 
   const uint16_t count_minus_one = static_cast<uint16_t>(sector_count - 1u);
-  std::array<uint8_t, 2 + 2 * Stm32FlashLayout::kSectors.size() + 1> payload{};
+  std::array<uint8_t, 2 + (2 * Stm32FlashLayout::kSectors.size()) + 1>
+      payload{};
   size_t payload_len = 0;
   uint8_t checksum = 0;
 

@@ -24,7 +24,7 @@ static bool WaitCondTimeout(volatile uint32_t *reg, uint32_t mask,
     }
   } else {
     // Not time-accurate; scale factor conservative under typical -O2 clocks.
-    volatile uint32_t spins = timeout_us * 16U + 1000U;
+    volatile uint32_t spins = (timeout_us * 16U) + 1000U;
     while (spins != 0U) {
       spins = spins - 1U;
       const bool is_set = ((*reg) & mask) != 0;

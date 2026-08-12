@@ -52,7 +52,7 @@ uint16_t ScaleSegment(uint16_t raw_us, uint16_t in_min_us, uint16_t in_max_us,
   const uint32_t input_span = (uint32_t)(in_max_us - in_min_us);
   const uint32_t output_span = (uint32_t)(out_max_us - out_min_us);
   const uint32_t scaled =
-      ((uint32_t)(raw_us - in_min_us) * output_span + (input_span / 2u)) /
+      (((uint32_t)(raw_us - in_min_us) * output_span) + (input_span / 2u)) /
       input_span;
   return (uint16_t)(out_min_us + scaled);
 }

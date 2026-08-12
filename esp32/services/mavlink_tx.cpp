@@ -24,11 +24,11 @@ namespace {
 int64_t DaysFromCivil(int64_t year, unsigned month, unsigned day) {
   year -= month <= 2 ? 1 : 0;
   const int64_t era = (year >= 0 ? year : year - 399) / 400;
-  const unsigned yoe = static_cast<unsigned>(year - era * 400);
+  const unsigned yoe = static_cast<unsigned>(year - (era * 400));
   const unsigned adjusted_month = month > 2 ? month - 3u : month + 9u;
-  const unsigned doy = (153u * adjusted_month + 2u) / 5u + day - 1u;
-  const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
-  return era * 146097 + static_cast<int64_t>(doe) - 719468;
+  const unsigned doy = (((153u * adjusted_month) + 2u) / 5u) + day - 1u;
+  const unsigned doe = (yoe * 365u) + (yoe / 4u) - (yoe / 100u) + doy;
+  return (era * 146097) + static_cast<int64_t>(doe) - 719468;
 }
 
 std::optional<uint64_t> TryBuildGpsUnixUsec(const message::GpsData &gps) {
@@ -42,9 +42,9 @@ std::optional<uint64_t> TryBuildGpsUnixUsec(const message::GpsData &gps) {
     return std::nullopt;
   }
 
-  const int64_t seconds = days * 86400 + static_cast<int64_t>(gps.hour) * 3600 +
-                          static_cast<int64_t>(gps.min) * 60 +
-                          static_cast<int64_t>(gps.sec);
+  const int64_t seconds =
+      (days * 86400) + (static_cast<int64_t>(gps.hour) * 3600) +
+      (static_cast<int64_t>(gps.min) * 60) + static_cast<int64_t>(gps.sec);
   if (seconds < 0) {
     return std::nullopt;
   }

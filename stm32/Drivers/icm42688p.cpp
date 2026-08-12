@@ -302,7 +302,7 @@ void Icm42688p::OnIrq() {
     return;
   }
   const uint16_t transfer_len =
-      static_cast<uint16_t>(1u + fifo_wm_records_ * packet_bytes_);
+      static_cast<uint16_t>(1u + (fifo_wm_records_ * packet_bytes_));
   last_count_ = fifo_wm_records_;
 
   auto &spi = *spi_;
@@ -348,7 +348,7 @@ void Icm42688p::OnSpiDone(bool ok) {
   batch.count = 0;
 
   for (uint16_t i = 0; i < fifo_wm_records_; ++i) {
-    const uint8_t *rec = p + static_cast<uint32_t>(i) * packet_bytes_;
+    const uint8_t *rec = p + (static_cast<uint32_t>(i) * packet_bytes_);
     Sample s{};
     bool ok_rec;
     if (hires_) {
@@ -464,7 +464,7 @@ void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
     const uint16_t dt16 = static_cast<uint16_t>(ts16 - last_tmst16_);
     last_tmst16_ = ts16;
     const uint64_t scaled_dt_q16 =
-        static_cast<uint64_t>(dt16) * timestamp_tick_scale_q16_ +
+        (static_cast<uint64_t>(dt16) * timestamp_tick_scale_q16_) +
         timestamp_tick_remainder_q16_;
     tmst64_us_ += scaled_dt_q16 >> 16;
     timestamp_tick_remainder_q16_ =
@@ -682,7 +682,7 @@ void Icm42688p::CalibrateGyro() {
       calibration_cfg_.gyro_still_threshold_raw;
   const uint32_t odr_hz = gyro_odr_hz_;
   const uint64_t sample_count_u64 =
-      ((uint64_t)duration_us * odr_hz + SecondsToMicros(1) - 1ULL) /
+      (((uint64_t)duration_us * odr_hz) + SecondsToMicros(1) - 1ULL) /
       SecondsToMicros(1);
 
   const uint32_t sample_count =
@@ -839,8 +839,8 @@ uint32_t Icm42688p::EffectiveOdrHz(
   }
 
   return static_cast<uint32_t>(
-      (static_cast<uint64_t>(odr_hz) * external_clock.frequency_hz +
-       kNominalOdrReferenceHz / 2u) /
+      ((static_cast<uint64_t>(odr_hz) * external_clock.frequency_hz) +
+       (kNominalOdrReferenceHz / 2u)) /
       kNominalOdrReferenceHz);
 }
 
@@ -852,7 +852,7 @@ uint32_t Icm42688p::TimestampTickScaleQ16(
 
   return static_cast<uint32_t>(
       ((static_cast<uint64_t>(kNominalTimestampReferenceHz) << 16u) +
-       external_clock.frequency_hz / 2u) /
+       (external_clock.frequency_hz / 2u)) /
       external_clock.frequency_hz);
 }
 

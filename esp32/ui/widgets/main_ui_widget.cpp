@@ -950,7 +950,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         (content_width > viewport_width)
             ? static_cast<int16_t>(
                   content_width +
-                  (viewport_width * kStatusScrollSlackPercent) / 100)
+                  ((viewport_width * kStatusScrollSlackPercent) / 100))
             : content_width;
     const int16_t body_cursor_x = static_cast<int16_t>(
         viewport_left - body_bounds.x -

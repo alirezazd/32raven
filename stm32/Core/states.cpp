@@ -140,7 +140,7 @@ static void FastTickFlightLoop(AppContext &ctx,
     // against pilot intent, not post-mapping thrust — see CommitTorque below.
     const float stick = RcReceiver::NormalizedThrottle(rc.throttle_us);
     const float thr_min = ctx.sys->RcRx().ThrottleMin();
-    const float pilot_thrust = thr_min + (1.0f - thr_min) * stick;
+    const float pilot_thrust = thr_min + ((1.0f - thr_min) * stick);
 
     // Throttle-authority scaling: at low thrust the mixer has little
     // torque headroom above `idle`, so scale rate_sp to what it can track
@@ -193,7 +193,7 @@ static void FastTickFlightLoop(AppContext &ctx,
       const Eigen::Quaternionf &q_meas = imu_state.attitude_world_to_body;
       const float qw = q_meas.w();
       const float qz = q_meas.z();
-      const float yaw_norm_sq = qw * qw + qz * qz;
+      const float yaw_norm_sq = (qw * qw) + (qz * qz);
       Eigen::Quaternionf q_yaw = Eigen::Quaternionf::Identity();
       if (yaw_norm_sq > 1e-12f) {
         const float inv_n = 1.0f / std::sqrt(yaw_norm_sq);

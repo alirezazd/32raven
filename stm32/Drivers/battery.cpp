@@ -95,8 +95,9 @@ void Battery::InitAdc() {
   RCC->APB2ENR |= RCC_APB2ENR_ADC1EN;
   (void)RCC->APB2ENR;
 
-  ADC->CCR = (ADC->CCR & ~ADC_CCR_ADCPRE) |
-             (static_cast<uint32_t>(cfg_.adc_prescaler_bits) << ADC_CCR_ADCPRE_Pos);
+  ADC->CCR =
+      (ADC->CCR & ~ADC_CCR_ADCPRE) |
+      (static_cast<uint32_t>(cfg_.adc_prescaler_bits) << ADC_CCR_ADCPRE_Pos);
 
   ADC1->CR1 = ADC_CR1_SCAN;
   ADC1->CR2 = ADC_CR2_EOCS;
@@ -155,7 +156,7 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
       Battery::kAdcMaxRaw;
 
   float measured_voltage_v =
-      ((voltage_adc_mv * cfg_.voltage_multiplier_milli) / kMilli +
+      (((voltage_adc_mv * cfg_.voltage_multiplier_milli) / kMilli) +
        cfg_.voltage_offset_mv) /
       kMilli;
   if (measured_voltage_v < 0.0f) {
