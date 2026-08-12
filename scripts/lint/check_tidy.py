@@ -69,6 +69,11 @@ EXCLUDED = {
     "clang-analyzer-optin.performance.Padding": (
         "layout advice for types that exist once"
     ),
+    "clang-analyzer-optin.core.EnumCastOutOfRange": (
+        "ESP-IDF's flag enums enumerate single bits, so any combination is a "
+        "value no enumerator names -- ESP_NETIF_INHERENT_DEFAULT_WIFI_AP builds "
+        "DHCP_SERVER | FLAG_AUTOUP and casts it back itself"
+    ),
     "bugprone-reserved-identifier": (
         "ST's header guards and the linker's __wrap_ convention are fixed by "
         "things outside this repo"
