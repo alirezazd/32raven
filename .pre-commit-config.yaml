@@ -67,6 +67,14 @@ repos:
         language: system
         files: '\.(c|cpp)$'
 
+      # The clang-tidy checks that find defects rather than style. Shares the
+      # compilation-database plumbing above, so it skips on the same terms.
+      - id: check-tidy
+        name: clang-tidy
+        entry: uv run --quiet --script scripts/lint/check_tidy.py
+        language: system
+        files: '\.(c|cpp)$'
+
       # Runs the generators to see which symbols they actually read, so it has
       # to re-check everything whenever either side of the pair moves. The
       # hygiene hook shares that trigger: both read the whole Kconfig, so
