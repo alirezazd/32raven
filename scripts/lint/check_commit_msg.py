@@ -124,10 +124,27 @@ NARRATIVE_RE = re.compile(
 # `git rebase -i` mid-flight, which is never what the rule is for.
 PASSTHROUGH_RE = re.compile(r"^(fixup|squash|amend)!|^Revert \"|^Merge ")
 
+# Assistant attribution, in the four shapes it arrives in. Names are listed
+# only where they cannot mean anything else here: `cursor`, `continue`, `amp`,
+# `goose` and `sweep` are words this tree uses in earnest, and `codex` names a
+# directory in it, so those are caught by their agent spelling or their
+# trailer, never bare.
 ATTRIBUTION_RE = re.compile(
-    r"(co-authored-by"
-    r"|generated (with|by) (claude|chatgpt|gpt|copilot|gemini|cursor|codex|ai)"
-    r"|\b(claude code|github copilot|chatgpt|openai codex)\b"
+    # Trailer keys that credit a collaborator. Anchored to the line, so prose
+    # using the same words does not trip them.
+    r"(^(co-authored-by|co-developed-by|assisted-by|ai-assisted-by"
+    r"|generated-by|on-behalf-of)\s*:"
+    # The footer a tool appends to a message it wrote. Kept to a name list
+    # rather than a bare `generated with`, which this repo says about headers.
+    r"|generated (with|by) (claude|chatgpt|gpt|copilot|gemini|cursor|codex"
+    r"|devin|aider|windsurf|codeium|tabnine|amp|opencode|an? ai|ai)"
+    # Product names distinctive enough to mean only the tool.
+    r"|\b(claude|copilot|chatgpt|openai codex|codex cli|gemini|devin|aider"
+    r"|windsurf|codeium|tabnine|openhands|sourcegraph cody|amazon q"
+    r"|cursor agent|continue\.dev|jetbrains junie|replit agent)\b"
+    # Bot identities, and the address Claude Code signs with.
+    r"|\[bot\]|noreply@anthropic\.com"
+    # The robot every generated footer leads with.
     r"|🤖)",
     re.IGNORECASE,
 )
