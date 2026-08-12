@@ -229,13 +229,16 @@ void M10Service::ProcessByte(uint8_t byte) {
   sm_.Step(0);
 }
 
-std::optional<GpsData> M10Service::PopGpsData(uint64_t timestamp_us) {
+std::optional<GpsData> M10Service::PopGpsData() {
   if (!new_data_) {
     return std::nullopt;
   }
 
   GpsData data{};
-  data.timestamp_us = timestamp_us;
+  // When the fix arrived, not when it was collected. Stamping at the call
+  // makes every fix look new however long it queued, which is exactly the
+  // case a freshness check downstream exists to catch.
+  data.timestamp_us = ctx_.pvt_rx_us;
   data.lat = pvt_data_.lat;
   data.lon = pvt_data_.lon;
   data.alt = pvt_data_.hMSL;

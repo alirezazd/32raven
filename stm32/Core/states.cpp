@@ -413,7 +413,7 @@ static void StepSlow(AppContext &ctx, SmTick now) {
 
   // 5. Process GPS Data (Decoupled)
   auto &gps_svc = ctx.sys->GpsSvc();
-  if (const auto gps = gps_svc.PopGpsData(ctx.sys->Time().Micros())) {
+  if (const auto gps = gps_svc.PopGpsData()) {
     uint32_t t0 = micros();
     ctx.sys->Vehicle().UpdateGps(*gps);
 

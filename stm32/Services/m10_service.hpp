@@ -133,7 +133,7 @@ class M10Service {
   const M10COVData &GetCOV() const { return cov_data_; }
   bool NewDataAvailable() const { return new_data_; }
   void ClearNewDataFlag() { new_data_ = false; }
-  [[nodiscard]] std::optional<GpsData> PopGpsData(uint64_t timestamp_us);
+  [[nodiscard]] std::optional<GpsData> PopGpsData();
 
   uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
   uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }
