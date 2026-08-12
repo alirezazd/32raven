@@ -476,15 +476,22 @@ def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 
 def _programmer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    verify_esp32 = sym_bool(kconf, "ESP32_PROGRAMMER_VERIFY_ESP32")
     return {
         "reset_pulse_ms": sym_int(kconf, "ESP32_PROGRAMMER_RESET_PULSE_MS"),
         "boot_settle_ms": sym_int(kconf, "ESP32_PROGRAMMER_BOOT_SETTLE_MS"),
         "sync_timeout_ms": sym_int(kconf, "ESP32_PROGRAMMER_SYNC_TIMEOUT_MS"),
         "sync_retries": sym_int(kconf, "ESP32_PROGRAMMER_SYNC_RETRIES"),
         "verify": {
-            "esp32": sym_bool(kconf, "ESP32_PROGRAMMER_VERIFY_ESP32"),
-            "esp32_chunk_bytes": sym_int(
-                kconf, "ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES"
+            "esp32": verify_esp32,
+            # The chunk size depends on verification in Kconfig, so it has no
+            # value at all when that is off. Nothing reads the field then
+            # either: TargetVerifyChunkSize is only reached from the verifying
+            # state, which the same flag guards.
+            "esp32_chunk_bytes": (
+                sym_int(kconf, "ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES")
+                if verify_esp32
+                else 0
             ),
             "stm32": sym_bool(kconf, "ESP32_PROGRAMMER_VERIFY_STM32"),
         },

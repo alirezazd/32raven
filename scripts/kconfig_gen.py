@@ -54,8 +54,30 @@ def sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
     return s
 
 
+class UnsetSymbolError(ValueError):
+    """A symbol read in a configuration that leaves it without any value."""
+
+
+def _value(kconf: kconfiglib.Kconfig, name: str) -> str:
+    """A symbol's value, refusing the empty string an unmet `depends on` gives.
+
+    kconfiglib answers "" rather than the declared default when a symbol's
+    dependencies are unmet, which reaches int() as a parse error naming no
+    knob. A generator reading a symbol its own Kconfig makes conditional has
+    to mirror that condition at the read.
+    """
+    value = sym(kconf, name).str_value
+    if value == "":
+        raise UnsetSymbolError(
+            f"CONFIG_{name} has no value here: its `depends on` is unmet, so "
+            "the menu never offered it. Whatever reads it has to check the "
+            "same condition first"
+        )
+    return value
+
+
 def sym_int(kconf: kconfiglib.Kconfig, name: str) -> int:
-    return int(sym(kconf, name).str_value, 0)
+    return int(_value(kconf, name), 0)
 
 
 def sym_bool(kconf: kconfiglib.Kconfig, name: str) -> bool:
@@ -68,9 +90,7 @@ def sym_str(kconf: kconfiglib.Kconfig, name: str) -> str:
 
 def sym_hex_literal(kconf: kconfiglib.Kconfig, name: str) -> str:
     """Return a Kconfig hex symbol's value normalized as `0x...`."""
-    raw = sym(kconf, name).str_value
-    if not raw:
-        raise ValueError(f"Kconfig hex symbol '{name}' has no value")
+    raw = _value(kconf, name)
     return raw if raw.lower().startswith("0x") else f"0x{raw}"
 
 

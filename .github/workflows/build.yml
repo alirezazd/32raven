@@ -27,20 +27,34 @@ jobs:
 
       # Mirrors the Dockerfile: gcc-arm-none-eabi ships neither the C++ headers
       # nor newlib, so <atomic>, <complex> and <sys/stat.h> are absent without
-      # the two -newlib packages.
+      # the two -newlib packages. clang-tidy is here rather than with the other
+      # linters because the checks that use it need this job's build.
       - name: Toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gcc-arm-none-eabi binutils-arm-none-eabi \
             libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib \
-            cmake ninja-build
+            cmake ninja-build clang-tidy
 
       - name: Build
         run: make stm32 USE_DOCKER=0
 
       - name: Size
         run: arm-none-eabi-size build/Ninja/stm32/32Raven_stm32.elf
+
+      # These three read the compilation database this build just produced, and
+      # skip when there is none -- which is every run outside a build job, so
+      # this is the only place they are enforced. Each job sees only its own
+      # build directory, so each firmware needs its own copy of them.
+      - name: Unassigned config fields
+        run: uv run --quiet --script scripts/lint/check_config_coverage.py
+
+      - name: Unused includes
+        run: uv run --quiet --script scripts/lint/check_unused_includes.py
+
+      - name: clang-tidy
+        run: uv run --quiet --script scripts/lint/check_tidy.py
 
       # The Kconfig generators run during the build. A diff here means the
       # committed headers disagree with the config they came from.
@@ -65,8 +79,24 @@ jobs:
       - name: Install ESP-IDF tools
         run: make idf-install USE_DOCKER=0
 
+      - name: Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-tidy
+
       - name: Build
         run: make esp32 USE_DOCKER=0
+
+      # The ESP32 half of the same three. See the stm32 job for why they cannot
+      # run anywhere but a build.
+      - name: Unassigned config fields
+        run: uv run --quiet --script scripts/lint/check_config_coverage.py
+
+      - name: Unused includes
+        run: uv run --quiet --script scripts/lint/check_unused_includes.py
+
+      - name: clang-tidy
+        run: uv run --quiet --script scripts/lint/check_tidy.py
 
       - name: Generated files match the tree
         run: git diff --exit-code -- . ':(exclude)third_party'

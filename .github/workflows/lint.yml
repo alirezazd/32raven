@@ -33,6 +33,28 @@ jobs:
       - name: Forbidden constructs
         run: scripts/lint/check_forbidden.sh
 
+      - name: Direct timer access
+        run: uv run --quiet --script scripts/lint/check_timer_access.py
+
+      # The config checks below need no compiler: they run the generators
+      # against config/Kconfig and render the templates in memory. The ones
+      # that do need a build live in build.yml instead.
+      - name: Stale Kconfig symbols
+        run: uv run --quiet --script scripts/lint/check_config_staleness.py
+
+      - name: Kconfig hygiene
+        run: uv run --quiet --script scripts/lint/check_config_hygiene.py
+
+      - name: Unread template context keys
+        run: uv run --quiet --script scripts/lint/check_context_keys.py
+
+      # A minute of sweeping, which is why it is here and not in a commit hook.
+      - name: Kconfig knobs that change nothing
+        run: uv run --quiet --script scripts/lint/check_config_sweep.py
+
+      - name: Hook coverage
+        run: uv run --quiet --script scripts/lint/check_hook_coverage.py
+
       # Whole history rather than the pushed range: a range has edge cases
       # (first push, force push, a `before` that no longer exists) and each one
       # is a way for a bad message to arrive unchecked. Scanning everything has

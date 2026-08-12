@@ -93,6 +93,15 @@ repos:
         pass_filenames: false
         files: *config_surface
 
+      # Reads the hook list it is part of, so it cannot be scoped to the staged
+      # paths either: a workflow losing a step is what it exists to notice.
+      - id: check-hook-coverage
+        name: Hook coverage
+        entry: uv run --quiet --script scripts/lint/check_hook_coverage.py
+        language: system
+        pass_filenames: false
+        files: '^(\.pre-commit-config\.yaml|\.github/workflows/.*\.yml|scripts/lint/.*)$'
+
       # Wider trigger than the two above: this one renders every template, so
       # the EEPROM layout is part of its input and a field added there is a
       # context key that may reach no template.
