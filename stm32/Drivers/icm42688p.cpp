@@ -53,7 +53,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg) {
   accel_fs_ = cfg.fs.accel;
   gyro_fs_ = cfg.fs.gyro;
   axis_map_ = cfg.axis_map;
-  gyro_odr_ = cfg.rates.gyro;
   gyro_odr_hz_ = EffectiveOdrHz(cfg.rates.gyro, cfg.external_clock);
   timestamp_tick_scale_q16_ = TimestampTickScaleQ16(cfg.external_clock);
   timestamp_tick_remainder_q16_ = 0;

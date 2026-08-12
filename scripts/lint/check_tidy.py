@@ -77,8 +77,9 @@ EXCLUDED = {
         "peripheral base addresses arrive as integers from CMSIS"
     ),
     "bugprone-invalid-enum-default-initialization": (
-        "value-initialised register enums hold 0 until Init assigns them; real "
-        "but pervasive, and worth its own pass rather than blocking this one"
+        "every finding is an ESP-IDF struct value-initialised before its fields "
+        "are filled in, which is how that API is meant to be used; the enum "
+        "holds 0 only between the brace and the assignment below it"
     ),
 }
 

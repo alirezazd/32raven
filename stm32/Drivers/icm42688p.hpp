@@ -248,7 +248,6 @@ class Icm42688p {
   // Captured from cfg.axis_map at Init. Applied per sample in
   // ScaleSample to convert chip-frame → body-NED.
   typename Config::AxisMap axis_map_{};
-  Icm42688pReg::Odr gyro_odr_{};
   uint32_t gyro_odr_hz_{0};
   typename Config::Calibration calibration_cfg_{};
   typename Config::Recovery recovery_cfg_{};
