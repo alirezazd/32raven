@@ -89,7 +89,10 @@ EXCLUDED = {
 }
 
 CHECKS = ",".join(
-    ["-*", "bugprone-*", "clang-analyzer-*", "performance-*"]
+    # misc-no-recursion is named rather than globbed: the rest of misc-* is
+    # style. Recursion is a defect here specifically, because both firmwares
+    # size their stacks from a static bound that a cycle makes unprovable.
+    ["-*", "bugprone-*", "clang-analyzer-*", "performance-*", "misc-no-recursion"]
     + [f"-{name}" for name in sorted(EXCLUDED)]
 )
 

@@ -70,6 +70,12 @@ class LED {
   static void TaskEntry(void *param);
   void Task();
 
+  // Installs a sequence and wakes the task. SetPattern and Off both end here
+  // rather than one calling the other: esp32_stack_check scores a back edge as
+  // zero, so a cycle between them would shrink the LED task's measured depth
+  // instead of failing it.
+  void Apply(const Step *steps, size_t count, std::optional<int> repeat_count);
+
   gpio_num_t pin_ = GPIO_NUM_NC;
   bool active_low_ = false;
   Ledc ledc_{};

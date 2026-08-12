@@ -63,19 +63,27 @@ void LED::Init(const Config &cfg) {
   }
 }
 
-void LED::SetPattern(const Step *steps, size_t count,
-                     std::optional<int> repeat_count) {
-  if (repeat_count.has_value() && *repeat_count <= 0) {
-    Off();
-    return;
-  }
+// Dark, held long enough that the task idles rather than spinning on it.
+constexpr LED::Step kOffStep = {0, 0, 1000};
 
+void LED::Apply(const Step *steps, size_t count,
+                std::optional<int> repeat_count) {
   current_steps_ = steps;
   current_step_count_ = count;
   repeat_count_ = repeat_count;
   if (task_handle_) {
     xTaskNotifyGive((TaskHandle_t)task_handle_);
   }
+}
+
+void LED::SetPattern(const Step *steps, size_t count,
+                     std::optional<int> repeat_count) {
+  if (repeat_count.has_value() && *repeat_count <= 0) {
+    is_on_ = false;
+    Apply(&kOffStep, 1, std::nullopt);
+    return;
+  }
+  Apply(steps, count, repeat_count);
 }
 
 void LED::SetPattern(Pattern p, uint32_t period_ms,
@@ -119,9 +127,8 @@ void LED::On() {
 }
 
 void LED::Off() {
-  static const Step kOffStep = {0, 0, 1000};
   is_on_ = false;
-  SetPattern(&kOffStep, 1);
+  Apply(&kOffStep, 1, std::nullopt);
 }
 
 void LED::Toggle() {
