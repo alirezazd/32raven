@@ -93,6 +93,16 @@ repos:
         pass_filenames: false
         files: *config_surface
 
+      # Wider trigger than the two above: this one renders every template, so
+      # the EEPROM layout is part of its input and a field added there is a
+      # context key that may reach no template.
+      - id: check-context-keys
+        name: Unread template context keys
+        entry: uv run --quiet --script scripts/lint/check_context_keys.py
+        language: system
+        pass_filenames: false
+        files: '^(config/(Kconfig|32raven\.config|ee\.toml)|scripts/(kconfig_gen|generate_.*)\.py|scripts/templates/.*\.j2)$'
+
       # Needs a compilation database and the cross toolchain's own headers, so
       # like check-unused-includes it skips rather than fails when the tree has
       # not been built. Driver headers matter too: a field added there is

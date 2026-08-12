@@ -1539,12 +1539,11 @@ def _rcc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
-def _spi_prescaler(pclk_hz: int, max_sck_hz: int, who: str) -> tuple[str, int]:
+def _spi_prescaler(pclk_hz: int, max_sck_hz: int, who: str) -> str:
     """Fastest SPI_CR1.BR divider whose SCK still lands at or under max_sck_hz."""
     for divisor in SPI_PRESCALER_DIVISORS:
-        sck_hz = pclk_hz // divisor
-        if sck_hz <= max_sck_hz:
-            return f"SpiPrescaler::kDiv{divisor}", sck_hz
+        if pclk_hz // divisor <= max_sck_hz:
+            return f"SpiPrescaler::kDiv{divisor}"
     raise ValueError(
         f"no SPI prescaler brings {pclk_hz} Hz down to the {max_sck_hz} Hz "
         f"{who} allows; the slowest available is /{SPI_PRESCALER_DIVISORS[-1]}"
@@ -1843,12 +1842,12 @@ def _ee_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     # SPI1 hangs off APB2, so the same divider is a different SCK here than on
     # the IMU's SPI2.
     apb2_div = _apb_divider(kconf, 2)
-    prescaler, sck_hz = _spi_prescaler(
+    prescaler = _spi_prescaler(
         _solve_rcc_clock(kconf) // apb2_div,
         sym_int(kconf, "STM32_EE_SPI1_MAX_SCK_HZ"),
         "the EEPROM flash",
     )
-    return {"spi1_prescaler": prescaler, "spi1_sck_hz": sck_hz}
+    return {"spi1_prescaler": prescaler}
 
 
 def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
@@ -1861,12 +1860,10 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             f"ICM42688P's {ICM42688P_MAX_SCK_HZ} Hz rating"
         )
     apb1_div = _apb_divider(kconf, 1)
-    prescaler, sck_hz = _spi_prescaler(
-        _solve_rcc_clock(kconf) // apb1_div, max_sck_hz, "the ICM42688P"
-    )
     return {
-        "spi_prescaler": prescaler,
-        "spi_sck_hz": sck_hz,
+        "spi_prescaler": _spi_prescaler(
+            _solve_rcc_clock(kconf) // apb1_div, max_sck_hz, "the ICM42688P"
+        ),
         "external_clock": {
             "enabled": sym_bool(kconf, "STM32_IMU_EXTERNAL_CLOCK_ENABLED"),
             "frequency_hz": sym_int(kconf, "STM32_IMU_EXTERNAL_CLOCK_FREQ_HZ"),

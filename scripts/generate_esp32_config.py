@@ -296,7 +296,6 @@ def _ledc_claim(kconf: kconfiglib.Kconfig, claim: tuple) -> dict[str, object]:
         "timer": sym_int(kconf, timer_sym),
         "channel": sym_int(kconf, channel_sym),
         "duty_resolution": resolution,
-        "max_duty_ticks": (1 << resolution) - 1,
         "freq_hz": sym_int(kconf, freq_sym) if freq_sym else None,
     }
     if entry["timer"] >= LEDC_TIMER_COUNT:
@@ -338,8 +337,17 @@ def _ledc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                     "first"
                 )
             seen[claim[field]] = claim["label"]
-    return {"speed_mode": LEDC_SPEED_MODE,
-            **{c["label"].lower(): c for c in claims}}
+    # The label names the claim rather than describing the peripheral, so it
+    # stays behind with the checks that quote it.
+    return {
+        "speed_mode": LEDC_SPEED_MODE,
+        **{
+            str(claim["label"]).lower(): {
+                key: value for key, value in claim.items() if key != "label"
+            }
+            for claim in claims
+        },
+    }
 
 
 def _validate(kconf: kconfiglib.Kconfig) -> None:
@@ -556,8 +564,6 @@ def _runtime_context(
         "programmer": _programmer_context(kconf),
         "wifi": _wifi_context(kconf),
         "mavlink": _mavlink_context(kconf),
-        "panic": {
-        },
     }
 
 
@@ -566,14 +572,8 @@ def _limits_context(
 ) -> dict[str, object]:
     return {
         "autogen_warning": autogen_warning(source),
-        "display_panel": {
-        },
-        "fclink": {
-        },
         "programmer": {
             "staging_buffer_bytes": PROGRAMMER_STAGING_BUFFER_BYTES,
-        },
-        "tcp_server": {
         },
         "udp_server": {
             "upload_buffer_bytes": _udp_shaper_buffer_bytes(
@@ -582,8 +582,6 @@ def _limits_context(
             "download_buffer_bytes": _udp_shaper_buffer_bytes(
                 sym_int(kconf, "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS")
             ),
-        },
-        "tone_player": {
         },
     }
 
