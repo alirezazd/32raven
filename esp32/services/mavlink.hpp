@@ -19,6 +19,7 @@
 #include "message.hpp"  // for message::GpsData
 #include "panic.hpp"
 #include "ring_buffer.hpp"
+#include "topic_scheduler.hpp"
 
 class Mavlink {
  public:
@@ -26,6 +27,22 @@ class Mavlink {
     kEsp32,
     kStm32,
   };
+
+  // mavlink_tx.cpp's period and state arrays are built in this order and
+  // indexed by it. Public only because those tables sit at file scope.
+  enum class TxSlot : uint8_t {
+    kHb,
+    kSys,
+    kGps,
+    kAtt,
+    kGpos,
+    kBatt,
+    kRc,
+    kEsc,
+    kCount,
+  };
+
+  static constexpr size_t kTxSlotCount = static_cast<size_t>(TxSlot::kCount);
 
   struct Config {
     struct Identity {
@@ -302,17 +319,6 @@ class Mavlink {
     bool is_hb_ = false;
   };
 
-  struct TxScheduleState {
-    uint32_t last_hb_done_ms = 0;
-    uint32_t next_hb_ms = 0;
-    uint32_t next_sys_ms = 0;
-    uint32_t next_gps_ms = 0;
-    uint32_t next_att_ms = 0;
-    uint32_t next_gpos_ms = 0;
-    uint32_t next_batt_ms = 0;
-    uint32_t next_rc_ms = 0;
-    uint32_t next_esc_ms = 0;
-  };
 
   Mavlink();
   ~Mavlink();
@@ -413,7 +419,11 @@ class Mavlink {
   TxState udp_tx_{};
   RingBuffer<TxQueueItem, kTxWorkQueueDepth + 1> tx_work_queue_{};
   TxFrameState tx_frame_{};
-  TxScheduleState tx_schedule_{};
+  TopicScheduler tx_scheduler_{};
+  std::array<TopicState, kTxSlotCount> tx_slots_{};
+  // Outside the scheduler because it measures from the frame actually leaving,
+  // not from when the slot came due.
+  uint32_t last_hb_done_ms_ = 0;
   uint32_t next_tx_poll_ms_ = 0;
   void ServiceTx(uint32_t now_ms);
   void ServiceUdpTx(uint32_t now_ms);

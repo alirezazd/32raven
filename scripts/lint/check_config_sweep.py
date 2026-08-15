@@ -87,7 +87,7 @@ def _fingerprint(kconf: kconfiglib.Kconfig) -> str:
             "common_config.hpp.j2",
             {
                 "autogen_warning": "",
-                "fclink": generate_common_config.fclink_context(kconf),
+                **generate_common_config.template_context(kconf),
             },
         )
     ]

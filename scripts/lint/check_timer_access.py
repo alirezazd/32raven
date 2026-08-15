@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Alireza Azadi
 
-"""Forbid reading the timebase timer directly instead of through TimeBase.
+"""Two ways to get the timebase wrong: reach past it, or widen what it returns.
 
 TIM2 is the 1 MHz free-running counter TimeBase owns. Reading it through
 `TIM2->CNT` works, which is exactly the problem: hand-rolled `Micros()` helpers
@@ -13,6 +13,14 @@ Use `System::GetInstance().Time()` and call `Micros()` or `DelayMicros()`.
 
 The allowlist below is deliberately short. Adding to it means arguing that the
 driver cannot be reached from that context, not that it is inconvenient.
+
+The second rule catches `Micros()` being stored in a 64-bit variable. It returns
+`TIM2->CNT`, a 32-bit counter that wraps every 71.6 minutes, and every elapsed
+comparison in this firmware relies on that wrap cancelling in unsigned 32-bit
+arithmetic. Widening zero-extends instead, so the wrap becomes a 4295-second
+discontinuity in a type that promises it cannot happen -- and the compiler has
+no reason to object. Accumulate short deltas into a 64-bit total if a long
+horizon is genuinely needed; do not widen a single read.
 """
 from __future__ import annotations
 
@@ -35,6 +43,10 @@ ALLOWED = {
 
 PATTERN = re.compile(r"\bTIM2\s*->\s*CNT\b")
 
+# `uint64_t x = ... Micros()`. The word boundary keeps SecondsToMicros() out,
+# and a genuine 64-bit source would not be named Micros().
+WIDENING = re.compile(r"\buint64_t\b[^;=]*=[^;]*\bMicros\s*\(\s*\)")
+
 
 def main() -> int:
     paths = [pathlib.Path(p) for p in sys.argv[1:]]
@@ -42,20 +54,23 @@ def main() -> int:
         paths = sorted((REPO / "stm32").rglob("*.[ch]pp"))
 
     findings: list[str] = []
+    widened: list[str] = []
     for path in paths:
         try:
             rel = path.resolve().relative_to(REPO).as_posix()
         except ValueError:
             continue
-        if rel in ALLOWED or not rel.startswith("stm32/"):
+        if not rel.startswith("stm32/"):
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
         for number, line in enumerate(text.splitlines(), start=1):
-            if PATTERN.search(line):
+            if rel not in ALLOWED and PATTERN.search(line):
                 findings.append(f"{rel}:{number}: {line.strip()}")
+            if WIDENING.search(line):
+                widened.append(f"{rel}:{number}: {line.strip()}")
 
     if findings:
         print("Direct TIM2 access outside TimeBase:", file=sys.stderr)
@@ -67,8 +82,19 @@ def main() -> int:
             "ALLOWED in scripts/lint/check_timer_access.py with the reason.",
             file=sys.stderr,
         )
-        return 1
-    return 0
+
+    if widened:
+        print("Micros() widened to 64 bits:", file=sys.stderr)
+        for finding in widened:
+            print(f"  {finding}", file=sys.stderr)
+        print(
+            "\nMicros() is a 32-bit counter that wraps every 71.6 minutes.\n"
+            "Hold it in a uint32_t and let the wrap cancel, or accumulate\n"
+            "short deltas into a 64-bit total -- do not widen a single read.",
+            file=sys.stderr,
+        )
+
+    return 1 if (findings or widened) else 0
 
 
 if __name__ == "__main__":

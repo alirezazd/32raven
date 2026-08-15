@@ -24,8 +24,6 @@ class EE {
   // inline would emit a COMDAT copy per includer.
   static EE &GetInstance();
 
-  void Init(GPIO &gpio, Spi1 &spi);
-
   uint32_t Capacity() const { return kCapacity; }
   bool IsInitialized() const { return initialized_; }
 
@@ -47,6 +45,7 @@ class EE {
 
  private:
   friend class System;
+  void Init(GPIO &gpio, Spi1 &spi);
 
   struct RecordHeader {
     uint32_t magic;

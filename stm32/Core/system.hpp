@@ -20,12 +20,13 @@
 #include "msp_service.hpp"
 #include "multirotor_mixer.hpp"
 #include "rate_controller.hpp"
-#include "rcc.hpp"
 #include "rc_receiver.hpp"
+#include "rcc.hpp"
+#include "sentinel.hpp"
+#include "shared_state.hpp"
 #include "stat_publisher.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-#include "vehicle_state.hpp"
 #include "watchdog.hpp"
 
 class System {
@@ -64,8 +65,10 @@ class System {
     kAhrs,
     kRateController,
     kAttitudeController,
+    kSentinel,
+    kStatPublisher,
 
-    kCount,  // sentinel: keep last
+    kCount,  // terminator: keep last
   };
 
   void Init();
@@ -94,8 +97,9 @@ class System {
   Ahrs &AhrsSvc() { return ahrs_; }
   RateController &RateControllerSvc() { return rate_controller_; }
   AttitudeController &AttitudeControllerSvc() { return attitude_controller_; }
+  Sentinel &SentinelSvc() { return sentinel_; }
 
-  VehicleState &Vehicle() { return vehicle_state_; }
+  SharedState &Blackboard() { return blackboard_; }
   FcLink &FcLinkSvc() { return FcLink::GetInstance(); }
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
   StatPublisher &StatPubSvc() { return StatPublisher::GetInstance(); }
@@ -105,7 +109,7 @@ class System {
   static void CoreInit();  // flash cache + NVIC priority grouping
   bool initialized_ = false;
   M10Service gps_service_;
-  VehicleState vehicle_state_;
+  ::SharedState blackboard_;
   CrsfLinkService crsf_link_service_;
   EscService esc_service_;
   MspService msp_service_;
@@ -115,6 +119,7 @@ class System {
   Ahrs ahrs_;
   RateController rate_controller_;
   AttitudeController attitude_controller_;
+  Sentinel sentinel_;
 
   // Empty by design — call Init() explicitly to bring up the chip.
   System() = default;

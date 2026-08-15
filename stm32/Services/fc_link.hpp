@@ -3,11 +3,9 @@
 
 #pragma once
 
-#include <span>
-
 #include "message.hpp"
 #include "ring_buffer.hpp"
-#include "vehicle_state.hpp"
+#include "shared_state.hpp"
 
 struct AppContext;
 
@@ -29,10 +27,6 @@ class FcLink {
   bool Send(const message::Packet &pkt);
 
   void SendGps(const GpsData &data, const BatteryData &bat);
-
-  // Convenience for one IMU sample.
-  void SendImu(uint64_t timestamp_us, std::span<const float, 3> accel,
-               std::span<const float, 3> gyro);
 
   // Send one-shot RC channel mapping config.
   void SendRcChannels(const message::RcChannelsMsg &msg);

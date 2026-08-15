@@ -23,6 +23,7 @@
 #include "rate_controller.hpp"
 #include "rc_receiver.hpp"
 #include "spi.hpp"
+#include "stat_publisher.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "uart_soft.hpp"
@@ -87,8 +88,31 @@ inline const std::array kGpioDefault = {
 {% endfor %}
 };
 
-inline constexpr auto kFcLinkTelemetryRateHz = {{ fclink.telemetry_rate_hz }}u;
-inline constexpr auto kFcLinkTelemetryIntervalMs = 1000u / kFcLinkTelemetryRateHz;
+{# Field order here is the struct's, not the schedule's: StatPublisher owns
+   the topic order, flattening these into the array the scheduler walks. #}
+inline constexpr StatPublisher::Config kStatPublisherConfig = {
+    .fclink_max_frames_per_poll = {{ fclink.topics.max_frames_per_poll }}u,
+    .crsf_max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
+{% for name in ["system_status", "vehicle_status", "esc_telemetry",
+                "rc_channels", "usb_status"] %}
+{% set topic = fclink.topics[name] %}
+    .{{ name }} = {
+        .period = {{ topic.period_ms }}u * 1000u,
+        .max_silence = {{ topic.max_silence_ms }}u * 1000u,
+        .priority = {{ topic.priority }}u,
+    },
+{% endfor %}
+{# Authored under RC Receiver -> CRSF Telemetry, because they describe that
+   link's content; scheduled here, because StatPublisher owns every cadence. #}
+{% for name in ["heartbeat", "gps", "battery"] %}
+{% set topic = rc_receiver.crsf[name] %}
+    .crsf_{{ name }} = {
+        .period = {{ topic.period_ms }}u * 1000u,
+        .max_silence = {{ topic.max_silence_ms }}u * 1000u,
+        .priority = {{ topic.priority }}u,
+    },
+{% endfor %}
+};
 
 inline constexpr UartConfig kUart1Config = {
     .baud_rate = common_config::kFcLinkBaud,
@@ -130,12 +154,15 @@ inline constexpr SpiConfig kEeSpi1Config = {
     .bit_order = SpiBitOrder::kMsbFirst,
 };
 
+{# Off, Profiler<> reduces its wrappers to the calls they wrap. #}
+inline constexpr bool kEnableProfiling = {{ enable_profiling | cpp_bool }};
+
 // Rate the FIFO watermark interrupt drives the control cascade at, and the
 // only correct timestep for anything it integrates. Derived from the
 // CLKIN-scaled record rate divided by the watermark, and exact by
 // construction: the build rejects a rate that does not divide evenly.
-inline constexpr std::uint32_t kFastLoopHz = {{ fast_loop_hz }}u;
-inline constexpr float kFastLoopDtSec = 1.0f / static_cast<float>(kFastLoopHz);
+inline constexpr std::uint32_t kControlLoopHz = {{ control_loop_hz }}u;
+inline constexpr float kControlLoopDtSec = 1.0f / static_cast<float>(kControlLoopHz);
 
 inline constexpr Icm42688p::Config kIcm42688pConfig = {
     .spi_prescaler = {{ icm42688p.spi_prescaler }},
@@ -240,11 +267,6 @@ inline constexpr Battery::Config kBatteryConfig = {
 };
 
 inline constexpr RcReceiver::Config kRcReceiverConfig = {
-    .enabled_channels = {
-{% for enabled in rc_receiver.enabled_channels %}
-        {{ enabled | cpp_bool }}{{ "," if not loop.last }}
-{% endfor %}
-    },
     .roll_channel = {{ rc_receiver.rc_map.roll }},
     .pitch_channel = {{ rc_receiver.rc_map.pitch }},
     .yaw_channel = {{ rc_receiver.rc_map.yaw }},
@@ -255,28 +277,13 @@ inline constexpr uint32_t kGpsFreshTimeoutUs =
     {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u;
 
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
-    .max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
     .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
-    .heartbeat = {
-        .period_us = {{ rc_receiver.crsf.heartbeat.period_ms }}u * 1000u,
-        .max_silence_us = 0u,
-        .priority = {{ rc_receiver.crsf.heartbeat.priority }}u,
-        .send_on_change = false,
-    },
-    .gps = {
-        .period_us = {{ rc_receiver.crsf.gps.period_ms }}u * 1000u,
-        .max_silence_us =
-            {{ rc_receiver.crsf.gps.max_silence_ms }}u * 1000u,
-        .priority = {{ rc_receiver.crsf.gps.priority }}u,
-        .send_on_change = {{ rc_receiver.crsf.gps.send_on_change | cpp_bool }},
-    },
-    .battery = {
-        .period_us = {{ rc_receiver.crsf.battery.period_ms }}u * 1000u,
-        .max_silence_us =
-            {{ rc_receiver.crsf.battery.max_silence_ms }}u * 1000u,
-        .priority = {{ rc_receiver.crsf.battery.priority }}u,
-        .send_on_change =
-            {{ rc_receiver.crsf.battery.send_on_change | cpp_bool }},
+    {# In TelemetryTopic order. The heartbeat payload is a constant, so
+       suppressing it on change would silence the link entirely. #}
+    .send_on_change = {
+        false,
+        {{ rc_receiver.crsf.gps.send_on_change | cpp_bool }},
+        {{ rc_receiver.crsf.battery.send_on_change | cpp_bool }},
     },
 };
 
@@ -375,9 +382,9 @@ inline constexpr UartSoftConfig kEscBootloaderUartConfig = {
 
 {# MSP gives each field 16 bits and the casts below would wrap silently, so
    the range is checked first. #}
-static_assert(kFastLoopHz <= UINT16_MAX &&
-                  (1000000u + kFastLoopHz / 2u) / kFastLoopHz <= UINT16_MAX,
-              "CONFIG_STM32_FAST_LOOP_HZ does not fit MSP's 16-bit rate and "
+static_assert(kControlLoopHz <= UINT16_MAX &&
+                  (1000000u + kControlLoopHz / 2u) / kControlLoopHz <= UINT16_MAX,
+              "CONFIG_STM32_CONTROL_LOOP_HZ does not fit MSP's 16-bit rate and "
               "cycle-time fields; a configurator would read a wrapped value");
 
 inline constexpr MspService::Config kMspServiceConfig = {
@@ -385,9 +392,9 @@ inline constexpr MspService::Config kMspServiceConfig = {
     .board_name = {{ msp.board_name }},
     .manufacturer_id = {{ msp.manufacturer_id }},
     .craft_name = {{ msp.craft_name }},
-    .loop_rate_hz = static_cast<uint16_t>(kFastLoopHz),
+    .loop_rate_hz = static_cast<uint16_t>(kControlLoopHz),
     .loop_period_us =
-        static_cast<uint16_t>((1000000u + kFastLoopHz / 2u) / kFastLoopHz),
+        static_cast<uint16_t>((1000000u + kControlLoopHz / 2u) / kControlLoopHz),
 };
 
 inline constexpr EscService::Config kEscServiceConfig = {

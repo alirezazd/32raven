@@ -4,7 +4,7 @@
 // AHRS — Mahony complementary filter on the unit quaternion.
 // Fuses body-frame gyro (prediction) with body-frame accel
 // (gravity reference) into a drift-bounded orientation. Runs once per
-// fast tick.
+// control tick.
 // Gains (Config):
 //   - kp_accel = 0 → accel correction off; pure gyro integration.
 //   - kp_accel > 0 → accel pulls the quaternion toward truth.
@@ -32,8 +32,7 @@
 #include <Eigen/Geometry>
 #include <cstdint>
 
-#include "icm42688p.hpp"
-#include "vehicle_state.hpp"
+#include "shared_state.hpp"
 
 class Ahrs {
  public:
@@ -73,21 +72,23 @@ class Ahrs {
 
   const Config &GetConfig() const { return cfg_; }
 
-  // Process one IMU sample burst. Aggregates the gyro for the rate
-  // controller's measurement input and integrates the quaternion with
-  // per-sample Mahony correction.
-  ImuState Process(const Icm42688p::SampleBatch &batch);
+  // Consume whatever the driver last published to the SharedState's mailbox.
+  // Aggregates the gyro for the rate controller's measurement input, integrates
+  // the quaternion with per-sample Mahony correction, then releases the slot
+  // back to the interrupt.
+  //
+  // The store arrives per call rather than as a member: this class holds no
+  // pointer to it, which is what keeps it a filter and not a service.
+  EstimatorState Process(SharedState &shared);
 
   // Diagnostics.
   const Eigen::Quaternionf &Attitude() const { return q_; }
   const Eigen::Vector3f &GyroBiasEstimate() const { return bias_; }
-  const ImuState &Current() const { return state_; }
 
  private:
   Config cfg_{};
   Eigen::Quaternionf q_ = Eigen::Quaternionf::Identity();
   Eigen::Vector3f bias_ = Eigen::Vector3f::Zero();
-  ImuState state_{};
   uint64_t last_sample_ts_us_ = 0;
   bool has_last_sample_ts_ = false;
 };

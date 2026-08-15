@@ -120,7 +120,6 @@ static void OnUsbStatus(AppContext &ctx, const message::Packet &pkt) {
 
 static const Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPong, OnIgnored},
-    {message::MsgId::kImuData, OnIgnored},
     {message::MsgId::kLog, OnLog},
     {message::MsgId::kTone, OnTone},
     {message::MsgId::kUsbStatus, OnUsbStatus},

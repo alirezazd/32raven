@@ -8,8 +8,8 @@
 
 #include "esc_service.hpp"
 #include "four_way_service.hpp"
+#include "shared_state.hpp"
 #include "usb_cdc.hpp"
-#include "vehicle_state.hpp"
 
 // MSP responder on the USB CDC port. Configurators probe with MSP before they
 // admit a board exists.
@@ -27,17 +27,14 @@ class MspService {
     const char *board_name;
     const char *manufacturer_id;
     const char *craft_name;
-    // Two views of one tick, so both are folded from kFastLoopHz.
+    // Two views of one tick, so both are folded from kControlLoopHz.
     uint16_t loop_rate_hz;
     uint16_t loop_period_us;
   };
 
-  void Init(const Config &cfg, UsbCdc &usb, VehicleState &vehicle_state,
+  void Init(const Config &cfg, UsbCdc &usb, SharedState &blackboard,
             FourWayService &four_way, EscService &esc);
 
-  // Separate from Poll: revocation is a deadline, so it must not sit behind
-  // budget gates that are designed to be skipped under load.
-  void CheckArmed();
   void Poll(uint32_t now_us);
 
   // Latched: the ESP32 reconciles it against its own state, having been told
@@ -90,6 +87,11 @@ class MspService {
   void RevokeEscConfigMode();
   void Reset() { parse_ = Parse::kIdle; }
 
+  // The one writer of SharedState::usb_: this service already holds the CDC
+  // driver and the four-way service, so it is where all three sources meet
+  // without something reaching sideways. Stamps only on a real change.
+  void PublishUsbStatus(uint32_t now_us);
+
   // MSP is little-endian on the wire regardless of host byte order.
   uint8_t *ReplyBuf() { return &frame_[kV2HeaderBytes]; }
   void Push8(uint8_t v);
@@ -102,7 +104,7 @@ class MspService {
   UsbCdc *usb_ = nullptr;
   FourWayService *four_way_ = nullptr;
   EscService *esc_ = nullptr;
-  VehicleState *vehicle_state_ = nullptr;
+  SharedState *blackboard_ = nullptr;
   bool initialized_ = false;
 
   // MSP_SET_PASSTHROUGH is answered in MSP framing before the port changes

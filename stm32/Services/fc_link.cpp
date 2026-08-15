@@ -167,24 +167,6 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   Send(pkt);
 }
 
-void FcLink::SendImu(uint64_t timestamp_us, std::span<const float, 3> accel,
-                     std::span<const float, 3> gyro) {
-  message::ImuData m = {};
-  m.timestamp_us = timestamp_us;
-  m.accel[0] = accel[0];
-  m.accel[1] = accel[1];
-  m.accel[2] = accel[2];
-  m.gyro[0] = gyro[0];
-  m.gyro[1] = gyro[1];
-  m.gyro[2] = gyro[2];
-
-  message::Packet pkt;
-  pkt.header.id = (uint8_t)message::MsgId::kImuData;
-  pkt.header.len = message::PayloadLength<message::ImuData>();
-  memcpy(pkt.payload, &m, sizeof(m));
-  Send(pkt);
-}
-
 void FcLink::SendRcChannels(const message::RcChannelsMsg &msg) {
   message::Packet pkt{};
   pkt.header.id = (uint8_t)message::MsgId::kRcChannels;

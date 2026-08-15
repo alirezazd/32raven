@@ -8,18 +8,13 @@
 #include "config_storage.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
+#include "shared_state.hpp"
 #include "stm32_config.hpp"
-#include "vehicle_state.hpp"
-
 namespace {
 
 constexpr uint16_t kCalibratedMinUs = 1000;
 constexpr uint16_t kCalibratedTrimUs = 1500;
 constexpr uint16_t kCalibratedMaxUs = 2000;
-constexpr uint32_t kRxOnlineTimeoutUs = 1500000u;
-constexpr uint8_t kTxOnMinRssi = 10u;
-constexpr uint32_t kTxOnDebounceUs = 150000u;
-constexpr uint32_t kTxOffDebounceUs = 500000u;
 
 message::RcMapConfigMsg ToRcMapConfig(const RcReceiver::Config &cfg) {
   return {
@@ -85,7 +80,7 @@ void RcReceiver::SetThrottleMin(float v) {
   throttle_min_ = v;
 }
 
-void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
+void RcReceiver::Init(const Config &cfg, EE &ee, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEepromReinit);
   }
@@ -97,7 +92,7 @@ void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
 
   cfg_ = cfg;
   ee_ = &ee;
-  vehicle_state_ = &vehicle_state;
+  blackboard_ = &blackboard;
   calibration_ = ConfigStorage::LoadOrInitRcCalibration(ee);
   const ee_schema::RcMap persisted_map =
       ConfigStorage::LoadOrInitRcMap(ee, MakeRcMapBlob(cfg_));
@@ -108,25 +103,11 @@ void RcReceiver::Init(const Config &cfg, EE &ee, VehicleState &vehicle_state) {
   } else if (!ConfigStorage::SaveRcMap(ee, MakeRcMapBlob(cfg_))) {
     Panic(ErrorCode::Stm32::kEepromWriteFailed);
   }
-  raw_ = RawData{};
-  current_ = RcData{};
-  rssi_ = 0;
-  radio_status_update_us_ = 0;
-  tx_candidate_since_us_ = 0;
-  tx_candidate_online_ = false;
   initialized_ = true;
 }
 
 bool RcReceiver::IsConfigValid(const Config &cfg) const {
-  const message::RcMapConfigMsg rc_map = ToRcMapConfig(cfg);
-  if (!message::IsRcMapConfigValid(rc_map)) {
-    return false;
-  }
-
-  return cfg.enabled_channels[cfg.roll_channel - 1u] &&
-         cfg.enabled_channels[cfg.pitch_channel - 1u] &&
-         cfg.enabled_channels[cfg.yaw_channel - 1u] &&
-         cfg.enabled_channels[cfg.throttle_channel - 1u];
+  return message::IsRcMapConfigValid(ToRcMapConfig(cfg));
 }
 
 uint16_t RcReceiver::ApplyCalibration(uint16_t raw_us, uint16_t min_us,
@@ -156,110 +137,65 @@ uint16_t RcReceiver::ApplyCalibration(uint16_t raw_us, uint16_t min_us,
   return calibrated;
 }
 
-void RcReceiver::RecomputeCurrentFromRaw() {
-  current_.channels.fill(0);
-  current_.roll_us = 0;
-  current_.pitch_us = 0;
-  current_.yaw_us = 0;
-  current_.throttle_us = 0;
+void RcReceiver::RecomputeFromRaw(RcData &out) const {
+  out.roll_us = 0;
+  out.pitch_us = 0;
+  out.yaw_us = 0;
+  out.throttle_us = 0;
 
-  if (raw_.timestamp_us == 0) {
+  if (out.timestamp_us == 0) {
     return;
   }
 
-  for (std::size_t i = 0; i < stm32_limits::kRcEnabledChannelCount; ++i) {
-    const uint8_t source_index = stm32_limits::kRcEnabledChannelIndices[i];
-    const uint16_t raw_value = raw_.channels[i];
+  for (std::size_t i = 0; i < message::kRcChannelCount; ++i) {
     const uint16_t calibrated_value = ApplyCalibration(
-        raw_value, calibration_.min_us[source_index],
-        calibration_.trim_us[source_index], calibration_.max_us[source_index],
-        calibration_.rev[source_index]);
-    current_.channels[i] = calibrated_value;
+        out.channels_raw[i], calibration_.min_us[i], calibration_.trim_us[i],
+        calibration_.max_us[i], calibration_.rev[i]);
 
-    const uint8_t source_channel = (uint8_t)(source_index + 1u);
+    const uint8_t source_channel = (uint8_t)(i + 1u);
     if (source_channel == cfg_.roll_channel) {
-      current_.roll_us = calibrated_value;
+      out.roll_us = calibrated_value;
     }
     if (source_channel == cfg_.pitch_channel) {
-      current_.pitch_us = calibrated_value;
+      out.pitch_us = calibrated_value;
     }
     if (source_channel == cfg_.yaw_channel) {
-      current_.yaw_us = calibrated_value;
+      out.yaw_us = calibrated_value;
     }
     if (source_channel == cfg_.throttle_channel) {
-      current_.throttle_us = calibrated_value;
+      out.throttle_us = calibrated_value;
     }
   }
 }
 
-void RcReceiver::RefreshLinkState(uint32_t now_us) {
-  current_.rx_online =
-      radio_status_update_us_ != 0 &&
-      (uint32_t)(now_us - radio_status_update_us_) <= kRxOnlineTimeoutUs;
-
-  const bool desired_tx_online = current_.rx_online && rssi_ >= kTxOnMinRssi;
-  if (desired_tx_online != tx_candidate_online_) {
-    tx_candidate_online_ = desired_tx_online;
-    tx_candidate_since_us_ = now_us;
-  }
-
-  const uint32_t debounce_us =
-      tx_candidate_online_ ? kTxOnDebounceUs : kTxOffDebounceUs;
-  if (current_.tx_online != tx_candidate_online_ &&
-      (uint32_t)(now_us - tx_candidate_since_us_) >= debounce_us) {
-    current_.tx_online = tx_candidate_online_;
-  }
-}
-
-bool RcReceiver::PublishIfChanged(const RcData &previous) {
-  if (vehicle_state_ == nullptr) {
+bool RcReceiver::PublishIfChanged(const RcData &next) {
+  const RcData &published = blackboard_->GetRc();
+  if (published.timestamp_us == next.timestamp_us &&
+      published.channels_raw == next.channels_raw &&
+      published.roll_us == next.roll_us &&
+      published.pitch_us == next.pitch_us &&
+      published.yaw_us == next.yaw_us &&
+      published.throttle_us == next.throttle_us) {
     return false;
   }
 
-  if (previous.timestamp_us == current_.timestamp_us &&
-      previous.channels == current_.channels &&
-      previous.roll_us == current_.roll_us &&
-      previous.pitch_us == current_.pitch_us &&
-      previous.yaw_us == current_.yaw_us &&
-      previous.throttle_us == current_.throttle_us &&
-      previous.rx_online == current_.rx_online &&
-      previous.tx_online == current_.tx_online) {
-    return false;
-  }
-
-  vehicle_state_->UpdateRc(current_);
+  blackboard_->UpdateRc(next);
   return true;
 }
 
 void RcReceiver::ProcessRawState(const message::RcChannelsMsg &msg,
                                  uint32_t now_us) {
-  if (vehicle_state_ == nullptr) {
+  if (blackboard_ == nullptr) {
     return;
   }
 
-  const RcData previous = current_;
-  radio_status_update_us_ = now_us;
-  rssi_ = msg.rssi;
-  raw_.timestamp_us = now_us;
-  current_.timestamp_us = now_us;
-  for (std::size_t i = 0; i < stm32_limits::kRcEnabledChannelCount; ++i) {
-    const uint8_t source_index = stm32_limits::kRcEnabledChannelIndices[i];
-    raw_.channels[i] = msg.channels[source_index];
+  RcData next = blackboard_->GetRc();
+  next.timestamp_us = now_us;
+  for (std::size_t i = 0; i < message::kRcChannelCount; ++i) {
+    next.channels_raw[i] = msg.channels[i];
   }
-  RecomputeCurrentFromRaw();
-
-  RefreshLinkState(now_us);
-  (void)PublishIfChanged(previous);
-}
-
-void RcReceiver::Poll(uint32_t now_us) {
-  if (vehicle_state_ == nullptr) {
-    return;
-  }
-
-  const RcData previous = current_;
-  RefreshLinkState(now_us);
-  (void)PublishIfChanged(previous);
+  RecomputeFromRaw(next);
+  (void)PublishIfChanged(next);
 }
 
 bool RcReceiver::SaveCalibration() {
@@ -294,10 +230,10 @@ bool RcReceiver::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
     return false;
   }
 
-  const RcData previous = current_;
+  RcData next = blackboard_->GetRc();
   cfg_ = candidate;
-  RecomputeCurrentFromRaw();
-  (void)PublishIfChanged(previous);
+  RecomputeFromRaw(next);
+  (void)PublishIfChanged(next);
   return true;
 }
 
@@ -321,9 +257,9 @@ bool RcReceiver::SetCalibrationConfig(
     return false;
   }
 
-  const RcData previous = current_;
+  RcData next = blackboard_->GetRc();
   calibration_ = updated;
-  RecomputeCurrentFromRaw();
-  (void)PublishIfChanged(previous);
+  RecomputeFromRaw(next);
+  (void)PublishIfChanged(next);
   return true;
 }

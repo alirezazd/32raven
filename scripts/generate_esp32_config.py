@@ -490,7 +490,6 @@ def _programmer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         },
     }
 
-
 def _wifi_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "ap": {

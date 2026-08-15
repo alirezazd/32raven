@@ -49,7 +49,7 @@ EscTelemetry &EscTelemetry::GetInstance() {
   return instance;
 }
 
-void EscTelemetry::Init(const Config &cfg) {
+void EscTelemetry::Init(const Config &cfg, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
@@ -57,6 +57,7 @@ void EscTelemetry::Init(const Config &cfg) {
     Panic(ErrorCode::Stm32::kEscTelemetryInitFailed);
   }
   cfg_ = cfg;
+  blackboard_ = &blackboard;
   ConfigureUart();
   StartRxDma();
   NVIC_SetPriority(USART3_IRQn, irq_priority::kEscTelemetry);
@@ -151,20 +152,43 @@ void EscTelemetry::Poll(uint32_t now_us) {
     expected_frame_size_ = kKissFrameSize;
     frame_len_ = 0;
   }
+
+  PublishIfChanged();
 }
 
-EscTelemetry::Snapshot EscTelemetry::GetSnapshot() const {
-  Snapshot snapshot{};
-  snapshot.motors = samples_;
-  snapshot.valid_mask = valid_mask_;
-  snapshot.frame_count = frame_count_;
-  snapshot.crc_error_count = crc_error_count_;
-  snapshot.unassigned_frame_count = unassigned_frame_count_;
-  snapshot.rx_drop_bytes = rx_drop_bytes_;
-  snapshot.rx_dma_error_count = rx_dma_error_count_;
-  snapshot.uart_error_count = uart_ore_error_count_ + uart_fe_error_count_ +
-                              uart_ne_error_count_ + uart_pe_error_count_;
-  return snapshot;
+void EscTelemetry::FillEscTelemetryData(EscTelemetryData &out) const {
+  out.valid_mask = valid_mask_;
+  out.frame_count = frame_count_;
+  out.crc_error_count = crc_error_count_;
+  out.unassigned_frame_count = unassigned_frame_count_;
+  out.rx_drop_bytes = rx_drop_bytes_;
+  out.rx_dma_error_count = rx_dma_error_count_;
+  out.uart_error_count = uart_ore_error_count_ + uart_fe_error_count_ +
+                         uart_ne_error_count_ + uart_pe_error_count_;
+
+  for (uint8_t i = 0; i < kMotorCount; ++i) {
+    const Sample &src = samples_[i];
+    EscTelemetryMotorData &dst = out.motors[i];
+    dst.timestamp_us = src.timestamp_us;
+    dst.voltage = static_cast<float>(src.voltage_centivolts) * 0.01f;
+    dst.current = static_cast<float>(src.current_centiamps) * 0.01f;
+    dst.consumption_mah = src.consumption_mah;
+    dst.electrical_rpm = src.electrical_rpm;
+    dst.rpm = src.rpm;
+    dst.temperature_c = src.temperature_c;
+    dst.valid = src.valid;
+  }
+}
+
+void EscTelemetry::PublishIfChanged() {
+  if (blackboard_ == nullptr ||
+      frame_count_ == blackboard_->GetEscTelemetry().frame_count) {
+    return;
+  }
+
+  EscTelemetryData data{};
+  FillEscTelemetryData(data);
+  blackboard_->UpdateEscTelemetry(data);
 }
 
 void EscTelemetry::OnUartInterrupt() {

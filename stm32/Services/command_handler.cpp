@@ -158,20 +158,13 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
     return;
   }
   const auto &req = message::PayloadAs<message::PrivilegedArmMsg>(pkt);
-  const bool armed = req.armed != 0u;
-  // Tearing the port down mid-write is how an ESC gets bricked, so an arm
-  // during a configuration session is refused rather than allowed to revoke.
-  if (armed && ctx.sys->MspSvc().EscConfigGranted()) {
+  // Sentinel owns the interlocks and the transition; this end only turns a
+  // refusal back into something the operator can hear.
+  if (!ctx.sys->SentinelSvc().RequestArm(ctx, req.armed != 0u)) {
     ctx.sys->FcLinkSvc().SendPacket(
         message::MsgId::kTone, message::ToneMsg{.tone = static_cast<uint8_t>(
                                                     message::Tone::kWarning)});
-    return;
   }
-  // Reset on every arm transition: a wound-up controller from a prior
-  // session must not kick the next arm.
-  ctx.sys->RateControllerSvc().Reset();
-  ctx.sys->EscSvc().SetArmed(armed);
-  ctx.sys->MixerSvc().SetArmed(armed);
 }
 
 static void OnSetEscConfigMode(AppContext &ctx, const message::Packet &pkt) {

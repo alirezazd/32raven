@@ -6,6 +6,7 @@
 
 #include <cstdint>
 
+#include "shared_state.hpp"
 #include "stm32f4xx.h"  // for TIM2 (used inline by Micros())
 
 // Wide on purpose: a microsecond count overflows 32 bits at 4295 seconds, so
@@ -45,7 +46,7 @@ class TimeBase {
 
  private:
   friend class System;
-  void Init(const Config &config);
+  void Init(const Config &config, SharedState &blackboard);
 
   static TimeBase &GetInstance();
 

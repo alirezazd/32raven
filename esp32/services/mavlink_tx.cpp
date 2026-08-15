@@ -252,18 +252,6 @@ namespace {
 // The heartbeat is a slot like any other. Its deadline can pull it earlier, but
 // it still reschedules by period, so leaving it out of the ladder only means
 // its offset is fixed at zero and whatever lands there collides with it.
-enum class TxSlot : uint32_t {
-  kHb,
-  kSys,
-  kGps,
-  kAtt,
-  kGpos,
-  kBatt,
-  kRc,
-  kEsc,
-  kCount,
-};
-
 constexpr uint16_t kSysStatusPeriodMs = 1000;
 
 constexpr uint32_t kSlotPeriodsMs[] = {
@@ -276,9 +264,20 @@ constexpr uint32_t kSlotPeriodsMs[] = {
     kMavlinkConfig.tx.periods.rc_ms,
     kMavlinkConfig.tx.periods.esc_ms,
 };
-static_assert(std::size(kSlotPeriodsMs) ==
-                  static_cast<std::size_t>(TxSlot::kCount),
+static_assert(std::size(kSlotPeriodsMs) == Mavlink::kTxSlotCount,
               "a TxSlot has no period here, so its offset goes unchecked");
+
+// Equal priority throughout leaves the tie-break as the whole rule: of the
+// streams due, the one waiting longest goes. Raising the heartbeat's would not
+// help -- its precedence comes from being dispatched before these at all.
+constexpr std::array<TopicConfig, Mavlink::kTxSlotCount>
+    kTxSlotConfigs = [] {
+      std::array<TopicConfig, Mavlink::kTxSlotCount> configs{};
+      for (size_t i = 0; i < configs.size(); ++i) {
+        configs[i] = TopicConfig{.period = kSlotPeriodsMs[i]};
+      }
+      return configs;
+    }();
 
 // 210 ms measured best against today's stream set. Pick keeps it while it
 // clears every slot and moves to the next value up when a period is retuned
@@ -290,8 +289,8 @@ static_assert(kTxSlotStaggerMs != 0,
               "no spacing near the target clears every configured TX period, "
               "so some stream would sit permanently in phase with the ladder");
 
-constexpr uint32_t StaggerMs(TxSlot slot) {
-  return static_cast<uint32_t>(slot) * kTxSlotStaggerMs;
+constexpr size_t SlotIndex(Mavlink::TxSlot slot) {
+  return static_cast<size_t>(slot);
 }
 
 }  // namespace
@@ -300,16 +299,9 @@ constexpr uint32_t StaggerMs(TxSlot slot) {
 // so this schedules that configuration and no other. It takes no config for
 // that reason: a parameter would suggest the offsets follow whatever is passed.
 void Mavlink::InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due) {
-  tx_schedule_.last_hb_done_ms =
+  last_hb_done_ms_ =
       force_heartbeat_due ? (now_ms - cfg_.tx.schedule.hb_deadline_ms) : now_ms;
-  tx_schedule_.next_hb_ms = now_ms + StaggerMs(TxSlot::kHb);
-  tx_schedule_.next_sys_ms = now_ms + StaggerMs(TxSlot::kSys);
-  tx_schedule_.next_gps_ms = now_ms + StaggerMs(TxSlot::kGps);
-  tx_schedule_.next_att_ms = now_ms + StaggerMs(TxSlot::kAtt);
-  tx_schedule_.next_gpos_ms = now_ms + StaggerMs(TxSlot::kGpos);
-  tx_schedule_.next_batt_ms = now_ms + StaggerMs(TxSlot::kBatt);
-  tx_schedule_.next_rc_ms = now_ms + StaggerMs(TxSlot::kRc);
-  tx_schedule_.next_esc_ms = now_ms + StaggerMs(TxSlot::kEsc);
+  tx_scheduler_.Init(kTxSlotConfigs, tx_slots_, kTxSlotStaggerMs, now_ms);
 }
 
 bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
@@ -318,11 +310,11 @@ bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
   }
 
   const int32_t since_done =
-      static_cast<int32_t>(now_ms - tx_schedule_.last_hb_done_ms);
+      static_cast<int32_t>(now_ms - last_hb_done_ms_);
   if (since_done >= static_cast<int32_t>(cfg_tx.schedule.hb_deadline_ms)) {
     return true;
   }
-  return static_cast<int32_t>(now_ms - tx_schedule_.next_hb_ms) >= 0;
+  return tx_scheduler_.IsDue(SlotIndex(TxSlot::kHb), now_ms);
 }
 
 void Mavlink::ServiceTx(uint32_t now_ms) {
@@ -370,7 +362,7 @@ bool Mavlink::StartNextFrameIfIdle(TxState &tx, const Config::Tx &cfg_tx,
 
 void Mavlink::CompleteFrame(TxFrameState &frame, uint32_t now_ms) {
   if (frame.IsHeartbeat()) {
-    tx_schedule_.last_hb_done_ms = now_ms;
+    last_hb_done_ms_ = now_ms;
   }
   frame.Clear();
 }
@@ -440,13 +432,13 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
                              MAV_TYPE_QUADROTOR, mav_autopilot_32raven,
                              base_mode, custom_mode, system_status);
 
-  tx_schedule_.next_hb_ms += cfg_tx.periods.hb_ms;
+  // Also what stops the slot staying due and refiring next poll, since the
+  // deadline can pull the heartbeat out ahead of it.
+  tx_scheduler_.MarkSent(SlotIndex(TxSlot::kHb), now_ms);
   return TxFrameState{m, /*is_heartbeat=*/true};
 }
 
 Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
-  tx_schedule_.next_sys_ms += kSysStatusPeriodMs;
-
   uint32_t sensors_present = 0;
   uint32_t sensors_enabled = 0;
   uint32_t sensors_health = 0;
@@ -492,8 +484,6 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
     const Config::Tx &cfg_tx) {
-  tx_schedule_.next_gps_ms += cfg_tx.periods.gps_ms;
-
   const std::optional<message::GpsData> latest = GetCachedValue(gps_);
   if (!latest.has_value()) {
     return std::nullopt;
@@ -522,8 +512,6 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
     const Config::Tx &cfg_tx) {
-  tx_schedule_.next_att_ms += cfg_tx.periods.att_ms;
-
   const std::optional<message::GpsData> latest = GetCachedValue(gps_);
   if (!latest.has_value()) {
     return std::nullopt;
@@ -545,8 +533,6 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame(
     const Config::Tx &cfg_tx) {
-  tx_schedule_.next_gpos_ms += cfg_tx.periods.gpos_ms;
-
   const std::optional<message::GpsData> latest = GetCachedValue(gps_);
   if (!latest.has_value()) {
     return std::nullopt;
@@ -562,8 +548,6 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame(
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
     const Config::Tx &cfg_tx) {
-  tx_schedule_.next_batt_ms += cfg_tx.periods.batt_ms;
-
   const std::optional<message::GpsData> latest = GetCachedValue(gps_);
   if (!latest.has_value()) {
     return std::nullopt;
@@ -598,51 +582,54 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
     const Config::Tx &cfg_tx) {
-  tx_schedule_.next_rc_ms += cfg_tx.periods.rc_ms;
-
   if (!rc_channels_.have_data) {
     return std::nullopt;
   }
 
   const message::RcChannelsMsg &channels = rc_channels_.value;
-  constexpr uint16_t invalid_channel_value = UINT16_MAX;
+  // RC_CHANNELS is fixed at eighteen slots whatever the aircraft carries, so
+  // the ones past our channel count are filled with the value the field
+  // documents as "not present" rather than with zeros a ground station would
+  // draw as live sticks at minimum.
   constexpr uint16_t mavlink_unused_channel_value = UINT16_MAX;
-  constexpr uint8_t rc_channel_count = static_cast<uint8_t>(
-      sizeof(channels.channels) / sizeof(channels.channels[0]));
+  constexpr size_t mavlink_rc_channel_slots = 18u;
+  static_assert(message::kRcChannelCount <= mavlink_rc_channel_slots,
+                "more channels enabled than RC_CHANNELS can carry");
 
   const bool rx_online =
       (channels.flags & message::kRcChannelsFlagRxOnline) != 0;
-  const uint8_t channel_count = rx_online ? rc_channel_count : 0u;
-  const uint8_t rssi = rx_online ? channels.rssi : UINT8_MAX;
+  const uint8_t channel_count =
+      rx_online ? static_cast<uint8_t>(message::kRcChannelCount) : 0u;
+  // CRSF reports link quality as a percentage; RC_CHANNELS.rssi spreads its
+  // range over 0-254 and keeps UINT8_MAX for unknown, so a percentage passed
+  // through unscaled would read as roughly two fifths of the real figure.
+  const auto to_mavlink_rssi = [](uint8_t link_quality) -> uint8_t {
+    const uint32_t percent = link_quality > 100u ? 100u : link_quality;
+    return static_cast<uint8_t>((percent * 254u) / 100u);
+  };
+  const uint8_t rssi =
+      rx_online ? to_mavlink_rssi(channels.link_quality) : UINT8_MAX;
+
+  std::array<uint16_t, mavlink_rc_channel_slots> slots{};
+  slots.fill(mavlink_unused_channel_value);
+  if (rx_online) {
+    for (size_t i = 0; i < message::kRcChannelCount; ++i) {
+      slots[i] = channels.channels[i];
+    }
+  }
 
   mavlink_message_t m{};
   mavlink_msg_rc_channels_pack(
       cfg_.identity.sysid, cfg_.identity.compid, &m, rc_channels_.update_ms,
-      channel_count, rx_online ? channels.channels[0] : invalid_channel_value,
-      rx_online ? channels.channels[1] : invalid_channel_value,
-      rx_online ? channels.channels[2] : invalid_channel_value,
-      rx_online ? channels.channels[3] : invalid_channel_value,
-      rx_online ? channels.channels[4] : invalid_channel_value,
-      rx_online ? channels.channels[5] : invalid_channel_value,
-      rx_online ? channels.channels[6] : invalid_channel_value,
-      rx_online ? channels.channels[7] : invalid_channel_value,
-      rx_online ? channels.channels[8] : invalid_channel_value,
-      rx_online ? channels.channels[9] : invalid_channel_value,
-      rx_online ? channels.channels[10] : invalid_channel_value,
-      rx_online ? channels.channels[11] : invalid_channel_value,
-      rx_online ? channels.channels[12] : invalid_channel_value,
-      rx_online ? channels.channels[13] : invalid_channel_value,
-      rx_online ? channels.channels[14] : invalid_channel_value,
-      rx_online ? channels.channels[15] : invalid_channel_value,
-      mavlink_unused_channel_value, mavlink_unused_channel_value, rssi);
+      channel_count, slots[0], slots[1], slots[2], slots[3], slots[4], slots[5],
+      slots[6], slots[7], slots[8], slots[9], slots[10], slots[11], slots[12],
+      slots[13], slots[14], slots[15], slots[16], slots[17], rssi);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
     const Config::Tx &cfg_tx) {
-  tx_schedule_.next_esc_ms += cfg_tx.periods.esc_ms;
-
   if (!esc_telemetry_.have_data) {
     return std::nullopt;
   }
@@ -673,63 +660,53 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
     const Config::Tx &cfg_tx, uint32_t now_ms) {
-  // Among periodic streams, send whichever frame has been due the longest.
-  // This avoids permanently favoring a stream that just happens to be checked
-  // first in the list below.
-  enum class Pick : uint8_t {
-    kNone,
-    kSys,
-    kGps,
-    kAtt,
-    kGpos,
-    kBatt,
-    kEsc,
-    kRc,
-  } pick = Pick::kNone;
-
-  uint32_t best_age = 0;
-  const auto consider = [&](bool enabled, uint32_t due_ms, Pick candidate) {
-    if (!enabled) {
-      return;
+  // The heartbeat holds a ladder slot for its offset but is dispatched by
+  // ShouldSendHbNow before this runs; skipping it here is what keeps it from
+  // going out twice.
+  while (const std::optional<size_t> due = tx_scheduler_.NextDue(now_ms)) {
+    const auto slot = static_cast<TxSlot>(*due);
+    if (slot == TxSlot::kHb) {
+      tx_scheduler_.Skip(*due, now_ms);
+      continue;
     }
 
-    const int32_t age = static_cast<int32_t>(now_ms - due_ms);
-    if (age < 0) {
-      return;
+    std::optional<TxFrameState> frame;
+    switch (slot) {
+      case TxSlot::kSys:
+        frame = StartSysStatusFrame();
+        break;
+      case TxSlot::kGps:
+        frame = StartGpsRawIntFrame(cfg_tx);
+        break;
+      case TxSlot::kAtt:
+        frame = StartAttitudeFrame(cfg_tx);
+        break;
+      case TxSlot::kGpos:
+        frame = StartGlobalPositionIntFrame(cfg_tx);
+        break;
+      case TxSlot::kBatt:
+        frame = StartBatteryStatusFrame(cfg_tx);
+        break;
+      case TxSlot::kRc:
+        frame = StartRcChannelsFrame(cfg_tx);
+        break;
+      case TxSlot::kEsc:
+        frame = StartEscStatusFrame(cfg_tx);
+        break;
+      case TxSlot::kHb:
+      case TxSlot::kCount:
+        break;
     }
 
-    if (pick == Pick::kNone || static_cast<uint32_t>(age) > best_age) {
-      best_age = static_cast<uint32_t>(age);
-      pick = candidate;
+    // A stream with nothing to say still consumes its turn: the deadline moves
+    // either way, so a source that never has data cannot spin here.
+    if (!frame) {
+      tx_scheduler_.Skip(*due, now_ms);
+      continue;
     }
-  };
 
-  consider(true, tx_schedule_.next_sys_ms, Pick::kSys);
-  consider(cfg_tx.periods.gps_ms > 0, tx_schedule_.next_gps_ms, Pick::kGps);
-  consider(cfg_tx.periods.att_ms > 0, tx_schedule_.next_att_ms, Pick::kAtt);
-  consider(cfg_tx.periods.gpos_ms > 0, tx_schedule_.next_gpos_ms, Pick::kGpos);
-  consider(cfg_tx.periods.batt_ms > 0, tx_schedule_.next_batt_ms, Pick::kBatt);
-  consider(cfg_tx.periods.esc_ms > 0, tx_schedule_.next_esc_ms, Pick::kEsc);
-  consider(cfg_tx.periods.rc_ms > 0, tx_schedule_.next_rc_ms, Pick::kRc);
-
-  switch (pick) {
-    case Pick::kSys:
-      return StartSysStatusFrame();
-    case Pick::kGps:
-      return StartGpsRawIntFrame(cfg_tx);
-    case Pick::kAtt:
-      return StartAttitudeFrame(cfg_tx);
-    case Pick::kGpos:
-      return StartGlobalPositionIntFrame(cfg_tx);
-    case Pick::kBatt:
-      return StartBatteryStatusFrame(cfg_tx);
-    case Pick::kEsc:
-      return StartEscStatusFrame(cfg_tx);
-    case Pick::kRc:
-      return StartRcChannelsFrame(cfg_tx);
-    case Pick::kNone:
-    default:
-      break;
+    tx_scheduler_.MarkSent(*due, now_ms);
+    return frame;
   }
 
   return std::nullopt;

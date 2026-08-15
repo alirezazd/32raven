@@ -54,6 +54,8 @@ constexpr std::array<System::Component,
         System::Component::kAhrs,
         System::Component::kRateController,
         System::Component::kAttitudeController,
+        System::Component::kSentinel,
+        System::Component::kStatPublisher,
     };
 
 // -Werror=switch already ties Component to InitComponent's switch; this ties it
@@ -131,7 +133,7 @@ void System::InitComponent(Component c) {
       ::Rcc::GetInstance().Init(kRccConfig);
       break;
     case Component::kTimeBase:
-      System::GetInstance().Time().Init(kTimeBaseConfig);
+      System::GetInstance().Time().Init(kTimeBaseConfig, blackboard_);
       break;
     case Component::kGpio:
       GPIO::GetInstance().Init(kGpioDefault);
@@ -143,19 +145,25 @@ void System::InitComponent(Component c) {
       EE::GetInstance().Init(GPIO::GetInstance(), Spi1::GetInstance());
       break;
     case Component::kBattery:
-      Battery::GetInstance().Init(kBatteryConfig);
+      Battery::GetInstance().Init(kBatteryConfig, blackboard_);
       break;
     case Component::kUart6:
       Uart6::GetInstance().Init(kUart6Config);
       break;
     case Component::kRcReceiver:
       RcReceiver::GetInstance().Init(kRcReceiverConfig, EE::GetInstance(),
-                                     vehicle_state_);
+                                     blackboard_);
       break;
     case Component::kCrsfLink:
       crsf_link_service_.Init(kCrsfLinkConfig, Uart6::GetInstance(),
-                              vehicle_state_, RcReceiver::GetInstance(),
-                              FcLink::GetInstance());
+                              blackboard_, RcReceiver::GetInstance());
+      break;
+    case Component::kSentinel:
+      sentinel_.Init(blackboard_, esc_service_, rate_controller_);
+      break;
+    case Component::kStatPublisher:
+      StatPublisher::GetInstance().Init(kStatPublisherConfig,
+                                        TimeBase::GetInstance().Micros());
       break;
     case Component::kLed:
       LED::GetInstance().Init(GPIO::GetInstance(), kLedConfig);
@@ -171,11 +179,12 @@ void System::InitComponent(Component c) {
       DShotTim1::GetInstance().Init(kDshotTim1Config);
       break;
     case Component::kEscTelemetry:
-      EscTelemetry::GetInstance().Init(kEscTelemetryConfig);
+      EscTelemetry::GetInstance().Init(kEscTelemetryConfig,
+                                       blackboard_);
       break;
     case Component::kEscService:
       esc_service_.Init(kEscServiceConfig, EscTelemetry::GetInstance(),
-                        vehicle_state_);
+                        blackboard_);
       break;
     case Component::kUsbCdc:
       UsbCdc::GetInstance().Init(kUsbCdcConfig);
@@ -191,7 +200,7 @@ void System::InitComponent(Component c) {
       break;
     case Component::kMspService:
       msp_service_.Init(kMspServiceConfig, UsbCdc::GetInstance(),
-                        vehicle_state_, four_way_service_, esc_service_);
+                        blackboard_, four_way_service_, esc_service_);
       break;
     case Component::kButton:
       Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
@@ -201,13 +210,15 @@ void System::InitComponent(Component c) {
       break;
     case Component::kM10:
       M10::GetInstance().Init(kM10Config);
+      gps_service_.Init(Uart2::GetInstance(), blackboard_);
       break;
     case Component::kIcm42688p:
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi2::GetInstance(),
-                                    EE::GetInstance(), kIcm42688pConfig);
+                                    EE::GetInstance(), kIcm42688pConfig,
+                                    blackboard_);
       break;
     case Component::kMultirotorMixer:
-      mixer_.Init(kMultirotorMixerConfig);
+      mixer_.Init(kMultirotorMixerConfig, blackboard_);
       break;
     case Component::kAhrs:
       ahrs_.Init(kAhrsConfig);

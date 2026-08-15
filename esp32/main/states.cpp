@@ -7,6 +7,7 @@
 
 #include "ctx.hpp"
 #include "error_code.hpp"
+#include "esp32_config.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
@@ -293,10 +294,18 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
   ctx.sys->StopNetwork();
   ctx.sys->FcLink().ResetRxState();
-  ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
-                               message::SetEscConfigModeMsg{.enabled = 1u});
   warned_armed_ = false;
+  stream_seen_ = false;
   last_usb_frames_ = 0;
+  request_attempts_ = 1;
+  last_request_ms_ = ctx.sys->Timebase().NowMs();
+  RequestEscConfig(ctx, true);
+}
+
+void EscConfigState::RequestEscConfig(AppContext &ctx, bool enabled) const {
+  ctx.sys->FcLink().SendPacket(
+      message::MsgId::kSetEscConfigMode,
+      message::SetEscConfigModeMsg{.enabled = static_cast<uint8_t>(enabled)});
 }
 
 void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
@@ -320,6 +329,29 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   }
 
   DrainFcLink(ctx);
+
+  // The STM32 publishes kUsbStatus only while it is in ESC config, so the
+  // stream arriving at all is the grant -- no flag has to carry it, and its
+  // absence is the only evidence a lost request leaves. Retrying on the
+  // handshake cadence rather than on the report closes the loop that a
+  // report-driven retry cannot: no reports means nothing to answer.
+  if (!stream_seen_) {
+    if (ctx.sys->Ui().PeerUsb(now).has_value()) {
+      stream_seen_ = true;
+    } else if ((now - last_request_ms_) >=
+               kFcLinkConfig.handshake_retry_period_ms) {
+      if (request_attempts_ >= kFcLinkConfig.handshake_attempts) {
+        ESP_LOGW(kTag, "EscConfig -> Serving (STM32 never opened the port)");
+        ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+        ctx.sys->Ui().NotifyUserActivity();
+        ctx.sm->ReqTransition(*ctx.serving_state);
+        return;
+      }
+      last_request_ms_ = now;
+      request_attempts_++;
+      RequestEscConfig(ctx, true);
+    }
+  }
 
   // Edge triggered because the report arrives every second either way, so
   // anything less would hold the screen awake for the whole session.

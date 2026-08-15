@@ -6,26 +6,23 @@
 #include "icm42688p.hpp"
 #include "state_machine.hpp"
 
-struct IFastTickState {
-  virtual ~IFastTickState() = default;
-  virtual void OnFastTick(AppContext &ctx,
-                          const Icm42688p::SampleBatch &batch) = 0;
+struct IControlTickState {
+  virtual ~IControlTickState() = default;
+  virtual void OnControlTick(AppContext &ctx) = 0;
 };
 
-struct IdleState : public IState<AppContext>, public IFastTickState {
+struct IdleState : public IState<AppContext>, public IControlTickState {
   const char *Name() const override { return "Idle"; }
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
-  void OnFastTick(AppContext &ctx,
-                  const Icm42688p::SampleBatch &batch) override;
+  void OnControlTick(AppContext &ctx) override;
 };
 
-struct ArmedState : public IState<AppContext>, public IFastTickState {
+struct ArmedState : public IState<AppContext>, public IControlTickState {
   const char *Name() const override { return "Armed"; }
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx, SmTick now) override;
-  void OnFastTick(AppContext &ctx,
-                  const Icm42688p::SampleBatch &batch) override;
+  void OnControlTick(AppContext &ctx) override;
 };
 
 struct EscConfigState : public IState<AppContext> {
@@ -34,5 +31,4 @@ struct EscConfigState : public IState<AppContext> {
   void OnStep(AppContext &ctx, SmTick now) override;
 
  private:
-  uint32_t last_status_send_us_ = 0;
 };

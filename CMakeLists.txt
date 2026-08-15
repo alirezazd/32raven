@@ -123,8 +123,8 @@ set(FORBIDDEN_CHECK_ESP32_STAMP
     "${CMAKE_CURRENT_BINARY_DIR}/forbidden_check_esp32.stamp")
 add_custom_command(
   OUTPUT "${FORBIDDEN_CHECK_ESP32_STAMP}"
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
-          "${LINT_EXCEPTIONS_FILE}"
+  COMMAND ${UV_RUN} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.py
+          --exceptions "${LINT_EXCEPTIONS_FILE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/esp32"
           "${CMAKE_CURRENT_SOURCE_DIR}/libs"
   COMMAND ${CMAKE_COMMAND} -E touch "${FORBIDDEN_CHECK_ESP32_STAMP}"
@@ -132,11 +132,11 @@ add_custom_command(
     ${LINT_ESP32_SOURCE_FILES}
     ${LINT_LIB_SOURCE_FILES}
     ${COMMON_CONFIG_HPP}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.py
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/forbidden_exceptions.txt
     ${LINT_EXCEPTIONS_FILE}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  COMMENT "Running ESP32 static analysis (check_forbidden.sh)..."
+  COMMENT "Running ESP32 static analysis (check_forbidden.py)..."
   VERBATIM
 )
 
@@ -144,8 +144,8 @@ set(FORBIDDEN_CHECK_STM32_STAMP
     "${CMAKE_CURRENT_BINARY_DIR}/forbidden_check_stm32.stamp")
 add_custom_command(
   OUTPUT "${FORBIDDEN_CHECK_STM32_STAMP}"
-  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
-          "${LINT_EXCEPTIONS_FILE}"
+  COMMAND ${UV_RUN} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.py
+          --exceptions "${LINT_EXCEPTIONS_FILE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/stm32"
           "${CMAKE_CURRENT_SOURCE_DIR}/libs"
   COMMAND ${CMAKE_COMMAND} -E touch "${FORBIDDEN_CHECK_STM32_STAMP}"
@@ -153,11 +153,11 @@ add_custom_command(
     ${LINT_STM32_SOURCE_FILES}
     ${LINT_LIB_SOURCE_FILES}
     ${COMMON_CONFIG_HPP}
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.sh
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/check_forbidden.py
     ${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/forbidden_exceptions.txt
     ${LINT_EXCEPTIONS_FILE}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  COMMENT "Running STM32 static analysis (check_forbidden.sh)..."
+  COMMENT "Running STM32 static analysis (check_forbidden.py)..."
   VERBATIM
 )
 

@@ -1,0 +1,289 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Alireza Azadi
+
+#pragma once
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <array>
+#include <cstdint>
+
+#include "flight_mode.hpp"
+#include "message.hpp"
+#include "stm32_limits.hpp"
+
+// POD (Plain Old Data) Sensor Packets
+
+// One IMU sample, already through the axis map: body-NED, SI units. Declared
+// here rather than in the driver because the mailbox below is what carries it,
+// and nothing downstream should have to name a driver type to read the burst.
+struct ImuSample {
+  uint64_t timestamp_us = 0;
+  float accel_mps2[3] = {0.0f, 0.0f, 0.0f};
+  float gyro_rad_s[3] = {0.0f, 0.0f, 0.0f};
+};
+
+struct ImuSampleBatch {
+  uint8_t count = 0;
+  ImuSample samples[stm32_limits::kIcm42688pMaxWatermarkRecords]{};
+};
+
+// The fast path's handoff, and the one entry here that is not a plain store.
+// Every other field means "latest value, read whenever"; this one is a
+// single-slot mailbox with a two-party contract:
+//
+//   the sample interrupt sets `fresh` 0 -> 1 and refuses to write while it is
+//   set, so a burst landing mid-read is dropped and counted rather than tearing
+//   the batch under the reader;
+//   the consumer clears it 1 -> 0, and only once it has finished reading.
+//
+// `fresh` leads so the producer's test reads one word. Clearing it from
+// anywhere but the consumer silently costs that consumer a burst, which is why
+// both sides are reached through keyed accessors rather than the field.
+struct ImuSampleSlot {
+  volatile bool fresh = false;
+  ImuSampleBatch batch{};
+};
+
+struct GpsData {
+  uint64_t timestamp_us;
+  uint16_t year;
+  uint8_t month;
+  uint8_t day;
+  uint8_t hour;
+  uint8_t min;
+  uint8_t sec;
+  uint8_t valid;  // PVT validity flags
+
+  uint32_t tAcc;  // ns
+  int32_t lat;    // deg * 1e7
+  int32_t lon;    // deg * 1e7
+  int32_t alt;    // mm (MSL)
+  uint32_t hAcc;  // mm
+  uint32_t vAcc;  // mm
+  uint16_t vel;   // cm/s
+  uint16_t hdg;   // cdeg
+  uint8_t num_sats;
+  uint8_t fix_type;  // 0-1: no fix, 2: 2D, 3: 3D
+
+  // Quality metrics (DOP)
+  uint16_t gDOP;  // Geometric DOP [0.01]
+  uint16_t pDOP;  // Position DOP [0.01]
+  uint16_t hDOP;  // Horizontal DOP [0.01]
+  uint16_t vDOP;  // Vertical DOP [0.01]
+
+  // Covariance (for Kalman filtering)
+  uint8_t posCovValid;  // Position covariance valid flag
+  uint8_t velCovValid;  // Velocity covariance valid flag
+  float posCovNN;       // Position covariance North-North [m²]
+  float posCovEE;       // Position covariance East-East [m²]
+  float posCovDD;       // Position covariance Down-Down [m²]
+};
+
+struct BatteryData {
+  float voltage;
+  float current;
+  float mah_drawn;
+  uint8_t percentage;  // 0-100
+};
+
+struct EscTelemetryMotorData {
+  uint32_t timestamp_us = 0;
+  float voltage = 0.0f;
+  float current = 0.0f;
+  uint16_t consumption_mah = 0;
+  uint32_t electrical_rpm = 0;
+  uint32_t rpm = 0;
+  int16_t temperature_c = 0;
+  bool valid = false;
+};
+
+struct EscTelemetryData {
+  std::array<EscTelemetryMotorData, 4> motors{};
+  uint8_t valid_mask = 0;
+  uint32_t frame_count = 0;
+  uint32_t crc_error_count = 0;
+  uint32_t unassigned_frame_count = 0;
+  uint32_t rx_drop_bytes = 0;
+  uint32_t rx_dma_error_count = 0;
+  uint32_t uart_error_count = 0;
+};
+
+// The sample path's own account of itself: what it produced, where the rest
+// went. Written from the sample interrupt on every burst, so `timestamp_us`
+// doubles as that path's heartbeat -- a stalled sensor freezes the whole
+// struct, which is what a staleness check is looking for.
+//
+// Counters only, deliberately: the thresholds that decide when a fault rate
+// matters live with Sentinel, not with the driver that trips over them.
+struct ImuHealth {
+  uint32_t timestamp_us = 0;
+  uint32_t publish_count = 0;  // bursts handed to the control loop
+  // Any exit from a sample interrupt that did not publish. The sum of the four
+  // below, kept because it is what the driver's recovery window counts.
+  uint32_t path_faults = 0;
+  uint32_t true_overruns = 0;   // interrupt arrived with a transfer in flight
+  uint32_t dma_start_fails = 0;
+  uint32_t spi_errors = 0;
+  uint32_t parse_fails = 0;
+  uint32_t dropped_records = 0;  // discarded by a FIFO flush, counted exactly
+  // Published but never claimed, because the control loop still held the
+  // previous burst. In samples, so it compares directly against the ODR.
+  uint32_t missed_samples = 0;
+  uint8_t last_bad_header = 0;
+};
+
+// Die temperature, on its own cadence rather than in EstimatorState. The
+// signal has a ~90 s thermal constant, so riding the fast path would carry a
+// thousand identical values a second; the driver publishes it about once a
+// second instead. `timestamp_us` is when the sample it decoded from arrived.
+//
+// Two aligned words written from the sample interrupt and read from the slow
+// loop. Deliberately unguarded: a reader caught between them pairs a reading
+// with the previous timestamp, and one publication interval of a 90 s signal is
+// millikelvin. Compare EstimatorState, where a torn quaternion is not unit and
+// the value is wrong rather than stale.
+struct ImuTemperature {
+  uint32_t timestamp_us = 0;
+  float celsius = 0.0f;
+};
+
+struct EstimatorState {
+  uint64_t timestamp_us = 0;
+  // Both averaged over the burst the control tick consumed. Accel is here so
+  // the one physical-units view of the sensor is complete: telemetry, logging
+  // and accelerometer calibration all want it, and none of them should have to
+  // know the chip's frame or full-scale rules to get it.
+  Eigen::Vector3f gyro_body_rad_s = Eigen::Vector3f::Zero();
+  Eigen::Vector3f accel_body_mps2 = Eigen::Vector3f::Zero();
+  // Body attitude in world (NED).
+  Eigen::Quaternionf attitude_world_to_body = Eigen::Quaternionf::Identity();
+};
+
+struct RcData {
+  uint32_t timestamp_us = 0;
+  // As the receiver reported them. Calibration is a flight-control reading of
+  // the sticks, not a property of the signal, so it stops at the four axes
+  // below -- everything leaving the vehicle quotes the receiver instead.
+  std::array<uint16_t, message::kRcChannelCount> channels_raw{};
+  uint16_t roll_us = 0;
+  uint16_t pitch_us = 0;
+  uint16_t yaw_us = 0;
+  uint16_t throttle_us = 0;
+};
+
+// CRSF LINK_STATISTICS (0x14). Separate from RcData because it arrives on its
+// own frame: carried on the channels' timestamp it could be arbitrarily stale
+// while reading as fresh as the sticks.
+struct CrsfLinkData {
+  uint32_t timestamp_us = 0;
+  uint8_t uplink_rssi_ant1_dbm = 0;
+  uint8_t uplink_rssi_ant2_dbm = 0;
+  uint8_t uplink_link_quality = 0;
+  int8_t uplink_snr_db = 0;
+  uint8_t active_antenna = 0;
+  uint8_t rf_mode = 0;
+  uint8_t uplink_tx_power_index = 0;
+  uint8_t downlink_rssi_dbm = 0;
+  uint8_t downlink_link_quality = 0;
+  int8_t downlink_snr_db = 0;
+};
+
+// The USB bench session: link state from the CDC driver plus the two dialects
+// that share the port. MspService is the one writer.
+//
+// `timestamp_us` marks when a field below last *changed*, not when it was
+// sampled: outside a session nothing here moves for minutes, so a sample time
+// would make every poll look like news.
+struct UsbStatusData {
+  uint32_t timestamp_us = 0;
+  uint32_t msp_requests = 0;
+  uint32_t msp_replies = 0;
+  uint32_t four_way_requests = 0;
+  uint32_t four_way_replies = 0;
+  bool attached = false;
+  bool configured = false;
+  bool port_open = false;
+  bool esc_config_granted = false;
+};
+
+class SharedState {
+ public:
+  // WRITERS (Called by Drivers)
+
+  void UpdateGps(const GpsData &data) { gps_ = data; }
+  void UpdateBattery(const BatteryData &data) { bat_ = data; }
+  void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
+  void UpdateRc(const RcData &data) { rc_ = data; }
+  void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
+  // Written from the TIM5 interrupt. Milliseconds in a single word on
+  // purpose: the store is one instruction and cannot be observed torn,
+  // which a 64-bit microsecond count on a 32-bit core would be.
+  void UpdateUptimeMs(uint32_t uptime_ms) { uptime_ms_ = uptime_ms; }
+  // Monotonic counters, so a reader preempted mid-copy is off by at most one
+  // increment on one field -- worth knowing where a rate is derived from it,
+  // not worth a seqlock.
+  void UpdateImuHealth(const ImuHealth &data) { imu_health_ = data; }
+  void UpdateImuTemperature(const ImuTemperature &data) { imu_temp_ = data; }
+
+  void UpdateEstimate(const EstimatorState &data) { estimate_ = data; }
+  void UpdateUsbStatus(const UsbStatusData &data) { usb_ = data; }
+  void SetFlightMode(FlightMode mode) { mode_ = mode; }
+
+  // READERS (Called by Logic/Consumers)
+
+  // Fast access for Control Loop (High Frequency)
+  const GpsData &GetGps() const { return gps_; }
+  const BatteryData &GetBattery() const { return bat_; }
+  const EscTelemetryData &GetEscTelemetry() const { return esc_; }
+  const RcData &GetRc() const { return rc_; }
+  const CrsfLinkData &GetCrsfLink() const { return crsf_link_; }
+  // Monotonic since boot; wraps at 49.7 days rather than TIM2's 71.6 min.
+  uint32_t UptimeMs() const { return uptime_ms_; }
+  const ImuHealth &GetImuHealth() const { return imu_health_; }
+  const ImuTemperature &GetImuTemperature() const { return imu_temp_; }
+
+  const EstimatorState &GetEstimate() const { return estimate_; }
+  const UsbStatusData &GetUsbStatus() const { return usb_; }
+  FlightMode GetFlightMode() const { return mode_; }
+  bool IsArmed() const { return armed_; }
+  // message::kVehicleFailsafeFlag*. Readable from the control loop, which is
+  // what keeps it here rather than behind a Sentinel accessor.
+  uint32_t FailsafeFlags() const { return failsafe_flags_; }
+
+  // The burst's two parties, each reaching only its own side of the handshake.
+  // Roadmap #19 replaces these with per-producer passkeys; friendship is the
+  // interim, and it is deliberately narrow -- neither class has any other
+  // reason to touch a private here.
+  const ImuSampleSlot &GetImuSampleSlot() const { return imu_slot_; }
+
+ private:
+  friend class Icm42688p;
+  friend class Ahrs;
+  ImuSampleSlot &ImuSampleMailbox() { return imu_slot_; }
+
+  // Sentinel owns every arm transition and every failsafe verdict, so it is the
+  // only writer of both. Readers get IsArmed() and FailsafeFlags() above;
+  // anything that needs to *change* the arm state goes through
+  // Sentinel::RequestArm, which carries the interlock and the stop frames.
+  friend class Sentinel;
+  void SetArmed(bool armed) { armed_ = armed; }
+  void SetFailsafeFlags(uint32_t flags) { failsafe_flags_ = flags; }
+
+  GpsData gps_{};
+  BatteryData bat_{};
+  EscTelemetryData esc_{};
+  RcData rc_{};
+  CrsfLinkData crsf_link_{};
+  uint32_t uptime_ms_ = 0;
+  ImuHealth imu_health_{};
+  ImuTemperature imu_temp_{};
+  // Written from the sample interrupt, so it leads the members the slow loop
+  // reads rather than sitting among them.
+  alignas(8) ImuSampleSlot imu_slot_{};
+  EstimatorState estimate_{};
+  UsbStatusData usb_{};
+  FlightMode mode_ = FlightMode::kAcro;
+  uint32_t failsafe_flags_ = 0;
+  bool armed_ = false;
+};

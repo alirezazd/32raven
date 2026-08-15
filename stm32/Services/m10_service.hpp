@@ -5,10 +5,9 @@
 
 #include <cstdint>
 #include <cstring>
-#include <optional>
 
-#include "state_machine.hpp"
-#include "vehicle_state.hpp"
+#include "shared_state.hpp"
+#include "uart.hpp"
 
 struct M10PVTData {
   uint32_t iTOW;
@@ -86,8 +85,6 @@ static_assert(sizeof(M10COVData) == 56,
               "M10COVData size must match UBX NAV-COV payload");
 
 struct M10ParserContext {
-  uint8_t current_byte;
-
   uint8_t cls;
   uint8_t id;
   uint16_t len;
@@ -107,6 +104,11 @@ struct M10ParserContext {
   M10COVData &cov_out;
   bool &new_data_out;
 
+  // Frames are stamped with the UART's idle-line time, not the parse time --
+  // bytes queue for an unbounded spell before the poll reaches them, and the
+  // epoch guard compares two such stamps against each other.
+  Uart2 *uart = nullptr;
+
   bool epoch_ready = false;
   bool dop_ready = false;
   bool cov_ready = false;
@@ -115,11 +117,23 @@ struct M10ParserContext {
   uint32_t oversize_len_count = 0;
   uint32_t frame_ok_count = 0;
 
-  StateMachine<M10ParserContext> *sm = nullptr;
-
   M10ParserContext(M10PVTData &pvt, M10DOPData &dop, M10COVData &cov,
                    bool &flag)
       : pvt_out(pvt), dop_out(dop), cov_out(cov), new_data_out(flag) {}
+};
+
+// Where the parser sits in a UBX frame. Positions, not states with a
+// lifecycle -- which is why this is an enum and not IState.
+enum class M10Parse : uint8_t {
+  kSync1,
+  kSync2,
+  kClass,
+  kId,
+  kLengthL,
+  kLengthH,
+  kPayload,
+  kCkA,
+  kCkB,
 };
 
 class M10Service {
@@ -133,18 +147,32 @@ class M10Service {
   const M10COVData &GetCOV() const { return cov_data_; }
   bool NewDataAvailable() const { return new_data_; }
   void ClearNewDataFlag() { new_data_ = false; }
-  [[nodiscard]] std::optional<GpsData> PopGpsData();
+
+  // Drains the receiver, parses, and publishes a completed epoch. Returns true
+  // when one reached the blackboard -- the FcLink send stays with the caller,
+  // since GPS goes out on PVT arrival rather than on a topic period
+  // (stat_publisher.hpp) and a last-known-value store cannot say "new".
+  bool Poll();
 
   uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
   uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }
   uint32_t GetFrameOkCount() const { return ctx_.frame_ok_count; }
 
  private:
+  friend class System;
+
+  void Init(Uart2 &uart, SharedState &blackboard);
+  void FillGpsData(GpsData &out) const;
+  bool PublishIfNew();
+  void DispatchFrame();
+
+  Uart2 *uart_ = nullptr;
+  SharedState *blackboard_ = nullptr;
   M10PVTData pvt_data_{};
   M10DOPData dop_data_{};
   M10COVData cov_data_{};
   bool new_data_ = false;
 
   M10ParserContext ctx_;
-  StateMachine<M10ParserContext> sm_;
+  M10Parse parse_ = M10Parse::kSync1;
 };

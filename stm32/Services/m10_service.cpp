@@ -4,10 +4,16 @@
 #include "m10_service.hpp"
 
 #include "m10_reg.hpp"
+#include "shared_state.hpp"
 #include "uart.hpp"
-#include "vehicle_state.hpp"
 
 namespace {
+
+// Bytes drained per poll. A full epoch is ~150 bytes across four messages, and
+// the line delivers 11.5 kB/s against a 1 kHz poll, so this is a bound on
+// catch-up bursts rather than on steady flow. Cutting it below an epoch's
+// worth would spread one fix across several passes for no gain.
+constexpr uint32_t kRxByteBudget = 32;
 
 static constexpr uint8_t kNavPvtValidDateBit = 1u << 0;
 static constexpr uint8_t kNavPvtValidTimeBit = 1u << 1;
@@ -21,220 +27,167 @@ bool HasReliableGpsUtc(const M10PVTData &pvt) {
 
 }  // namespace
 
-struct M10BaseState : public IState<M10ParserContext> {
-  const char *Name() const override { return "Base"; }
-  void OnStep(M10ParserContext &, SmTick) override {}
-};
+void M10Service::ProcessByte(uint8_t byte) {
+  M10ParserContext &ctx = ctx_;
 
-struct M10Sync1State : public M10BaseState {
-  const char *Name() const override { return "Sync1"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10Sync2State : public M10BaseState {
-  const char *Name() const override { return "Sync2"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10ClassState : public M10BaseState {
-  const char *Name() const override { return "Class"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10IdState : public M10BaseState {
-  const char *Name() const override { return "Id"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10LengthLState : public M10BaseState {
-  const char *Name() const override { return "LengthL"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10LengthHState : public M10BaseState {
-  const char *Name() const override { return "LengthH"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10PayloadState : public M10BaseState {
-  const char *Name() const override { return "Payload"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10CkAState : public M10BaseState {
-  const char *Name() const override { return "CkA"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-struct M10CkBState : public M10BaseState {
-  const char *Name() const override { return "CkB"; }
-  void OnStep(M10ParserContext &ctx, SmTick) override;
-};
-
-static M10Sync1State s_sync1;
-static M10Sync2State s_sync2;
-static M10ClassState s_class_state;
-static M10IdState s_id_state;
-static M10LengthLState s_len_l_state;
-static M10LengthHState s_len_h_state;
-static M10PayloadState s_payload_state;
-static M10CkAState s_ck_a_state;
-static M10CkBState s_ck_b_state;
-
-void M10Sync1State::OnStep(M10ParserContext &ctx, SmTick) {
-  if (ctx.current_byte == UBX::kSync1) {
-    ctx.sm->ReqTransition(s_sync2);
-  }
-}
-
-void M10Sync2State::OnStep(M10ParserContext &ctx, SmTick) {
-  if (ctx.current_byte == UBX::kSync2) {
-    ctx.sm->ReqTransition(s_class_state);
-  } else if (ctx.current_byte == UBX::kSync1) {
-    ctx.sm->ReqTransition(s_sync2);
-  } else {
-    ctx.sm->ReqTransition(s_sync1);
-  }
-}
-
-void M10ClassState::OnStep(M10ParserContext &ctx, SmTick) {
-  ctx.cls = ctx.current_byte;
-  ctx.ck_a_calc = 0;
-  ctx.ck_b_calc = 0;
-  ctx.ck_a_calc += ctx.cls;
-  ctx.ck_b_calc += ctx.ck_a_calc;
-
-  ctx.sm->ReqTransition(s_id_state);
-}
-
-void M10IdState::OnStep(M10ParserContext &ctx, SmTick) {
-  ctx.id = ctx.current_byte;
-  ctx.ck_a_calc += ctx.id;
-  ctx.ck_b_calc += ctx.ck_a_calc;
-
-  ctx.sm->ReqTransition(s_len_l_state);
-}
-
-void M10LengthLState::OnStep(M10ParserContext &ctx, SmTick) {
-  ctx.len = ctx.current_byte;
-  ctx.ck_a_calc += ctx.current_byte;
-  ctx.ck_b_calc += ctx.ck_a_calc;
-
-  ctx.sm->ReqTransition(s_len_h_state);
-}
-
-void M10LengthHState::OnStep(M10ParserContext &ctx, SmTick) {
-  ctx.len |= (static_cast<uint16_t>(ctx.current_byte) << 8);
-  ctx.ck_a_calc += ctx.current_byte;
-  ctx.ck_b_calc += ctx.ck_a_calc;
-
-  ctx.payload_idx = 0;
-
-  if (ctx.len > M10ParserContext::kMaxPayloadSize) {
-    ctx.oversize_len_count++;
-    ctx.sm->ReqTransition(s_sync1);
-  } else if (ctx.len == 0) {
-    ctx.sm->ReqTransition(s_ck_a_state);
-  } else {
-    ctx.sm->ReqTransition(s_payload_state);
-  }
-}
-
-void M10PayloadState::OnStep(M10ParserContext &ctx, SmTick) {
-  if (ctx.payload_idx < ctx.len) {
-    ctx.payload_buf[ctx.payload_idx] = ctx.current_byte;
-    ctx.ck_a_calc += ctx.current_byte;
+  // Running checksum over class, id, length and payload -- every byte between
+  // the sync pair and the checksum pair, in arrival order (UBX 8-bit Fletcher).
+  const auto accumulate = [&ctx](uint8_t b) {
+    ctx.ck_a_calc += b;
     ctx.ck_b_calc += ctx.ck_a_calc;
-    ctx.payload_idx++;
-  }
+  };
 
-  if (ctx.payload_idx >= ctx.len) {
-    ctx.sm->ReqTransition(s_ck_a_state);
+  switch (parse_) {
+    case M10Parse::kSync1:
+      if (byte == UBX::kSync1) {
+        parse_ = M10Parse::kSync2;
+      }
+      break;
+
+    case M10Parse::kSync2:
+      // A second 0xB5 is a fresh start, not a failure: the first was the tail
+      // of noise and this one may open the real frame.
+      if (byte == UBX::kSync2) {
+        parse_ = M10Parse::kClass;
+      } else if (byte != UBX::kSync1) {
+        parse_ = M10Parse::kSync1;
+      }
+      break;
+
+    case M10Parse::kClass:
+      ctx.cls = byte;
+      ctx.ck_a_calc = 0;
+      ctx.ck_b_calc = 0;
+      accumulate(byte);
+      parse_ = M10Parse::kId;
+      break;
+
+    case M10Parse::kId:
+      ctx.id = byte;
+      accumulate(byte);
+      parse_ = M10Parse::kLengthL;
+      break;
+
+    case M10Parse::kLengthL:
+      ctx.len = byte;
+      accumulate(byte);
+      parse_ = M10Parse::kLengthH;
+      break;
+
+    case M10Parse::kLengthH:
+      ctx.len |= static_cast<uint16_t>(static_cast<uint16_t>(byte) << 8);
+      accumulate(byte);
+      ctx.payload_idx = 0;
+      if (ctx.len > M10ParserContext::kMaxPayloadSize) {
+        ctx.oversize_len_count++;
+        parse_ = M10Parse::kSync1;
+      } else if (ctx.len == 0) {
+        parse_ = M10Parse::kCkA;
+      } else {
+        parse_ = M10Parse::kPayload;
+      }
+      break;
+
+    case M10Parse::kPayload:
+      if (ctx.payload_idx < ctx.len) {
+        ctx.payload_buf[ctx.payload_idx] = byte;
+        accumulate(byte);
+        ctx.payload_idx++;
+      }
+      if (ctx.payload_idx >= ctx.len) {
+        parse_ = M10Parse::kCkA;
+      }
+      break;
+
+    case M10Parse::kCkA:
+      ctx.ck_a = byte;
+      if (ctx.ck_a == ctx.ck_a_calc) {
+        parse_ = M10Parse::kCkB;
+      } else {
+        ctx.checksum_fail_count++;
+        parse_ = M10Parse::kSync1;
+      }
+      break;
+
+    case M10Parse::kCkB:
+      ctx.ck_b = byte;
+      parse_ = M10Parse::kSync1;
+      if (ctx.ck_b != ctx.ck_b_calc) {
+        ctx.checksum_fail_count++;
+        break;
+      }
+      DispatchFrame();
+      break;
   }
 }
 
-void M10CkAState::OnStep(M10ParserContext &ctx, SmTick) {
-  ctx.ck_a = ctx.current_byte;
-  if (ctx.ck_a == ctx.ck_a_calc) {
-    ctx.sm->ReqTransition(s_ck_b_state);
-  } else {
-    ctx.checksum_fail_count++;
-    ctx.sm->ReqTransition(s_sync1);
-  }
-}
+// Checksum has passed; the frame is whole. Anything unrecognised still counts
+// as received -- the rate is what says the link is healthy, not the mix.
+void M10Service::DispatchFrame() {
+  M10ParserContext &ctx = ctx_;
+  ctx.frame_ok_count++;
 
-void M10CkBState::OnStep(M10ParserContext &ctx, SmTick) {
-  ctx.ck_b = ctx.current_byte;
-
-  if (ctx.ck_b != ctx.ck_b_calc) {
-    ctx.checksum_fail_count++;
-    ctx.sm->ReqTransition(s_sync1);
+  if (ctx.cls != UBX::kClsNav) {
     return;
   }
 
-  if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavPvt &&
-      ctx.len == sizeof(M10PVTData)) {
+  if (ctx.id == UBX::kIdNavPvt && ctx.len == sizeof(M10PVTData)) {
     std::memcpy(&ctx.pvt_out, ctx.payload_buf, sizeof(M10PVTData));
     ctx.epoch_ready = true;
-
     ctx.pvt_itow_ms = ctx.pvt_out.iTOW;
-    ctx.pvt_rx_us = Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
-
-    ctx.frame_ok_count++;
-  } else if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavDop &&
-             ctx.len == sizeof(M10DOPData)) {
+    ctx.pvt_rx_us = ctx.uart->GetLastRxTime();
+  } else if (ctx.id == UBX::kIdNavDop && ctx.len == sizeof(M10DOPData)) {
     std::memcpy(&ctx.dop_out, ctx.payload_buf, sizeof(M10DOPData));
     ctx.dop_ready = true;
-    ctx.frame_ok_count++;
-  } else if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavCov &&
-             ctx.len == sizeof(M10COVData)) {
+  } else if (ctx.id == UBX::kIdNavCov && ctx.len == sizeof(M10COVData)) {
     std::memcpy(&ctx.cov_out, ctx.payload_buf, sizeof(M10COVData));
     ctx.cov_ready = true;
-    ctx.frame_ok_count++;
-  } else if (ctx.cls == UBX::kClsNav && ctx.id == UBX::kIdNavEoe &&
-             ctx.len == 4) {
-    uint32_t eoe_itow_ms = (uint32_t)ctx.payload_buf[0] |
-                           ((uint32_t)ctx.payload_buf[1] << 8) |
-                           ((uint32_t)ctx.payload_buf[2] << 16) |
-                           ((uint32_t)ctx.payload_buf[3] << 24);
-
-    uint64_t now_us = Uart<UartInstance::kUart2>::GetInstance().GetLastRxTime();
+  } else if (ctx.id == UBX::kIdNavEoe && ctx.len == 4) {
+    // End-of-epoch closes the set. The PVT it closes must be the same fix
+    // (matching iTOW) and recent, or a stale one would publish as new.
+    const uint32_t eoe_itow_ms =
+        static_cast<uint32_t>(ctx.payload_buf[0]) |
+        (static_cast<uint32_t>(ctx.payload_buf[1]) << 8) |
+        (static_cast<uint32_t>(ctx.payload_buf[2]) << 16) |
+        (static_cast<uint32_t>(ctx.payload_buf[3]) << 24);
     constexpr uint64_t max_age_us = 150000;
+    const uint64_t now_us = ctx.uart->GetLastRxTime();
 
     if (ctx.epoch_ready && eoe_itow_ms == ctx.pvt_itow_ms &&
-        (uint64_t)(now_us - ctx.pvt_rx_us) < max_age_us) {
+        (now_us - ctx.pvt_rx_us) < max_age_us) {
       ctx.new_data_out = true;
     }
 
     ctx.epoch_ready = false;
     ctx.dop_ready = false;
     ctx.cov_ready = false;
+  }
+}
 
-    ctx.frame_ok_count++;
-  } else {
-    ctx.frame_ok_count++;
+M10Service::M10Service() : ctx_(pvt_data_, dop_data_, cov_data_, new_data_) {}
+
+void M10Service::Init(Uart2 &uart, SharedState &blackboard) {
+  uart_ = &uart;
+  ctx_.uart = &uart;
+  blackboard_ = &blackboard;
+}
+
+bool M10Service::Poll() {
+  if (uart_ == nullptr) {
+    return false;
   }
 
-  ctx.sm->ReqTransition(s_sync1);
-}
-
-M10Service::M10Service()
-    : ctx_(pvt_data_, dop_data_, cov_data_, new_data_), sm_(ctx_) {
-  ctx_.sm = &sm_;
-  sm_.Start(s_sync1);
-}
-
-void M10Service::ProcessByte(uint8_t byte) {
-  ctx_.current_byte = byte;
-  sm_.Step(0);
-}
-
-std::optional<GpsData> M10Service::PopGpsData() {
-  if (!new_data_) {
-    return std::nullopt;
+  uint8_t byte = 0;
+  uint32_t budget = kRxByteBudget;
+  while (budget > 0u && uart_->ReadByte(byte)) {
+    ProcessByte(byte);
+    budget--;
   }
 
-  GpsData data{};
+  return PublishIfNew();
+}
+
+void M10Service::FillGpsData(GpsData &data) const {
   // When the fix arrived, not when it was collected. Stamping at the call
   // makes every fix look new however long it queued, which is exactly the
   // case a freshness check downstream exists to catch.
@@ -267,7 +220,16 @@ std::optional<GpsData> M10Service::PopGpsData() {
   data.posCovNN = cov_data_.posCovNN;
   data.posCovEE = cov_data_.posCovEE;
   data.posCovDD = cov_data_.posCovDD;
+}
 
+bool M10Service::PublishIfNew() {
+  if (!new_data_ || blackboard_ == nullptr) {
+    return false;
+  }
+
+  GpsData data{};
+  FillGpsData(data);
+  blackboard_->UpdateGps(data);
   new_data_ = false;
-  return data;
+  return true;
 }

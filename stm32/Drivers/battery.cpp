@@ -5,14 +5,17 @@
 
 #include "error_code.hpp"
 #include "panic.hpp"
+#include "shared_state.hpp"
 #include "stm32f4xx.h"
-#include "system.hpp"
 
 namespace {
 
 constexpr float kMilli = 1000.0f;
 constexpr float kMicrosecondsPerMahAtOneAmp = 3600000.0f;
-constexpr uint32_t kAdcSampleTime480Cycles = 7u;
+// SMPx encoding. Both inputs are low-impedance -- a resistive divider and an
+// op-amp current sense -- so 84 cycles settles them with margin. 480, the
+// maximum, is for high-impedance sources and buys nothing here.
+constexpr uint32_t kAdcSampleTime84Cycles = 4u;
 
 void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
   const uint32_t shift = static_cast<uint32_t>(channel % 10u) * 3u;
@@ -23,17 +26,6 @@ void SetAdcSampleTime(uint8_t channel, uint32_t sample_time) {
     ADC1->SMPR1 &= ~(0x7u << shift);
     ADC1->SMPR1 |= sample_time << shift;
   }
-}
-
-bool WaitForEoc(uint16_t timeout_us) {
-  const TimeBase &time = System::GetInstance().Time();
-  const uint32_t start_us = time.Micros();
-  while ((ADC1->SR & ADC_SR_EOC) == 0u) {
-    if (static_cast<uint32_t>(time.Micros() - start_us) >= timeout_us) {
-      return false;
-    }
-  }
-  return true;
 }
 
 float ClampFloat(float value, float low, float high) {
@@ -49,7 +41,7 @@ Battery &Battery::GetInstance() {
   return instance;
 }
 
-void Battery::Init(const Config &cfg) {
+void Battery::Init(const Config &cfg, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kAdcInitFailed);
   }
@@ -64,29 +56,45 @@ void Battery::Init(const Config &cfg) {
   }
 
   cfg_ = cfg;
+  blackboard_ = &blackboard;
 
   mah_drawn_ = static_cast<float>(cfg_.initial_mah_drawn);
-  data_ = {};
-  data_.mah_drawn = mah_drawn_;
+  // Seeded before the first conversion lands so a reader between here and then
+  // sees the mAh carried over rather than zero.
+  blackboard_->UpdateBattery(BatteryData{.voltage = 0.0f,
+                                         .current = 0.0f,
+                                         .mah_drawn = mah_drawn_,
+                                         .percentage = 0u});
 
   InitAdc();
   initialized_ = true;
 }
 
+// One conversion in flight at a time, started here and collected on a later
+// call. A conversion takes ~5 us and the slow loop comes back in ~1 ms, so the
+// result is always waiting by the next call and nothing ever spins on EOC.
 void Battery::Poll(uint32_t now_us) {
-  if (last_sample_us_ != 0u &&
-      static_cast<uint32_t>(now_us - last_sample_us_) < cfg_.sample_period_us) {
-    return;
+  if (conversion_in_flight_) {
+    if (!CollectConversion(now_us)) {
+      return;
+    }
+  } else if (!sample_active_) {
+    if (last_sample_us_ != 0u &&
+        static_cast<uint32_t>(now_us - last_sample_us_) <
+            cfg_.sample_period_us) {
+      return;
+    }
+
+    // Stamped at the start rather than the publish, so the period measures
+    // sample to sample and stays the one filter_alpha was solved against.
+    last_sample_us_ = now_us;
+    sample_active_ = true;
+    conversion_index_ = 0;
+    voltage_acc_ = 0;
+    current_acc_ = 0;
   }
 
-  last_sample_us_ = now_us;
-  const AdcPair sample = ReadAdcPair();
-  if (!sample.valid) {
-    adc_error_count_++;
-    return;
-  }
-
-  PublishSample(now_us, sample.voltage_raw, sample.current_raw);
+  StartConversion(now_us);
 }
 
 void Battery::InitAdc() {
@@ -99,55 +107,77 @@ void Battery::InitAdc() {
       (ADC->CCR & ~ADC_CCR_ADCPRE) |
       (static_cast<uint32_t>(cfg_.adc_prescaler_bits) << ADC_CCR_ADCPRE_Pos);
 
-  ADC1->CR1 = ADC_CR1_SCAN;
+  // Single conversion per trigger, channel selected per conversion. A two
+  // channel scan would start the second the instant the first finished, giving
+  // DR a read deadline of one conversion; Poll collects a whole slow-loop pass
+  // later, so it could never meet one. Missing it latches OVR, which stops EOC
+  // for good.
+  ADC1->CR1 = 0;
   ADC1->CR2 = ADC_CR2_EOCS;
-  ADC1->SQR1 = ADC_SQR1_L_0;  // 2 regular conversions.
+  ADC1->SQR1 = 0;  // L = 0: one regular conversion.
   ADC1->SQR2 = 0;
-  ADC1->SQR3 = static_cast<uint32_t>(cfg_.voltage_adc_channel) |
-               (static_cast<uint32_t>(cfg_.current_adc_channel) << 5u);
+  ADC1->SQR3 = static_cast<uint32_t>(cfg_.voltage_adc_channel);
 
-  SetAdcSampleTime(cfg_.voltage_adc_channel, kAdcSampleTime480Cycles);
-  SetAdcSampleTime(cfg_.current_adc_channel, kAdcSampleTime480Cycles);
+  SetAdcSampleTime(cfg_.voltage_adc_channel, kAdcSampleTime84Cycles);
+  SetAdcSampleTime(cfg_.current_adc_channel, kAdcSampleTime84Cycles);
 
   ADC1->SR = 0;
   ADC1->CR2 |= ADC_CR2_ADON;
 }
 
-Battery::AdcPair Battery::ReadAdcPair() {
-  uint32_t voltage_acc = 0;
-  uint32_t current_acc = 0;
+void Battery::StartConversion(uint32_t now_us) {
+  const uint8_t channel = ((conversion_index_ % 2u) == 0u)
+                              ? cfg_.voltage_adc_channel
+                              : cfg_.current_adc_channel;
 
-  for (uint8_t i = 0; i < cfg_.oversample_count; ++i) {
-    ADC1->SR = 0;
-    ADC1->CR2 |= ADC_CR2_SWSTART;
+  ADC1->SQR3 = static_cast<uint32_t>(channel);
+  // Clears EOC and OVR together, so a conversion abandoned by a previous
+  // sample cannot leave the peripheral latched.
+  ADC1->SR = 0;
+  ADC1->CR2 |= ADC_CR2_SWSTART;
+  conversion_start_us_ = now_us;
+  conversion_in_flight_ = true;
+}
 
-    if (!WaitForEoc(cfg_.adc_timeout_us)) {
-      return AdcPair{0, 0, false};
+// True when the result landed and the next conversion may start.
+bool Battery::CollectConversion(uint32_t now_us) {
+  if ((ADC1->SR & ADC_SR_EOC) == 0u) {
+    // A conversion is ~5 us against a ~1 ms call period, so an unfinished one
+    // means a stopped ADC rather than a slow one.
+    if (static_cast<uint32_t>(now_us - conversion_start_us_) >=
+        cfg_.adc_timeout_us) {
+      conversion_in_flight_ = false;
+      sample_active_ = false;
     }
-    voltage_acc += ADC1->DR & ADC_DR_DATA;
-
-    if (!WaitForEoc(cfg_.adc_timeout_us)) {
-      return AdcPair{0, 0, false};
-    }
-    current_acc += ADC1->DR & ADC_DR_DATA;
+    return false;
   }
 
+  const auto raw = static_cast<uint16_t>(ADC1->DR & ADC_DR_DATA);
+  conversion_in_flight_ = false;
+  if ((conversion_index_ % 2u) == 0u) {
+    voltage_acc_ += raw;
+  } else {
+    current_acc_ += raw;
+  }
+  conversion_index_++;
+
+  if (conversion_index_ < 2u * cfg_.oversample_count) {
+    return true;
+  }
+
+  sample_active_ = false;
   // Init rejects a zero oversample_count, which the analyzer cannot carry in
   // from there.
   // NOLINTBEGIN(clang-analyzer-core.DivideZero)
-  return AdcPair{
-      static_cast<uint16_t>(voltage_acc / cfg_.oversample_count),
-      static_cast<uint16_t>(current_acc / cfg_.oversample_count),
-      true,
-  };
+  PublishSample(now_us,
+                static_cast<uint16_t>(voltage_acc_ / cfg_.oversample_count),
+                static_cast<uint16_t>(current_acc_ / cfg_.oversample_count));
   // NOLINTEND(clang-analyzer-core.DivideZero)
+  return false;
 }
 
 void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
                             uint16_t current_raw) {
-  last_voltage_raw_ = voltage_raw;
-  last_current_raw_ = current_raw;
-
   const float voltage_adc_mv =
       (static_cast<float>(voltage_raw) * cfg_.adc_reference_mv) /
       Battery::kAdcMaxRaw;
@@ -193,10 +223,11 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
   }
   last_integrator_us_ = now_us;
 
-  data_.voltage = filtered_voltage_v_;
-  data_.current = filtered_current_a_;
-  data_.mah_drawn = mah_drawn_;
-  data_.percentage = EstimatePercentage(filtered_voltage_v_);
+  blackboard_->UpdateBattery(
+      BatteryData{.voltage = filtered_voltage_v_,
+                  .current = filtered_current_a_,
+                  .mah_drawn = mah_drawn_,
+                  .percentage = EstimatePercentage(filtered_voltage_v_)});
 }
 
 uint8_t Battery::EstimatePercentage(float voltage_v) const {

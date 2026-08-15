@@ -7,7 +7,7 @@
 
 #include "dshot_codec.hpp"
 #include "esc_telemetry.hpp"
-#include "vehicle_state.hpp"
+#include "shared_state.hpp"
 
 class EscService {
  public:
@@ -37,10 +37,10 @@ class EscService {
   };
 
   void Init(const Config &cfg, EscTelemetry &telemetry,
-            VehicleState &vehicle_state);
+            SharedState &blackboard);
   void Poll(uint32_t now_us);
 
-  void SetArmed(bool armed);
+  void OnArmedChanged(bool armed);
   [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor);
   [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor,
                                  uint32_t now_us);
@@ -75,7 +75,6 @@ class EscService {
   // the first one to report speaks for all of them.
   uint8_t MotorPoles() const;
 
-  bool IsArmed() const { return armed_; }
   bool HasPendingCommand() const { return command_.active; }
   uint32_t DroppedWriteCount() const { return dropped_write_count_; }
 
@@ -102,14 +101,12 @@ class EscService {
   [[nodiscard]] bool SendIdleFrame(uint32_t now_us);
   [[nodiscard]] bool WriteRaw(const DShotCodec::MotorValues &motor,
                               uint32_t now_us, bool force_telemetry);
-  void PublishTelemetryState();
 
   Config cfg_{};
   PendingCommand command_{};
   EscTelemetry *telemetry_ = nullptr;
-  VehicleState *vehicle_state_ = nullptr;
+  SharedState *blackboard_ = nullptr;
   bool initialized_ = false;
-  bool armed_ = false;
   DShotCodec::MotorValues test_values_{};
   DShotCodec::MotorValues outputs_{};
   uint32_t test_set_us_ = 0;

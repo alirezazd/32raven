@@ -58,6 +58,11 @@ class EscConfigState : public IState<AppContext> {
   void OnStep(AppContext &ctx, SmTick now) override;
 
  private:
+  void RequestEscConfig(AppContext &ctx, bool enabled) const;
+
   bool warned_armed_ = false;
+  bool stream_seen_ = false;
   uint16_t last_usb_frames_ = 0;
+  uint16_t request_attempts_ = 0;
+  uint32_t last_request_ms_ = 0;
 };

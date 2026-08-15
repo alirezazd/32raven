@@ -907,6 +907,24 @@ endmenu
 
 menu "STM32"
 
+menu "Diagnostics"
+
+config STM32_PROFILING
+    bool "Loop profiling"
+    default n
+    help
+      Time the named sections of the fast and slow loops and report them once
+      a second over FcLink. Off, the instrumentation compiles to nothing: the
+      measure wrappers reduce to the calls they wrap and the counters occupy
+      no storage, so leaving them at the call sites costs a disabled build
+      neither flash nor cycles.
+
+      Turn it on to see what a change to the control cascade cost, or where a
+      loop pass is going. It reports per section calls, mean, min and max, plus
+      the interval the control loop actually achieved.
+
+endmenu
+
 menu "Pin Map"
 
 # Per-peripheral pin assignments validated against ST's open-pin-data XML.
@@ -1975,7 +1993,7 @@ endmenu
 
 menu "FIFO"
 
-config STM32_FAST_LOOP_HZ
+config STM32_CONTROL_LOOP_HZ
     int "Fast control loop rate (Hz)"
     range 1 32000
     default 1000
@@ -1984,7 +2002,7 @@ config STM32_FAST_LOOP_HZ
       interrupt drives them, so this sets the watermark rather than the other
       way round:
 
-        watermark records = record rate / fast loop rate
+        watermark records = record rate / control loop rate
 
       The build fails if that is not whole, or if the records overflow the
       2048-byte FIFO (HiRes widens records, lowering the ceiling). Record rate
@@ -2385,10 +2403,12 @@ config STM32_BATTERY_ADC_REFERENCE_MV
 config STM32_BATTERY_ADC_OVERSAMPLE_COUNT
     int "ADC oversample count"
     range 1 64
-    default 16
+    default 4
     help
       Number of ADC conversion pairs averaged each battery sample period.
-      Increase to reduce analog noise; decrease to reduce sampling time.
+      Increase to reduce analog noise, by the square root of this count. The
+      driver converts one channel per slow loop pass, so this also sets how
+      many passes a sample spans, and that span has to fit the period above.
 
 config STM32_BATTERY_FILTER_TIME_CONSTANT_MS
     int "Filter time constant (ms)"
@@ -2404,10 +2424,13 @@ config STM32_BATTERY_FILTER_TIME_CONSTANT_MS
 config STM32_BATTERY_ADC_TIMEOUT_US
     int "ADC conversion timeout (us)"
     range 100 10000
-    default 1000
+    default 150
     help
-      Maximum time allowed for each ADC conversion before the sample is
-      discarded and the previous battery reading is retained.
+      How long a conversion may stay unfinished before the sample is discarded
+      and the previous battery reading is retained. Nothing waits on this --
+      the driver checks it on a later pass -- so it costs no loop time at any
+      value. A conversion takes ~5 us against a ~1 ms pass, so anything under
+      the pass period reports a stopped ADC on the first check.
 
 menu "Voltage"
 
@@ -2545,17 +2568,125 @@ menu "Services"
 
 menu "FcLink"
 
-config STM32_FCLINK_TELEMETRY_RATE_HZ
-    int "Telemetry rate (Hz)"
-    range 1 255
-    default 25
-    help
-      Requested STM32 telemetry publication rate for the FcLink protocol.
+menu "Telemetry topics"
 
-      ESP32 advertises this value back to STM32 during the FcLink handshake so
-      both ends use the same telemetry-rate setting, but the user-facing
-      ownership lives under the STM32 FcLink menu because it describes STM32
-      telemetry behavior.
+# StatPublisher schedules each topic on its own period; priority only orders
+# the ones that come due on the same poll.
+
+config STM32_FCLINK_TOPIC_MAX_FRAMES_PER_POLL
+    int "Max frames per slow-loop poll"
+    range 1 8
+    default 2
+    help
+      Upper bound on FcLink telemetry frames StatPublisher emits in one poll.
+      Caps the burst when several topics come due together, at the cost of
+      deferring the losers to the next poll.
+
+config STM32_FCLINK_TOPIC_SYSTEM_STATUS_PERIOD_MS
+    int "System status period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Interval between SystemStatus frames: uptime, loop counter, sensor
+      present and health bitmaps, and the battery summary. Set to 0 to
+      disable.
+
+config STM32_FCLINK_TOPIC_SYSTEM_STATUS_PRIORITY
+    int "System status priority"
+    range 0 15
+    default 10
+    help
+      Relative priority when several FcLink topics are due at once. Higher
+      values go first.
+
+config STM32_FCLINK_TOPIC_VEHICLE_STATUS_PERIOD_MS
+    int "Vehicle status period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Interval between VehicleStatus frames: armed state, failsafe flags and
+      flight mode. Set to 0 to disable.
+
+config STM32_FCLINK_TOPIC_VEHICLE_STATUS_PRIORITY
+    int "Vehicle status priority"
+    range 0 15
+    default 12
+    help
+      Relative priority when several FcLink topics are due at once. Highest of
+      the defaults: armed state is the one field a ground station must not
+      learn late.
+
+config STM32_FCLINK_TOPIC_ESC_TELEMETRY_PERIOD_MS
+    int "ESC telemetry period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Interval between EscTelemetry frames. Frames are suppressed entirely
+      until at least one ESC has reported, so this is an upper bound on rate
+      rather than a guarantee. Set to 0 to disable.
+
+config STM32_FCLINK_TOPIC_ESC_TELEMETRY_PRIORITY
+    int "ESC telemetry priority"
+    range 0 15
+    default 5
+    help
+      Relative priority when several FcLink topics are due at once.
+
+config STM32_FCLINK_TOPIC_RC_CHANNELS_PERIOD_MS
+    int "RC channels period (ms)"
+    range 0 60000
+    default 40
+    help
+      Shortest interval between RcChannels frames. A frame is sent only when
+      the receiver has produced a new one or the link flags changed, so a
+      quiet receiver costs nothing until the max-silence window expires. Set
+      to 0 to disable.
+
+config STM32_FCLINK_TOPIC_RC_CHANNELS_PRIORITY
+    int "RC channels priority"
+    range 0 15
+    default 9
+    help
+      Relative priority when several FcLink topics are due at once.
+
+config STM32_FCLINK_TOPIC_RC_CHANNELS_MAX_SILENCE_MS
+    int "RC channels max silence (ms)"
+    range 0 60000
+    default 1000
+    help
+      Longest StatPublisher may suppress unchanged RC data before sending it
+      anyway. Without this the stream stops dead when the receiver goes quiet,
+      leaving the ESP32 unable to tell held channels from a dead link. Set to
+      0 to suppress indefinitely.
+
+config STM32_FCLINK_TOPIC_USB_STATUS_PERIOD_MS
+    int "USB status period (ms)"
+    range 0 60000
+    default 100
+    help
+      Shortest interval between UsbStatus frames. A frame is sent only when
+      the MSP or four-way frame counters moved, so this bounds how quickly a
+      burst is reflected rather than setting a steady rate. Set to 0 to
+      disable.
+
+config STM32_FCLINK_TOPIC_USB_STATUS_PRIORITY
+    int "USB status priority"
+    range 0 15
+    default 4
+    help
+      Relative priority when several FcLink topics are due at once. Lowest of
+      the defaults: the configurator UI tolerates a late frame.
+
+config STM32_FCLINK_TOPIC_USB_STATUS_MAX_SILENCE_MS
+    int "USB status max silence (ms)"
+    range 0 60000
+    default 300
+    help
+      Longest StatPublisher may suppress an unchanged USB status before
+      sending it anyway. This is what keeps the configurator UI from flapping
+      to "no USB" on a healthy but idle port.
+
+endmenu
 
 menu "UART"
 
@@ -2877,106 +3008,6 @@ endmenu
 
 endmenu
 
-menu "Enabled Channels"
-
-config STM32_RC_CHANNEL_1_ENABLED
-    bool "Enable channel 1"
-    default y
-    help
-      Forward and publish RC receiver channel 1.
-
-config STM32_RC_CHANNEL_2_ENABLED
-    bool "Enable channel 2"
-    default y
-    help
-      Forward and publish RC receiver channel 2.
-
-config STM32_RC_CHANNEL_3_ENABLED
-    bool "Enable channel 3"
-    default y
-    help
-      Forward and publish RC receiver channel 3.
-
-config STM32_RC_CHANNEL_4_ENABLED
-    bool "Enable channel 4"
-    default y
-    help
-      Forward and publish RC receiver channel 4.
-
-config STM32_RC_CHANNEL_5_ENABLED
-    bool "Enable channel 5"
-    default y
-    help
-      Forward and publish RC receiver channel 5.
-
-config STM32_RC_CHANNEL_6_ENABLED
-    bool "Enable channel 6"
-    default y
-    help
-      Forward and publish RC receiver channel 6.
-
-config STM32_RC_CHANNEL_7_ENABLED
-    bool "Enable channel 7"
-    default y
-    help
-      Forward and publish RC receiver channel 7.
-
-config STM32_RC_CHANNEL_8_ENABLED
-    bool "Enable channel 8"
-    default y
-    help
-      Forward and publish RC receiver channel 8.
-
-config STM32_RC_CHANNEL_9_ENABLED
-    bool "Enable channel 9"
-    default y
-    help
-      Forward and publish RC receiver channel 9.
-
-config STM32_RC_CHANNEL_10_ENABLED
-    bool "Enable channel 10"
-    default y
-    help
-      Forward and publish RC receiver channel 10.
-
-config STM32_RC_CHANNEL_11_ENABLED
-    bool "Enable channel 11"
-    default y
-    help
-      Forward and publish RC receiver channel 11.
-
-config STM32_RC_CHANNEL_12_ENABLED
-    bool "Enable channel 12"
-    default y
-    help
-      Forward and publish RC receiver channel 12.
-
-config STM32_RC_CHANNEL_13_ENABLED
-    bool "Enable channel 13"
-    default y
-    help
-      Forward and publish RC receiver channel 13.
-
-config STM32_RC_CHANNEL_14_ENABLED
-    bool "Enable channel 14"
-    default y
-    help
-      Forward and publish RC receiver channel 14.
-
-config STM32_RC_CHANNEL_15_ENABLED
-    bool "Enable channel 15"
-    default y
-    help
-      Forward and publish RC receiver channel 15.
-
-config STM32_RC_CHANNEL_16_ENABLED
-    bool "Enable channel 16"
-    default y
-    help
-      Forward and publish RC receiver channel 16.
-
-endmenu
-
 menu "Channel Mapping"
 
 config STM32_RC_MAP_ROLL
@@ -3172,7 +3203,7 @@ config STM32_RATE_CTRL_DLPF_CUTOFF_HZ
       Corner frequency of the first-order IIR on the D path. 0 disables
       filtering. Lower smooths gyro noise on the derivative term at the
       cost of phase lag. Applies to all three axes. The IIR coefficient is
-      derived from this and the fast loop rate, so the corner stays put
+      derived from this and the control loop rate, so the corner stays put
       when the loop rate changes rather than moving with it.
 
 config STM32_RATE_CTRL_ROLL_KP_MILLI
@@ -3220,7 +3251,7 @@ config STM32_RATE_CTRL_ROLL_SP_LPF_CUTOFF_HZ
       Corner frequency of the first-order IIR applied to the roll-rate
       setpoint after slew limiting. 0 disables filtering, and it is only
       consulted when smoothing is on. The coefficient is derived from this
-      and the fast loop rate, so the corner stays where it was put instead
+      and the control loop rate, so the corner stays where it was put instead
       of moving with the loop.
 
 config STM32_RATE_CTRL_PITCH_KP_MILLI
@@ -3436,10 +3467,7 @@ config STM32_FLIGHT_MODE_RC_CHANNEL
     default 5
     help
       RC channel carrying the Acro/Stabilize switch, numbered the way the
-      transmitter numbers it: AUX1 is channel 5 on most radios. The channel
-      has to be enabled under RC Receiver -> Enabled Channels, and the build
-      fails if it is not, because a disabled channel would silently read as
-      whichever channel took its place.
+      transmitter numbers it: AUX1 is channel 5 on most radios.
 
 config STM32_FLIGHT_MODE_THRESHOLD_US
     int "Stabilize threshold (us)"

@@ -16,13 +16,17 @@ EscConfigState esc_config_state;
 
 }  // namespace
 
-extern "C" void ExpressMain(void) {
-  if (!app.fast_tick_state) {
-    return;  // ISR can fire before main() assigns the fast-tick state
+// The control tick, body of PendSV_Handler. Nothing here calls it: the sample
+// interrupt pends PendSV once a burst is parsed, so the rate is the IMU's, not
+// the main loop's, and this runs above every thread-mode caller below.
+extern "C" void ImuTick(void) {
+  // The burst lands in the SharedState's mailbox and Ahrs releases it once it
+  // has consumed -- so there is nothing to acknowledge here. The sample
+  // interrupt can pend this before main() has assigned the states, which is why
+  // the hook is checked rather than assumed.
+  if (app.control_tick_state != nullptr) {
+    app.control_tick_state->OnControlTick(app);
   }
-  const Icm42688p::SampleBatch batch =
-      Icm42688p::GetInstance().GetLatestBatch();
-  app.fast_tick_state->OnFastTick(app, batch);
 }
 
 int main(void) {

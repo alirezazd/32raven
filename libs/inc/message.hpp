@@ -36,7 +36,6 @@ enum class MsgId : uint8_t {
   kReqReceiverBind = 0x0C,
   kRcChannels = 0x65,
   kGpsData = 0x10,
-  kImuData = 0x11,
   kSystemStatus = 0x12,
   kVehicleStatus = 0x13,
   kPanic = 0x14,
@@ -64,9 +63,14 @@ struct Header {
 static_assert(sizeof(Header) == 4 && alignof(Header) == 1,
               "wire header must be 4 packed bytes");
 
+// Fixed by CRSF, whose channels frame packs exactly this many at 11 bits
+// each. Not a tunable: narrowing it would only move where the unused channels
+// are dropped, at the cost of a wire width both firmwares have to agree on.
+inline constexpr size_t kRcChannelCount = 16u;
+
 struct RcChannelsMsg {
-  uint16_t channels[16];
-  uint8_t rssi;
+  uint16_t channels[kRcChannelCount];
+  uint8_t link_quality;
   uint8_t flags;
 } __attribute__((packed));
 
@@ -130,12 +134,6 @@ struct GpsData {
   uint16_t batt_voltage;  // mV
   int16_t batt_current;   // cA
   int8_t batt_remaining;  // %
-} __attribute__((packed));
-
-struct ImuData {
-  uint64_t timestamp_us;
-  float accel[3];  // m/s²  (X, Y, Z)
-  float gyro[3];   // rad/s (X, Y, Z)
 } __attribute__((packed));
 
 inline constexpr uint8_t kSystemBootStateBooting = 0u;
@@ -279,7 +277,6 @@ inline constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kReqReceiverBind:
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
-    case MsgId::kImuData:
     case MsgId::kSystemStatus:
     case MsgId::kVehicleStatus:
     case MsgId::kPanic:
@@ -321,8 +318,6 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<RcChannelsMsg>();
     case MsgId::kGpsData:
       return len == PayloadLength<GpsData>();
-    case MsgId::kImuData:
-      return len == PayloadLength<ImuData>();
     case MsgId::kSystemStatus:
       return len == PayloadLength<SystemStatusMsg>();
     case MsgId::kVehicleStatus:

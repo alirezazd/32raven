@@ -62,7 +62,6 @@ void Ahrs::Init(const Config &cfg) {
 void Ahrs::Reset() {
   q_ = Eigen::Quaternionf::Identity();
   bias_ = Eigen::Vector3f::Zero();
-  state_ = ImuState{};
   last_sample_ts_us_ = 0;
   has_last_sample_ts_ = false;
 }
@@ -74,34 +73,45 @@ void Ahrs::SetConfig(const Config &cfg) {
   cfg_ = cfg;
 }
 
-ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
-  if (batch.count == 0) return state_;
+EstimatorState Ahrs::Process(SharedState &shared) {
+  ImuSampleSlot &inbox = shared.ImuSampleMailbox();
+  const ImuSampleBatch &batch = inbox.batch;
 
-  auto &imu = Icm42688p::GetInstance();
+  // Nothing to integrate, so the attitude estimate stands and the kinematic
+  // fields report zero rather than repeating the previous burst's rates.
+  // timestamp_us stays 0, which is what tells a reader the zeros are an absence
+  // and not a measurement of stillness. The slot is left alone: with nothing
+  // published there is nothing to release.
+  if (!inbox.fresh || batch.count == 0) {
+    EstimatorState idle{};
+    idle.attitude_world_to_body = q_;
+    return idle;
+  }
+
   Eigen::Vector3f gyro_accum = Eigen::Vector3f::Zero();
+  Eigen::Vector3f accel_accum = Eigen::Vector3f::Zero();
 
   for (uint8_t i = 0; i < batch.count; ++i) {
-    const Icm42688p::Sample &raw = batch.samples[i];
-    const Icm42688p::ScaledSample s = imu.ScaleSample(raw);
+    const ImuSample &s = batch.samples[i];
     const Eigen::Vector3f gyro_meas{s.gyro_rad_s[0], s.gyro_rad_s[1],
                                     s.gyro_rad_s[2]};
     const Eigen::Vector3f accel{s.accel_mps2[0], s.accel_mps2[1],
                                 s.accel_mps2[2]};
     gyro_accum += gyro_meas;
+    accel_accum += accel;
 
     // Per-sample dt. Sample 0 uses the previous burst's last timestamp;
     // sample i > 0 uses the previous sample within the burst. The very
     // first sample we ever see (no prior timestamp) skips integration.
     float dt_s = 0.0f;
     if (i == 0) {
-      if (has_last_sample_ts_ && raw.timestamp_us > last_sample_ts_us_) {
-        dt_s =
-            static_cast<float>(raw.timestamp_us - last_sample_ts_us_) * 1e-6f;
+      if (has_last_sample_ts_ && s.timestamp_us > last_sample_ts_us_) {
+        dt_s = static_cast<float>(s.timestamp_us - last_sample_ts_us_) * 1e-6f;
       }
     } else {
       const uint64_t prev_ts = batch.samples[i - 1u].timestamp_us;
-      if (raw.timestamp_us > prev_ts) {
-        dt_s = static_cast<float>(raw.timestamp_us - prev_ts) * 1e-6f;
+      if (s.timestamp_us > prev_ts) {
+        dt_s = static_cast<float>(s.timestamp_us - prev_ts) * 1e-6f;
       }
     }
     if (dt_s <= 0.0f) continue;
@@ -155,15 +165,22 @@ ImuState Ahrs::Process(const Icm42688p::SampleBatch &batch) {
     q_ = (q_ * dq).normalized();
   }
 
-  const auto &last = batch.samples[batch.count - 1u];
-  state_.timestamp_us = last.timestamp_us;
-  state_.gyro_body_rad_s = gyro_accum / static_cast<float>(batch.count);
-  state_.attitude_world_to_body = q_;
-  // FIFO carries one raw temperature word per sample but die temp is
-  // slow-varying (~90 s thermal τ) so the last sample is representative.
-  state_.temperature_c = imu.ScaleSample(last).temperature_c;
+  const uint64_t last_ts_us = batch.samples[batch.count - 1u].timestamp_us;
+  const float inv_count = 1.0f / static_cast<float>(batch.count);
 
-  last_sample_ts_us_ = last.timestamp_us;
+  EstimatorState out{};
+  out.timestamp_us = last_ts_us;
+  out.gyro_body_rad_s = gyro_accum * inv_count;
+  out.accel_body_mps2 = accel_accum * inv_count;
+  out.attitude_world_to_body = q_;
+
+  last_sample_ts_us_ = last_ts_us;
   has_last_sample_ts_ = true;
-  return state_;
+
+  // Released only now, with nothing left to read from the slot. Release
+  // ordering so the reads above cannot sink past the store that hands the slot
+  // back to the interrupt.
+  std::atomic_signal_fence(std::memory_order_release);
+  inbox.fresh = false;
+  return out;
 }

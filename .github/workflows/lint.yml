@@ -37,7 +37,7 @@ jobs:
         run: uv run --quiet --script scripts/lint/check_error_codes.py
 
       - name: Forbidden constructs
-        run: scripts/lint/check_forbidden.sh
+        run: uv run --quiet --script scripts/lint/check_forbidden.py
 
       - name: Direct timer access
         run: uv run --quiet --script scripts/lint/check_timer_access.py

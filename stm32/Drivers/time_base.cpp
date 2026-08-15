@@ -10,14 +10,39 @@
 
 static volatile uint32_t g_tim5_tick_count = 0;
 
-extern "C" void TimeBaseOnTim5Irq(void) { g_tim5_tick_count = g_tim5_tick_count + 1; }
+// Uptime lives beside the tick count for the same reason: the vector calls a
+// free function, and TimeBase::GetInstance() is System's to hand out.
+static SharedState *g_uptime_blackboard = nullptr;
+static uint32_t g_uptime_ms = 0;
+static uint32_t g_uptime_last_cnt = 0;
+
+// Elapsed TIM2 microseconds, not ticks. Counting ticks would assume every
+// interrupt runs: uart_soft masks for roughly a byte at a time, which a faster
+// STM32_TIMEBASE_TIM5_TICK_HZ would outlast, and a Cortex-M folds two pendings
+// of one interrupt into a single entry. A delta cannot lose time -- a late call
+// just measures a longer one -- so the tick rate is free to move.
+extern "C" void TimeBaseOnTim5Irq(void) {
+  g_tim5_tick_count = g_tim5_tick_count + 1;
+
+  const uint32_t delta_us =
+      static_cast<uint32_t>(TIM2->CNT - g_uptime_last_cnt);
+  if (delta_us < 1000u) {
+    return;
+  }
+  const uint32_t elapsed_ms = delta_us / 1000u;
+  g_uptime_ms += elapsed_ms;
+  g_uptime_last_cnt += elapsed_ms * 1000u;
+  if (g_uptime_blackboard != nullptr) {
+    g_uptime_blackboard->UpdateUptimeMs(g_uptime_ms);
+  }
+}
 
 TimeBase &TimeBase::GetInstance() {
   static TimeBase instance;
   return instance;
 }
 
-void TimeBase::Init(const Config &config) {
+void TimeBase::Init(const Config &config, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kTimInitFailed);
   }
@@ -57,6 +82,9 @@ void TimeBase::Init(const Config &config) {
   TIM5->EGR = TIM_EGR_UG;
   TIM5->CNT = 0;
   TIM5->CR1 |= TIM_CR1_CEN;
+
+  g_uptime_blackboard = &blackboard;
+  g_uptime_last_cnt = TIM2->CNT;
 }
 
 void TimeBase::DelayMicros(uint32_t us) const {

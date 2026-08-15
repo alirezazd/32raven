@@ -99,7 +99,7 @@ uint8_t SaturateU8(float value) {
 }  // namespace
 
 void MspService::Init(const Config &cfg, UsbCdc &usb,
-                      VehicleState &vehicle_state, FourWayService &four_way,
+                      SharedState &blackboard, FourWayService &four_way,
                       EscService &esc) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kMspServiceReinit);
@@ -107,7 +107,7 @@ void MspService::Init(const Config &cfg, UsbCdc &usb,
   initialized_ = true;
   cfg_ = cfg;
   usb_ = &usb;
-  vehicle_state_ = &vehicle_state;
+  blackboard_ = &blackboard;
   four_way_ = &four_way;
   esc_ = &esc;
 }
@@ -121,24 +121,12 @@ void MspService::RevokeEscConfigMode() {
 void MspService::SetEscConfigMode(bool enabled) {
   // The mixer is still writing motor commands, and the device commands this
   // unlocks drive the same lines.
-  if (!enabled || esc_->IsArmed()) {
+  if (!enabled || blackboard_->IsArmed()) {
     RevokeEscConfigMode();
     return;
   }
   esc_config_granted_ = true;
   usb_->SetAttached(true);
-}
-
-// The arm state is re-read every tick rather than only when the mode is set,
-// because the mode is latched: nothing else would notice a vehicle that armed
-// after the port was opened.
-void MspService::CheckArmed() {
-  if (!initialized_ || !esc_config_granted_) {
-    return;
-  }
-  if (esc_->IsArmed()) {
-    RevokeEscConfigMode();
-  }
 }
 
 void MspService::Poll(uint32_t now_us) {
@@ -172,6 +160,9 @@ void MspService::Poll(uint32_t now_us) {
   // the next session.
   if (!usb_->IsAttached()) {
     Reset();
+    // Published on this path too, or the last report keeps claiming the port
+    // is still there.
+    PublishUsbStatus(now_us);
     return;
   }
 
@@ -191,6 +182,34 @@ void MspService::Poll(uint32_t now_us) {
   // After the drain, so a frame that completed this tick is already back at
   // its escape state and never looks stalled.
   four_way_->Poll(now_us);
+
+  PublishUsbStatus(now_us);
+}
+
+void MspService::PublishUsbStatus(uint32_t now_us) {
+  UsbStatusData next{};
+  next.msp_requests = request_count_;
+  next.msp_replies = reply_count_;
+  next.four_way_requests = four_way_->RequestCount();
+  next.four_way_replies = four_way_->ReplyCount();
+  next.attached = usb_->IsAttached();
+  next.configured = usb_->IsConfigured();
+  next.port_open = usb_->IsConnected();
+  next.esc_config_granted = esc_config_granted_;
+
+  const UsbStatusData &prev = blackboard_->GetUsbStatus();
+  if (next.msp_requests == prev.msp_requests &&
+      next.msp_replies == prev.msp_replies &&
+      next.four_way_requests == prev.four_way_requests &&
+      next.four_way_replies == prev.four_way_replies &&
+      next.attached == prev.attached && next.configured == prev.configured &&
+      next.port_open == prev.port_open &&
+      next.esc_config_granted == prev.esc_config_granted) {
+    return;
+  }
+
+  next.timestamp_us = now_us;
+  blackboard_->UpdateUsbStatus(next);
 }
 
 // Framing
@@ -445,7 +464,7 @@ void MspService::PushLengthPrefixedString(const char *s) {
 // Command handlers
 
 bool MspService::BuildReply(uint16_t command) {
-  const BatteryData &bat = vehicle_state_->GetBattery();
+  const BatteryData &bat = blackboard_->GetBattery();
 
   switch (command) {
     case kMspApiVersion:
@@ -515,8 +534,14 @@ bool MspService::BuildReply(uint16_t command) {
     }
 
     case kMspStatus: {
-      uint16_t sensors = kSensorAcc | kSensorGyro;
-      if (vehicle_state_->GetGps().fix_type >= 2u) {
+      // Presence, not liveness: MSP has one bit per sensor and this is the
+      // same test stat_publisher's sensors_present uses. A path that has
+      // stalled since it last published still reads present here.
+      uint16_t sensors = 0;
+      if (blackboard_->GetImuHealth().timestamp_us != 0u) {
+        sensors |= kSensorAcc | kSensorGyro;
+      }
+      if (blackboard_->GetGps().fix_type >= 2u) {
         sensors |= kSensorGps;
       }
       Push16(cfg_.loop_period_us);
@@ -529,7 +554,7 @@ bool MspService::BuildReply(uint16_t command) {
 
     case kMspAttitude: {
       const Eigen::Quaternionf &q =
-          vehicle_state_->GetImu().attitude_world_to_body;
+          blackboard_->GetEstimate().attitude_world_to_body;
       const float sinr = 2.0f * ((q.w() * q.x()) + (q.y() * q.z()));
       const float cosr = 1.0f - (2.0f * ((q.x() * q.x()) + (q.y() * q.y())));
       const float roll = std::atan2(sinr, cosr);

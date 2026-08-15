@@ -3,7 +3,6 @@
 
 {{ autogen_warning }}#pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -13,7 +12,7 @@ namespace stm32_limits {
 {# Constants the driver headers need at compile time. This header is a leaf
    by necessity: stm32_config.hpp includes the drivers, so anything a driver
    names has to sit below it. Every value is silicon-fixed or derived from
-   one -- the FIFO watermark from the gyro ODR and the fast-loop rate, the
+   one -- the FIFO watermark from the gyro ODR and the control-loop rate, the
    USB ring sizes from the largest frame -- so a bare tunable does not
    belong here; those go in stm32_config.hpp. #}
 
@@ -21,11 +20,5 @@ inline constexpr std::size_t kUsbCdcStringDescriptorBytes = {{ usb_cdc_string_de
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
 inline constexpr uint32_t kDshotMinPeriodTicks = {{ dshot_min_period_ticks }};
 inline constexpr uint32_t kDshotMaxPeriodTicks = {{ dshot_max_period_ticks }};
-inline constexpr std::size_t kRcEnabledChannelCount = {{ rc_enabled_indices | length }};
-inline constexpr std::array<uint8_t, kRcEnabledChannelCount> kRcEnabledChannelIndices = {
-{% for channel_index in rc_enabled_indices %}
-    {{ channel_index }}{{ "," if not loop.last }}
-{% endfor %}
-};
 
 }  // namespace stm32_limits

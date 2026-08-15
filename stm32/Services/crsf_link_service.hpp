@@ -11,44 +11,53 @@
 #include "message.hpp"
 #include "uart.hpp"
 
-class FcLink;
 class RcReceiver;
-class VehicleState;
+class SharedState;
 
 class CrsfLinkService {
  public:
-  struct TopicConfig {
-    uint32_t period_us = 0;
-    uint32_t max_silence_us = 0;
-    uint8_t priority = 0;
-    bool send_on_change = false;
-  };
-
-  struct Config {
-    uint8_t max_frames_per_poll = 1;
-    uint32_t gps_fresh_timeout_us = 2000000u;
-    TopicConfig heartbeat{};
-    TopicConfig gps{};
-    TopicConfig battery{};
-  };
-
-  void Init(const Config &cfg, Uart6 &uart, VehicleState &vehicle_state,
-            RcReceiver &rc_receiver, FcLink &fc_link);
-  void PollRx(uint32_t now_us, size_t byte_budget = 128u);
-  void PollTx(uint32_t now_us, size_t max_frames = 0u);
-
-  void RequestReceiverBind();
-  void RequestReceiverCancelBind();
-
- private:
-  friend class System;
-
+  // StatPublisher indexes its CRSF group by this order.
   enum class TelemetryTopic : uint8_t {
     kHeartbeat,
     kGps,
     kBattery,
     kCount,
   };
+
+  static constexpr size_t kTopicCount =
+      static_cast<size_t>(TelemetryTopic::kCount);
+
+  enum class TelemetryResult : uint8_t {
+    kSent,
+    // No data to encode, or a send_on_change payload that has not moved.
+    kSkipped,
+    // The receiver's UART is backed up; nothing was written.
+    kBlocked,
+  };
+
+  struct Config {
+    uint32_t gps_fresh_timeout_us = 2000000u;
+    // Indexed by TelemetryTopic. A topic with this clear always sends.
+    std::array<bool, kTopicCount> send_on_change{};
+  };
+
+  void Init(const Config &cfg, Uart6 &uart, SharedState &blackboard,
+            RcReceiver &rc_receiver);
+  void PollRx(uint32_t now_us, size_t byte_budget = 128u);
+  void PollCommands();
+
+  // Encode one topic from the blackboard as it stands and put it on the wire.
+  // When is StatPublisher's call, so `silence_expired` -- its scheduler's cue
+  // that an unchanged payload has been held back long enough -- arrives here
+  // rather than being tracked twice.
+  TelemetryResult SendTelemetry(TelemetryTopic topic, bool silence_expired,
+                                uint32_t now_us);
+
+  void RequestReceiverBind();
+  void RequestReceiverCancelBind();
+
+ private:
+  friend class System;
 
   static constexpr uint8_t kMaxTelemetryPayload = 16u;
 
@@ -58,12 +67,12 @@ class CrsfLinkService {
     std::array<uint8_t, kMaxTelemetryPayload> payload{};
   };
 
-  struct TopicState {
-    uint32_t next_due_us = 0;
-    uint32_t last_sent_us = 0;
-    uint8_t last_payload_len = 0;
-    bool have_last_payload = false;
-    std::array<uint8_t, kMaxTelemetryPayload> last_payload{};
+  // What a send_on_change topic compares against. Separate from TopicState
+  // because the scheduler is deliberately blind to payloads.
+  struct PayloadMemo {
+    uint8_t len = 0;
+    bool valid = false;
+    std::array<uint8_t, kMaxTelemetryPayload> bytes{};
   };
 
   enum class PendingCommand : uint8_t {
@@ -72,21 +81,12 @@ class CrsfLinkService {
     kReceiverCancelBind,
   };
 
-  // TODO(crsf): add native telemetry frames as data lands and slot them into
-  // the topic table/scheduler: flight mode 0x21, attitude 0x1E, baro/vario
-  // 0x09/0x07, temps 0x0D, voltages/cell 0x0E, rpm 0x0C.
-  bool SendScheduledTelemetry(uint32_t now_us);
-  void PrimeScheduler(uint32_t now_us);
-  const TopicConfig &GetTelemetryTopicConfig(TelemetryTopic topic) const;
-  TopicState &GetTelemetryTopicState(TelemetryTopic topic);
-  bool IsTelemetryTopicReady(TelemetryTopic topic, uint32_t now_us) const;
+  // TODO(crsf): add native telemetry frames as data lands and give each a
+  // topic in StatPublisher's CRSF group: flight mode 0x21, attitude 0x1E,
+  // baro/vario 0x09/0x07, temps 0x0D, voltages/cell 0x0E, rpm 0x0C.
   std::optional<TelemetryFrame> PrepareTelemetryTopic(TelemetryTopic topic,
                                                       uint32_t now_us) const;
-  bool ShouldSendTelemetryTopic(TelemetryTopic topic, uint32_t now_us,
-                                const TelemetryFrame &frame) const;
-  uint32_t ComputeDeferredDueTime(TelemetryTopic topic, uint32_t now_us) const;
-  bool TrySendTelemetryTopic(TelemetryTopic topic, uint32_t now_us,
-                             const TelemetryFrame &frame);
+  bool PayloadChanged(TelemetryTopic topic, const TelemetryFrame &frame) const;
   bool TrySendHeartbeatTelemetry();
   bool TrySendGpsTelemetry(const uint8_t *payload, uint8_t payload_len);
   bool TrySendBatteryTelemetry();
@@ -99,7 +99,6 @@ class CrsfLinkService {
                                 uint32_t now_us);
   bool ParseRcChannelsFrame(const uint8_t *payload, std::size_t len,
                             uint32_t now_us);
-  void ForwardLatestRawState(uint32_t now_us);
 
   bool SendBroadcastFrame(uint8_t type, const uint8_t *payload,
                           uint8_t payload_len);
@@ -107,23 +106,14 @@ class CrsfLinkService {
                          const uint8_t *payload, uint8_t payload_len);
 
   Uart6 *uart_ = nullptr;
-  VehicleState *vehicle_state_ = nullptr;
+  SharedState *blackboard_ = nullptr;
   RcReceiver *rc_receiver_ = nullptr;
-  FcLink *fc_link_ = nullptr;
   Config cfg_{};
   bool initialized_ = false;
-  bool scheduler_started_ = false;
-  uint32_t last_forward_us_ = 0;
-  uint8_t last_forwarded_flags_ = 0;
-  bool have_forwarded_state_ = false;
-  uint8_t last_link_quality_ = 0;
-  bool pending_forward_ = false;
   bool crsf_have_length_ = false;
   uint8_t crsf_frame_len_ = 0;
   std::size_t crsf_frame_pos_ = 0;
   std::array<uint8_t, 64> crsf_frame_{};
-  std::array<TopicState, static_cast<size_t>(TelemetryTopic::kCount)>
-      telemetry_states_{};
-  message::RcChannelsMsg latest_rx_msg_{};
+  std::array<PayloadMemo, kTopicCount> payload_memos_{};
   PendingCommand pending_command_ = PendingCommand::kNone;
 };

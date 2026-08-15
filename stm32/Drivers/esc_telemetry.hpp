@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "ring_buffer.hpp"
+#include "shared_state.hpp"
 
 class EscTelemetry {
  public:
@@ -51,25 +52,12 @@ class EscTelemetry {
     bool valid = false;
   };
 
-  struct Snapshot {
-    std::array<Sample, kMotorCount> motors{};
-    uint8_t valid_mask = 0;
-    uint32_t frame_count = 0;
-    uint32_t crc_error_count = 0;
-    uint32_t unassigned_frame_count = 0;
-    uint32_t rx_drop_bytes = 0;
-    uint32_t rx_dma_error_count = 0;
-    uint32_t uart_error_count = 0;
-  };
-
   static EscTelemetry &GetInstance();
 
-  void Init(const Config &cfg);
   void ExpectMotor(uint8_t motor_index, uint32_t now_us);
   void ExpectInfo(uint8_t motor_index, uint32_t now_us);
   Info GetInfo(uint8_t motor_index) const;
   void Poll(uint32_t now_us);
-  Snapshot GetSnapshot() const;
   bool HasValidSample() const { return valid_mask_ != 0u; }
   uint8_t ValidMask() const { return valid_mask_; }
   bool IsExpectingInfo() const {
@@ -83,6 +71,14 @@ class EscTelemetry {
   void HandleRxDmaError(uint32_t isr_flags);
 
  private:
+  friend class System;
+  void Init(const Config &cfg, SharedState &blackboard);
+
+  // Wire units convert here rather than at parse time, so `samples_` stays the
+  // shape the frames arrive in and only the published view carries volts.
+  void FillEscTelemetryData(EscTelemetryData &out) const;
+  void PublishIfChanged();
+
   EscTelemetry() = default;
   ~EscTelemetry() = default;
   EscTelemetry(const EscTelemetry &) = delete;
@@ -117,6 +113,7 @@ class EscTelemetry {
   uint8_t frame_len_ = 0;
   uint8_t expected_frame_size_ = kKissFrameSize;
 
+  SharedState *blackboard_ = nullptr;
   std::array<Sample, kMotorCount> samples_{};
   std::array<Info, kMotorCount> info_{};
   uint8_t valid_mask_ = 0;

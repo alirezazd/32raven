@@ -87,12 +87,12 @@ void DesaturateActuators(float sp[4], const float desat[4], float min_lim,
 
 }  // namespace
 
-void Mixer::Init(const Config &cfg) {
+void Mixer::Init(const Config &cfg, SharedState &blackboard) {
   if (!IsConfigValid(cfg)) {
     Panic(ErrorCode::Stm32::kMixerInvalidConfig);
   }
   cfg_ = cfg;
-  armed_ = false;
+  blackboard_ = &blackboard;
 }
 
 void Mixer::SetConfig(const Config &cfg) {
@@ -115,7 +115,7 @@ void Mixer::SetConfig(const Config &cfg) {
 // orthogonal with ||·||² = 4). Feeds the rate PID's back-calc anti-windup via
 // the commanded-vs-applied gap per axis.
 MixOutput Mixer::Mix(const Inputs &in) const {
-  if (!armed_) {
+  if (blackboard_ == nullptr || !blackboard_->IsArmed()) {
     return MixOutput{
         .motors = {0.0f, 0.0f, 0.0f, 0.0f},
         .applied_torque = {0.0f, 0.0f, 0.0f},

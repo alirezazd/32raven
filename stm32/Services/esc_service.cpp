@@ -49,7 +49,7 @@ bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust,
 }
 
 void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
-                      VehicleState &vehicle_state) {
+                      SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
@@ -61,7 +61,7 @@ void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
 
   cfg_ = cfg;
   telemetry_ = &telemetry;
-  vehicle_state_ = &vehicle_state;
+  blackboard_ = &blackboard;
   DShotCodec::GetInstance().Init(cfg_.dshot);
   initialized_ = true;
 }
@@ -73,7 +73,6 @@ void EscService::Poll(uint32_t now_us) {
 
   if (telemetry_ != nullptr) {
     telemetry_->Poll(now_us);
-    PublishTelemetryState();
     CheckEscFirmware();
   }
 
@@ -105,7 +104,7 @@ void EscService::Poll(uint32_t now_us) {
   // AM32 counts six identical frames before acting and resets that count on
   // any zero, so an idle frame landing between two command frames -- which the
   // shorter idle period guarantees -- makes every command unreachable.
-  if (!armed_ && !command_.active &&
+  if (!blackboard_->IsArmed() && !command_.active &&
       (last_idle_send_us_ == 0u ||
        static_cast<int32_t>(now_us - last_idle_send_us_) >=
            static_cast<int32_t>(cfg_.idle_period_us))) {
@@ -163,7 +162,7 @@ void EscService::CheckEscFirmware() {
 // before it will act on a command. It also covers a battery arriving long after
 // boot, with no timer to get wrong.
 void EscService::PollEscInfo(uint32_t now_us) {
-  if (armed_ || command_.active || telemetry_ == nullptr ||
+  if (blackboard_->IsArmed() || command_.active || telemetry_ == nullptr ||
       !telemetry_->IsInitialized()) {
     return;
   }
@@ -212,7 +211,7 @@ void EscService::SetTestThrottle(const std::array<float, 4> &thrust) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
-  if (armed_) {
+  if (blackboard_->IsArmed()) {
     return;
   }
 
@@ -236,15 +235,17 @@ uint8_t EscService::MotorPoles() const {
   return 0;
 }
 
-void EscService::SetArmed(bool armed) {
+// Sentinel owns the decision and the flag; this is only the ESC-side half of
+// the transition. Called with the blackboard already reading disarmed on the
+// way down, so the stop frames cannot race a control-loop motor write.
+void EscService::OnArmedChanged(bool armed) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
   command_ = PendingCommand{};
   test_set_us_ = 0;
-  armed_ = armed;
-  if (!armed_) {
+  if (!armed) {
     (void)StopAll();
   }
 }
@@ -259,7 +260,9 @@ bool EscService::WriteMotors(const DShotCodec::MotorValues &motor,
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
 
-  if (!armed_ || command_.active) {
+  // Re-read rather than trusted: this is the last stage before the wire, so a
+  // missed transition upstream still cannot reach a motor.
+  if (!blackboard_->IsArmed() || command_.active) {
     return false;
   }
 
@@ -296,7 +299,8 @@ bool EscService::QueueCommand(DshotCommand command, uint8_t motor_index,
   }
 
   const uint16_t value = std::to_underlying(command);
-  if (armed_ || command_.active || value > DShotCodec::kCommandMax) {
+  if (blackboard_->IsArmed() || command_.active ||
+      value > DShotCodec::kCommandMax) {
     return false;
   }
   if (motor_index != kAllMotors && motor_index >= DShotCodec::kMotorCount) {
@@ -362,35 +366,4 @@ bool EscService::WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
   }
 
   return true;
-}
-
-void EscService::PublishTelemetryState() {
-  if (telemetry_ == nullptr || vehicle_state_ == nullptr) {
-    return;
-  }
-
-  const EscTelemetry::Snapshot snapshot = telemetry_->GetSnapshot();
-  EscTelemetryData data{};
-  data.valid_mask = snapshot.valid_mask;
-  data.frame_count = snapshot.frame_count;
-  data.crc_error_count = snapshot.crc_error_count;
-  data.unassigned_frame_count = snapshot.unassigned_frame_count;
-  data.rx_drop_bytes = snapshot.rx_drop_bytes;
-  data.rx_dma_error_count = snapshot.rx_dma_error_count;
-  data.uart_error_count = snapshot.uart_error_count;
-
-  for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
-    const EscTelemetry::Sample &src = snapshot.motors[i];
-    EscTelemetryMotorData &dst = data.motors[i];
-    dst.timestamp_us = src.timestamp_us;
-    dst.voltage = static_cast<float>(src.voltage_centivolts) * 0.01f;
-    dst.current = static_cast<float>(src.current_centiamps) * 0.01f;
-    dst.consumption_mah = src.consumption_mah;
-    dst.electrical_rpm = src.electrical_rpm;
-    dst.rpm = src.rpm;
-    dst.temperature_c = src.temperature_c;
-    dst.valid = src.valid;
-  }
-
-  vehicle_state_->UpdateEscTelemetry(data);
 }

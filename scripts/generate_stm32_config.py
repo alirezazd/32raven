@@ -753,7 +753,7 @@ def _imu_fifo_capacity_records(kconf: kconfiglib.Kconfig) -> int:
     The watermark is programmed in bytes, so measuring capacity in Packet3
     records while the chip is writing Packet4 ones overstates it by a quarter.
     A watermark past the real ceiling is written cleanly, fits the 12-bit
-    field, and simply never fires -- taking the fast loop with it.
+    field, and simply never fires -- taking the control loop with it.
     """
     return ICM42688P_FIFO_BYTES // _imu_packet_bytes(kconf)
 
@@ -767,7 +767,7 @@ def _aaf_fields(cutoff_hz: str) -> dict[str, int]:
 def _whole_hz(value: str, who: str) -> int:
     """An ODR the arithmetic downstream can actually carry.
 
-    The watermark record count and the fast loop rate are both whole Hz, so a
+    The watermark record count and the control loop rate are both whole Hz, so a
     fractional ODR has no integer that is not a lie about it. Parsing to int
     through float truncated the part's 12.5 Hz setting to 12 and derived every
     rate from there, 4% adrift with nothing to say so.
@@ -776,7 +776,7 @@ def _whole_hz(value: str, who: str) -> int:
     if not hz.is_integer():
         raise ValueError(
             f"the {who} ODR of {value} Hz is not a whole number of Hz; the "
-            "FIFO watermark and the fast loop rate are both derived from it "
+            "FIFO watermark and the control loop rate are both derived from it "
             "as integers, so pick 25 Hz or faster"
         )
     return int(hz)
@@ -819,14 +819,14 @@ def _imu_watermark_records(kconf: kconfiglib.Kconfig) -> int:
     loop rate fixed when the gyro ODR changes.
     """
     record_rate_hz = _imu_record_rate_hz(kconf)
-    loop_hz = sym_int(kconf, "STM32_FAST_LOOP_HZ")
+    loop_hz = sym_int(kconf, "STM32_CONTROL_LOOP_HZ")
 
     if loop_hz <= 0:
-        raise ValueError("CONFIG_STM32_FAST_LOOP_HZ must be > 0")
+        raise ValueError("CONFIG_STM32_CONTROL_LOOP_HZ must be > 0")
     if record_rate_hz < loop_hz:
         raise ValueError(
             f"a {record_rate_hz} Hz record rate cannot drive a {loop_hz} Hz "
-            "fast loop"
+            "control loop"
         )
 
     records, remainder = divmod(record_rate_hz, loop_hz)
@@ -838,7 +838,7 @@ def _imu_watermark_records(kconf: kconfiglib.Kconfig) -> int:
         )
         near = [hz for hz in achievable if loop_hz // 2 <= hz <= loop_hz * 2]
         raise ValueError(
-            f"CONFIG_STM32_FAST_LOOP_HZ ({loop_hz} Hz) does not divide the "
+            f"CONFIG_STM32_CONTROL_LOOP_HZ ({loop_hz} Hz) does not divide the "
             f"{record_rate_hz} Hz record rate, so every tick would land a "
             "fraction of a record early or late and the controller timestep "
             "would never match the interval it integrates over. "
@@ -1097,7 +1097,7 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
     if watermark_records > hardware_max_records:
         packet_bytes = _imu_packet_bytes(kconf)
         raise ValueError(
-            f"a {sym_int(kconf, 'STM32_FAST_LOOP_HZ')} Hz fast loop at this gyro "
+            f"a {sym_int(kconf, 'STM32_CONTROL_LOOP_HZ')} Hz control loop at this gyro "
             f"ODR needs {watermark_records} FIFO records, over the ICM42688P "
             f"capacity of {hardware_max_records} "
             f"({ICM42688P_FIFO_BYTES} bytes / {packet_bytes}-byte "
@@ -1110,23 +1110,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         raise ValueError(
             "CONFIG_STM32_RC_MAP_ROLL/PITCH/YAW/THROTTLE must be a unique "
             "mapping of channels 1..4"
-        )
-
-    enabled_channels = _enabled_rc_channels(kconf)
-    for axis, channel in rc_map.items():
-        if not enabled_channels[channel - 1]:
-            raise ValueError(
-                f"CONFIG_STM32_RC_MAP_{axis.upper()} requires channel {channel} "
-                "to be enabled"
-            )
-
-    mode_channel = sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL")
-    if not enabled_channels[mode_channel - 1]:
-        raise ValueError(
-            f"CONFIG_STM32_FLIGHT_MODE_RC_CHANNEL selects channel "
-            f"{mode_channel}, which CONFIG_STM32_RC_CHANNEL_{mode_channel}"
-            "_ENABLED leaves off; the mode switch would read whichever "
-            "channel compacted into its place"
         )
 
     # Both AHRS gates ramp from full weight down to zero across the span
@@ -1205,45 +1188,30 @@ def _validate_gps_link_budget(kconf: kconfiglib.Kconfig) -> None:
 
 
 def _validate_battery_sample_budget(kconf: kconfiglib.Kconfig) -> None:
-    """The worst-case blocking read against the period it has to fit in.
+    """The span of one sample against the period it has to fit in.
 
-    ReadAdcPair polls two conversions per oversample on the main loop, each
-    with its own timeout, so the worst case lands exactly when the ADC has
-    stopped answering and the rest of the loop still has to run.
+    Battery::Poll starts one conversion per slow loop pass and collects it on
+    the next, so a sample spans two passes per oversample. Overrunning the
+    period would stretch the publish interval that filter_alpha was solved
+    against, which the smoothing then no longer matches.
     """
     oversample = sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT")
-    timeout_us = sym_int(kconf, "STM32_BATTERY_ADC_TIMEOUT_US")
+    tick_hz = sym_int(kconf, "STM32_TIMEBASE_TIM5_TICK_HZ")
     period_us = sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS") * MICROS_PER_MILLI
-    worst_case_us = oversample * 2 * timeout_us
-    if worst_case_us >= period_us:
+    pass_us = MICROS_PER_SECOND // tick_hz
+    span_us = oversample * 2 * pass_us
+    if span_us >= period_us:
         raise ValueError(
-            f"a stalled ADC blocks the main loop for "
-            f"{worst_case_us} us (CONFIG_STM32_BATTERY_ADC_OVERSAMPLE_COUNT "
-            f"{oversample} x 2 conversions x "
-            f"CONFIG_STM32_BATTERY_ADC_TIMEOUT_US {timeout_us} us), which does "
-            f"not fit the {period_us} us "
+            f"one battery sample spans {span_us} us "
+            f"(CONFIG_STM32_BATTERY_ADC_OVERSAMPLE_COUNT {oversample} x 2 "
+            f"conversions, one per {pass_us} us "
+            f"CONFIG_STM32_TIMEBASE_TIM5_TICK_HZ pass), which does not fit "
+            f"the {period_us} us "
             "CONFIG_STM32_BATTERY_SAMPLE_PERIOD_MS gives it"
         )
 
 
-def _enabled_rc_channels(kconf: kconfiglib.Kconfig) -> list[bool]:
-    return [
-        sym_bool(kconf, f"STM32_RC_CHANNEL_{channel_index + 1}_ENABLED")
-        for channel_index in range(16)
-    ]
-
-
 def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    """Resolve the mode-switch channel to its slot in the compacted RC array.
-
-    RcData::channels carries only the enabled channels, so a transmitter
-    channel number is not an index into it -- the two agree only while the
-    enabled set is an unbroken run starting at channel 1. Resolving here keeps
-    that arithmetic out of the flight code, where being wrong means reading
-    the wrong stick rather than failing.
-    """
-    channel = sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL")
-    enabled = _enabled_rc_channels(kconf)
     return {
         "acro_max_rate_roll_pitch_milli": sym_int(
             kconf, "STM32_PILOT_ACRO_MAX_RATE_ROLL_PITCH_MILLI"
@@ -1257,7 +1225,9 @@ def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "stabilize_max_tilt_rad": (
             f"{math.radians(sym_int(kconf, 'STM32_PILOT_STABILIZE_MAX_TILT_DEG')):.6f}f"
         ),
-        "slot": sum(1 for index in range(channel - 1) if enabled[index]),
+        # The knob is numbered the way a transmitter numbers channels; the
+        # array is not.
+        "slot": sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL") - 1,
         "threshold_us": sym_int(kconf, "STM32_FLIGHT_MODE_THRESHOLD_US"),
     }
 
@@ -1296,16 +1266,9 @@ def _usb_string_descriptor_bytes(kconf: kconfiglib.Kconfig) -> int:
 
 
 def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    enabled_rc_channels = _enabled_rc_channels(kconf)
-    enabled_rc_indices = [
-        channel_index
-        for channel_index, enabled in enumerate(enabled_rc_channels)
-        if enabled
-    ]
     return {
         "autogen_warning": autogen_warning(source),
         "max_watermark_records": _imu_watermark_records(kconf),
-        "rc_enabled_indices": enabled_rc_indices,
         "dshot_min_period_ticks": DSHOT_MIN_PERIOD_TICKS,
         "dshot_max_period_ticks": DSHOT_MAX_PERIOD_TICKS,
         "usb_cdc_string_descriptor_bytes": _usb_string_descriptor_bytes(kconf),
@@ -1506,14 +1469,14 @@ def _solve_rcc_clock(kconf: kconfiglib.Kconfig) -> int:
     return int(hclk)
 
 
-def _fast_loop_hz(kconf: kconfiglib.Kconfig) -> int:
+def _control_loop_hz(kconf: kconfiglib.Kconfig) -> int:
     """The rate the control cascade actually ticks at.
 
-    Equal to CONFIG_STM32_FAST_LOOP_HZ in every configuration that builds,
+    Equal to CONFIG_STM32_CONTROL_LOOP_HZ in every configuration that builds,
     because _imu_watermark_records rejects a knob that does not divide the
     record rate evenly. Taking it from the record rate rather than reading the
     knob keeps the header carrying the rate the FIFO interrupt produces, which
-    is what kFastLoopDtSec has to integrate over.
+    is what kControlLoopDtSec has to integrate over.
     """
     return _imu_record_rate_hz(kconf) // _imu_watermark_records(kconf)
 
@@ -1683,7 +1646,7 @@ def _iir_alpha(cutoff_hz: int, sample_hz: int) -> float:
 
 
 def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    loop_hz = _fast_loop_hz(kconf)
+    loop_hz = _control_loop_hz(kconf)
 
     def axis_gains(axis: str) -> dict[str, object]:
         return {
@@ -1757,9 +1720,40 @@ def _attitude_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]
     }
 
 
+def _fclink_topic_context(
+    kconf: kconfiglib.Kconfig, key: str, *, max_silence: bool = False
+) -> dict[str, object]:
+    """One StatPublisher topic; key picks the prefix.
+
+    Only topics whose publisher suppresses unchanged payloads carry a
+    max-silence knob; the rest emit zero, which means "never times out".
+    """
+    prefix = f"STM32_FCLINK_TOPIC_{key.upper()}"
+    return {
+        "period_ms": sym_int(kconf, f"{prefix}_PERIOD_MS"),
+        "priority": sym_int(kconf, f"{prefix}_PRIORITY"),
+        "max_silence_ms": (
+            sym_int(kconf, f"{prefix}_MAX_SILENCE_MS") if max_silence else 0
+        ),
+    }
+
+
 def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "telemetry_rate_hz": sym_int(kconf, "STM32_FCLINK_TELEMETRY_RATE_HZ"),
+        "topics": {
+            "max_frames_per_poll": sym_int(
+                kconf, "STM32_FCLINK_TOPIC_MAX_FRAMES_PER_POLL"
+            ),
+            "system_status": _fclink_topic_context(kconf, "system_status"),
+            "vehicle_status": _fclink_topic_context(kconf, "vehicle_status"),
+            "esc_telemetry": _fclink_topic_context(kconf, "esc_telemetry"),
+            "rc_channels": _fclink_topic_context(
+                kconf, "rc_channels", max_silence=True
+            ),
+            "usb_status": _fclink_topic_context(
+                kconf, "usb_status", max_silence=True
+            ),
+        },
         "uart": {
             "stop_bits": _UART_STOP_BITS_VALUES[str(FCLINK_UART_STOP_BITS)],
             "over_sampling": choice_value(kconf, FCLINK_UART_OVERSAMPLING_CHOICES),
@@ -1967,7 +1961,6 @@ def _crsf_periodic_msg_context(
 
 def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "enabled_channels": _enabled_rc_channels(kconf),
         "rc_map": _rc_map(kconf),
         "uart": {
             "baud_rate": choice_value(kconf, RC_RECEIVER_UART_BAUD_RATE_CHOICES),
@@ -1998,6 +1991,9 @@ def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 "priority": sym_int(
                     kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY"
                 ),
+                # Constant payload, so it is never suppressed and never has a
+                # silence to bound. Present so the topics share one shape.
+                "max_silence_ms": 0,
             },
             "gps": _crsf_periodic_msg_context(kconf, "gps"),
             "battery": _crsf_periodic_msg_context(kconf, "battery"),
@@ -2024,7 +2020,8 @@ def _runtime_context(
         "fclink": _fclink_context(kconf),
         "m10": _m10_context(kconf),
         "icm42688p": _icm42688p_context(kconf),
-        "fast_loop_hz": _fast_loop_hz(kconf),
+        "control_loop_hz": _control_loop_hz(kconf),
+        "enable_profiling": sym_bool(kconf, "STM32_PROFILING"),
         "button": _button_context(kconf),
         "battery": _battery_context(kconf),
         "rc_receiver": _rc_receiver_context(kconf),

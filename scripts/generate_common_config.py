@@ -67,6 +67,16 @@ def fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def template_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    """Everything the template reads apart from the autogen banner.
+
+    Separate from main() because check_config_sweep renders this header too,
+    and a second hand-built copy of this dict would go stale the next time a
+    key is added here.
+    """
+    return {"fclink": fclink_context(kconf)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kconfig", required=True)
@@ -87,7 +97,7 @@ def main() -> int:
         TEMPLATE_NAME,
         {
             "autogen_warning": autogen_warning(config_path),
-            "fclink": fclink_context(kconf),
+            **template_context(kconf),
         },
     )
 

@@ -77,7 +77,7 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
   if (sample.has_value()) {
     const bool live = (now_ms - sample->update_ms) <= kRcSampleFreshMs;
     std::snprintf(status, sizeof(status), "LQ:%3u %s",
-                  static_cast<unsigned>(sample->msg.rssi),
+                  static_cast<unsigned>(sample->msg.link_quality),
                   live ? "LIVE" : "STALE");
   } else {
     std::snprintf(status, sizeof(status), "LQ: -- STALE");

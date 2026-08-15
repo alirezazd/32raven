@@ -33,6 +33,8 @@
 
 #include <array>
 
+#include "shared_state.hpp"
+
 namespace multirotor_mixer {
 
 // Per-motor normalized thrust output, [0, 1]. Caller scales to DShot units.
@@ -92,16 +94,15 @@ class Mixer {
   Mixer() = default;
 
   // Panics on invalid config; called once by System::InitComponent.
-  void Init(const Config &cfg);
+  void Init(const Config &cfg, SharedState &blackboard);
 
   // Runtime config swap for tuning; preserves arm state. Panics if invalid.
   void SetConfig(const Config &cfg);
 
   const Config &GetConfig() const { return cfg_; }
 
-  // Runtime controls.
-  void SetArmed(bool armed) { armed_ = armed; }
-  bool IsArmed() const { return armed_; }
+  // Sentinel owns the arm transition; this reads the one representation of
+  // it rather than keeping a copy that has to be kept in step.
 
   // Compute motor commands AND back-projected per-axis applied torque.
   // Disarmed -> motors all zero, applied_torque all zero (the safety gate).
@@ -109,7 +110,7 @@ class Mixer {
 
  private:
   Config cfg_{};
-  bool armed_ = false;
+  SharedState *blackboard_ = nullptr;
 };
 
 }  // namespace multirotor_mixer

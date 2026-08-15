@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-#include "vehicle_state.hpp"
+#include "shared_state.hpp"
 
 class Battery {
  public:
@@ -38,48 +38,42 @@ class Battery {
 
   static Battery &GetInstance();
 
+  // Non-blocking: starts one conversion per call and collects it on a later
+  // one, so a sample spans two calls per oversample rather than completing
+  // inside this one.
   void Poll(uint32_t now_us);
-  const BatteryData &GetData() const { return data_; }
-
-  // Last raw ADC counts, before any scaling. Calibrating the voltage
-  // multiplier / current scale means comparing the pin against a known
-  // reference, and every other output is already derived through the
-  // constants under test.
-  uint16_t LastVoltageRaw() const { return last_voltage_raw_; }
-  uint16_t LastCurrentRaw() const { return last_current_raw_; }
-  uint32_t AdcErrorCount() const { return adc_error_count_; }
 
  private:
   friend class System;
-  void Init(const Config &cfg);
+  void Init(const Config &cfg, SharedState &blackboard);
 
   Battery() = default;
   ~Battery() = default;
   Battery(const Battery &) = delete;
   Battery &operator=(const Battery &) = delete;
 
-  struct AdcPair {
-    uint16_t voltage_raw;
-    uint16_t current_raw;
-    bool valid;
-  };
-
   void InitAdc();
-  AdcPair ReadAdcPair();
+  void StartConversion(uint32_t now_us);
+  bool CollectConversion(uint32_t now_us);
   void PublishSample(uint32_t now_us, uint16_t voltage_raw,
                      uint16_t current_raw);
   uint8_t EstimatePercentage(float voltage_v) const;
 
   Config cfg_{};
-  BatteryData data_{};
+  SharedState *blackboard_ = nullptr;
   uint32_t last_sample_us_ = 0;
   uint32_t last_integrator_us_ = 0;
+  uint32_t conversion_start_us_ = 0;
+  uint32_t voltage_acc_ = 0;
+  uint32_t current_acc_ = 0;
   float filtered_voltage_v_ = 0.0f;
   float filtered_current_a_ = 0.0f;
   float mah_drawn_ = 0.0f;
-  uint16_t last_voltage_raw_ = 0;
-  uint16_t last_current_raw_ = 0;
+  // Counts conversions within a sample, not oversample iterations: even is the
+  // voltage channel, odd is current.
+  uint8_t conversion_index_ = 0;
+  bool conversion_in_flight_ = false;
+  bool sample_active_ = false;
   bool filter_valid_ = false;
   bool initialized_ = false;
-  uint32_t adc_error_count_ = 0;
 };

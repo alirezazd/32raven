@@ -78,7 +78,7 @@ extern void Uart1RxDmaError(uint32_t);
 extern void Uart2RxDmaError(uint32_t);
 extern void Uart6RxDmaError(uint32_t);
 extern void TimeBaseOnTim5Irq(void);
-extern void ExpressMain(void);
+extern void ImuTick(void);
 extern void Spi2RxDmaComplete(void);
 extern void Spi2DmaError(uint32_t isr);
 
@@ -204,7 +204,7 @@ void PendSV_Handler(void) {
   /* USER CODE END PendSV_IRQn 0 */
   /* USER CODE BEGIN PendSV_IRQn 1 */
 
-  ExpressMain();
+  ImuTick();
 
   /* USER CODE END PendSV_IRQn 1 */
 }

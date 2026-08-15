@@ -5,38 +5,16 @@
 
 #include <cmath>
 #include <cstring>
-#include <iterator>
 #include <span>
 
 #include "checksum.hpp"
 #include "error_code.hpp"
-#include "fc_link.hpp"
 #include "panic.hpp"
 #include "rc_receiver.hpp"
-#include "slot_stagger.hpp"
-#include "stm32_config.hpp"
+#include "shared_state.hpp"
 #include "uart.hpp"
-#include "vehicle_state.hpp"
 
 namespace {
-
-// Ordered by TelemetryTopic; the count is cross-checked in PrimeScheduler,
-// which is where that private enum is nameable.
-constexpr uint32_t kTopicPeriodsUs[] = {
-    kCrsfLinkConfig.heartbeat.period_us,
-    kCrsfLinkConfig.gps.period_us,
-    kCrsfLinkConfig.battery.period_us,
-};
-
-// 200 ms spaces the three topics across half a heartbeat. Pick keeps it while
-// it clears every topic and moves to the next value up when a period is
-// retuned onto it, so adding a topic cannot quietly reinstate the collision.
-constexpr uint32_t kTopicSpacingTargetUs = 200000u;
-constexpr uint32_t kTopicStaggerUs =
-    slot_stagger::Pick(kTopicSpacingTargetUs, kTopicPeriodsUs);
-static_assert(kTopicStaggerUs != 0,
-              "no spacing near the target clears every configured topic "
-              "period, so a topic would open in phase with the ladder");
 
 constexpr uint8_t kCrsfSerialSyncByte = 0xC8u;
 constexpr uint8_t kCrsfBroadcastAddress = 0x00u;
@@ -57,9 +35,6 @@ constexpr uint8_t kCrsfLinkStatisticsPayloadSize = 10u;
 constexpr uint8_t kCrsfRcChannelsPayloadSize = 22u;
 constexpr uint8_t kCrsfMinFrameLength = 2u;
 constexpr uint8_t kCrsfMaxFrameLength = 62u;
-
-constexpr uint32_t kFcLinkRcForwardIntervalUs =
-    kFcLinkTelemetryIntervalMs * 1000u;
 
 constexpr uint8_t kGpsPayloadSize = 15u;
 constexpr uint8_t kHeartbeatPayloadSize = 2u;
@@ -186,29 +161,20 @@ uint16_t CrsfTicksToUs(uint16_t ticks) {
 }  // namespace
 
 void CrsfLinkService::Init(const Config &cfg, Uart6 &uart,
-                           VehicleState &vehicle_state, RcReceiver &rc_receiver,
-                           FcLink &fc_link) {
+                           SharedState &blackboard, RcReceiver &rc_receiver) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kCrsfLinkInitFailed);
   }
 
   cfg_ = cfg;
   uart_ = &uart;
-  vehicle_state_ = &vehicle_state;
+  blackboard_ = &blackboard;
   rc_receiver_ = &rc_receiver;
-  fc_link_ = &fc_link;
-  scheduler_started_ = false;
-  last_forward_us_ = 0;
-  last_forwarded_flags_ = 0;
-  have_forwarded_state_ = false;
-  last_link_quality_ = 0;
-  pending_forward_ = false;
   crsf_have_length_ = false;
   crsf_frame_len_ = 0;
   crsf_frame_pos_ = 0;
   crsf_frame_.fill(0);
-  telemetry_states_.fill(TopicState{});
-  latest_rx_msg_ = {};
+  payload_memos_.fill(PayloadMemo{});
   pending_command_ = PendingCommand::kNone;
   initialized_ = true;
 }
@@ -224,26 +190,16 @@ void CrsfLinkService::PollRx(uint32_t now_us, size_t byte_budget) {
     ++count;
     (void)ProcessCrsfByte(byte, now_us);
   }
+
 }
 
-void CrsfLinkService::PollTx(uint32_t now_us, size_t max_frames) {
-  if (!initialized_ || uart_ == nullptr || vehicle_state_ == nullptr) {
+void CrsfLinkService::PollCommands() {
+  if (!initialized_ || uart_ == nullptr) {
     return;
   }
 
-  ForwardLatestRawState(now_us);
-  PrimeScheduler(now_us);
-
-  const size_t frame_budget =
-      max_frames != 0u ? max_frames : (size_t)cfg_.max_frames_per_poll;
-  size_t sent = 0;
-  while (sent < frame_budget) {
-    if (TrySendPendingCommand() || SendScheduledTelemetry(now_us)) {
-      ++sent;
-      continue;
-    }
-    break;
-  }
+  // At most one command is ever pending, so this needs no frame budget.
+  (void)TrySendPendingCommand();
 }
 
 void CrsfLinkService::RequestReceiverBind() {
@@ -254,157 +210,33 @@ void CrsfLinkService::RequestReceiverCancelBind() {
   pending_command_ = PendingCommand::kReceiverCancelBind;
 }
 
-bool CrsfLinkService::SendScheduledTelemetry(uint32_t now_us) {
-  // TODO(crsf): Extend this scheduler with flight mode, attitude, vario/baro,
-  // temperature, voltage/cell data, and rpm once those blackboard sources are
-  // available on STM32.
-  std::array<bool, static_cast<size_t>(TelemetryTopic::kCount)> skipped{};
-  size_t skipped_count = 0;
-
-  while (skipped_count < telemetry_states_.size()) {
-    bool have_candidate = false;
-    TelemetryTopic best_topic = TelemetryTopic::kHeartbeat;
-    uint8_t best_priority = 0;
-    uint32_t best_overdue_us = 0;
-
-    for (size_t i = 0; i < telemetry_states_.size(); ++i) {
-      if (skipped[i]) {
-        continue;
-      }
-
-      const auto topic = static_cast<TelemetryTopic>(i);
-      const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
-      TopicState &topic_state = telemetry_states_[i];
-
-      if (topic_cfg.period_us == 0u) {
-        skipped[i] = true;
-        ++skipped_count;
-        continue;
-      }
-
-      if ((int32_t)(now_us - topic_state.next_due_us) < 0) {
-        skipped[i] = true;
-        ++skipped_count;
-        continue;
-      }
-
-      if (!IsTelemetryTopicReady(topic, now_us)) {
-        topic_state.next_due_us = now_us + topic_cfg.period_us;
-        skipped[i] = true;
-        ++skipped_count;
-        continue;
-      }
-
-      const uint32_t overdue_us = now_us - topic_state.next_due_us;
-      if (!have_candidate || topic_cfg.priority > best_priority ||
-          (topic_cfg.priority == best_priority &&
-           overdue_us > best_overdue_us)) {
-        have_candidate = true;
-        best_topic = topic;
-        best_priority = topic_cfg.priority;
-        best_overdue_us = overdue_us;
-      }
-    }
-
-    if (!have_candidate) {
-      return false;
-    }
-
-    const std::optional<TelemetryFrame> frame =
-        PrepareTelemetryTopic(best_topic, now_us);
-    if (!frame) {
-      skipped[static_cast<size_t>(best_topic)] = true;
-      ++skipped_count;
-      continue;
-    }
-
-    TopicState &topic_state = GetTelemetryTopicState(best_topic);
-    if (!ShouldSendTelemetryTopic(best_topic, now_us, *frame)) {
-      topic_state.next_due_us = ComputeDeferredDueTime(best_topic, now_us);
-      skipped[static_cast<size_t>(best_topic)] = true;
-      ++skipped_count;
-      continue;
-    }
-
-    if (!TrySendTelemetryTopic(best_topic, now_us, *frame)) {
-      return false;
-    }
-
-    topic_state.last_sent_us = now_us;
-    topic_state.next_due_us =
-        now_us + GetTelemetryTopicConfig(best_topic).period_us;
-    topic_state.last_payload_len = frame->len;
-    topic_state.have_last_payload = true;
-    topic_state.last_payload = frame->payload;
-    return true;
+CrsfLinkService::TelemetryResult CrsfLinkService::SendTelemetry(
+    TelemetryTopic topic, bool silence_expired, uint32_t now_us) {
+  if (!initialized_ || uart_ == nullptr || blackboard_ == nullptr) {
+    return TelemetryResult::kBlocked;
   }
 
-  return false;
-}
-
-void CrsfLinkService::PrimeScheduler(uint32_t now_us) {
-  static_assert(std::size(kTopicPeriodsUs) ==
-                    static_cast<size_t>(TelemetryTopic::kCount),
-                "a TelemetryTopic has no period here, so its offset goes "
-                "unchecked");
-
-  if (scheduler_started_) {
-    return;
+  const std::optional<TelemetryFrame> frame =
+      PrepareTelemetryTopic(topic, now_us);
+  if (!frame) {
+    return TelemetryResult::kSkipped;
   }
 
-  // One frame leaves per poll, so topics that come due together serialise into
-  // a burst instead of interleaving. Rescheduling advances from the send rather
-  // than by period, so a collision decays instead of persisting -- but it costs
-  // the loser a frame every cycle until it does. Deriving the offset from the
-  // slot keeps the spacing without a knob per topic.
-  for (size_t i = 0; i < telemetry_states_.size(); ++i) {
-    telemetry_states_[i] = TopicState{
-        .next_due_us = now_us + (static_cast<uint32_t>(i) * kTopicStaggerUs),
-        .last_sent_us = 0,
-    };
-  }
-  scheduler_started_ = true;
-}
-
-const CrsfLinkService::TopicConfig &CrsfLinkService::GetTelemetryTopicConfig(
-    TelemetryTopic topic) const {
-  switch (topic) {
-    case TelemetryTopic::kHeartbeat:
-      return cfg_.heartbeat;
-    case TelemetryTopic::kGps:
-      return cfg_.gps;
-    case TelemetryTopic::kBattery:
-      return cfg_.battery;
-    case TelemetryTopic::kCount:
-    default:
-      return cfg_.heartbeat;
-  }
-}
-
-CrsfLinkService::TopicState &CrsfLinkService::GetTelemetryTopicState(
-    TelemetryTopic topic) {
-  return telemetry_states_[static_cast<size_t>(topic)];
-}
-
-bool CrsfLinkService::IsTelemetryTopicReady(TelemetryTopic topic,
-                                            uint32_t now_us) const {
-  if (vehicle_state_ == nullptr) {
-    return false;
+  const size_t index = static_cast<size_t>(topic);
+  if (cfg_.send_on_change[index] && !PayloadChanged(topic, *frame) &&
+      !silence_expired) {
+    return TelemetryResult::kSkipped;
   }
 
-  switch (topic) {
-    case TelemetryTopic::kHeartbeat:
-    case TelemetryTopic::kBattery:
-      return true;
-    case TelemetryTopic::kGps: {
-      const GpsData &gps = vehicle_state_->GetGps();
-      return gps.timestamp_us != 0 &&
-             (uint32_t)(now_us - gps.timestamp_us) <= cfg_.gps_fresh_timeout_us;
-    }
-    case TelemetryTopic::kCount:
-    default:
-      return false;
+  if (!SendBroadcastFrame(frame->type, frame->payload.data(), frame->len)) {
+    return TelemetryResult::kBlocked;
   }
+
+  PayloadMemo &memo = payload_memos_[index];
+  memo.len = frame->len;
+  memo.valid = true;
+  memo.bytes = frame->payload;
+  return TelemetryResult::kSent;
 }
 
 std::optional<CrsfLinkService::TelemetryFrame>
@@ -416,6 +248,10 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
   static_assert(kGpsPayloadSize <= kMaxTelemetryPayload);
   static_assert(kBatteryPayloadSize <= kMaxTelemetryPayload);
 
+  if (blackboard_ == nullptr) {
+    return std::nullopt;
+  }
+
   TelemetryFrame frame{};
   switch (topic) {
     case TelemetryTopic::kHeartbeat:
@@ -424,7 +260,7 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
       EncodeHeartbeatPayload(frame.payload.data());
       return frame;
     case TelemetryTopic::kGps: {
-      const GpsData &gps = vehicle_state_->GetGps();
+      const GpsData &gps = blackboard_->GetGps();
       if (gps.timestamp_us == 0 ||
           (uint32_t)(now_us - gps.timestamp_us) > cfg_.gps_fresh_timeout_us) {
         return std::nullopt;
@@ -435,7 +271,7 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
       return frame;
     }
     case TelemetryTopic::kBattery: {
-      const BatteryData &battery = vehicle_state_->GetBattery();
+      const BatteryData &battery = blackboard_->GetBattery();
       frame.type = kCrsfFrameTypeBattery;
       frame.len = kBatteryPayloadSize;
       EncodeBatteryPayload(battery, frame.payload.data());
@@ -447,51 +283,14 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
   }
 }
 
-bool CrsfLinkService::ShouldSendTelemetryTopic(
-    TelemetryTopic topic, uint32_t now_us, const TelemetryFrame &frame) const {
-  const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
-  const TopicState &topic_state = telemetry_states_[static_cast<size_t>(topic)];
-
-  if (!topic_cfg.send_on_change || !topic_state.have_last_payload) {
+bool CrsfLinkService::PayloadChanged(TelemetryTopic topic,
+                                     const TelemetryFrame &frame) const {
+  const PayloadMemo &memo = payload_memos_[static_cast<size_t>(topic)];
+  if (!memo.valid) {
     return true;
   }
-
-  const bool changed = frame.len != topic_state.last_payload_len ||
-                       memcmp(topic_state.last_payload.data(),
-                              frame.payload.data(), frame.len) != 0;
-  if (changed) {
-    return true;
-  }
-
-  if (topic_cfg.max_silence_us == 0u) {
-    return false;
-  }
-
-  return topic_state.last_sent_us == 0u ||
-         (uint32_t)(now_us - topic_state.last_sent_us) >=
-             topic_cfg.max_silence_us;
-}
-
-uint32_t CrsfLinkService::ComputeDeferredDueTime(TelemetryTopic topic,
-                                                 uint32_t now_us) const {
-  const TopicConfig &topic_cfg = GetTelemetryTopicConfig(topic);
-  const TopicState &topic_state = telemetry_states_[static_cast<size_t>(topic)];
-  const uint32_t period_due = now_us + topic_cfg.period_us;
-  if (topic_cfg.max_silence_us == 0u || topic_state.last_sent_us == 0u) {
-    return period_due;
-  }
-
-  const uint32_t silence_due =
-      topic_state.last_sent_us + topic_cfg.max_silence_us;
-  return (int32_t)(period_due - silence_due) < 0 ? period_due : silence_due;
-}
-
-bool CrsfLinkService::TrySendTelemetryTopic(TelemetryTopic topic,
-                                            uint32_t now_us,
-                                            const TelemetryFrame &frame) {
-  (void)topic;
-  (void)now_us;
-  return SendBroadcastFrame(frame.type, frame.payload.data(), frame.len);
+  return frame.len != memo.len ||
+         memcmp(memo.bytes.data(), frame.payload.data(), frame.len) != 0;
 }
 
 bool CrsfLinkService::TrySendHeartbeatTelemetry() {
@@ -506,7 +305,7 @@ bool CrsfLinkService::TrySendGpsTelemetry(const uint8_t *payload,
 }
 
 bool CrsfLinkService::TrySendBatteryTelemetry() {
-  const BatteryData &battery = vehicle_state_->GetBattery();
+  const BatteryData &battery = blackboard_->GetBattery();
   uint8_t payload[kBatteryPayloadSize];
   EncodeBatteryPayload(battery, payload);
   return SendBroadcastFrame(kCrsfFrameTypeBattery, payload, sizeof(payload));
@@ -549,8 +348,25 @@ bool CrsfLinkService::ParseLinkStatisticsFrame(const uint8_t *payload,
     return false;
   }
 
-  (void)now_us;
-  last_link_quality_ = payload[2];
+  if (blackboard_ == nullptr) {
+    return false;
+  }
+
+  // Field order is the CRSF LINK_STATISTICS layout; SNR values are signed dB
+  // and the RSSI figures are positive magnitudes of a negative dBm.
+  blackboard_->UpdateCrsfLink(CrsfLinkData{
+      .timestamp_us = now_us,
+      .uplink_rssi_ant1_dbm = payload[0],
+      .uplink_rssi_ant2_dbm = payload[1],
+      .uplink_link_quality = payload[2],
+      .uplink_snr_db = static_cast<int8_t>(payload[3]),
+      .active_antenna = payload[4],
+      .rf_mode = payload[5],
+      .uplink_tx_power_index = payload[6],
+      .downlink_rssi_dbm = payload[7],
+      .downlink_link_quality = payload[8],
+      .downlink_snr_db = static_cast<int8_t>(payload[9]),
+  });
   return true;
 }
 
@@ -566,7 +382,7 @@ bool CrsfLinkService::ParseRcChannelsFrame(const uint8_t *payload,
   std::size_t byte_index = 0;
   message::RcChannelsMsg msg{};
 
-  for (std::size_t channel = 0; channel < 16u; ++channel) {
+  for (std::size_t channel = 0; channel < message::kRcChannelCount; ++channel) {
     while (bits_available < 11u && byte_index < len) {
       bit_buffer |= (uint32_t)payload[byte_index++] << bits_available;
       bits_available = (uint8_t)(bits_available + 8u);
@@ -581,10 +397,11 @@ bool CrsfLinkService::ParseRcChannelsFrame(const uint8_t *payload,
     msg.channels[channel] = CrsfTicksToUs(ticks);
   }
 
-  msg.rssi = last_link_quality_;
+  // Link quality rides its own frame and its own blackboard entry now, so the
+  // channels carry nothing about the link; StatPublisher joins them on the way
+  // out with each side's freshness judged separately.
+  msg.link_quality = 0;
   msg.flags = 0;
-  latest_rx_msg_ = msg;
-  pending_forward_ = true;
   rc_receiver_->ProcessRawState(msg, now_us);
   return true;
 }
@@ -655,44 +472,6 @@ bool CrsfLinkService::ProcessCrsfByte(uint8_t byte, uint32_t now_us) {
   crsf_frame_pos_ = 0u;
   crsf_have_length_ = false;
   return handled;
-}
-
-void CrsfLinkService::ForwardLatestRawState(uint32_t now_us) {
-  if (fc_link_ == nullptr || rc_receiver_ == nullptr) {
-    return;
-  }
-
-  const RcData &rc = rc_receiver_->GetCurrentData();
-  if (rc.timestamp_us == 0) {
-    return;
-  }
-
-  uint8_t flags = 0;
-  if (rc.rx_online) {
-    flags |= message::kRcChannelsFlagRxOnline;
-  }
-  if (rc.tx_online) {
-    flags |= message::kRcChannelsFlagTxOnline;
-  }
-
-  const bool flags_changed =
-      !have_forwarded_state_ || flags != last_forwarded_flags_;
-  if (!pending_forward_ && !flags_changed) {
-    return;
-  }
-
-  if (!flags_changed && last_forward_us_ != 0 &&
-      (uint32_t)(now_us - last_forward_us_) < kFcLinkRcForwardIntervalUs) {
-    return;
-  }
-
-  message::RcChannelsMsg msg = latest_rx_msg_;
-  msg.flags = flags;
-  fc_link_->SendRcChannels(msg);
-  last_forward_us_ = now_us;
-  last_forwarded_flags_ = flags;
-  have_forwarded_state_ = true;
-  pending_forward_ = false;
 }
 
 bool CrsfLinkService::SendBroadcastFrame(uint8_t type, const uint8_t *payload,
