@@ -5,7 +5,11 @@
 # Omit the body entirely when the subject already says it.
 #
 # types:  feat fix refactor perf docs test build chore revert
-# scopes: stm32 esp32 libs tools scripts config docs site build  (optional)
+# scopes: stm32 esp32 libs tools scripts config docs build
+#
+# The scope says where the change lives and is required. It may not repeat
+# the type -- `docs(docs)` says one thing twice. `docs:` and `build:` name a
+# place already and stand alone.
 #
 # Subject <= 72 chars, lower-case, no trailing period.
 # Enforced by scripts/lint/check_commit_msg.py via the commit-msg hook.

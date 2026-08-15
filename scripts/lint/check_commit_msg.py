@@ -17,11 +17,19 @@ Template:
 
 Rules:
 
-  subject-shape   `type(scope): description`. Scope is optional; when present
-                  it names where the change lives, not what it does.
+  subject-shape   `type(scope): description`. The scope names where the change
+                  lives, not what it does.
   type            One of TYPES. Closed on purpose.
   scope           One of SCOPES, which are the top-level directories plus the
                   build. Closed for the same reason.
+  subject-scope   Required, so a subject says where before it says what.
+                  Two exemptions, both narrow: commits at or before
+                  SCOPE_REQUIRED_AFTER predate the rule, and a type that is
+                  itself a place already answers "where" -- `docs:` and
+                  `build:` stand alone.
+  subject-repeat  The scope may not repeat the type. `docs(docs)` names one
+                  thing twice and leaves the subject saying less than
+                  `docs:` does.
   subject-case    Description starts lower-case and does not end in a period.
                   It is a fragment completing "this commit will ...".
   subject-length  <= 72 characters, so `git log --oneline` and a GitHub
@@ -69,7 +77,9 @@ TYPES = (
 )
 
 # The top-level directories plus `build` for the toolchain itself. A scope
-# answers "where", so anything that is not a place does not belong.
+# answers "where", so anything that is not a place does not belong. `site` was
+# here and is gone: mkdocs writes it and it is gitignored, so it named nothing
+# a commit could touch.
 SCOPES = (
     "stm32",
     "esp32",
@@ -78,9 +88,20 @@ SCOPES = (
     "scripts",
     "config",
     "docs",
-    "site",
     "build",
 )
+
+# A type that is also a place answers "where" by itself, so it may stand
+# without a scope -- and repeating it as one would say the same thing twice.
+# Derived rather than listed: the property is the overlap, and spelling it out
+# would let the two sets drift apart from the rule that reads them.
+SELF_SCOPED_TYPES = frozenset(TYPES) & frozenset(SCOPES)
+
+# The last commit written before the scope became mandatory. Everything at or
+# before it is checked under the older rules, because CI walks the whole
+# history on purpose and rewriting 144 subjects to satisfy a rule they predate
+# would be a worse trade than carrying one constant.
+SCOPE_REQUIRED_AFTER = "79d15c1c21abb964b6927e6ffe8ce5365e224246"
 
 SUBJECT_MAX = 72
 BODY_MAX = 80
@@ -150,8 +171,12 @@ ATTRIBUTION_RE = re.compile(
 )
 
 
-def check(message: str) -> list[str]:
-    """Returns one string per broken rule, empty when the message is fine."""
+def check(message: str, *, require_scope: bool = True) -> list[str]:
+    """Returns one string per broken rule, empty when the message is fine.
+
+    `require_scope` is False only for commits that predate the rule; a message
+    being written now has no history to be exempted by.
+    """
     # git strips comments and any scissors section before the hook sees the
     # final message, but COMMIT_EDITMSG on disk still carries them.
     lines = [
@@ -191,6 +216,16 @@ def check(message: str) -> list[str]:
         if scope is not None and scope not in SCOPES:
             problems.append(
                 f"[scope] '{scope}' is not one of: {', '.join(SCOPES)}"
+            )
+        if scope is not None and scope == kind:
+            problems.append(
+                f"[subject-repeat] scope '{scope}' repeats the type; "
+                f"write '{kind}: {desc}'"
+            )
+        if scope is None and require_scope and kind not in SELF_SCOPED_TYPES:
+            problems.append(
+                f"[subject-scope] '{kind}' needs a scope, one of: "
+                f"{', '.join(SCOPES)}"
             )
         if desc[:1].isupper():
             problems.append(f"[subject-case] description is capitalised: {desc}")
@@ -242,8 +277,31 @@ def messages_in_range(rev_range: str) -> list[tuple[str, str]]:
         if not record:
             continue
         sha, _, body = record.partition("\x00")
-        entries.append((sha[:9], body))
+        entries.append((sha, body))
     return entries
+
+
+def commits_predating_scope_rule() -> frozenset[str]:
+    """Every commit reachable from SCOPE_REQUIRED_AFTER, itself included.
+
+    Unreachable means a graft, a shallow clone, or a rewritten boundary. None
+    of those can tell old commits from new ones, so the check reports that it
+    cannot and exempts nothing -- a rule that silently stops applying is worse
+    than one that fails loudly.
+    """
+    result = subprocess.run(
+        ["git", "rev-list", SCOPE_REQUIRED_AFTER],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(
+            f"warning: {SCOPE_REQUIRED_AFTER[:9]} is unreachable, so no commit "
+            f"is exempt from [subject-scope]",
+            file=sys.stderr,
+        )
+        return frozenset()
+    return frozenset(result.stdout.split())
 
 
 def main() -> int:
@@ -254,11 +312,12 @@ def main() -> int:
 
     if args.range:
         failed = 0
+        legacy = commits_predating_scope_rule()
         for sha, body in messages_in_range(args.range):
-            problems = check(body)
+            problems = check(body, require_scope=sha not in legacy)
             if problems:
                 failed += 1
-                print(f"{sha}  {body.splitlines()[0]}", file=sys.stderr)
+                print(f"{sha[:9]}  {body.splitlines()[0]}", file=sys.stderr)
                 for problem in problems:
                     print(f"    {problem}", file=sys.stderr)
         if failed:
@@ -283,7 +342,10 @@ def main() -> int:
         f"\n    Why, in at most {BODY_MAX_LINES} lines. Facts only."
         f"\n"
         f"\nTypes:  {', '.join(TYPES)}"
-        f"\nScopes: {', '.join(SCOPES)} (optional)"
+        f"\nScopes: {', '.join(SCOPES)}"
+        f"\nA scope is required, and may not repeat the type."
+        f"\n{' and '.join(sorted(SELF_SCOPED_TYPES))} name a place already, so"
+        f" they stand alone."
         f"\nSubject <= {SUBJECT_MAX} chars, lower-case, no trailing period."
         f"\nBody states what was wrong and why this fixes it -- not how it was"
         f"\nfound, what was tried first, or what the author thought about it.",
