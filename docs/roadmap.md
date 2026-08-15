@@ -6,6 +6,9 @@ points at an item that does not exist — so a placeholder cannot be quietly for
 
 **Scope — this repository.** Firmware and handbook work only.
 
+Delivered items are deleted rather than marked done; git history is the record. Numbers are
+never reused, so gaps are expected.
+
 **Priority legend**
 
 - 🎯 **CRITICAL** — blocks the prototype build, blocks the handbook being usable by someone
@@ -73,25 +76,17 @@ Needed: the part used and whether it is an active or passive type, how it is wir
 
 ## 2. Firmware
 
-### #7 — Divide the STM32 into real states — 🎯 CRITICAL
-
-Mostly delivered. `IdleState`, `ArmedState` and `EscConfigState` are three real states sharing
-`StepFlightLoop`/`ControlTickFlightLoop`, and the interlock is structural rather than remembered:
-`EscConfigState` clears the control-tick hook so the mixer does not run, and `Sentinel::RequestArm`
-refuses from any state but Idle instead of each arming path checking for itself.
-
-Two pieces remain:
+### #7 — Two leftovers from the state split — 🟢 SUPPORTING
 
 - **Rename `IdleState`.** It runs the full flight cascade — the name is left over from the
   single-state design and misdescribes the code.
-- **A failsafe state**, once #15 decides what a trip does. `failsafe_flags` is still hardcoded
-  to `0` in `BuildVehicleStatusMsg`, with the `TODO(fc)` still on it.
+- **A failsafe state**, once #15 decides what a trip does.
 
 ### #9 — Share the FcLink frame parser — 🧊 DEFERRED
 
 The byte-at-a-time receive state machine exists twice, in `stm32/Services/fc_link.cpp` and
-`esp32/services/fc_link.cpp` — same seven states, same transitions, same field accumulation,
-plus an `RxState` enum and an `rx_pkt_internal_` struct declared identically in both headers.
+`esp32/services/fc_link.cpp` — same states, same transitions, plus an `RxState` enum and an
+`rx_pkt_internal_` struct declared identically in both headers.
 
 The reason to fix it is not the line count. **CRC verification is implemented twice,
 differently.** The STM32 rebuilds header and payload into one contiguous buffer and runs
@@ -104,14 +99,11 @@ What differs between the two sides is policy, not parsing. The STM32 resyncs sil
 dispatches inline; the ESP32 counts invalid frames, logs them, sounds the error tone, panics
 past a threshold, and queues rather than dispatching.
 
-- Add a policy-free parser to `libs/inc/`, alongside `ring_buffer.hpp` and `dispatcher.hpp`:
-  one byte in, one verdict out — need-more, bad magic, bad length, bad CRC, packet complete —
-  so each firmware keeps its own reaction to each verdict.
+- Add a policy-free parser to `libs/`: one byte in, one verdict out — need-more, bad magic,
+  bad length, bad CRC, packet complete — so each firmware keeps its own reaction to each.
 - Leave `Poll`, transmit, handshake, the ring buffers and the read budgets where they are.
   Those genuinely differ: an interrupt-fed byte ring on one side, block reads from the ESP-IDF
   driver on the other.
-- Folds away the `should_alert_invalid` lambda the ESP32 currently writes out twice in the same
-  file.
 
 Deferred rather than supporting because it rewrites the receive hot path on both firmwares. Do
 it once the ESC configurator work has been confirmed on hardware, so that a misbehaving bench
@@ -119,46 +111,30 @@ session has one candidate cause instead of two.
 
 ### #10 — Derive the motor count from the airframe — 🧊 DEFERRED
 
-The airframe is one physical fact about the vehicle, and it is declared in two places that
-cannot see each other.
+The airframe is one physical fact declared in two places that cannot see each other: the ESP32
+fixes `kMavlinkSysAutostart` at 4001 and hardcodes `MAV_TYPE_QUADROTOR`; the STM32 references
+`QuadX::kFactors` directly in `multirotor_mixer.cpp`.
 
-Neither MCU offers a choice today, and each hardcodes the frame separately. The ESP32 fixes
-`kMavlinkSysAutostart` at 4001 in `generate_esp32_config.py` and hardcodes `MAV_TYPE_QUADROTOR`
-in the heartbeat; the STM32 references `QuadX::kFactors` directly at six sites in
-`multirotor_mixer.cpp`. The `ESP32_MAVLINK_SYS_AUTOSTART` choice that used to offer `QUAD_PLUS`
-is gone — it was a knob whose only non-default position lied to the ground station about a frame
-the STM32 could not mix.
-
-There is no damage today, because neither side can be pointed at anything but an X quad. What
-makes this worth recording is that the moment either side gains a real geometry selection there
-are two sources for one truth, on two MCUs that flash independently. This is
-the same shape as the FcLink baud and exchange interval, and it wants the same answer — one
-airframe choice in Kconfig, with motor count *and* geometry table derived from it into
-`common_config`, rather than a standalone motor-count integer that can disagree with the frame
-it describes.
+No damage today, because neither side can be pointed at anything but an X quad. It becomes real
+the moment either gains a geometry selection — two sources for one truth, on two MCUs that flash
+independently. One airframe choice in Kconfig, with motor count *and* geometry derived from it,
+rather than a standalone motor-count integer that can disagree with the frame it describes.
 
 Three things resist a motor count that is not 4:
 
 - **TIM1 has four compare channels.** DShot is one burst-DMA transfer per bit, `DCR` configured
-  with base `CCR1` and length 4 (`DBL`), so all four motors are driven from one stream and stay
+  with base `CCR1` and length 4, so all four motors are driven from one stream and stay
   perfectly synchronised. Six motors needs TIM8 and a second DMA stream, with both bursts
   started together — two frames arriving at different times reads as a yaw bias.
 - **`MotorThrust = std::array<float, 4>`** threads through `Mix`, `MixOutput`,
-  `EscService::WriteMotorsThrust`, and back into the rate controller's anti-windup via
-  `applied_torque`. Widening it touches the whole cascade signature.
+  `EscService::WriteMotorsThrust`, and back into the rate controller's anti-windup.
 - **The literal 4 is written five times** with nothing checking that they agree:
-  `dshot_codec.hpp:11`, `esc_telemetry.hpp:13`, `dshot_tim1.hpp:54` (`kMotors`), and
-  `multirotor_mixer.hpp` twice (the `MotorThrust` alias and `kFactors[4][3]`).
+  `dshot_codec.hpp`, `esc_telemetry.hpp`, `dshot_tim1.hpp` (`kMotors`), and
+  `multirotor_mixer.hpp` twice.
 
-What already scales without change: `FourWayService` validates its channel against
-`DShotCodec::kMotorCount` and stores one `selected_esc_`, MSP already reports eight motor slots,
-and `EscTelemetry` round-robins `expected_motor_` over a single USART. Fewer motors than four is
-also cheap — leave the unused channels configured and idle, which costs a pin and some DMA
-bandwidth but changes no structure.
-
-Deferred because no non-quad airframe is planned. Unifying the declaration is the half worth
-doing first if the mixer is being touched anyway; the timer work only becomes real when a frame
-with more than four motors does.
+Fewer than four motors is cheap — leave the unused channels configured and idle. Deferred
+because no non-quad airframe is planned; unifying the declaration is the half worth doing first
+if the mixer is being touched anyway.
 
 ### #11 — Warn the pilot when an ESC starts derating — 🎯 CRITICAL
 
@@ -179,8 +155,7 @@ transmitter and two mechanisms already exist:
 - **Temperature as a telemetry sensor (0x0D)** lets the radio's own Logical Switches and
   Special Functions fire a voice callout, which beats a screen nobody is looking at mid-flight.
 
-Both frame types are already listed in the `TODO(crsf)` at `crsf_link_service.hpp`, so this
-lands as part of filling that table in rather than as new transport work.
+Both frame types are already listed in the `TODO(crsf)` at `crsf_link_service.hpp`.
 
 Deliberately not a panic: an ESC derating is a degraded aircraft the pilot may still want to
 land, not a reason to stop the motors.
@@ -190,8 +165,8 @@ land, not a reason to stop the motors.
 `stall_protection` (byte 29) and `stuck_rotor_protection` (byte 22) change what the ESC does
 when a motor loses sync: whether it cuts, retries, or keeps trying to drive a rotor that is not
 turning. Each choice presents differently in telemetry — eRPM collapsing to zero, current
-spiking, or both recovering after a pause — and the flight controller currently interprets none
-of it. A desync today reads as a motor that simply stopped producing thrust.
+spiking, or both recovering after a pause — and the flight controller interprets none of it. A
+desync today reads as a motor that simply stopped producing thrust.
 
 Both bytes are in the version-stable window, so the settings are readable now. What is missing
 is the decision of what the FC should do with each combination, which has to come before any
@@ -206,12 +181,11 @@ direction.
 
 The thrust chain is unsigned end to end. `MultirotorMixer::Mix` clamps every motor to
 `[idle, 1]`, and `EscService::ThrustToDshot` maps that onto `kMotorStop` plus
-`[kThrottleMin, kThrottleMax]` — stop or forward, with no third case. Nothing in the cascade
-can ask a motor to push the other way.
+`[kThrottleMin, kThrottleMax]` — stop or forward, with no third case.
 
-Two halves of the feature are already in the tree, which is why this is worth recording rather
-than leaving implicit. `EscService::DshotCommand` declares `k3dModeOff` and `k3dModeOn` and
-neither is ever sent, and `EscTelemetry::Info::bidirectional` is parsed from settings byte 18.
+Two halves are already in the tree: `EscService::DshotCommand` declares `k3dModeOff` and
+`k3dModeOn` and neither is ever sent, and `EscTelemetry::Info::bidirectional` is parsed from
+settings byte 18.
 
 What it needs: signed thrust `[-1, 1]` through the mixer and both controllers, a three-way
 `ThrustToDshot` over the 3D split (`48–1047` reverse, `1048–2047` forward), `k3dModeOn` actually
@@ -229,54 +203,12 @@ throttle as reverse — so the forward-only values `ThrustToDshot` produces woul
 motor backwards across the bottom half of its range, on an aircraft whose mixer believes it is
 commanding lift.
 
-### #14 — The gyro decimation aliases into the loop band — 🟢 SUPPORTING
-
-`Ahrs::Update` reduces each FIFO batch to one sample by averaging it:
-`state_.gyro_body_rad_s = gyro_accum / batch.count` in `ahrs.cpp`. That is a boxcar of eight
-records at 8192 Hz decimated to the 1024 Hz loop, and a boxcar is a weak anti-alias filter —
-its first null lands at 1024 Hz, while the rate that matters is Nyquist at **512 Hz**.
-
-The gyro's own anti-alias filter is configured at **585 Hz**
-(`CONFIG_STM32_IMU_GYRO_AAF_585HZ`), which is above that. Everything between 512 and 585 Hz
-therefore folds down into the loop band, where it arrives indistinguishable from real airframe
-motion and the rate controller acts on it. Prop wash and frame resonance both live up there.
-
-Raising the loop to 2048 Hz is the fix: Nyquist moves to 1024 Hz, clear of the AAF corner.
-Lowering the AAF instead does not work — the next step below 585 Hz is 536 Hz, still above a
-512 Hz Nyquist, and the one after that is 258 Hz, which costs more loop bandwidth than the
-aliasing does.
-
-Two constraints to carry into that change:
-
-- **The 8192 Hz record rate exists because CLKIN is enabled.** The datasheet quotes the 8 kHz
-  ODR against a 32 kHz reference, and the 32768 Hz external clock scales it. 2048 divides 8192
-  exactly; it does not divide the 8000 Hz the part produces on its internal oscillator. So
-  raising the loop rate and disabling `STM32_IMU_EXTERNAL_CLOCK_ENABLED` are mutually
-  exclusive, and the generator already rejects the combination.
-- **`STM32_CONTROL_LOOP_HZ` stays a knob.** It sets the FIFO watermark rather than the other way
-  round, and the build already fails when the division is not whole. Deriving it from the ODR
-  would remove the one place this trade-off is visible.
-
-**Raising the rate is not the only fix, and Betaflight offers both.** Its downsampler runs a
-PT1 over every raw sample and the PID takes the filtered value -- filter-then-decimate, where
-the filter state carries every sample forward. Disable that filter and it falls back to
-`sampleSum / sampleCount`, a plain boxcar: *exactly what we do*. So this is a mode choice on a
-dial they also expose, not a stage we are missing. Their PT1 would not transfer as-is -- at
--6 dB/octave it is barely down one octave above our 512 Hz Nyquist, where their denom-2
-Nyquist of 2 kHz gives them enormous margin. #23 covers the filtering properly, including
-notching the motor harmonics *before* the decimation, which is the version that suits an 8:1
-ratio.
-
-Not urgent on its own: it is a fidelity limit rather than a fault, and it has been flying this
-way. Worth doing at the same time as any other change to the control loop, since the watermark,
-the loop rate and the filter corner all have to move together.
-
 ### #15 — Nothing acts on a lost link — 🎯 CRITICAL
 
 `StatPublisher::BuildVehicleStatusMsg` now reports `kVehicleFailsafeFlagRcLoss`, and that is all
 it does. No code anywhere changes behaviour when a link goes down.
 
-The control loop reads `rc.roll_us`, `rc.throttle_us` and the rest straight out of `VehicleState`
+The control loop reads `rc.roll_us`, `rc.throttle_us` and the rest straight out of `SharedState`
 with no freshness test, so RC loss means the last stick values are held and flown indefinitely.
 `states.cpp` says so where the cascade starts — *"No tx_online check yet — disarmed mixer +
 disarmed ESC means worst case is harmlessly computing zeros from stale RC."* That is true only
@@ -287,11 +219,10 @@ arm, holding stale sticks stops being harmless.
 
 #### Detection is a timestamp away
 
-The tick-maintained `rx_online`/`tx_online` pair is gone; freshness is derived at read time
-from `RcData::timestamp_us`, and each consumer picks its own bound. `StatPublisher` uses 1.5 s
-because it only has to answer "is the GCS being shown a live link".
+Freshness is derived at read time from `RcData::timestamp_us`, and each consumer picks its own
+bound. `StatPublisher` uses 1.5 s because it only has to answer "is the GCS being shown a live
+link". The control path needs its own age test against the same field, not a new detector.
 
-So the control path needs its own age test against the same field, not a new detector.
 Betaflight triggers at 150 ms and PX4 at 500 ms, and recovery wants the opposite hysteresis
 from an indicator — Betaflight demands 1 s of clean data plus low throttle before handing
 control back, where a display should be quick to recover and slow to drop.
@@ -340,61 +271,39 @@ the bench path stops working. The reporting side already takes this shape, gatin
 already on the blackboard. `kVehicleFailsafeFlagImu` has both a detector and a written intent
 waiting — `states.cpp` currently calls `Panic()` on sustained IMU frame loss and says halting
 is the wrong answer once this flies with props. `kVehicleFailsafeFlagGps` stays zero until
-something actually navigates by GPS, since there is no consequence to report yet.
+something actually navigates by GPS.
 
 This item is the *policy*: which conditions count, how fast, and what each one does. Where that
 policy lives and what enforces it is #16.
 
 ### #16 — Sentinel, one owner for arming and failsafe authority — 🎯 CRITICAL
 
-Authority over whether this vehicle may fly was spread across four files. No single place could
-answer "may this vehicle fly, and what must it do right now". Sentinel is that place: it owns
-the arm decision, evaluates every failsafe condition #15 defines, writes the result to the
-`SharedState` once per slow loop, and is the only thing that disarms. `StatPublisher` then
-reduces to copying that word into the message, and the control loop reads the same word rather
-than re-deriving it — one predicate, not one per consumer.
-
-#### The arming half exists
-
-`Sentinel::RequestArm` is now the only entry point for an arm request and the only writer of
-`SharedState::armed_`, which is private to it. The duplicate `armed_` members in `EscService`
-and `MultirotorMixer` are gone — both read the one representation, and `EscService` still
-checks at the wire as defense in depth. The ESC-configuration interlock moved out of
-`CommandHandler`, which now only turns a refusal back into a tone. The transition orders its
-effects so the flag sits at its safe end throughout: cleared before the stop frames on disarm,
-set only after the ESC path is clean on arm, leaving any control-loop preemption reading disarmed.
-
-An RC arm switch is the second caller this shape exists to make cheap, and does not exist yet —
-`RcReceiver::Config` maps roll, pitch, yaw and throttle and nothing else, so it needs a channel
-mapping, a Kconfig knob, calibration schema and a throttle-low interlock before it is a
-one-line addition.
+Sentinel owns the arm decision, evaluates every failsafe condition #15 defines, writes the
+result to the `SharedState` once per slow loop, and is the only thing that disarms. The arming
+half is done: `RequestArm` is the sole entry point and the sole writer of `SharedState::armed_`,
+and it refuses from any state but Idle.
 
 #### What is left
 
-Failsafe conditions are still computed in a telemetry builder
-(`StatPublisher::BuildSystemStatusMsg` derives IMU, GPS, battery and RC health from freshness),
-`VehicleStatusMsg::failsafe_flags` is still hardcoded to zero, and sustained IMU frame loss
-still calls `Panic()` from the middle of the slow loop. Moving detection into Sentinel means
-*relocating* that health computation rather than writing a second copy of it — writing one
-would recreate exactly the duplication the arming half removed. `Sentinel::Supervise` is the
-slot it lands in — it exists, and today watches only the sample path (#20).
+`failsafe_flags` is plumbed end to end — `SetFailsafeFlags` exists, `StatPublisher` reads
+`FailsafeFlags()` onto the wire — and **nothing ever calls the setter**, so the word is always
+zero. The conditions are still computed in a telemetry builder
+(`StatPublisher::BuildSystemStatusMsg` derives IMU, GPS, battery and RC health from freshness).
+Moving detection into Sentinel means *relocating* that computation rather than writing a second
+copy of it. `Sentinel::Supervise` is the slot it lands in, and carries the `TODO(fc)` saying so.
 
-**Two panics, not one, and the second is the harder of the two.** Alongside the slow-loop guard,
-`Icm42688p::HandleOverrunFault` counts overruns into a sliding window and calls
-`Panic(kImuOverrun)` once `overrun_threshold` of them land inside `overrun_window_s`. It carries
-no TODO and it is worse placed than the one that does: it fires from **interrupt context**, so
-the armed state a correct response depends on is not merely inconvenient to reach but arrives
-too late to matter — the decision has already been taken by the time any loop could weigh it.
-An ISR can raise a condition; it cannot choose a response. So the driver's job ends at counting
-and flagging, and the threshold that currently halts has to become a flag Sentinel reads,
-which also lets one policy cover both detectors instead of each carrying its own halt.
+**Two panics, not one, and the second is the harder.** Alongside the slow-loop guard,
+`Icm42688p::HandleOverrunFault` calls `Panic(kImuOverrun)` once `overrun_threshold` faults land
+inside `overrun_window_s`. It fires from **interrupt context**, so the armed state a correct
+response depends on arrives too late to matter — the decision has already been taken by the time
+any loop could weigh it. An ISR can raise a condition; it cannot choose a response. The driver's
+job ends at counting and flagging.
 
 **It must live on the STM32**, because its whole purpose is to keep working when the ESP32 is
 gone. That is also why FcLink peer loss is Sentinel's to detect on this side (#17 owns the
 other): `FcLink` exposes `Poll` and the `Send*` helpers and nothing that notices silence, and
 since arming currently lives behind FcLink, an ESP32 failure while armed removes the disarm
 path entirely and leaves the cascade running on the last RC values.
-`VehicleStatusMsg::failsafe_flags` has 28 spare bits for the flag.
 
 #### What "high priority" means without an RTOS
 
@@ -402,20 +311,16 @@ The STM32 is a superloop, and `StepSlow` sheds work at `budget_exhausted()` bail
 priority is placement rather than a number: Sentinel's `Poll` has to run **above the first
 bail**, since a failsafe skipped under load is a failsafe that does not exist.
 
-`MspSvc().CheckArmed()` used to hold that slot and was the precedent for it — a per-slow-loop
-poll revoking the ESC-configuration grant if the vehicle armed underneath it. It is gone: with
-`RequestArm` refusing from any state but Idle, and `SharedState::SetArmed` private to Sentinel,
-arming during a session became unreachable rather than something to watch for. That is the
-shape to keep aiming at — an interlock that makes a state impossible costs nothing per pass,
-where one that polls for it costs something forever.
+The shape to keep aiming at is an interlock that makes a state impossible rather than one that
+polls for it — the former costs nothing per pass, the latter costs something forever.
 
 #### Sentinel should own the watchdog
 
 `Wdg().Kick()` sits unconditional in the superloop in `main.cpp`, so it proves only that the
-superloop iterates. A wedged control loop under a healthy superloop is still fed — at
-`STM32_CONTROL_LOOP_HZ` of 1024 against a ~1 s IWDG, that is roughly a thousand missed control
-cycles that nothing detects. Kicking only after Sentinel has confirmed the control-loop counter
-advanced turns the watchdog from "the loop turns" into "the control loop is running".
+superloop iterates. A wedged control loop under a healthy superloop is still fed — at 2048 Hz
+against a ~681 ms worst-case IWDG, that is well over a thousand missed control cycles that
+nothing detects. Kicking only after Sentinel has confirmed the control-loop counter advanced
+turns the watchdog from "the loop turns" into "the control loop is running".
 
 Two constraints:
 
@@ -424,9 +329,8 @@ Two constraints:
 - **WWDG is unused and is not redundant.** The F407's second watchdog is a *window* watchdog
   off PCLK1: it resets when fed too early as well as too late, catching a loop running
   wrong-fast, which IWDG structurally cannot. Its ceiling is short — order of 50 ms at typical
-  PCLK1 — which suits it to the 1024 Hz control loop while IWDG stays on the superloop. Unlike
-  IWDG it runs off the main clock, so it does not survive a clock failure; the two cover
-  different faults and want both.
+  PCLK1 — which suits it to the control loop while IWDG stays on the superloop. Unlike IWDG it
+  runs off the main clock, so it does not survive a clock failure.
 
 ### #17 — Doctor, health observation on the ESP32 — 🟢 SUPPORTING
 
@@ -449,34 +353,30 @@ STM32 goes silent, the ESP32 keeps reporting the last-known armed state, flight 
 failsafe flags to the GCS as current — `MAV_MODE_FLAG_SAFETY_ARMED` in particular would keep
 asserting *armed* indefinitely from a dead flight controller. The stale `system_status_` does
 force `MAV_STATE_CRITICAL`, so it is half-caught, but a GCS reading the mode flags is being
-told something false. Not reporting stale cross-link data as current is Doctor's remit, and
-this instance is a small fix that does not need to wait for it.
+told something false. A small fix that does not need to wait for the service.
 
 #### Constraint
 
 Doctor reports to MAVLink and the logs, **not to the OLED**. The display stays a bench tool and
-flight state stays off it; a health service naturally tempts a status screen, so the boundary
-belongs in its definition rather than in review comments later.
+flight state stays off it.
 
 ### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
 
-Both MCUs compile `libs/inc/message.hpp`, so the FcLink wire format is a contract between two
+Both MCUs compile `libs/message.hpp`, so the FcLink wire format is a contract between two
 images that are flashed separately. When they disagree, `IsPayloadLengthValid` rejects the
 mismatched frames and the link degrades silently — no panic, no log, just a stream that stops
 arriving. Nothing in either firmware detects it, and nothing in the build system prevents it.
 
 The only protection today is remembering to flash both. That held while the wire format was
 stable; narrowing `RcChannelsMsg` from 36 bytes to 20 is the first change that would have
-punished forgetting, and `static_assert`s catch only the half of it that lives inside one
-build.
+punished forgetting, and `static_assert`s catch only the half of it that lives inside one build.
 
 #### What already exists
 
 - **The ESP32 owns the STM32's only flash path.** `Programmer` drives BOOT0 and the shared
   FcLink UART, so "one device flashes both" is mostly wiring parts that are already there.
-- **The ESP32 already has a version.** `generate_esp32_config.py` emits
-  `kMavlinkFlightSwVersion` and `kMavlinkGitHashShort` from the repo version and git HEAD, for
-  MAVLink `AUTOPILOT_VERSION`.
+- **The ESP32 already has a version** — `kMavlinkFlightSwVersion` and `kMavlinkGitHashShort`,
+  emitted by `generate_esp32_config.py`.
 - **The STM32 has none**, and the FcLink handshake that would carry one is a bare `kPing` with
   a zero-length payload. It runs at boot with retries already, so it is the natural place to
   exchange versions without inventing a message.
@@ -491,12 +391,9 @@ build.
   change a struct and forget to bump it, which is the failure this item exists to prevent.
 - Keep a build identity too, but as information rather than a gate: knowing *which* image is
   stale is what turns "they disagree" into "flash the ESP32".
-- If it becomes one addressed binary with the ESP32 flashing the STM32 and then itself, order
-  matters: the ESP32 last means a failure leaves a matched STM32 and a stale ESP32, which is
-  recoverable over WiFi. The reverse can leave a half-flashed ESP32 that can no longer program
-  the STM32 it was meant to fix.
-
-#### What to do about a mismatch in flight
+- If it becomes one addressed binary, order matters: the ESP32 last means a failure leaves a
+  matched STM32 and a stale ESP32, which is recoverable over WiFi. The reverse can leave a
+  half-flashed ESP32 that can no longer program the STM32 it was meant to fix.
 
 Refusing to arm on a protocol mismatch is Sentinel's call, not the flasher's — see #16. The
 flasher's job ends at making the mismatch visible and easy to fix on the bench.
@@ -505,27 +402,24 @@ Supporting rather than critical only because the manual practice works. It stops
 the moment someone other than the author flashes this aircraft, or a wire change lands
 alongside a flight-day rebuild.
 
-### #19 — Give every Blackboard field an owner the compiler knows about — 🟢 SUPPORTING
+### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
 `SharedState` is a const-correct store, not an access-controlled one. Readers get `const &` so
-they cannot mutate shared state, but every `Update*` is **public**, so the pattern governs *how*
-a write happens and never *who* performs it. `UpdateImu` is meant to be the AHRS path's alone
-and `UpdateRc` `RcReceiver`'s alone; nothing says so and nothing checks. The setters are now
-plain assignments — the `updated`-flag side effect that once justified them had no consumer and
-is gone.
+they cannot mutate shared state, but eleven of its thirteen setters are **public**, so the
+pattern governs *how* a write happens and never *who* performs it. `UpdateEstimate` is meant to
+be the AHRS path's alone and `UpdateRc` `RcReceiver`'s alone; nothing says so and nothing checks.
 
-`armed_` and `failsafe_flags_` are the fields with a real owner — private, with
-`friend class Sentinel` — because a second writer there spins motors. That asymmetry is now
-visible in the file: nine public setters and two private ones.
+`armed_` and `failsafe_flags_` are the two with a real owner — private, with
+`friend class Sentinel` — because a second writer there spins motors.
 
 #### The failure it prevents is one this repo already had
 
 `EscService` and `MultirotorMixer` each held their own `armed_`, kept in step only by
 `CommandHandler::OnPrivilegedArm` remembering to write both. A second disarm path — RC
 failsafe, battery cutoff, the IMU fault handler — that updated one and not the other would have
-left the ESCs disarmed while the mixer kept producing torque, or the reverse, with no gate to
-catch it. #16 fixed that for `armed`. Nothing prevents the same shape recurring on any other
-field, and the next one will not announce itself either.
+left the ESCs disarmed while the mixer kept producing torque, with no gate to catch it. #16
+fixed that for `armed`. Nothing prevents the same shape recurring on any other field, and the
+next one will not announce itself either.
 
 #### Shape
 
@@ -533,96 +427,80 @@ The passkey idiom, one key per producer:
 
 ```cpp
 class GpsKey { friend class M10Service; GpsKey() = default; };
-void UpdateGps(const GpsData &data, GpsKey) { gps_ = data; gps_.updated = true; }
+void UpdateGps(const GpsData &data, GpsKey) { gps_ = data; }
 ```
 
 `UpdateGps` stays public, but only `M10Service` can construct the key, so only `M10Service` can
 call it. An empty class is elided entirely — identical generated code, no RAM, no indirection
-in the 1024 Hz path. Roughly twenty lines in `shared_state.hpp` plus a `{}` at each call site.
+in the control path. Roughly twenty lines in `shared_state.hpp` plus a `{}` at each call site.
 
-It also narrows what #16 currently grants: `friend class Sentinel` opens *every* private in
-`SharedState` to Sentinel, including `gps_` and `imu_`. A key exposes exactly one function.
+It also narrows what exists today: `friend class Sentinel` opens *every* private in
+`SharedState` to Sentinel, and the `Icm42688p`/`Ahrs` friendship on the sample mailbox is the
+same shape. A key exposes exactly one function.
 
 #### Why not the alternatives
 
 - **A lint** counting call sites per setter measures a proxy. The property wanted is exclusive
   ownership — not how often the owner writes, but whether anything else can. C++ states that
-  directly, and a compile-time guarantee needs no exceptions file. The call-site count itself is
-  not expressible in the language, and is not worth having.
-- **Attorney-client** is equivalent in power and cost, and keeps producer names out of
-  `shared_state.hpp`. Rejected because that coupling is wanted here: one file declaring who owns
-  what is the ownership map this codebase lacked, and adding a producer becoming a visible edit
-  to the shared store is the reviewable-act property, not a cost.
-- **Pimpl** solves compilation firewalling and ABI stability, not access control — the interface
-  stays public to everyone — and needs either a heap (forbidden) or a pointer chase on every
-  `GetImu()`.
+  directly, and a compile-time guarantee needs no exceptions file.
 - **A writer handle** (`SharedState::GpsWriter`, constructed once and stored by its producer) is
   the most principled: it is the only option giving real least privilege, since services today
-  hold a whole `SharedState *` and can call every setter. Costs a pointer per writer, makes the
-  single-owner property runtime rather than compile-time, and touches every service's `Init`.
-  Revisit it if the replay harness needs to substitute a producer — a handle is trivially
-  redirectable and a passkey is not.
+  hold a whole `SharedState *`. Costs a pointer per writer, makes the single-owner property
+  runtime rather than compile-time, and touches every service's `Init`. Revisit it if the replay
+  harness needs to substitute a producer — a handle is trivially redirectable, a passkey is not.
 
 ### #20 — Sentinel watchdogs on the IMU and the control path — 🎯 CRITICAL
 
-Two panics decide policy where Sentinel cannot see them, and nothing watches whether the fast
-loop runs at all. The groundwork is done: every cause has its own counter, `ImuHealth` is on
-the Blackboard, and `Sentinel::Supervise` runs off the slow tick.
+Two panics decide policy where Sentinel cannot see them, and nothing watches whether the control
+loop runs at all. The groundwork is done: every cause has its own counter, `ImuHealth` is on the
+blackboard, and `Sentinel::Supervise` runs off the slow tick.
 
-`Icm42688p::HandleOverrunFault` calls `Panic(kImuOverrun)` once `overrun_threshold` faults land
-inside `overrun_window_s`. That is a judgement — how broken is too broken — taken inside an
-interrupt at the highest priority on the board. #16 gave Sentinel that authority over arming;
-this is the same question about a different subsystem, answered where Sentinel cannot overrule
-it. An ISR can raise a condition; it cannot choose a response.
-
-#### The control-path guard is now armed, and unmeasured
+#### The measurement is owed
 
 `StepSlow` panics with `kImuDroppedFrame` after `kLossPanicConsecutiveSec` seconds above
-`kLossPanicPerSec`. It read a structurally-zero counter for its whole life. `missed_samples`
-now has a live writer in `PublishLatestBatch`, so it can fire for the first time — on a
-threshold never checked against hardware, and with a `TODO(fc)` beside it already saying that
-halting is the wrong answer once this flies with props.
+`kLossPanicPerSec`. It read a structurally-zero counter for its whole life; `missed_samples` now
+has a live writer in `PublishLatestBatch`, so it can fire for the first time — on a threshold
+never checked against hardware.
 
-What it counts is real. `PENDSVSET` is a bit, not a queue: two bursts published inside one fast
-tick collapse to one PendSV run and the older is dropped. That is the measurement that says
-whether the cascade fits its budget, and the one that would tell us whether a `CONTROL_LOOP_HZ`
-bump landed safely.
+What it counts is real. `PENDSVSET` is a bit, not a queue: two bursts published inside one
+control tick collapse to one PendSV run and the older is dropped. That is the measurement that
+says whether the cascade fits its budget — **and the control loop has already been raised to
+2048 Hz without it**. That bump was argued from the aliasing corner and the DShot budget, not
+measured, so confirming it is the first thing this item owes.
+
+**The numbers cannot leave the board.** `ImuHealth` carries nine counters and all three
+consumers reduce them to booleans — an LED blink, a health bit, and the panic comparison.
+`SystemStatusMsg` has no field for any of them. So setting an honest threshold needs at least
+`missed_samples` on the wire first, read across the four cases that actually load the loop:
+disarmed idle, armed at motor idle, throttle sweeping, and every link streaming at once.
 
 #### Nothing watches whether the control loop runs
 
 `StatPublisher::BuildSystemStatusMsg` sets `msg.flags = kSystemStatusFlagLoopAlive`
 unconditionally, and the ESP32 gates `MAV_STATE_CRITICAL` on that bit. A SystemStatus frame
-needs only the *slow* loop, so a wedged control loop leaves every indicator on the ground green.
-The IWDG misses it too: the main loop kicks it, and the main loop is fine.
+needs only the *slow* loop, and `msg.loop_counter` is the slow loop's own count — so a wedged
+control loop leaves every indicator on the ground green. The IWDG misses it too: the main loop
+kicks it, and the main loop is fine.
 
-`Supervise` covers the neighbouring failure, not this one — it watches
-`ImuHealth::timestamp_us`, which the *sample interrupt* stamps, and recovers a stalled sample
-path through `Icm42688p::RestartSampling`. Liveness is the opposite case: the interrupt
-publishing normally while the control loop fails to consume. It needs a stamp the control loop
-writes, which is also what makes the flag mean its name.
+`Supervise` covers the neighbouring failure, not this one — it watches `ImuHealth::timestamp_us`,
+which the *sample interrupt* stamps, and recovers a stalled sample path through
+`Icm42688p::RestartSampling`. Liveness is the opposite case: the interrupt publishing normally
+while the control loop fails to consume. It needs a stamp the control loop writes, which is also
+what makes the flag mean its name.
 
 #### What is left
 
 The driver counts and recovers; it does not judge. `FlushAndResync` and `resync_pending_`
 stay in the ISR as mechanism. The thresholds, the window and both `Panic` calls leave, and
 Sentinel raises `kVehicleFailsafeFlagImu` instead — a halt stays right while disarmed, which
-Sentinel is the only thing positioned to know.
-
-Two decisions gate it, now that `failsafe_flags_` has a home: what a trip does in flight, and
-whether that loss threshold stands now that it is live code rather than a hypothesis.
-
-**The second cannot be answered yet, because the numbers cannot leave the board.** `ImuHealth`
-carries nine counters and all three consumers reduce them to booleans -- an LED blink, a health
-bit, and the panic comparison. `SystemStatusMsg` has no field for any of them. So setting an
-honest threshold needs one of them on the wire first, read across the four cases that actually
-load the loop: disarmed idle, armed at motor idle, throttle sweeping, and every link streaming
-at once. The same measurement decides whether `CONTROL_LOOP_HZ` can double, so it is owed either
-way. Until then a panic is the loudest instrument available and no props are fitted, which is
-why both sites stay as they are.
+Sentinel is the only thing positioned to know. Until the numbers exist a panic is the loudest
+instrument available and no props are fitted, which is why both sites stay as they are.
 
 One gap `Supervise` does not close: a stall with `inflight_` stuck true — a DMA that started
 and never completed — survives the flush, because nothing clears it or the SPI driver's
 `busy_`. Aborting a live DMA is real surgery and belongs here rather than in the driver.
+
+`kImuStallTimeoutUs = 20000u` is likewise asserted, not measured.
 
 ### #21 — Know why the board restarted — 🟢 SUPPORTING
 
@@ -632,11 +510,12 @@ watchdog reset is indistinguishable from a cable glitch: the FC silently restart
 sees the handshake replay. #20 names one concrete route to exactly that.
 
 Capture it at boot, clear it, and carry it in `SystemStatusMsg`. Three lines, and it turns a
-silent restart into a reported one.
+silent restart into a reported one. Worth landing alongside #20's counters, since both are
+`SystemStatusMsg` additions and one wire break costs one dual-flash.
 
 #### It is a prerequisite for gyro calibration, not a nicety
 
-`Init` zeroes `OFFSET_USER` on every boot and nothing puts a value back, so #16's MAVLink
+`Init` zeroes `OFFSET_USER` on every boot and nothing puts a value back, so #25's MAVLink
 calibration work will add a trigger for `CalibrateGyro`. Running that after a *non*-power-on
 reset either trips `kImuCalibrationMotionDetected` or writes the motion permanently into the
 chip's offset registers. "Only calibrate on a power-on reset" is the check that prevents it,
@@ -647,17 +526,17 @@ and it needs the cause to exist first.
 Persisting prior state is the easy half, and it belongs in a `.noinit` SRAM section rather than
 on the ESP32: a reset does not clear SRAM, so the marker is readable microseconds in, with no
 FcLink handshake to wait on and no second MCU to depend on. A brownout deep enough to lose that
-RAM took the ESP32 with it anyway -- they share a battery.
+RAM took the ESP32 with it anyway — they share a battery.
 
-The hard half is that the attitude is gone. Gyro bias is a second-order term -- `Ahrs::bias_`
+The hard half is that the attitude is gone. Gyro bias is a second-order term — `Ahrs::bias_`
 already estimates it in flight, and a few degrees of drift is nothing beside a quaternion reset
 to identity. In free fall the accelerometer reads about zero g in every direction, so it cannot
 say which way is up: rate can be held, level cannot be recovered.
 
-Auto-arming also inverts #16's charter, where arming is a deliberate act behind interlocks. A
-bench reset would spin props on the table unless a trustworthy airborne test gates it, and
-sustained near-zero-g is about the only honest one -- a signal that only arrives once things
-have already gone wrong. Fixing what causes the reset is worth more than recovering from it.
+Auto-arming also inverts #16's charter. A bench reset would spin props on the table unless a
+trustworthy airborne test gates it, and sustained near-zero-g is about the only honest one — a
+signal that only arrives once things have already gone wrong. Fixing what causes the reset is
+worth more than recovering from it.
 
 ### #22 — Nothing finds dead code — 🟢 SUPPORTING
 
@@ -666,46 +545,47 @@ is invisible to every build: no TU odr-uses it, so no TU emits it, so it costs n
 raises no warning. `Ahrs::Current()` survived that way until it was found by reading. Three tools
 each catch part of the gap, and they do not overlap:
 
-- `-Wl,--print-gc-sections` -- ground truth on the binary. Finds unused data, vtables and
+- `-Wl,--print-gc-sections` — ground truth on the binary. Finds unused data, vtables and
   transitively dead code. Blind to never-emitted inline functions, which is most of what
   accumulates here.
-- `cppcheck --enable=unusedFunction` -- source-level, so it does see inline accessors. Weak on
+- `cppcheck --enable=unusedFunction` — source-level, so it does see inline accessors. Weak on
   virtual and function-pointer dispatch, and needs the whole program in one pass.
-- clang `-Wunused-private-field` -- the only one that finds unused *data members*. Needs nothing
-  but `-fsyntax-only`; clang is on the host already, though not in the Docker image.
+- clang `-Wunused-private-field` — the only one that finds unused *data members*. Needs nothing
+  but `-fsyntax-only`.
 
 All three stay advisory. The confidential SIL consumes this repo's public API, so a whole-program
-"unused" verdict from inside the repo is the exact false positive that rule exists to catch --
+"unused" verdict from inside the repo is the exact false positive that rule exists to catch —
 a list to review, never a build gate.
 
 ### #23 — Nothing filters the gyro in software — 🟢 SUPPORTING
 
-The entire gyro path is `gyro_accum / batch.count`. #14 covers what that costs in aliasing; the
-other half is that **no software filter exists at all** -- no notch, no lowpass, no RPM tracking,
-and no biquad anywhere in the repo. Betaflight runs five stages before its PID sees a sample.
+The entire gyro path is `gyro_accum / batch.count` in `Ahrs::Process`. **No software filter
+exists at all** — no notch, no lowpass, no RPM tracking, and no biquad anywhere in the repo.
+The chip's own hardware notch exists and is configured `enabled = false`. Betaflight runs five
+stages before its PID sees a sample.
 
 Which of those stages earn their place is not obvious, and two of them do not:
 
 - **Static notches default to off** (`gyro_notch1_hz = 0`), and have since the 3.4 defaults pass
-  that introduced the dynamic notch. A fixed notch fights a peak that sweeps ~80-800 Hz with
+  that introduced the dynamic notch. A fixed notch fights a peak that sweeps ~80–800 Hz with
   throttle, paying its phase cost for the whole flight to intersect the noise for a fraction of
   it. They survive for fixed frame resonances, found by hand from a log.
 - **The RPM filter is the one that works**, and it is the one we are best placed to build: it
-  needs per-motor frequency, and `EscTelemetryMotorData::rpm` is already on the Blackboard.
-  Four motors x three harmonics x three axes is 36 biquads; coefficient updates need sin/cos,
+  needs per-motor frequency, and `EscTelemetryMotorData::rpm` is already on the blackboard.
+  Four motors × three harmonics × three axes is 36 biquads; coefficient updates need sin/cos,
   which is why Betaflight uses polynomial approximations and staggers one motor per loop.
 - **The dynamic notch** tracks peaks with a sliding DFT when no RPM reference exists. A real
   project, and largely redundant once the RPM filter runs.
 
-The filter itself is trivial -- one biquad struct, five multiplies and four adds per apply,
-roughly 0.4% CPU for two notches on three axes at 1024 Hz.
+The filter itself is trivial — one biquad struct, five multiplies and four adds per apply.
 
 **Where the burst lets us beat the reference.** Betaflight filters one sample per interrupt and
-runs its notches *after* decimation. Our burst gives the same per-sample rate at 1/8 the
-interrupt cost and lets the notches run **before** the decimation -- which matters here and not
-there, because our Nyquist is 512 Hz and the 2nd and 3rd motor harmonics (~530 and ~800 Hz at
-full throttle) fold into the loop band before any post-decimation filter can see them. That is
-#14's aliasing attacked from the other side, and it is the reason to do both together.
+runs its notches *after* decimation. Our burst gives the same per-sample rate at a quarter of
+the interrupt cost and lets the notches run **before** the decimation. That still matters at
+2048 Hz: the loop's Nyquist is 1024 Hz, while the 2nd and 3rd motor harmonics reach roughly
+1600 and 2400 Hz at full throttle and fold into the loop band before any post-decimation filter
+can see them. The pre-decimation stream is at 8192 Hz, so a notch there has 4096 Hz of Nyquist
+to work in and catches all three harmonics while they are still real.
 
 Wants #24 for an RPM source worth tracking.
 
@@ -713,48 +593,51 @@ Wants #24 for an RPM source worth tracking.
 
 #23's RPM filter needs motor frequency every loop, and the KISS serial telemetry we poll cannot
 give it: one motor at a time, tens of Hz, so a notch chasing a throttle punch would sit on
-50 ms-stale RPM. Betaflight feeds its filter from bidirectional DShot instead -- the ESC answers
+50 ms-stale RPM. Betaflight feeds its filter from bidirectional DShot instead — the ESC answers
 each frame on the same wire.
 
 Bigger than it sounds, but it does **not** cost the burst-DMA design. The trap to avoid is
 Betaflight's timer-capture path: latching edge timestamps into CCR1-4 needs four edge-triggered
 DMA streams, because four ESCs reply on their own schedules and a DMAR burst has exactly one
-trigger -- which is why their code makes burst and telemetry mutually exclusive. That is a
+trigger — which is why their code makes burst and telemetry mutually exclusive. That is a
 constraint of *capture*, not of receiving. Their own default (bit-bang) receives the way we
-transmit: one DMA stream on a fixed cadence -- pointed at `GPIOE->IDR`, where one 16-bit read
+transmit: one DMA stream on a fixed cadence — pointed at `GPIOE->IDR`, where one 16-bit read
 carries all four pins' levels at once. Cadence-sampling levels scales to four asynchronous
 repliers; edge-latching timestamps never can.
 
-So the transaction becomes: DMAR burst out of CCR1-4 (unchanged) -> one MODER write flips
-PE9/11/13/14 to input -> the same stream retargeted at IDR samples at ~3x the GCR rate
-(~130 samples over the ~56 us reply) -> flip back. What it costs:
+So the transaction becomes: DMAR burst out of CCR1-4 (unchanged) → one MODER write flips
+PE9/11/13/14 to input → the same stream retargeted at IDR samples at ~3× the GCR rate → flip
+back. What it costs:
 
 - **The signal inverts.** Bidir DShot idles high, ours idles low, so the output stage changes.
-- **The turnaround window is real but bounded**: the ESC replies ~30 us after the frame ends,
-  and the whole TX + gap + RX transaction is ~140 us of a 976 us loop at DSHOT300.
+- **The budget is tight but fits.** At DSHOT600 the whole transaction is ~27 µs frame + ~30 µs
+  turnaround + ~35 µs reply ≈ **92 µs**, against a 488 µs tick at 2048 Hz — 19%. It would be 75%
+  of a 122 µs tick at 8192 Hz, which is why Betaflight forces `pid_process_denom >= 2` on F4
+  with bidir. Any further `STM32_CONTROL_LOOP_HZ` increase and this constrain each other and
+  want deciding together.
 - **Undoing GCR is ~400 lines of software** (`dshot_bitbang_decode.c`): edge-find over the
   sample buffer, 21 bits at 5/4 the DShot rate, transition-decoded, 5-to-4 GCR lookup, CRC.
 
 One thing falls our way: port sampling needs every motor on one GPIO port, and ours are PE9,
-PE11, PE13 and PE14 -- all GPIOE. AM32 supports the protocol (input type 4, EDT) and
+PE11, PE13 and PE14 — all GPIOE. AM32 supports the protocol (input type 4, EDT) and
 `EscTelemetry::Info::bidirectional` already decodes the flag.
 
 #### Where each piece lives
 
 The IMU path already answers this, layer for layer:
 
-- **Sampler and phase machine -> `DShotTim1`.** The turnaround is the same transaction as
-  transmit -- same timer, same stream, same pins -- and a phase machine split across files
+- **Sampler and phase machine → `DShotTim1`.** The turnaround is the same transaction as
+  transmit — same timer, same stream, same pins — and a phase machine split across files
   would give one DMA stream two owners.
-- **GCR decode -> a pure function beside `DShotCodec`**, encode's mirror: samples in, eRPM
+- **GCR decode → a pure function beside `DShotCodec`**, encode's mirror: samples in, eRPM
   out, no hardware. Pure is what lets the SIL test 400 lines of bit-twiddling off-target with
   canned buffers.
-- **Publish -> the driver, from the RX-complete ISR**, exactly as `Icm42688p` parses and
-  publishes `ImuHealth` from its DMA-done ISR. Into a **new** Blackboard struct --
-  `MotorRpmData { timestamp_us, erpm[4], valid_mask, crc_error_count }` -- not into
+- **Publish → the driver, from the RX-complete ISR**, exactly as `Icm42688p` parses and
+  publishes `ImuHealth` from its DMA-done ISR. Into a **new** blackboard struct —
+  `MotorRpmData { timestamp_us, erpm[4], valid_mask, crc_error_count }` — not into
   `EscTelemetryData::rpm`, which has one writer (#19) and keeps it. KISS telemetry stays the
   volts/amps/temp source and its slow rpm becomes the cross-check on the fast one.
-- **Consumers read the Blackboard, nothing holds a `DShotTim1 *`.** The RPM filter (#23) in
+- **Consumers read the blackboard, nothing holds a `DShotTim1 *`.** The RPM filter (#23) in
   PendSV, the desync detector (#12) in Sentinel, `stat_publisher` if the wire wants it. The
   struct's timestamp is load-bearing from day one: it is what lets the filter fade a stale
   notch the way Betaflight's `rpm_filter_fade_range_hz` does.
@@ -764,20 +647,19 @@ The IMU path already answers this, layer for layer:
 A `dshot_tx` / `dshot_rx` pair is the one arrangement to avoid. They are not two things: the
 turnaround is a single transaction over one timer, one DMA stream retargeted mid-flight, one
 set of pins and one phase machine. Separate files give that stream two owners, or have one file
-reach into the other's state. A third coordinator file is worse -- it exists only to sequence
-halves that were never separable.
+reach into the other's state.
 
 - **`dshot_tim1.*` keeps the whole transaction**: burst out, MODER flip, IDR sampling, flip
-  back, phase machine. 304 lines today, perhaps 500 after. Meaning-free throughout.
+  back, phase machine. Meaning-free throughout.
 - **The GCR decoder gets its own file, not a half of `DShotCodec`.** ~400 lines onto a 133-line
   codec would leave the codec 80% decoder, and the two are not an encode/decode pair anyway:
   outbound is 16 bits (11 throttle + 1 telemetry request + 4 CRC), inbound is 21 bits of
   transition-encoded GCR carrying a 12-bit period, a 4-bit exponent and a CRC. Two protocols
   sharing a wire.
 
-The decoder should be genuinely pure -- `<array>`, `<cstdint>`, no hardware header -- which
-puts it in `libs/` beside `message.hpp` rather than under `stm32/`, where the SIL reaches it
-without dragging in STM32 headers to feed it canned sample buffers.
+The decoder should be genuinely pure — `<array>`, `<cstdint>`, no hardware header — which
+puts it in `libs/` rather than under `stm32/`, where the SIL reaches it without dragging in
+STM32 headers to feed it canned sample buffers.
 
 Worth noting on the way past: `DShotCodec` is *not* pure today. `dshot_codec.cpp` includes
 `dshot_tim1.hpp`, so the codec already reaches into the driver. That coupling is worth undoing
@@ -786,22 +668,19 @@ whether or not bidir ever lands.
 It pays for itself twice. Besides #23, per-motor eRPM every loop is the desync detector #12 is
 looking for.
 
-It also caps the loop rate: a reply roughly doubles DSHOT300's frame budget, which is why
-Betaflight forces `pid_process_denom >= 2` on F4. This and any `STM32_CONTROL_LOOP_HZ` bump
-constrain each other and want deciding together.
-
 ### #25 — Calibration is stored, never applied, and would reset the board — 🎯 CRITICAL
 
-Two unrelated halves, both armed the moment #16 wires a MAVLink trigger.
+Two unrelated halves, both armed the moment a MAVLink trigger is wired.
 
 **Accel calibration does nothing.** `accel_calibration_` is loaded from EE at `Init` and written
 back by `SaveAccelCalibration`, and `ScaleSample` never reads it. It round-trips through storage
-and never reaches a sample.
+and never reaches a sample. The `EeConfigStorage` path around it is correct end to end — the
+value simply has no consumer.
 
 **Gyro calibration would trip the watchdog.** `CalibrateGyro` collects for `gyro_duration_s` of
 2 with a `gyro_timeout_s` ceiling of 5, and there is no `Watchdog::Kick` anywhere in that
 driver. The IWDG's worst-case period is ~681 ms, so the call resets the board three times over
--- seven at the timeout. It has no caller today, which is the only reason it has never fired.
+— seven at the timeout. It has no caller today, which is the only reason it has never fired.
 
 The gyro half is incomplete beyond that: `ClearUserOffsets()` wipes the chip's offsets every
 boot, there is no EE record for them the way there is for accel, and #21 explains why the
@@ -809,52 +688,51 @@ trigger has to check the reset cause as well.
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
-An SD driver and a service. The Blackboard is now the right shape to log from: every fact in one
+An SD driver and a service. The blackboard is now the right shape to log from: every fact in one
 place, each timestamped, each with one writer, and change detection held per-consumer rather
-than shared -- which is why `PopGps`/`PopRc` had to go, since a single `updated` bit would let a
-logger and the telemetry publisher clear it out from under each other.
+than shared.
 
-The fast path is the constraint. `ImuState` at 1024 Hz is ~56 bytes a tick, about 57 KB/s --
+The control path is the constraint. `EstimatorState` is 48 bytes, so at 2048 Hz it is ~98 KB/s —
 fine for the card, not something the slow loop should marshal synchronously. It wants its own
 buffer and a bulk flush.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
 Autonomy needs a state estimate the rate loop does not: position, velocity, and an attitude that
-stays consistent through aggressive manoeuvring. An invariant EKF is the interesting choice --
+stays consistent through aggressive manoeuvring. An invariant EKF is the interesting choice —
 its error dynamics are trajectory-independent, which is exactly the regime a fast autonomous
 craft lives in, and neither PX4 nor ArduPilot ships one.
 
 The architecture is half-built already. The control loop iterates the burst once and produces two
 things at different rates: filtered gyro for control (#23), and delta-angle / delta-velocity
 increments accumulated per sample for the estimator, the way PX4's `ImuDownSampler` does with
-coning and sculling corrections. Those increments are the **one** legitimate case for IMU data
-on the Blackboard -- about 28 bytes, rate-decoupled by construction, and safe there precisely
-because an accumulator tolerates a missed read where a stateful filter does not.
+coning and sculling corrections. Those increments are rate-decoupled by construction, and safe
+on the blackboard precisely because an accumulator tolerates a missed read where a stateful
+filter does not.
 
 Two things are not the filter's algebra, and are where the time actually goes: the delayed-time
 fusion shell that lets 100 ms-old GPS fuse correctly, and the innovation gating that decides
 when a sensor is lying. EKF2's real value is that shell, not its equations.
 
 One rule if it lands: **attitude gets a single owner.** Mahony and an IEKF both estimate it, and
-both writing `ImuState::attitude_world_to_body` is the duplication this repo has spent three
-days removing. PX4 retires the complementary filter into an output predictor; ArduPilot keeps
-DCM as an explicit fallback lane. Either is fine; two writers is not.
+both writing `EstimatorState::attitude_world_to_body` is the duplication this repo has spent
+real effort removing. PX4 retires the complementary filter into an output predictor; ArduPilot
+keeps DCM as an explicit fallback lane. Either is fine; two writers is not.
 
 ### #28 — The vehicle cannot be armed without the ESP32 — 🎯 CRITICAL
 
 `CommandHandler::OnPrivilegedArm` is the only caller of `Sentinel::RequestArm` on the board, and
 it is reachable only by `kPrivilegedArm` over FcLink. So arming *and disarming* both require the
-second MCU alive and a GCS talking to it. #16 records the consequence: an ESP32 failure while
-armed removes the disarm path entirely and leaves the cascade running on the last RC values.
+second MCU alive and a GCS talking to it. An ESP32 failure while armed removes the disarm path
+entirely and leaves the cascade running on the last RC values.
 
-An arm switch is the fix, and Sentinel is already shaped for it -- `RequestArm` is the single
+An arm switch is the fix, and Sentinel is already shaped for it — `RequestArm` is the single
 entry point, so this is a second caller, not a second mechanism.
 
 #### The switch is the easy part
 
 `RcReceiver::Config` carries roll, pitch, yaw and throttle and nothing else, so an aux channel
-needs a Kconfig knob, a calibration schema slot, and a wider `RcMapConfigMsg` -- a wire change,
+needs a Kconfig knob, a calibration schema slot, and a wider `RcMapConfigMsg` — a wire change,
 so both firmwares. That is plumbing. The interlocks are the work:
 
 - **Throttle low**, or the props spin the instant the switch flips.
@@ -873,44 +751,19 @@ so both firmwares. That is plumbing. The interlocks are the work:
 sticks is harmless because nothing can arm behind them. A stick gesture removes that guarantee,
 so link-loss policy has to exist before this lands, not after.
 
-### #29 — `Services/` is four different things — 🟢 SUPPORTING
-
-The directory holds sixteen classes and the `Poll()` split separates them cleanly. Everything
-with one owns a peripheral and runs on the slow tick. The four without it -- `Ahrs::Process`,
-`AttitudeController::Step`, `RateController::Step`, `MultirotorMixer::Mix` -- are called per IMU
-burst, hold no buffer and no `SharedState *`, and cannot fail asynchronously. They are a control
-tier wearing a services label.
-
-Worth separating because it turns a convention into a check. **Nothing in the fast path does
-I/O** is currently something you have to remember; as its own directory it is a lint rule -- no
-`Poll`, no driver includes, no `System::GetInstance()`.
-
-Moving only those four would make the directory worse, though, because three more are already
-misfiled. `DShotCodec` owns TIM1 and its DMA and `Write()` puts bits on the wire -- a driver.
-`EscBootloader` owns a `UartSoft` and speaks BLB -- also a driver. `config_storage` is six
-static functions over `EE` with no instance and no state -- a free-function library. Leaving
-those behind means `Services/` would mean "polling services, plus the leftovers" rather than
-anything. `CommandHandler` is the one genuine judgement call: `Dispatch` is reactive rather than
-periodic, but it acts on the same tier as the services and belongs with them.
-
-Pure file moves, zero behaviour change, so the cost is entirely in include paths and
-`stm32/CMakeLists.txt`. That is also the argument for timing: it churns every diff it touches,
-so it lands as one commit on a clean index, after the current review sweep clears -- not
-interleaved with work that has to be read line by line.
-
 ### #30 — Name the IMU orientations rather than configuring a triple — 🟢 SUPPORTING
 
 `axis_map` is hardcoded identity in `stm32_config.hpp.j2`, with a comment saying to promote it
 to Kconfig when a board rotates the chip. Promote it as a **named choice**, not as the signed
 permutation the struct stores.
 
-A signed permutation has 6 orderings x 8 sign combinations = 48 settings, and only 24 are
-rotations. The other 24 have determinant -1: reflections no rigid mount can produce.
-`ValidateConfig` does not catch them -- it checks the ordering is a permutation of {0,1,2} and
-never looks at the signs -- so `x_from=1, y_from=0, z_from=2` all-positive passes, swaps X and
+A signed permutation has 6 orderings × 8 sign combinations = 48 settings, and only 24 are
+rotations. The other 24 have determinant −1: reflections no rigid mount can produce.
+`ValidateConfig` does not catch them — it checks the ordering is a permutation of {0,1,2} and
+never looks at the signs — so `x_from=1, y_from=0, z_from=2` all-positive passes, swaps X and
 Y, and hands the AHRS a left-handed frame.
 
-Betaflight's set is the right size: 8 orientations, 4 yaw x {upright, flipped}
+Betaflight's set is the right size: 8 orientations, 4 yaw × {upright, flipped}
 (`common/sensor_alignment.h`), plus a sentinel for the driver default and one custom escape.
 It covers every mount anyone builds on a board they designed, stays a signed permutation so
 `ScaleSample` remains a table lookup, and structurally cannot express a reflection. PX4 carries
@@ -920,14 +773,15 @@ generality is a liability here, not a feature.
 
 Shape: a Kconfig choice, expanded by the generator into the permutation and signs the driver
 already consumes, with a determinant check in the generator so a bad expansion fails the build
-instead of the flight. Nothing in the fast path changes.
+instead of the flight. Nothing in the control path changes.
 
-**One rule survives regardless: `CalibrateGyro` stays on raw counts.** `OFFSET_USER` is
-per chip axis, so a body-frame bias has to be run back through the inverse map before it is
-written -- and that write is permanent, silent when wrong, and shows up as drift on an axis
-that was never calibrated. Keeping calibration in chip frame means the map never enters that
-path and the inversion cannot be forgotten. It is also the second reason the sample batch
-should stay raw, alongside #25 and #26.
+**The calibration hazard is handled but stays load-bearing.** `OFFSET_USER` is per chip axis, so
+`CalibrateGyro` runs its body-frame mean back through `Icm42688p::ChipFromBody` before writing.
+That inversion is exact only because the map is a signed permutation — one chip axis per body
+axis — and a general rotation would need a transpose instead. The write is permanent, silent
+when wrong, and shows up as drift on an axis that was never calibrated, so any change to how the
+map is expressed has to keep `ChipFromBody` its exact inverse. Naming the orientations narrows
+that risk rather than removing it.
 
 Pairs with #25: a rotated mount invalidates the stored accel calibration as well, so the two
 land together or not at all.
