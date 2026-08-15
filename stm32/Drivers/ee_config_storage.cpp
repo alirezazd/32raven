@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
-#include "config_storage.hpp"
+#include "ee_config_storage.hpp"
 
 #include <cstring>
 
@@ -107,7 +107,7 @@ bool IsRcMapValid(const ee_schema::RcMap &map) {
 
 }  // namespace
 
-ee_schema::ImuAccelCalibration ConfigStorage::LoadOrInitImuAccelCalibration(
+ee_schema::ImuAccelCalibration EeConfigStorage::LoadOrInitImuAccelCalibration(
     EE &ee) {
   ee_schema::ImuAccelCalibration cal{};
   if (!ee.ReadObject(cal, ee_schema::layout::kImuAccelCalibrationOffset)) {
@@ -129,7 +129,7 @@ ee_schema::ImuAccelCalibration ConfigStorage::LoadOrInitImuAccelCalibration(
   return cal;
 }
 
-bool ConfigStorage::SaveImuAccelCalibration(
+bool EeConfigStorage::SaveImuAccelCalibration(
     EE &ee, const ee_schema::ImuAccelCalibration &cal) {
   ee_schema::ImuAccelCalibration to_write = cal;
   ee_schema::ImuAccelCalibration::PopulateHeader(to_write);
@@ -137,7 +137,7 @@ bool ConfigStorage::SaveImuAccelCalibration(
                         ee_schema::layout::kImuAccelCalibrationOffset);
 }
 
-ee_schema::RcCalibration ConfigStorage::LoadOrInitRcCalibration(EE &ee) {
+ee_schema::RcCalibration EeConfigStorage::LoadOrInitRcCalibration(EE &ee) {
   ee_schema::RcCalibration cal{};
   if (!ee.ReadObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
     Panic(ErrorCode::Stm32::kEepromInvalidConfig);
@@ -181,7 +181,7 @@ ee_schema::RcCalibration ConfigStorage::LoadOrInitRcCalibration(EE &ee) {
   return cal;
 }
 
-bool ConfigStorage::SaveRcCalibration(EE &ee,
+bool EeConfigStorage::SaveRcCalibration(EE &ee,
                                       const ee_schema::RcCalibration &cal) {
   if (!IsRcCalibrationValid(cal)) {
     return false;
@@ -191,7 +191,7 @@ bool ConfigStorage::SaveRcCalibration(EE &ee,
   return ee.WriteObject(to_write, ee_schema::layout::kRcCalibrationOffset);
 }
 
-ee_schema::RcMap ConfigStorage::LoadOrInitRcMap(
+ee_schema::RcMap EeConfigStorage::LoadOrInitRcMap(
     EE &ee, const ee_schema::RcMap &default_map) {
   if (!IsRcMapValid(default_map)) {
     Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
@@ -224,7 +224,7 @@ ee_schema::RcMap ConfigStorage::LoadOrInitRcMap(
   return map;
 }
 
-bool ConfigStorage::SaveRcMap(EE &ee, const ee_schema::RcMap &map) {
+bool EeConfigStorage::SaveRcMap(EE &ee, const ee_schema::RcMap &map) {
   if (!IsRcMapValid(map)) {
     return false;
   }

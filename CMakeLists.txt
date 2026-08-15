@@ -79,7 +79,7 @@ set(COMMON_CONFIG_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_common_config.py")
 set(COMMON_CONFIG_TEMPLATE
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/templates/common_config.hpp.j2")
-set(COMMON_CONFIG_HPP "${CMAKE_CURRENT_SOURCE_DIR}/libs/inc/common_config.hpp")
+set(COMMON_CONFIG_HPP "${CMAKE_CURRENT_SOURCE_DIR}/libs/common_config.hpp")
 
 set(_FMT_COMMON_CMD)
 if(CLANG_FORMAT_EXECUTABLE)

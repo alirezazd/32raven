@@ -1,7 +1,7 @@
 mainmenu "32Raven Configuration"
 
 # Settings neither board owns: the two have to agree on them or the link does not
-# work. They are rendered once into libs/inc/common_config.hpp and included by
+# work. They are rendered once into libs/common_config.hpp and included by
 # both firmwares, so a change here moves both sides together.
 menu "Common"
 

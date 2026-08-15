@@ -6,7 +6,7 @@
 #include <cmath>
 #include <utility>
 
-#include "config_storage.hpp"
+#include "ee_config_storage.hpp"
 #include "error_code.hpp"
 #include "gpio.hpp"
 #include "irq_priority.hpp"
@@ -67,7 +67,7 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   timestamp_tick_remainder_q16_ = 0;
   calibration_cfg_ = cfg.calibration;
   recovery_cfg_ = cfg.recovery;
-  accel_calibration_ = ConfigStorage::LoadOrInitImuAccelCalibration(ee);
+  accel_calibration_ = EeConfigStorage::LoadOrInitImuAccelCalibration(ee);
 
   System::GetInstance().Time().DelayMicros(MillisToMicros(10));
   spi.SetPrescaler(cfg.spi_prescaler);
@@ -124,7 +124,7 @@ bool Icm42688p::SaveAccelCalibration() {
   if (ee_ == nullptr) {
     return false;
   }
-  return ConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
+  return EeConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
 }
 
 uint32_t Icm42688p::GetDeviceId() const {

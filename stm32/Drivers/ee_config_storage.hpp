@@ -6,7 +6,7 @@
 #include "ee.hpp"
 #include "ee_schema.hpp"
 
-class ConfigStorage {
+class EeConfigStorage {
  public:
   static ee_schema::ImuAccelCalibration LoadOrInitImuAccelCalibration(EE &ee);
   static ee_schema::RcCalibration LoadOrInitRcCalibration(EE &ee);

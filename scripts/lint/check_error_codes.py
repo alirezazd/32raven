@@ -4,7 +4,7 @@
 
 """Detect (and optionally remove) unused ErrorCode enumerators.
 
-Default mode (used by CMake at build time): scan `libs/inc/error_code.hpp` for
+Default mode (used by CMake at build time): scan `libs/error_code.hpp` for
 every value in each nested enum class, count callsites in `stm32/`, `esp32/`,
 and `libs/` (excluding `error_code.hpp` itself and `error_code.cpp`), and exit
 non-zero with a diagnostic if any enumerator has zero references.
@@ -26,8 +26,8 @@ import re
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
-HEADER = REPO / "libs/inc/error_code.hpp"
-SOURCE = REPO / "libs/src/error_code.cpp"
+HEADER = REPO / "libs/error_code.hpp"
+SOURCE = REPO / "libs/error_code.cpp"
 
 SEARCH_ROOTS = [REPO / "stm32", REPO / "esp32", REPO / "libs"]
 EXCLUDE_PATHS = {HEADER, SOURCE}

@@ -10,12 +10,12 @@
 # ]
 # ///
 
-"""Generate libs/inc/common_config.hpp, included by both firmwares.
+"""Generate libs/common_config.hpp, included by both firmwares.
 
 Run (normally invoked by the top-level CMake, which owns this output):
   uv run --quiet --script scripts/generate_common_config.py \
       --kconfig config/Kconfig --config config/32raven.config \
-      --out libs/inc/common_config.hpp
+      --out libs/common_config.hpp
 """
 
 from __future__ import annotations

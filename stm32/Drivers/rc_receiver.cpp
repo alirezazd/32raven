@@ -5,7 +5,7 @@
 
 #include <cstring>
 
-#include "config_storage.hpp"
+#include "ee_config_storage.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "shared_state.hpp"
@@ -93,14 +93,14 @@ void RcReceiver::Init(const Config &cfg, EE &ee, SharedState &blackboard) {
   cfg_ = cfg;
   ee_ = &ee;
   blackboard_ = &blackboard;
-  calibration_ = ConfigStorage::LoadOrInitRcCalibration(ee);
+  calibration_ = EeConfigStorage::LoadOrInitRcCalibration(ee);
   const ee_schema::RcMap persisted_map =
-      ConfigStorage::LoadOrInitRcMap(ee, MakeRcMapBlob(cfg_));
+      EeConfigStorage::LoadOrInitRcMap(ee, MakeRcMapBlob(cfg_));
   Config candidate = cfg_;
   ApplyRcMapBlob(persisted_map, candidate);
   if (IsConfigValid(candidate)) {
     cfg_ = candidate;
-  } else if (!ConfigStorage::SaveRcMap(ee, MakeRcMapBlob(cfg_))) {
+  } else if (!EeConfigStorage::SaveRcMap(ee, MakeRcMapBlob(cfg_))) {
     Panic(ErrorCode::Stm32::kEepromWriteFailed);
   }
   initialized_ = true;
@@ -202,14 +202,14 @@ bool RcReceiver::SaveCalibration() {
   if (ee_ == nullptr) {
     return false;
   }
-  return ConfigStorage::SaveRcCalibration(*ee_, calibration_);
+  return EeConfigStorage::SaveRcCalibration(*ee_, calibration_);
 }
 
 bool RcReceiver::SaveRcMap(const Config &cfg) {
   if (ee_ == nullptr) {
     return false;
   }
-  return ConfigStorage::SaveRcMap(*ee_, MakeRcMapBlob(cfg));
+  return EeConfigStorage::SaveRcMap(*ee_, MakeRcMapBlob(cfg));
 }
 
 bool RcReceiver::SetRcMapConfig(const message::RcMapConfigMsg &cfg) {
@@ -253,7 +253,7 @@ bool RcReceiver::SetCalibrationConfig(
   std::memcpy(updated.trim_us, cfg.trim_us, sizeof(updated.trim_us));
   std::memcpy(updated.rev, cfg.rev, sizeof(updated.rev));
 
-  if (!ConfigStorage::SaveRcCalibration(*ee_, updated)) {
+  if (!EeConfigStorage::SaveRcCalibration(*ee_, updated)) {
     return false;
   }
 

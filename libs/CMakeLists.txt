@@ -1,2 +1,2 @@
-idf_component_register(INCLUDE_DIRS "inc"
+idf_component_register(INCLUDE_DIRS "."
                        SRCS "")

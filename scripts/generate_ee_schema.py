@@ -140,7 +140,7 @@ def collect_blobs(node: object) -> list[dict[str, object]]:
 
 def layout_context(blobs: list[dict[str, object]]) -> dict[str, object]:
     # Emit a packed EEPROM layout so runtime code can use generated offsets
-    # instead of hardcoding them in ConfigStorage.
+    # instead of hardcoding them in EeConfigStorage.
     entries: list[dict[str, object]] = []
     offset = 0
     for blob in blobs:

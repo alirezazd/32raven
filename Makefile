@@ -78,7 +78,7 @@ CLEAN_FILES := \
 	stm32/Drivers/stm32_config.hpp \
 	stm32/Drivers/stm32_limits.hpp \
 	stm32/Drivers/ee_schema.hpp \
-	libs/inc/common_config.hpp
+	libs/common_config.hpp
 
 .PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp enable-docker disable-docker docker-image setup-vscode docs docs-serve
 
