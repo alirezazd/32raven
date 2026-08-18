@@ -88,5 +88,8 @@ nav:
       # Pages land here as they're written. Adding a docs/*.md without a nav
       # entry fails the strict build.
   - Firmware:
-      - "Flashing the firmware": flashing.md
+      - firmware/index.md
+      - "Development setup": firmware/setup.md
+      - "Configure and build": firmware/building.md
+      - "Flashing the firmware": firmware/flashing.md
   - Roadmap: roadmap.md

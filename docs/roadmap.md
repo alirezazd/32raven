@@ -57,8 +57,9 @@ estimate here is worse than the blank, because a reader will size their own pack
 
 ### #4 — The remaining stubbed build stages — 🎯 CRITICAL
 
-Materials, boards and wiring have pages. Still to write: frame and motors, power, toolchain,
-configure and flash, smoke test, sensors, RC link, bench test, and first flight.
+Materials, boards and wiring have pages, and the firmware section covers toolchain,
+configure and flash. Still to write: frame and motors, power, smoke test, sensors, RC link,
+bench test, and first flight.
 
 Write each as its stage is reached during the real build, while the details are fresh and
 the mistakes are still visible. A stage documented from memory six months later is the kind
