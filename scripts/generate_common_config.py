@@ -28,7 +28,7 @@ import kconfiglib
 
 # Sibling module.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from kconfig_gen import (  # noqa: E402
+from kconfig_gen import (
     autogen_warning,
     choice_value,
     render_template,

@@ -16,6 +16,7 @@ trailing comment hid every violation on that line -- a linter that a comment
 defeats reports success it has not earned. Blanking preserves line and column
 numbers, so what is reported still points at the real position.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,7 +31,9 @@ SOURCE_SUFFIXES = (".cpp", ".hpp")
 # .docker and .venv are gitignored local caches holding a whole C++ toolchain
 # and its standard library, so a bare run finds <iostream> in someone else's
 # headers and fails for anyone who has built through Docker. CI never has them.
-SKIP_DIRS = frozenset({".git", "build", "cmake", "third_party", ".docker", ".venv"})
+SKIP_DIRS = frozenset(
+    {".git", "build", "cmake", "third_party", ".docker", ".venv"}
+)
 
 FORBIDDEN_HEADERS = (
     "iostream",
@@ -125,7 +128,9 @@ def blank_comments_and_strings(src: str) -> str:
         if ch == "/" and nxt == "*":
             out.append("  ")
             i += 2
-            while i < n and not (src[i] == "*" and i + 1 < n and src[i + 1] == "/"):
+            while i < n and not (
+                src[i] == "*" and i + 1 < n and src[i + 1] == "/"
+            ):
                 out.append("\n" if src[i] == "\n" else " ")
                 i += 1
             out.append("  ")
@@ -136,7 +141,7 @@ def blank_comments_and_strings(src: str) -> str:
         # the only terminator is the matching delimiter.
         raw = re.match(r'(?:u8|u|U|L)?R"([^()\\ ]{0,16})\(', src[i:])
         if raw:
-            close = ')' + raw.group(1) + '"'
+            close = ")" + raw.group(1) + '"'
             end = src.find(close, i + raw.end())
             end = n if end == -1 else end + len(close)
             for j in range(i, end):
@@ -176,7 +181,9 @@ def load_exceptions(path: pathlib.Path | None) -> list[str]:
         return []
     return [
         line.strip()
-        for line in path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        for line in path.read_text(
+            encoding="utf-8", errors="ignore"
+        ).splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
 
@@ -217,11 +224,17 @@ def scan(path: pathlib.Path, exceptions: list[str]) -> list[str]:
     for number, line in enumerate(lines, start=1):
         for rule in RULES:
             for match in rule.regex.finditer(line):
-                text = raw_lines[number - 1].strip() if number <= len(raw_lines) else ""
+                text = (
+                    raw_lines[number - 1].strip()
+                    if number <= len(raw_lines)
+                    else ""
+                )
                 location = f"{shown}:{number}:{match.start() + 1}"
                 if any(exc in location or exc in text for exc in exceptions):
                     continue
-                findings.append(f"{location}: [{rule.name}] {rule.reason}\n      {text}")
+                findings.append(
+                    f"{location}: [{rule.name}] {rule.reason}\n      {text}"
+                )
     return findings
 
 

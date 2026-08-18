@@ -11,7 +11,6 @@ import re
 import subprocess
 from dataclasses import dataclass
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 README_PATH = REPO_ROOT / "README.md"
 VERSION_PATH = REPO_ROOT / "VERSION"
@@ -36,7 +35,9 @@ def _git(*args: str) -> str:
             text=True,
         )
     except OSError as exc:
-        raise SystemExit("git is required to resolve the firmware version") from exc
+        raise SystemExit(
+            "git is required to resolve the firmware version"
+        ) from exc
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr.strip()
         message = stderr or f"git {' '.join(args)} failed"
@@ -70,7 +71,9 @@ def _read_version_source(ref: str, ref_commit: str) -> VersionSource:
         if content is not None:
             return VersionSource(path=path, content=content)
 
-    raise SystemExit("VERSION or README.md is required to resolve the firmware version")
+    raise SystemExit(
+        "VERSION or README.md is required to resolve the firmware version"
+    )
 
 
 def _parse_firmware_version_base(version_source: str) -> tuple[int, int]:
@@ -91,7 +94,9 @@ def _parse_firmware_version_base(version_source: str) -> tuple[int, int]:
 def _base_start_commit(
     ref_commit: str, version_base: tuple[int, int], source_path: str
 ) -> str | None:
-    commits = _git("log", "--format=%H", "--reverse", ref_commit, "--", source_path)
+    commits = _git(
+        "log", "--format=%H", "--reverse", ref_commit, "--", source_path
+    )
     for commit in commits.splitlines():
         try:
             source = _git("show", f"{commit}:{source_path}")
@@ -112,7 +117,9 @@ def _auto_patch_version(
     if base_commit is None:
         patch = 1
     else:
-        patch = int(_git("rev-list", "--count", f"{base_commit}..{ref_commit}")) + 1
+        patch = (
+            int(_git("rev-list", "--count", f"{base_commit}..{ref_commit}")) + 1
+        )
 
     if patch > 0xFF:
         raise SystemExit(

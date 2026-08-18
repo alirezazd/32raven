@@ -21,7 +21,8 @@ outside its declared `range` is quietly replaced by the default rather than
 rejected. Either one leaves a knob that looks live and is not.
 
 Consumption is measured by running the generators, not by scanning them.
-Symbol names are routinely built at runtime -- `f"STM32_ATT_CTRL_{axis}_KP_MILLI"`,
+Symbol names are routinely built at runtime --
+`f"STM32_ATT_CTRL_{axis}_KP_MILLI"`,
 `key.replace("GYRO", "ACCEL")` -- so a text search reports most of the tree as
 dead. Every read funnels through `kconfig_gen.sym`, so recording calls there
 observes what is actually consumed.
@@ -35,6 +36,7 @@ Two things that observation alone would miss:
                   `default ... if ...` expression is read by kconfiglib rather
                   than by us. Those come from `Symbol.referenced`.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -48,15 +50,23 @@ DOT_CONFIG = REPO / "config/32raven.config"
 
 sys.path.insert(0, str(REPO / "scripts"))
 
-import kconfiglib  # noqa: E402
 import kconfig_gen  # noqa: E402
+import kconfiglib  # noqa: E402
 
 # Generator module -> the entry points that read Kconfig. Anything a generator
 # consumes is reached through one of these; `main()` only adds argparse and
 # file writing on top.
 GENERATORS: dict[str, tuple[str, ...]] = {
-    "generate_stm32_config": ("_validate", "_runtime_context", "_limits_context"),
-    "generate_esp32_config": ("_validate", "_runtime_context", "_limits_context"),
+    "generate_stm32_config": (
+        "_validate",
+        "_runtime_context",
+        "_limits_context",
+    ),
+    "generate_esp32_config": (
+        "_validate",
+        "_runtime_context",
+        "_limits_context",
+    ),
     "generate_common_config": ("fclink_context",),
 }
 
@@ -73,7 +83,7 @@ kconfig_gen.sym = _record_sym
 
 
 def _call(fn, source: pathlib.Path, kconf: kconfiglib.Kconfig) -> None:
-    """Invoke a generator entry point, which takes kconf with or without a source."""
+    """Invoke an entry point; takes kconf with or without a source."""
     params = inspect.signature(fn).parameters
     fn(source, kconf) if len(params) == 2 else fn(kconf)
 
@@ -103,7 +113,9 @@ def _harvest_tables(module, defined: set[str]) -> set[str]:
         elif isinstance(obj, (list, tuple, set, frozenset)):
             for item in obj:
                 walk(item, depth + 1)
-        elif not (inspect.ismodule(obj) or inspect.isclass(obj) or callable(obj)):
+        elif not (
+            inspect.ismodule(obj) or inspect.isclass(obj) or callable(obj)
+        ):
             fields = getattr(obj, "__dict__", None)
             if isinstance(fields, dict):
                 for value in fields.values():
@@ -117,7 +129,7 @@ def _harvest_tables(module, defined: set[str]) -> set[str]:
 
 
 def _expression_symbols(kconf: kconfiglib.Kconfig) -> set[str]:
-    """Symbols kconfiglib evaluates itself, via depends on / select / default-if."""
+    """Symbols kconfiglib evaluates via depends on / select / default-if."""
     found: set[str] = set()
     for item in (*kconf.unique_defined_syms, *kconf.unique_choices):
         for ref in item.referenced:
@@ -142,9 +154,14 @@ def _unstuck_values(kconf: kconfiglib.Kconfig) -> list[str]:
         name = name.removeprefix("CONFIG_")
         symbol = kconf.syms.get(name)
         if symbol is None or not symbol.nodes:
-            problems.append(f"{name} is set in .config but Kconfig does not define it")
+            problems.append(
+                f"{name} is set in .config but Kconfig does not define it"
+            )
             continue
-        if symbol.type in (kconfiglib.INT, kconfiglib.HEX) and symbol.str_value != wanted:
+        if (
+            symbol.type in (kconfiglib.INT, kconfiglib.HEX)
+            and symbol.str_value != wanted
+        ):
             problems.append(
                 f"{name}={wanted} did not stick (in use: {symbol.str_value}); "
                 "check its range"
@@ -172,9 +189,7 @@ def main() -> int:
     unreachable = {
         s.name
         for s in kconf.unique_defined_syms
-        if s.name
-        and s.visibility == 0
-        and any(node.prompt for node in s.nodes)
+        if s.name and s.visibility == 0 and any(node.prompt for node in s.nodes)
     }
 
     orphans = sorted(defined - consumed - unreachable)
@@ -184,7 +199,10 @@ def main() -> int:
 
     print("Kconfig staleness:", file=sys.stderr)
     for name in orphans:
-        print(f"  [orphan] {name} is declared but no generator reads it", file=sys.stderr)
+        print(
+            f"  [orphan] {name} is declared but no generator reads it",
+            file=sys.stderr,
+        )
     for problem in stuck:
         print(f"  [value]  {problem}", file=sys.stderr)
     print(

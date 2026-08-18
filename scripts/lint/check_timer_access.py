@@ -22,6 +22,7 @@ discontinuity in a type that promises it cannot happen -- and the compiler has
 no reason to object. Accumulate short deltas into a 64-bit total if a long
 horizon is genuinely needed; do not widen a single read.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -43,15 +44,50 @@ ALLOWED = {
 
 PATTERN = re.compile(r"\bTIM2\s*->\s*CNT\b")
 
-# `uint64_t x = ... Micros()`. The word boundary keeps SecondsToMicros() out,
-# and a genuine 64-bit source would not be named Micros().
+# `uint64_t x = ... Micros()`, type and assignment on one line. The word
+# boundary keeps SecondsToMicros() out, and a genuine 64-bit source would not
+# be named Micros().
 WIDENING = re.compile(r"\buint64_t\b[^;=]*=[^;]*\bMicros\s*\(\s*\)")
+
+# The declaration half of the split case: `volatile uint64_t last_idle_time_`.
+DECL_64 = re.compile(
+    r"\buint64_t\b\s*[*&]?\s*(?P<name>[A-Za-z_]\w*)\s*(?:[=;,)[]|$)"
+)
+
+
+# `name = ... Micros()`. Assignment only -- `==` and `>=` widen nothing.
+def _assignment_to(name: str) -> re.Pattern[str]:
+    return re.compile(
+        rf"(?<![=!<>])\b{re.escape(name)}\s*=(?!=)[^;]*\bMicros\s*\(\s*\)"
+    )
+
+
+def _declared_64bit_names() -> set[str]:
+    """Every identifier declared uint64_t anywhere under stm32/.
+
+    Tree-wide because the declaring header and the assigning .cpp are
+    different files. A name reused at another type can false-positive; that is
+    the trade for catching the split case at all.
+    """
+    names: set[str] = set()
+    for path in sorted((REPO / "stm32").rglob("*.[ch]pp")):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        for match in DECL_64.finditer(text):
+            names.add(match["name"])
+    return names
 
 
 def main() -> int:
     paths = [pathlib.Path(p) for p in sys.argv[1:]]
     if not paths:
         paths = sorted((REPO / "stm32").rglob("*.[ch]pp"))
+
+    wide_names = [
+        _assignment_to(name) for name in sorted(_declared_64bit_names())
+    ]
 
     findings: list[str] = []
     widened: list[str] = []
@@ -69,7 +105,7 @@ def main() -> int:
         for number, line in enumerate(text.splitlines(), start=1):
             if rel not in ALLOWED and PATTERN.search(line):
                 findings.append(f"{rel}:{number}: {line.strip()}")
-            if WIDENING.search(line):
+            if WIDENING.search(line) or any(p.search(line) for p in wide_names):
                 widened.append(f"{rel}:{number}: {line.strip()}")
 
     if findings:

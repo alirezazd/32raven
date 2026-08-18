@@ -14,10 +14,9 @@ from __future__ import annotations
 import argparse
 import pathlib
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from PIL import Image, ImageDraw, ImageFilter, ImageOps
-
 
 DEFAULT_VISIBLE_WIDTH = 72
 DEFAULT_VISIBLE_HEIGHT = 40
@@ -152,8 +151,9 @@ def sanitize_identifier(value: str) -> str:
     return ident
 
 
-def flatten_to_grayscale(path: pathlib.Path, alpha_bg: str,
-                         trim_alpha: bool) -> Image.Image:
+def flatten_to_grayscale(
+    path: pathlib.Path, alpha_bg: str, trim_alpha: bool
+) -> Image.Image:
     img = Image.open(path).convert("RGBA")
     if trim_alpha:
         bbox = img.getchannel("A").getbbox()
@@ -164,8 +164,13 @@ def flatten_to_grayscale(path: pathlib.Path, alpha_bg: str,
     return Image.alpha_composite(bg, img).convert("L")
 
 
-def resize_visible(img: Image.Image, target_w: int, target_h: int,
-                   fit_mode: str) -> Image.Image:
+def resize_visible(
+    img: Image.Image,
+    target_w: int,
+    target_h: int,
+    fit_mode: str,
+    pad_color: int,
+) -> Image.Image:
     if fit_mode == "stretch":
         return img.resize((target_w, target_h), Image.Resampling.LANCZOS)
 
@@ -180,7 +185,7 @@ def resize_visible(img: Image.Image, target_w: int, target_h: int,
     resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     if fit_mode == "contain":
-        canvas = Image.new("L", (target_w, target_h), color=0)
+        canvas = Image.new("L", (target_w, target_h), color=pad_color)
         pos = ((target_w - new_w) // 2, (target_h - new_h) // 2)
         canvas.paste(resized, pos)
         return canvas
@@ -190,8 +195,9 @@ def resize_visible(img: Image.Image, target_w: int, target_h: int,
     return resized.crop((left, top, left + target_w, top + target_h))
 
 
-def to_mono(img: Image.Image, threshold: int, invert: bool,
-            dither: bool) -> Image.Image:
+def to_mono(
+    img: Image.Image, threshold: int, invert: bool, dither: bool
+) -> Image.Image:
     gray = img.convert("L")
     if invert:
         gray = ImageOps.invert(gray)
@@ -200,15 +206,24 @@ def to_mono(img: Image.Image, threshold: int, invert: bool,
     return gray.point(lambda p: 255 if p >= threshold else 0, mode="1")
 
 
-def build_canvas(visible_img: Image.Image, canvas_w: int, canvas_h: int,
-                 offset_x: int, offset_y: int) -> Image.Image:
+def build_canvas(
+    visible_img: Image.Image,
+    canvas_w: int,
+    canvas_h: int,
+    offset_x: int,
+    offset_y: int,
+) -> Image.Image:
     vis_w, vis_h = visible_img.size
     if canvas_h % 8 != 0:
-        raise ValueError("canvas height must be divisible by 8 for page packing")
+        raise ValueError(
+            "canvas height must be divisible by 8 for page packing"
+        )
     if offset_x < 0 or offset_y < 0:
         raise ValueError("offsets must be non-negative")
     if offset_x + vis_w > canvas_w or offset_y + vis_h > canvas_h:
-        raise ValueError("visible image does not fit within the controller canvas")
+        raise ValueError(
+            "visible image does not fit within the controller canvas"
+        )
 
     canvas = Image.new("1", (canvas_w, canvas_h), color=0)
     canvas.paste(visible_img, (offset_x, offset_y))
@@ -278,12 +293,13 @@ def render_oled_preview(
     return Image.blend(out, glow_layer, 0.35)
 
 
-def format_hex_lines(values: Iterable[int], indent: str = "    ",
-                     per_line: int = 12) -> str:
+def format_hex_lines(
+    values: Iterable[int], indent: str = "    ", per_line: int = 12
+) -> str:
     items = [f"0x{value:02X}" for value in values]
     lines = []
     for start in range(0, len(items), per_line):
-        lines.append(indent + ", ".join(items[start:start + per_line]) + ",")
+        lines.append(indent + ", ".join(items[start : start + per_line]) + ",")
     return "\n".join(lines)
 
 
@@ -332,6 +348,7 @@ static_assert(kBitmap.Valid(), "packed data too small for its dimensions");
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(header)
 
+
 def main() -> int:
     args = parse_args()
     if not args.input.is_file():
@@ -342,8 +359,12 @@ def main() -> int:
         raise ValueError("visible width and height must be positive")
     if args.canvas_width <= 0 or args.canvas_height <= 0:
         raise ValueError("canvas width and height must be positive")
-    if (args.mono_out is None and args.preview_out is None and
-            args.frame_out is None and args.header_out is None):
+    if (
+        args.mono_out is None
+        and args.preview_out is None
+        and args.frame_out is None
+        and args.header_out is None
+    ):
         raise ValueError(
             "no outputs requested; pass --header-out and/or an explicit "
             "output path"
@@ -355,7 +376,11 @@ def main() -> int:
 
     gray = flatten_to_grayscale(args.input, args.alpha_bg, args.trim_alpha)
     visible_gray = resize_visible(
-        gray, args.visible_width, args.visible_height, args.fit
+        gray,
+        args.visible_width,
+        args.visible_height,
+        args.fit,
+        255 if args.alpha_bg == "white" else 0,
     )
     visible_mono = to_mono(
         visible_gray, args.threshold, args.invert, args.dither

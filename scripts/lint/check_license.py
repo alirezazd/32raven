@@ -42,9 +42,9 @@ SPDX_ID = "GPL-3.0-only"
 COPYRIGHT_HOLDER = "Alireza Azadi"
 
 # Comment syntax per extension, as (prefix, suffix). An extension absent here is
-# simply not checked, which is what keeps binary assets, Markdown and JSON out of
-# scope. Jinja templates need their own delimiters: a `#` line is not a comment
-# to Jinja and would be copied verbatim into the C++ it generates.
+# simply not checked, which is what keeps binary assets, Markdown and JSON out
+# of scope. Jinja templates need their own delimiters: a `#` line is not a
+# comment to Jinja and would be copied verbatim into the C++ it generates.
 COMMENT_SYNTAX = {
     ".c": ("//", ""),
     ".h": ("//", ""),
@@ -115,8 +115,10 @@ def check(path: pathlib.Path) -> str | None:
     except OSError as exc:
         return f"unreadable: {exc}"
 
-    spdx = next((m for m in (SPDX_RE.search(l) for l in head) if m), None)
-    copyright_ = next((m for m in (COPYRIGHT_RE.search(l) for l in head) if m), None)
+    spdx = next((m for m in (SPDX_RE.search(ln) for ln in head) if m), None)
+    copyright_ = next(
+        (m for m in (COPYRIGHT_RE.search(ln) for ln in head) if m), None
+    )
 
     if spdx is None and copyright_ is None:
         return "no licence header"
@@ -155,14 +157,17 @@ def insert_header(path: pathlib.Path, syntax: tuple[str, str]) -> None:
         at = 2
 
     path.write_text(
-        newline.join(lines[:at] + header + lines[at:]) + newline, encoding="utf-8"
+        newline.join(lines[:at] + header + lines[at:]) + newline,
+        encoding="utf-8",
     )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--fix", action="store_true", help="insert headers that are entirely missing"
+        "--fix",
+        action="store_true",
+        help="insert headers that are entirely missing",
     )
     args = parser.parse_args()
 
@@ -205,7 +210,9 @@ def main() -> int:
         return 1
 
     suffix = f", {len(fixed)} fixed" if fixed else ""
-    print(f"License lint: {checked} files checked, all headers present{suffix}.")
+    print(
+        f"License lint: {checked} files checked, all headers present{suffix}."
+    )
     return 0
 
 

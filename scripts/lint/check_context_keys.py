@@ -36,13 +36,14 @@ long as one pin is an ADC pin.
 Run:
   uv run --quiet --script scripts/lint/check_context_keys.py
 """
+
 from __future__ import annotations
 
 import importlib
 import pathlib
 import sys
 import tempfile
-from typing import Callable
+from collections.abc import Callable
 
 REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 KCONFIG = REPO / "config/Kconfig"
@@ -59,31 +60,44 @@ import jinja2.meta  # noqa: E402
 # the picture, so a context this check renders is the context the build renders.
 GENERATORS: dict[str, Callable[[pathlib.Path], list[str]]] = {
     "generate_common_config": lambda out: [
-        "--kconfig", str(KCONFIG),
-        "--config", str(DOT_CONFIG),
-        "--out", str(out / "common_config.hpp"),
+        "--kconfig",
+        str(KCONFIG),
+        "--config",
+        str(DOT_CONFIG),
+        "--out",
+        str(out / "common_config.hpp"),
     ],
     "generate_stm32_config": lambda out: [
-        "--kconfig", str(KCONFIG),
-        "--config", str(DOT_CONFIG),
-        "--runtime-out", str(out / "stm32_config.hpp"),
-        "--limits-out", str(out / "stm32_limits.hpp"),
+        "--kconfig",
+        str(KCONFIG),
+        "--config",
+        str(DOT_CONFIG),
+        "--runtime-out",
+        str(out / "stm32_config.hpp"),
+        "--limits-out",
+        str(out / "stm32_limits.hpp"),
     ],
     "generate_esp32_config": lambda out: [
-        "--kconfig", str(KCONFIG),
-        "--config", str(DOT_CONFIG),
-        "--runtime-out", str(out / "esp32_config.hpp"),
-        "--limits-out", str(out / "esp32_limits.hpp"),
+        "--kconfig",
+        str(KCONFIG),
+        "--config",
+        str(DOT_CONFIG),
+        "--runtime-out",
+        str(out / "esp32_config.hpp"),
+        "--limits-out",
+        str(out / "esp32_limits.hpp"),
     ],
     "generate_ee_schema": lambda out: [
-        "--config", str(EE_CONFIG),
-        "--out", str(out / "ee_schema.hpp"),
+        "--config",
+        str(EE_CONFIG),
+        "--out",
+        str(out / "ee_schema.hpp"),
     ],
 }
 
 
 class _Recorder:
-    """The paths one template's context offers, and the ones it was asked for."""
+    """The paths a template's context offers, and those asked for."""
 
     def __init__(self) -> None:
         self.produced: set[str] = set()
@@ -117,7 +131,9 @@ class _TrackedDict(dict):
         self._recorder = recorder
 
     def __getitem__(self, key: object) -> object:
-        self._recorder.read.add(f"{self._path}.{key}" if self._path else str(key))
+        self._recorder.read.add(
+            f"{self._path}.{key}" if self._path else str(key)
+        )
         return super().__getitem__(key)
 
 
@@ -137,7 +153,9 @@ def _root_names(template: jinja2.Template) -> set[str]:
     return jinja2.meta.find_undeclared_variables(env.parse(source))
 
 
-def _recording_render(self: jinja2.Template, *args: object, **kwargs: object) -> str:
+def _recording_render(
+    self: jinja2.Template, *args: object, **kwargs: object
+) -> str:
     context = dict(*args, **kwargs)
     recorder = _RECORDERS.setdefault(self.name, _Recorder())
     recorder.produced.update(context)
@@ -171,9 +189,12 @@ def main() -> int:
     for template, path in unread:
         print(f"  {template}: {path}", file=sys.stderr)
     print(
-        "\nEach one is a value a generator builds and no template renders. Drop "
-        "it from the context, and the Kconfig symbols it read stop counting as\n"
-        "consumed -- check_config_staleness will then say whether they are dead "
+        "\nEach one is a value a generator builds and no template "
+        "renders. Drop "
+        "it from the context, and the Kconfig symbols it read stop "
+        "counting as\n"
+        "consumed -- check_config_staleness will then say whether they "
+        "are dead "
         "too. If the key is meant to be rendered, the template is missing it.",
         file=sys.stderr,
     )

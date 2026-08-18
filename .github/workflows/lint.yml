@@ -33,6 +33,9 @@ jobs:
       - name: Comment shape
         run: uv run --quiet --script scripts/lint/check_comments.py
 
+      - name: Python lint (ruff)
+        run: uvx ruff@0.16.3 check .
+
       - name: Unused error enumerators
         run: uv run --quiet --script scripts/lint/check_error_codes.py
 
@@ -41,6 +44,12 @@ jobs:
 
       - name: Direct timer access
         run: uv run --quiet --script scripts/lint/check_timer_access.py
+
+      - name: Singleton GetInstance placement
+        run: uv run --quiet --script scripts/lint/check_singleton_style.py
+
+      - name: GPIO alternate-function indices
+        run: uv run --quiet --script scripts/lint/check_gpio_af.py
 
       # The config checks below need no compiler: they run the generators
       # against config/Kconfig and render the templates in memory. The ones

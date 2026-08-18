@@ -25,7 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-from typing import Callable
+from collections.abc import Callable
 
 import kconfiglib
 
@@ -46,6 +46,7 @@ TEMPLATE_DIR = pathlib.Path(__file__).with_name("templates")
 
 
 # ---- Kconfig symbol accessors --------------------------------------------
+
 
 def sym(kconf: kconfiglib.Kconfig, name: str) -> kconfiglib.Symbol:
     s = kconf.syms.get(name)
@@ -115,6 +116,7 @@ def choice_value(kconf: kconfiglib.Kconfig, mapping: dict[str, str]) -> str:
 
 # ---- C++ literal helpers --------------------------------------------------
 
+
 def cpp_bool(value: bool) -> str:
     return "true" if value else "false"
 
@@ -125,6 +127,7 @@ def cpp_string_literal(value: str) -> str:
 
 
 # ---- Jinja2 environment ---------------------------------------------------
+
 
 def template_env(template_dir: pathlib.Path = TEMPLATE_DIR) -> Environment:
     """Build a Jinja2 environment configured the same way for every target.

@@ -28,6 +28,7 @@ pass is worse than no check at all.
 Run:
   uv run --quiet --script scripts/lint/check_unused_includes.py [files...]
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -41,7 +42,7 @@ import tempfile
 # Sibling module — clang_tidy_env.py lives one directory up, next to the
 # generators that share it.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from clang_tidy_env import (  # noqa: E402
+from clang_tidy_env import (
     REPO,
     SKIP,
     databases,
@@ -77,7 +78,9 @@ def run(
     # A TU that did not parse reports every include as unused. Refuse to guess.
     blob = proc.stderr + proc.stdout
     if "error:" in blob:
-        first = next(line.strip() for line in blob.split("\n") if "error:" in line)
+        first = next(
+            line.strip() for line in blob.split("\n") if "error:" in line
+        )
         return [], first
     findings = []
     for line in proc.stdout.split("\n"):
@@ -85,12 +88,19 @@ def run(
         if not match:
             continue
         try:
-            rel = pathlib.Path(match["file"]).resolve().relative_to(REPO).as_posix()
+            rel = (
+                pathlib.Path(match["file"])
+                .resolve()
+                .relative_to(REPO)
+                .as_posix()
+            )
         except ValueError:
             continue
         if SKIP.match(rel):
             continue
-        findings.append(f"{rel}:{match['line']}: unused include <{match['header']}>")
+        findings.append(
+            f"{rel}:{match['line']}: unused include <{match['header']}>"
+        )
     return findings, None
 
 
@@ -100,11 +110,16 @@ def main() -> int:
         return 0
 
     if not databases():
-        print("check_unused_includes: no compilation database, skipping. Build first.")
+        print(
+            "check_unused_includes: no compilation database, skipping. "
+            "Build first."
+        )
         return 0
 
     wanted = (
-        [pathlib.Path(a).resolve() for a in sys.argv[1:]] if len(sys.argv) > 1 else None
+        [pathlib.Path(a).resolve() for a in sys.argv[1:]]
+        if len(sys.argv) > 1
+        else None
     )
     targets = first_party_targets(wanted)
     if not targets:
@@ -117,12 +132,14 @@ def main() -> int:
         prepared = []
         for path, build_dir, compiler in targets:
             if build_dir not in cache:
-                cache[build_dir] = filtered_database(build_dir, pathlib.Path(tmp))
+                cache[build_dir] = filtered_database(
+                    build_dir, pathlib.Path(tmp)
+                )
             prepared.append((path, cache[build_dir], compiler))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             for (path, _, _), (found, error) in zip(
-                prepared, pool.map(lambda t: run(*t), prepared)
+                prepared, pool.map(lambda t: run(*t), prepared), strict=True
             ):
                 if error is not None:
                     unparsed.append((path.relative_to(REPO).as_posix(), error))
@@ -139,8 +156,10 @@ def main() -> int:
         for rel, error in sorted(unparsed):
             print(f"  {rel}\n    {error}", file=sys.stderr)
         print(
-            "\nA compiler flag clang's driver rejects outright is the usual cause;\n"
-            "add it to GCC_ONLY_FLAGS in scripts/clang_tidy_env.py. Coverage is\n"
+            "\nA compiler flag clang's driver rejects outright is the "
+            "usual cause;\n"
+            "add it to GCC_ONLY_FLAGS in scripts/clang_tidy_env.py. "
+            "Coverage is\n"
             "part of the result, so this fails rather than passing quietly.",
             file=sys.stderr,
         )
@@ -151,7 +170,8 @@ def main() -> int:
         for finding in sorted(set(findings)):
             print(f"  {finding}", file=sys.stderr)
         print(
-            "\nRemove them, or add `// IWYU pragma: keep` to the include line when\n"
+            "\nRemove them, or add `// IWYU pragma: keep` to the "
+            "include line when\n"
             "the header is there for a side effect rather than a name.",
             file=sys.stderr,
         )

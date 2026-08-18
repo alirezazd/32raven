@@ -80,7 +80,7 @@ CLEAN_FILES := \
 	stm32/Drivers/ee_schema.hpp \
 	libs/common_config.hpp
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp enable-docker disable-docker docker-image setup-vscode docs docs-serve
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs
 
 help:
 	@echo "Targets:"
@@ -91,6 +91,8 @@ help:
 	@echo "  stm32               - Build STM32 firmware (optimized / Release)"
 	@echo "  stm32-debug         - Build STM32 firmware (debug, -O0 -g3)"
 	@echo "  format-cpp          - Run clang-format on STM32/ESP32 C++ source headers"
+	@echo "  format-py           - Run ruff format on the host-side Python"
+	@echo "  format              - format-cpp + format-py"
 	@echo "  clean               - Clean build directory"
 	@echo "  esp32-menuconfig    - Run ESP-IDF menuconfig"
 	@echo "  flash-esp32         - Flash ESP32 via serial"
@@ -98,6 +100,7 @@ help:
 	@echo "  flash-monitor-esp32 - Flash and monitor ESP32 via serial"
 	@echo "  flash-wifi-esp32    - Flash ESP32 via WiFi (OTA)"
 	@echo "  flash-wifi-stm32    - Flash STM32 via WiFi (Bridge)"
+	@echo "  pull-wifi-logs      - Pull blackbox logs over WiFi (LOG=<name> skips the picker)"
 	@echo "  idf-install         - Install local ESP-IDF tools for third_party/esp-idf"
 	@echo "  enable-docker       - Persist USE_DOCKER=1 in .build-mode (builds run in container)"
 	@echo "  disable-docker      - Remove .build-mode (builds run on host)"
@@ -138,6 +141,16 @@ format-cpp:
 		  | while IFS= read -r file; do \
 		      clang-format -i "$$file"; \
 		    done'
+
+# Host-side, no $(RUN): ruff comes through uvx, which the build image does
+# not carry. The pin matches .pre-commit-config.yaml and lint.yml.
+format-py:
+	@uvx ruff@0.16.3 format .
+
+format: format-cpp format-py
+
+lint-py:
+	@uvx ruff@0.16.3 check .
 
 32raven-menuconfig:
 	$(RUN) uv run --quiet --script scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
@@ -195,6 +208,13 @@ flash-wifi-stm32: stm32
 flash-wifi-esp32: esp32
 	-pkill -f esp32_client.py || true
 	$(RUN) uv run --quiet --script tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/32Raven_esp32.bin
+
+# Host-side, no $(RUN): this prompts on a TTY and writes to the desktop's
+# download directory, neither of which survives the build container. With no
+# LOG it lists the card and asks; the address is auto-resolved unless IP= says
+# otherwise.
+pull-wifi-logs:
+	@uv run --quiet --script tools/pull_logs.py $(if $(IP),--ip $(IP)) $(if $(LOG),get $(LOG))
 
 distclean: clean
 	@echo "Removing all generator build directories in $(BUILD_ROOT)/"

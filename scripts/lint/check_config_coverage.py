@@ -31,6 +31,7 @@ nothing wrong.
 
 Needs a compilation database. Without one it skips, like check_unused_includes.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,7 +43,10 @@ REPO = pathlib.Path(__file__).resolve().parent.parent.parent
 # Generated headers and the build whose flags parse them.
 TARGETS = (
     ("esp32/main/esp32_config.hpp", "build/Ninja/esp32/compile_commands.json"),
-    ("stm32/Drivers/stm32_config.hpp", "build/Ninja/stm32/compile_commands.json"),
+    (
+        "stm32/Drivers/stm32_config.hpp",
+        "build/Ninja/stm32/compile_commands.json",
+    ),
 )
 
 MAX_DEPTH = 6
@@ -142,11 +146,17 @@ def _field_paths(cursor, clang, depth: int = 0) -> list[str]:
             decl
             if decl is not None
             and decl.kind
-            in (ci.CursorKind.STRUCT_DECL, ci.CursorKind.CLASS_DECL, ci.CursorKind.UNION_DECL)
+            in (
+                ci.CursorKind.STRUCT_DECL,
+                ci.CursorKind.CLASS_DECL,
+                ci.CursorKind.UNION_DECL,
+            )
             and decl.is_definition()
             else None
         )
-        sub = _field_paths(nested, clang, depth + 1) if nested is not None else []
+        sub = (
+            _field_paths(nested, clang, depth + 1) if nested is not None else []
+        )
         if sub:
             paths.extend(f"{name}.{s}" for s in sub)
         else:
@@ -264,7 +274,8 @@ def _aggregate_problems(
         if "{" in tokens:
             return (
                 [
-                    f"[unchecked] {label} is initialised without designators, so "
+                    f"[unchecked] {label} is initialised without "
+                    "designators, so "
                     f"none of {type_name}'s fields were checked"
                 ],
                 False,
@@ -309,7 +320,9 @@ def main() -> int:
         index = ci.Index.create()
         try:
             tu = index.parse(
-                str(header), args=flags, options=ci.TranslationUnit.PARSE_INCOMPLETE
+                str(header),
+                args=flags,
+                options=ci.TranslationUnit.PARSE_INCOMPLETE,
             )
         except ci.TranslationUnitLoadError as exc:
             skipped.append(f"{header_rel} (parse failed: {exc})")
@@ -332,7 +345,10 @@ def main() -> int:
 
             if not is_array:
                 found, counted = _aggregate_problems(
-                    tokens, declared, f"{header_rel}: {cursor.spelling}", decl.spelling
+                    tokens,
+                    declared,
+                    f"{header_rel}: {cursor.spelling}",
+                    decl.spelling,
                 )
                 problems += found
                 per_target[header_rel] += int(counted)
@@ -341,7 +357,8 @@ def main() -> int:
             elements = _split_elements(tokens)
             if elements is None:
                 problems.append(
-                    f"[unchecked] {header_rel}: {cursor.spelling} is an array of "
+                    f"[unchecked] {header_rel}: {cursor.spelling} is "
+                    "an array of "
                     f"{decl.spelling} with no readable initialiser"
                 )
                 continue
@@ -358,8 +375,10 @@ def main() -> int:
             # the same silent default as a field left out of a designator list.
             for index in range(len(elements), cursor.type.element_count):
                 problems.append(
-                    f"[unset]    {header_rel}: {cursor.spelling}[{index}] has no "
-                    f"initialiser, so every {decl.spelling} field takes its default"
+                    f"[unset]    {header_rel}: {cursor.spelling}"
+                    f"[{index}] has no "
+                    f"initialiser, so every {decl.spelling} field takes "
+                    "its default"
                 )
 
     for note in skipped:
@@ -368,7 +387,11 @@ def main() -> int:
     # A header that yields nothing looks identical to a header with nothing
     # wrong. Say which one it was, because silent zero coverage is how this
     # check would rot into an unconditional pass.
-    barren = [h for h, n in per_target.items() if n == 0 and not any(h in s for s in skipped)]
+    barren = [
+        h
+        for h, n in per_target.items()
+        if n == 0 and not any(h in s for s in skipped)
+    ]
     for header_rel in barren:
         problems.append(
             f"[blind]    {header_rel} parsed but yielded no aggregate configs, "
@@ -378,7 +401,9 @@ def main() -> int:
     if not problems:
         print(
             "check-config-coverage: "
-            + ", ".join(f"{h.rsplit('/', 1)[-1]}={n}" for h, n in per_target.items())
+            + ", ".join(
+                f"{h.rsplit('/', 1)[-1]}={n}" for h, n in per_target.items()
+            )
             + " configs fully assigned"
         )
         return 0
@@ -387,7 +412,8 @@ def main() -> int:
     for problem in problems:
         print(f"  {problem}", file=sys.stderr)
     print(
-        "\nEither give the field a generator source, or drop it from the struct. "
+        "\nEither give the field a generator source, or drop it from "
+        "the struct. "
         "A Config field with no config is a knob that does not exist.",
         file=sys.stderr,
     )

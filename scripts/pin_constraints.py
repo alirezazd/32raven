@@ -28,7 +28,6 @@ import pathlib
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
-
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 DATA_ROOT = REPO_ROOT / "third_party" / "stm32_open_pin_data"
 MCU_FILE = DATA_ROOT / "mcu" / "STM32F407V(E-G)Tx.xml"
@@ -38,11 +37,11 @@ GPIO_IP_FILE = DATA_ROOT / "mcu" / "IP" / "GPIO-STM32F417_gpio_v1_0_Modes.xml"
 @dataclass(frozen=True)
 class PinAf:
     pin: str  # e.g. "PB13"
-    af: str   # e.g. "GPIO_AF5_SPI2"
+    af: str  # e.g. "GPIO_AF5_SPI2"
 
 
 def _strip_ns(tag: str) -> str:
-    """ElementTree returns Clark notation '{ns}tag'; we only care about the local name."""
+    """ElementTree returns Clark '{ns}tag'; keep only the local name."""
     return tag.split("}", 1)[-1] if "}" in tag else tag
 
 
@@ -52,16 +51,20 @@ class PinConstraints:
     Construction parses the two XMLs once; lookups are O(1) afterwards.
     """
 
-    def __init__(self, package_pins: set[str], pin_signal_af: dict[tuple[str, str], str]):
+    def __init__(
+        self, package_pins: set[str], pin_signal_af: dict[tuple[str, str], str]
+    ):
         self._package_pins = package_pins
         self._pin_signal_af = pin_signal_af
 
     @classmethod
-    def load_default(cls) -> "PinConstraints":
+    def load_default(cls) -> PinConstraints:
         return cls.load(MCU_FILE, GPIO_IP_FILE)
 
     @classmethod
-    def load(cls, mcu_xml: pathlib.Path, gpio_ip_xml: pathlib.Path) -> "PinConstraints":
+    def load(
+        cls, mcu_xml: pathlib.Path, gpio_ip_xml: pathlib.Path
+    ) -> PinConstraints:
         package_pins = cls._parse_package_pins(mcu_xml)
         pin_signal_af = cls._parse_pin_signal_af(gpio_ip_xml, package_pins)
         return cls(package_pins=package_pins, pin_signal_af=pin_signal_af)
@@ -105,14 +108,18 @@ class PinConstraints:
                 signal = ps.get("Name") or ""
                 if not signal:
                     continue
-                # Find <SpecificParameter Name="GPIO_AF"><PossibleValue>GPIO_AFn_PERIPH</PossibleValue>
+                # Find <SpecificParameter Name="GPIO_AF">
+                #   <PossibleValue>GPIO_AFn_PERIPH</PossibleValue>
                 for sp in ps:
                     if _strip_ns(sp.tag) != "SpecificParameter":
                         continue
                     if sp.get("Name") != "GPIO_AF":
                         continue
                     for pv in sp:
-                        if _strip_ns(pv.tag) == "PossibleValue" and (pv.text or "").strip():
+                        if (
+                            _strip_ns(pv.tag) == "PossibleValue"
+                            and (pv.text or "").strip()
+                        ):
                             out[(pin, signal)] = pv.text.strip()
                             break
                     break
@@ -135,23 +142,28 @@ class PinConstraints:
         return self._pin_signal_af.get((pin, signal))
 
     def afs_for_pin(self, pin: str) -> set[str]:
-        """Every AF macro valid on `pin` across all its signals — e.g. to list
-        the legal alternates when a (pin, AF) combo is rejected."""
+        """Every AF macro valid on `pin` -- alternates to offer on reject."""
         return {af for (p, _), af in self._pin_signal_af.items() if p == pin}
 
     def pins_for_signal(self, signal: str) -> list[PinAf]:
         return sorted(
-            (PinAf(pin=pin, af=af)
-             for (pin, sig), af in self._pin_signal_af.items()
-             if sig == signal),
+            (
+                PinAf(pin=pin, af=af)
+                for (pin, sig), af in self._pin_signal_af.items()
+                if sig == signal
+            ),
             key=lambda x: x.pin,
         )
 
     def signals_for_pin(self, pin: str) -> list[PinAf]:
         return sorted(
-            (PinAf(pin=sig, af=af)  # `pin` field repurposed to carry the signal name
-             for (p, sig), af in self._pin_signal_af.items()
-             if p == pin),
+            (
+                PinAf(
+                    pin=sig, af=af
+                )  # `pin` field repurposed to carry the signal name
+                for (p, sig), af in self._pin_signal_af.items()
+                if p == pin
+            ),
             key=lambda x: x.pin,
         )
 

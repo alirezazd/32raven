@@ -7,7 +7,7 @@
 # ]
 # ///
 
-"""Check that every linter runs somewhere, and that commit hooks have a backstop.
+"""Check every linter runs somewhere, and commit hooks have a backstop.
 
 Two ways a check stops checking without anyone noticing, both of which have
 happened here:
@@ -32,6 +32,7 @@ of those two steps going missing still leaves the script named in a workflow.
 Run:
   uv run --quiet --script scripts/lint/check_hook_coverage.py
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -59,7 +60,9 @@ SCRIPT_SUFFIXES = (".py", ".sh")
 def _script_in(command: str) -> str | None:
     """The `scripts/lint/...` path a command runs, if it runs one."""
     for token in command.split():
-        if token.startswith("scripts/lint/") and token.endswith(SCRIPT_SUFFIXES):
+        if token.startswith("scripts/lint/") and token.endswith(
+            SCRIPT_SUFFIXES
+        ):
             return token
     return None
 
@@ -114,7 +117,9 @@ def main() -> int:
         rel = path.relative_to(REPO).as_posix()
         if rel in hooked or rel in in_workflow or rel in build_text:
             continue
-        problems.append(f"[unrun] {rel} is not run by a hook, a workflow or the build")
+        problems.append(
+            f"[unrun] {rel} is not run by a hook, a workflow or the build"
+        )
 
     if not problems:
         return 0

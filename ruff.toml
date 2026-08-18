@@ -1,0 +1,20 @@
+# Python lint/format for the host-side tooling, following the Google Python
+# style the C++ side already uses: 80 columns, google docstring convention,
+# pep8 naming. The firmware sources have their own battery (clang-format,
+# clang-tidy, scripts/lint/); this covers what those cannot see.
+line-length = 80
+target-version = "py311"
+
+extend-exclude = ["third_party"]
+
+[lint]
+# Explicit rather than the shifting defaults: pycodestyle, pyflakes, import
+# order, constructs the floor version obsoletes, bugbear's likely-bug set,
+# naming, docstring shape. D1xx (mandatory docstrings) stays off -- the repo
+# rule is comments only where they earn their place, and that covers
+# docstrings too.
+select = ["E", "W", "F", "I", "UP", "B", "N", "D"]
+ignore = ["D1"]
+
+[lint.pydocstyle]
+convention = "google"

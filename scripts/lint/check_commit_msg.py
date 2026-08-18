@@ -107,7 +107,9 @@ SUBJECT_MAX = 72
 BODY_MAX = 80
 BODY_MAX_LINES = 5
 
-SUBJECT_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?: (?P<desc>.+)$")
+SUBJECT_RE = re.compile(
+    r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?: (?P<desc>.+)$"
+)
 
 # Git trailers: `Key: value` at the foot of a message. Exempt from the prose
 # rules and from the line budget, which is there to bound explanation.
@@ -119,7 +121,7 @@ TRAILER_RE = re.compile(r"^[A-Z][A-Za-z-]*(-[A-Za-z]+)*: \S")
 # `us` needs the lookbehinds -- unqualified it matches microseconds, which
 # outnumber the pronoun by a wide margin in firmware.
 FIRST_PERSON_RE = re.compile(
-    r"\b(we|our|ours|(?<!\d)(?<!\d )us|my|mine|i'(m|ve|d|ll))\b", re.I
+    r"\b(we|our|ours|(?<!\d)(?<!\d )us|my|mine|i'(m|ve|d|ll))\b", re.IGNORECASE
 )
 
 # Phrases that exist to narrate. Each one introduces the route to the change
@@ -138,7 +140,7 @@ NARRATIVE_RE = re.compile(
     r"|older note"
     r"|this session"
     r")\b",
-    re.I,
+    re.IGNORECASE,
 )
 
 # Rebase helpers and reverts git writes itself. Rejecting these fails a
@@ -202,7 +204,8 @@ def check(message: str, *, require_scope: bool = True) -> list[str]:
     match = SUBJECT_RE.match(subject)
     if match is None:
         problems.append(
-            f"[subject-shape] expected 'type(scope): description', got: {subject}"
+            "[subject-shape] expected 'type(scope): description', "
+            f"got: {subject}"
         )
     else:
         kind = match.group("type")
@@ -228,9 +231,13 @@ def check(message: str, *, require_scope: bool = True) -> list[str]:
                 f"{', '.join(SCOPES)}"
             )
         if desc[:1].isupper():
-            problems.append(f"[subject-case] description is capitalised: {desc}")
+            problems.append(
+                f"[subject-case] description is capitalised: {desc}"
+            )
         if desc.endswith("."):
-            problems.append(f"[subject-case] description ends with a period: {desc}")
+            problems.append(
+                f"[subject-case] description ends with a period: {desc}"
+            )
 
     if len(subject) > SUBJECT_MAX:
         problems.append(
@@ -244,7 +251,8 @@ def check(message: str, *, require_scope: bool = True) -> list[str]:
     for number, line in enumerate(body, start=2):
         if len(line) > BODY_MAX:
             problems.append(
-                f"[body-width] line {number}: {len(line)} > {BODY_MAX} characters"
+                f"[body-width] line {number}: {len(line)} > {BODY_MAX} "
+                "characters"
             )
         # Trailers carry addresses and issue links, which are not prose and
         # are not the author writing about themselves.
@@ -255,10 +263,13 @@ def check(message: str, *, require_scope: bool = True) -> list[str]:
         if NARRATIVE_RE.search(line):
             problems.append(f"[body-narrative] line {number}: {line.strip()}")
 
-    filled = [line for line in body if line.strip() and not TRAILER_RE.match(line)]
+    filled = [
+        line for line in body if line.strip() and not TRAILER_RE.match(line)
+    ]
     if len(filled) > BODY_MAX_LINES:
         problems.append(
-            f"[body-length] {len(filled)} > {BODY_MAX_LINES} non-blank body lines"
+            f"[body-length] {len(filled)} > {BODY_MAX_LINES} non-blank "
+            "body lines"
         )
 
     return problems
@@ -306,8 +317,12 @@ def commits_predating_scope_rule() -> frozenset[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", nargs="?", help="file holding the commit message")
-    parser.add_argument("--range", help="check every commit in a revision range")
+    parser.add_argument(
+        "path", nargs="?", help="file holding the commit message"
+    )
+    parser.add_argument(
+        "--range", help="check every commit in a revision range"
+    )
     args = parser.parse_args()
 
     if args.range:

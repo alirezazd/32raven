@@ -56,17 +56,23 @@ BOM = DOCS / "build" / "bom.md"
 # pymdownx.snippets section syntax: --8<-- "relative/path.hpp:anchor_name"
 SNIPPET_REF = re.compile(r'--8<--\s+"([^"]+)"')
 # GitHub's blockquote admonitions; Material uses `!!! note` instead.
-GH_ADMONITION = re.compile(r"^\s*>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]")
+GH_ADMONITION = re.compile(
+    r"^\s*>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]"
+)
 # Only our own namespaces — see the docstring.
 CONFIG_REF = re.compile(r"\bCONFIG_((?:STM32|ESP32)_[A-Z0-9_]+)\b")
-KCONFIG_DECL = re.compile(r"^\s*(?:menuconfig|config)\s+([A-Za-z0-9_]+)\s*$", re.M)
+KCONFIG_DECL = re.compile(
+    r"^\s*(?:menuconfig|config)\s+([A-Za-z0-9_]+)\s*$", re.MULTILINE
+)
 # Placeholder marker in a page, and the roadmap entry that must back it.
 TBD_MARKER = re.compile(r"\bTBD\(#(\d+)\)")
-ROADMAP_ITEM = re.compile(r"^###\s+#(\d+)\s+—", re.M)
+ROADMAP_ITEM = re.compile(r"^###\s+#(\d+)\s+—", re.MULTILINE)
 # Untracked placeholder — legal, but counted so its growth stays visible.
 BARE_TBD = re.compile(r"\bTBD\b(?!\(#\d+\))")
 # kconfiglib writes unselected symbols as a comment rather than omitting them.
-CONFIG_UNSET = re.compile(r"^#\s*CONFIG_([A-Za-z0-9_]+) is not set\s*$", re.M)
+CONFIG_UNSET = re.compile(
+    r"^#\s*CONFIG_([A-Za-z0-9_]+) is not set\s*$", re.MULTILINE
+)
 # Only symbols whose NAME encodes the value they select are checked for being
 # selected — a deselected ..._PIN_PB13 means the page documents the wrong pin.
 # Plain feature booleans (..._ACTIVE_LOW) are legitimately named while unset, as
@@ -77,7 +83,9 @@ VALUE_BEARING = re.compile(
 )
 # A priced BOM row — four cells, the last holding `~$N`. Rows still carrying a
 # TBD price simply do not match, so the total covers what is actually known.
-BOM_ROW = re.compile(r"^\|([^|]*)\|[^|]*\|[^|]*\|\s*~\$([\d.]+)\s*\|\s*$", re.M)
+BOM_ROW = re.compile(
+    r"^\|([^|]*)\|[^|]*\|[^|]*\|\s*~\$([\d.]+)\s*\|\s*$", re.MULTILINE
+)
 # The stated totals: everything, then everything non-optional.
 BOM_TOTAL = re.compile(r"\*\*Running subtotal: ~\$([\d.]+)\*\*")
 BOM_REQUIRED = re.compile(r"~\$([\d.]+) without the optional")
@@ -92,7 +100,7 @@ def _line_of(text: str, pos: int) -> int:
 
 
 def _split_ref(ref: str) -> tuple[str, str | None]:
-    """Split `path[:anchor]`. A bare path that exists on disk wins over a split."""
+    """Split `path[:anchor]`; a bare path that exists on disk wins."""
     if (ROOT / ref).is_file():
         return ref, None
     path, _, name = ref.rpartition(":")
@@ -106,7 +114,9 @@ def check_anchors(md: pathlib.Path, text: str) -> list[str]:
         path, name = _split_ref(match.group(1))
         target = ROOT / path
         if not target.is_file():
-            errors.append(f"{md.relative_to(ROOT)}:{line}: snippet file not found: {path}")
+            errors.append(
+                f"{md.relative_to(ROOT)}:{line}: snippet file not found: {path}"
+            )
             continue
         if name is None:
             continue
@@ -136,19 +146,24 @@ def check_config_refs(
         if symbol not in known:
             errors.append(
                 f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
-                f"CONFIG_{symbol} is not declared in config/Kconfig — renamed or "
+                f"CONFIG_{symbol} is not declared in config/Kconfig — "
+                "renamed or "
                 f"removed tunable"
             )
         elif symbol in unset and VALUE_BEARING.search(symbol):
             errors.append(
                 f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
-                f"CONFIG_{symbol} exists but is NOT SELECTED in config/32raven.config "
-                f"— the docs describe a pin or option the reference build does not use"
+                f"CONFIG_{symbol} exists but is NOT SELECTED in "
+                "config/32raven.config "
+                "— the docs describe a pin or option the reference "
+                "build does not use"
             )
     return errors
 
 
-def check_tbd_markers(md: pathlib.Path, text: str, tracked: set[str]) -> list[str]:
+def check_tbd_markers(
+    md: pathlib.Path, text: str, tracked: set[str]
+) -> list[str]:
     errors: list[str] = []
     for match in TBD_MARKER.finditer(text):
         item = match.group(1)
@@ -171,13 +186,18 @@ def check_bom_total(md: pathlib.Path, text: str) -> list[str]:
     """
     rows = [(part, float(usd)) for part, usd in BOM_ROW.findall(text)]
     if not rows:
-        return [f"{md.relative_to(ROOT)}: no priced rows matched — the table format changed"]
+        return [
+            f"{md.relative_to(ROOT)}: no priced rows matched — "
+            "the table format changed"
+        ]
 
     expected = {
         "Running subtotal": (BOM_TOTAL, round(sum(usd for _, usd in rows), 2)),
         "without the optional": (
             BOM_REQUIRED,
-            round(sum(usd for part, usd in rows if "*optional*" not in part), 2),
+            round(
+                sum(usd for part, usd in rows if "*optional*" not in part), 2
+            ),
         ),
     }
 
@@ -192,7 +212,8 @@ def check_bom_total(md: pathlib.Path, text: str) -> list[str]:
         elif round(float(match.group(1)), 2) != total:
             errors.append(
                 f"{md.relative_to(ROOT)}:{_line_of(text, match.start())}: "
-                f"`{label}` says ~${float(match.group(1)):.2f} but the rows sum to "
+                f"`{label}` says ~${float(match.group(1)):.2f} "
+                "but the rows sum to "
                 f"~${total:.2f} — a price changed and the total did not"
             )
     return errors
@@ -231,12 +252,15 @@ def main() -> int:
     if errors:
         for err in errors:
             print(f"error: {err}", file=sys.stderr)
-        print(f"\ncheck_docs: {len(errors)} error(s) across {len(files)} page(s)", file=sys.stderr)
+        print(
+            f"\ncheck_docs: {len(errors)} error(s) across {len(files)} page(s)",
+            file=sys.stderr,
+        )
         return 1
 
-    # Bare TBD is a deliberate, legal form for short-lived placeholders, so it is
-    # counted rather than rejected — an unchecked marker that nobody ever sees is
-    # how a placeholder quietly becomes permanent.
+    # Bare TBD is a deliberate, legal form for short-lived placeholders, so it
+    # is counted rather than rejected — an unchecked marker that nobody ever
+    # sees is how a placeholder quietly becomes permanent.
     print(
         f"check_docs: {len(files)} page(s) OK "
         f"(anchors, admonitions, Kconfig refs, {len(tracked)} roadmap item(s))"

@@ -27,6 +27,13 @@ repos:
 
   - repo: local
     hooks:
+      # Version pinned to match `make lint-py` and lint.yml.
+      - id: ruff
+        name: Python lint (ruff)
+        entry: uvx ruff@0.16.3 check --force-exclude
+        language: system
+        types: [python]
+
       - id: check-license
         name: SPDX and copyright headers
         entry: uv run --quiet --script scripts/lint/check_license.py
@@ -58,6 +65,19 @@ repos:
         entry: uv run --quiet --script scripts/lint/check_timer_access.py
         language: system
         files: '\.(c|h|cpp|hpp)$'
+
+      - id: check-singleton-style
+        name: Singleton GetInstance placement
+        entry: uv run --quiet --script scripts/lint/check_singleton_style.py
+        language: system
+        files: '\.(h|hpp)$'
+
+      - id: check-gpio-af
+        name: GPIO alternate-function indices
+        entry: uv run --quiet --script scripts/lint/check_gpio_af.py
+        language: system
+        pass_filenames: false
+        files: '^stm32/Drivers/gpio\.hpp$'
 
       # Needs a compilation database and clang-tidy, so it skips rather than
       # fails when either is missing -- see the script's docstring.

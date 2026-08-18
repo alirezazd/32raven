@@ -8,7 +8,7 @@
 # ]
 # ///
 
-"""Kconfig well-formedness checks that neither the build nor the generators make.
+"""Kconfig well-formedness checks the build and generators do not make.
 
 check_config_staleness.py answers "is this symbol read by anything". These are
 the other questions: is the declaration itself well formed, does the saved
@@ -22,6 +22,7 @@ with no `range` accepts a value the driver will not; a hand-edited .config
 drifts from the form menuconfig writes; and a generator that reads the clock or
 iterates a set produces a header that differs run to run for no stated reason.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -39,8 +40,14 @@ import kconfiglib  # noqa: E402
 # Generator module -> (validate fn, context fns). The context functions are the
 # ones whose output lands in a header, so they are what determinism applies to.
 GENERATORS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "generate_stm32_config": ("_validate", ("_runtime_context", "_limits_context")),
-    "generate_esp32_config": ("_validate", ("_runtime_context", "_limits_context")),
+    "generate_stm32_config": (
+        "_validate",
+        ("_runtime_context", "_limits_context"),
+    ),
+    "generate_esp32_config": (
+        "_validate",
+        ("_runtime_context", "_limits_context"),
+    ),
     "generate_common_config": ("", ("fclink_context",)),
 }
 
@@ -53,7 +60,7 @@ def _load(with_saved_config: bool) -> kconfiglib.Kconfig:
 
 
 def _call(fn, kconf: kconfiglib.Kconfig):
-    """Invoke a generator entry point, which takes kconf with or without a source."""
+    """Invoke an entry point; takes kconf with or without a source."""
     import inspect
 
     params = inspect.signature(fn).parameters
@@ -88,7 +95,8 @@ def check_defaults_build_a_legal_board(problems: list[str]) -> None:
             # be reported by it -- the one outcome the check exists to prevent.
             except (Exception, SystemExit) as exc:  # noqa: BLE001
                 problems.append(
-                    f"[defaults] {module_name}.{entry_name} fails on the Kconfig "
+                    f"[defaults] {module_name}.{entry_name} fails on "
+                    "the Kconfig "
                     f"defaults: {exc}"
                 )
 
@@ -96,7 +104,9 @@ def check_defaults_build_a_legal_board(problems: list[str]) -> None:
 # PINMAP_ENTRIES fields that name where a pin sits: the port or signal choice
 # arms, and the pin-number int. active_low_sym rides in the same table but sets
 # polarity, not position, so it belongs with the ordinary tunables.
-_PLACEMENT_FIELDS = frozenset({"port_options", "choice_options", "pin_int_symbol"})
+_PLACEMENT_FIELDS = frozenset(
+    {"port_options", "choice_options", "pin_int_symbol"}
+)
 _TUNABLE_FIELDS = frozenset({"active_low_sym"})
 
 
@@ -109,7 +119,7 @@ def _pin_entries() -> tuple:
 
 
 def _symbol_strings(value: object) -> set[str]:
-    """Symbol names a field holds. A dict maps symbol -> pin, so only its keys."""
+    """Symbol names a field holds; for a dict (symbol -> pin), its keys."""
     if isinstance(value, dict):
         return {k for k in value if isinstance(k, str)}
     return {value} if isinstance(value, str) else set()
@@ -153,13 +163,17 @@ def check_pin_map_fields_are_classified(
             held = (
                 {s for s in (*value, *value.values()) if isinstance(s, str)}
                 if isinstance(value, dict)
-                else {value} if isinstance(value, str) else set()
+                else {value}
+                if isinstance(value, str)
+                else set()
             )
             stray = sorted(n for n in held if n in kconf.syms)
             if stray:
                 problems.append(
-                    f"[pinmap]   {type(entry).__name__}.{field.name} holds Kconfig "
-                    f"symbol(s) {', '.join(stray)} but is classified as neither "
+                    f"[pinmap]   {type(entry).__name__}.{field.name} "
+                    "holds Kconfig "
+                    f"symbol(s) {', '.join(stray)} but is classified "
+                    "as neither "
                     "placement nor tunable, so _pin_map_symbols ignores it"
                 )
 
@@ -189,21 +203,29 @@ def check_pin_defaults_match_the_board(problems: list[str]) -> None:
         if default_sym is None or default_sym.str_value == sym.str_value:
             continue
         problems.append(
-            f"[pin]      {name} defaults to {default_sym.str_value or '<unset>'} "
+            f"[pin]      {name} defaults to "
+            f"{default_sym.str_value or '<unset>'} "
             f"but the board uses {sym.str_value or '<unset>'}; a stale pin "
             "default builds a map that cannot exist"
         )
 
 
-def check_single_arm_choices(kconf: kconfiglib.Kconfig, problems: list[str]) -> None:
+def check_single_arm_choices(
+    kconf: kconfiglib.Kconfig, problems: list[str]
+) -> None:
     pin_symbols = _pin_map_symbols()
     for choice in kconf.unique_choices:
         options = [s for s in choice.syms if s.name]
         if len(options) != 1 or options[0].name in pin_symbols:
             continue
-        prompt = choice.nodes[0].prompt[0] if choice.nodes and choice.nodes[0].prompt else "?"
+        prompt = (
+            choice.nodes[0].prompt[0]
+            if choice.nodes and choice.nodes[0].prompt
+            else "?"
+        )
         problems.append(
-            f"[choice]   {options[0].name} is the only option under \"{prompt}\"; "
+            f"[choice]   {options[0].name} is the only option under "
+            f'"{prompt}"; '
             "a one-armed choice is a menu entry that cannot change anything"
         )
 
@@ -217,7 +239,8 @@ def check_int_symbols_have_ranges(
         if any(node.ranges for node in sym.nodes):
             continue
         problems.append(
-            f"[range]    {sym.name} is {kconfiglib.TYPE_TO_STR[sym.type]} with no "
+            f"[range]    {sym.name} is "
+            f"{kconfiglib.TYPE_TO_STR[sym.type]} with no "
             "range, so menuconfig accepts values the firmware will not"
         )
 
@@ -235,14 +258,18 @@ def check_saved_config_is_canonical(problems: list[str]) -> None:
         canonical_text = written.read_text()
 
     def settings(text: str) -> list[str]:
-        return [l for l in text.splitlines() if l.startswith(("CONFIG_", "# CONFIG_"))]
+        return [
+            ln
+            for ln in text.splitlines()
+            if ln.startswith(("CONFIG_", "# CONFIG_"))
+        ]
 
     saved = settings(DOT_CONFIG.read_text())
     canonical = settings(canonical_text)
     if saved == canonical:
         return
-    extra = [l for l in saved if l not in set(canonical)]
-    missing = [l for l in canonical if l not in set(saved)]
+    extra = [ln for ln in saved if ln not in set(canonical)]
+    missing = [ln for ln in canonical if ln not in set(saved)]
     detail = ""
     if extra:
         detail += f" first unexpected line: {extra[0]}"
@@ -274,7 +301,8 @@ def check_generators_are_deterministic(problems: list[str]) -> None:
             second = _call(fn, _load(with_saved_config=True))
             if first != second:
                 problems.append(
-                    f"[nondet]   {module_name}.{context_name} returned different "
+                    f"[nondet]   {module_name}.{context_name} returned "
+                    "different "
                     "output for the same configuration"
                 )
 

@@ -52,9 +52,13 @@ MANAGED: dict[str, object] = {
     ],
     "editor.formatOnSave": True,
     "[c]": {"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"},
-    "[cpp]": {"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"},
+    "[cpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
     "[h]": {"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"},
-    "[hpp]": {"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"},
+    "[hpp]": {
+        "editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+    },
 }
 
 
@@ -112,7 +116,10 @@ def main() -> int:
     if before == after:
         print(f"✓ {SETTINGS_PATH} already up to date")
     else:
-        print(f"✓ {SETTINGS_PATH} merged (managed keys updated; user keys preserved)")
+        print(
+            f"✓ {SETTINGS_PATH} merged "
+            "(managed keys updated; user keys preserved)"
+        )
 
     print("  Reload VSCode: Cmd/Ctrl+Shift+P → 'Developer: Reload Window'")
     return 0

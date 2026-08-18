@@ -21,6 +21,7 @@ scripts/clang_tidy_env.py for why the compile flags need filtering.
 Run:
   uv run --quiet --script scripts/lint/check_tidy.py [files...]
 """
+
 from __future__ import annotations
 
 import concurrent.futures
@@ -34,7 +35,7 @@ import tempfile
 # Sibling module — clang_tidy_env.py lives one directory up, next to the
 # generators that share it.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
-from clang_tidy_env import (  # noqa: E402
+from clang_tidy_env import (
     FIRST_PARTY,
     REPO,
     SKIP,
@@ -71,7 +72,8 @@ EXCLUDED = {
     ),
     "clang-analyzer-optin.core.EnumCastOutOfRange": (
         "ESP-IDF's flag enums enumerate single bits, so any combination is a "
-        "value no enumerator names -- ESP_NETIF_INHERENT_DEFAULT_WIFI_AP builds "
+        "value no enumerator names -- "
+        "ESP_NETIF_INHERENT_DEFAULT_WIFI_AP builds "
         "DHCP_SERVER | FLAG_AUTOUP and casts it back itself"
     ),
     "bugprone-reserved-identifier": (
@@ -82,7 +84,8 @@ EXCLUDED = {
         "peripheral base addresses arrive as integers from CMSIS"
     ),
     "bugprone-invalid-enum-default-initialization": (
-        "every finding is an ESP-IDF struct value-initialised before its fields "
+        "every finding is an ESP-IDF struct value-initialised before "
+        "its fields "
         "are filled in, which is how that API is meant to be used; the enum "
         "holds 0 only between the brace and the assignment below it"
     ),
@@ -135,7 +138,9 @@ def run(
     blob = proc.stderr + proc.stdout
     if "clang-diagnostic-error" in blob:
         first = next(
-            line.strip() for line in blob.split("\n") if "clang-diagnostic-error" in line
+            line.strip()
+            for line in blob.split("\n")
+            if "clang-diagnostic-error" in line
         )
         return [], first
 
@@ -145,7 +150,12 @@ def run(
         if not match:
             continue
         try:
-            rel = pathlib.Path(match["file"]).resolve().relative_to(REPO).as_posix()
+            rel = (
+                pathlib.Path(match["file"])
+                .resolve()
+                .relative_to(REPO)
+                .as_posix()
+            )
         except ValueError:
             continue
         # A diagnostic can land in a generated or vendored header the TU pulled
@@ -168,7 +178,9 @@ def main() -> int:
         return 0
 
     wanted = (
-        [pathlib.Path(a).resolve() for a in sys.argv[1:]] if len(sys.argv) > 1 else None
+        [pathlib.Path(a).resolve() for a in sys.argv[1:]]
+        if len(sys.argv) > 1
+        else None
     )
     targets = first_party_targets(wanted)
     if not targets:
@@ -181,12 +193,14 @@ def main() -> int:
         prepared = []
         for path, build_dir, compiler in targets:
             if build_dir not in cache:
-                cache[build_dir] = filtered_database(build_dir, pathlib.Path(tmp))
+                cache[build_dir] = filtered_database(
+                    build_dir, pathlib.Path(tmp)
+                )
             prepared.append((path, cache[build_dir], compiler))
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             for (path, _, _), (found, error) in zip(
-                prepared, pool.map(lambda t: run(*t), prepared)
+                prepared, pool.map(lambda t: run(*t), prepared), strict=True
             ):
                 if error is not None:
                     unparsed.append((path.relative_to(REPO).as_posix(), error))
@@ -207,8 +221,10 @@ def main() -> int:
         for finding in sorted(set(findings)):
             print(f"  {finding}", file=sys.stderr)
         print(
-            "\nFix them, or add `// NOLINT(check-name)` with a comment saying why\n"
-            "the check does not apply here. If a whole check is wrong for this\n"
+            "\nFix them, or add `// NOLINT(check-name)` with a comment "
+            "saying why\n"
+            "the check does not apply here. If a whole check is wrong "
+            "for this\n"
             "codebase, retire it in EXCLUDED with its reason instead.",
             file=sys.stderr,
         )

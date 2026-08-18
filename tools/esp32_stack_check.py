@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Alireza Azadi
-"""Bound every FreeRTOS task's stack from the linked ELF and fail on a thin margin.
+"""Bound every FreeRTOS task's stack from the ELF; fail on a thin margin.
 
 Frame sizes come from each function's prologue and edges from its call
 instructions, so the bound tracks the build rather than a comment that was true
@@ -38,7 +38,11 @@ PANIC_ENTRY = "_ZN12_GLOBAL__N_19PanicTaskEPv"
 TASKS = (
     ("panic", PANIC_ENTRY, r"s_panic_task_stackE$"),
     ("display", "_ZN2Ui4TaskEv", r"^_ZZN2Ui4Init.*task_stack$"),
-    ("tone_player", "_ZN10TonePlayer4TaskEv", r"^_ZZN10TonePlayer4Init.*task_stack$"),
+    (
+        "tone_player",
+        "_ZN10TonePlayer4TaskEv",
+        r"^_ZZN10TonePlayer4Init.*task_stack$",
+    ),
     ("led_task", "_ZN3LED4TaskEv", r"^_ZZN3LED4Init.*task_stack$"),
 )
 
@@ -57,8 +61,14 @@ RESOLVED = {
 # Indirect sites the walk stops at, each with the reason that is safe.
 ACKNOWLEDGED = {
     "_printf_float": (
-        "newlib's own output hooks; the depth behind them is __cvt and _dtoa_r, "
+        "newlib's own output hooks; the depth behind them is __cvt "
+        "and _dtoa_r, "
         "which the chain already counts"
+    ),
+    "gdma_acquire_group_handle": (
+        "mbedtls's hardware-SHA DMA tail behind sha256_update on the recovery "
+        "flash chain; the pointer selects the AHB HAL group init, register "
+        "writes with shallow frames"
     ),
 }
 
@@ -69,7 +79,9 @@ ACKNOWLEDGED = {
 HANDOFF = "_ZN12_GLOBAL__N_112RunPanicLoopEm"
 
 FUNC_RE = re.compile(r"^([0-9a-f]+) <(.+)>:$")
-INSN_RE = re.compile(r"^\s*[0-9a-f]+:\s+[0-9a-f]+(?: [0-9a-f]+)*\s+(\S+)\s*(.*)$")
+INSN_RE = re.compile(
+    r"^\s*[0-9a-f]+:\s+[0-9a-f]+(?: [0-9a-f]+)*\s+(\S+)\s*(.*)$"
+)
 SYM_RE = re.compile(r"<([^+>]+?)(?:\+0x[0-9a-f]+)?>")
 
 
@@ -95,7 +107,9 @@ class Graph:
             body, _, comment = args.partition("#")
             body = body.strip()
 
-            if op in ("addi", "c.addi", "c.addi16sp") and body.startswith("sp,sp,"):
+            if op in ("addi", "c.addi", "c.addi16sp") and body.startswith(
+                "sp,sp,"
+            ):
                 try:
                     delta = int(body.rsplit(",", 1)[1])
                 except ValueError:
@@ -147,16 +161,22 @@ class Graph:
 
 
 def tool_from_cache(build: pathlib.Path, var: str) -> str:
-    cache = (build / "CMakeCache.txt").read_text(encoding="utf-8", errors="replace")
+    cache = (build / "CMakeCache.txt").read_text(
+        encoding="utf-8", errors="replace"
+    )
     found = re.search(rf"^{var}:FILEPATH=(.+)$", cache, re.MULTILINE)
     if not found:
-        raise SystemExit(f"{var} missing from {build}/CMakeCache.txt; build first")
+        raise SystemExit(
+            f"{var} missing from {build}/CMakeCache.txt; build first"
+        )
     return found.group(1)
 
 
 def stack_sizes(nm: str, elf: pathlib.Path) -> list[tuple[str, int]]:
     out = subprocess.run(
-        [nm, "--print-size", "--radix=d", str(elf)], capture_output=True, text=True
+        [nm, "--print-size", "--radix=d", str(elf)],
+        capture_output=True,
+        text=True,
     )
     sizes = []
     for line in out.stdout.splitlines():
@@ -169,13 +189,17 @@ def stack_sizes(nm: str, elf: pathlib.Path) -> list[tuple[str, int]]:
 def declared_task_count(root: pathlib.Path) -> int:
     total = 0
     for path in (root / "esp32").rglob("*.cpp"):
-        total += len(re.findall(r"\bxTaskCreateStatic\w*\s*\(", path.read_text()))
+        total += len(
+            re.findall(r"\bxTaskCreateStatic\w*\s*\(", path.read_text())
+        )
     return total
 
 
 def main() -> int:
     root = pathlib.Path(__file__).resolve().parent.parent
-    ap = argparse.ArgumentParser(description="Check FreeRTOS task stack margins.")
+    ap = argparse.ArgumentParser(
+        description="Check FreeRTOS task stack margins."
+    )
     ap.add_argument("--build-dir", default=str(root / "build/Ninja/esp32"))
     build = pathlib.Path(ap.parse_args().build_dir).resolve()
 
@@ -190,7 +214,8 @@ def main() -> int:
     created = declared_task_count(root)
     if created != len(TASKS):
         raise SystemExit(
-            f"esp32/ creates {created} static tasks but TASKS covers {len(TASKS)}.\n"
+            f"esp32/ creates {created} static tasks but TASKS covers "
+            f"{len(TASKS)}.\n"
             "Add the new task's entry symbol and stack array to TASKS, or this "
             "check silently skips it."
         )
@@ -208,10 +233,13 @@ def main() -> int:
         if entry not in graph.frames:
             failures.append(f"{label}: entry symbol {entry} not in {elf.name}")
             continue
-        matches = [size for name, size in sizes if re.search(stack_pattern, name)]
+        matches = [
+            size for name, size in sizes if re.search(stack_pattern, name)
+        ]
         if len(matches) != 1:
             failures.append(
-                f"{label}: {len(matches)} symbols match {stack_pattern!r}, expected 1"
+                f"{label}: {len(matches)} symbols match "
+                f"{stack_pattern!r}, expected 1"
             )
             continue
         stack = matches[0]
@@ -225,12 +253,15 @@ def main() -> int:
         unnamed = [
             fn
             for fn in chain
-            if graph.indirect.get(fn) and fn not in RESOLVED and fn not in ACKNOWLEDGED
+            if graph.indirect.get(fn)
+            and fn not in RESOLVED
+            and fn not in ACKNOWLEDGED
         ]
         for fn in unnamed:
             failures.append(
                 f"{label}: unfollowed indirect call in {fn}; the bound stops "
-                "there and is not a bound. Resolve it in RESOLVED or record why "
+                "there and is not a bound. Resolve it in RESOLVED or "
+                "record why "
                 "it is safe in ACKNOWLEDGED."
             )
         if margin < MIN_MARGIN:

@@ -14,6 +14,7 @@ parse, which reads as "no findings".
 Lives at scripts/ root rather than scripts/lint/ because more than one lint
 imports it, matching pin_constraints.py.
 """
+
 from __future__ import annotations
 
 import json
@@ -67,24 +68,30 @@ def parseable(arg: str) -> bool:
 
 
 def databases() -> dict[str, tuple[pathlib.Path, dict]]:
-    """Maps an absolute source path to the build dir that knows how to build it."""
+    """Maps an absolute source path to the build dir that can build it."""
     out: dict[str, tuple[pathlib.Path, dict]] = {}
     for d in BUILD_DIRS:
         cdb = d / "compile_commands.json"
         if not cdb.exists():
             continue
         for entry in json.loads(cdb.read_text()):
-            out.setdefault(str(pathlib.Path(entry["file"]).resolve()), (d, entry))
+            out.setdefault(
+                str(pathlib.Path(entry["file"]).resolve()), (d, entry)
+            )
     return out
 
 
-def filtered_database(build_dir: pathlib.Path, into: pathlib.Path) -> pathlib.Path:
+def filtered_database(
+    build_dir: pathlib.Path, into: pathlib.Path
+) -> pathlib.Path:
     """A copy of build_dir's compilation database clang's driver will accept."""
     out = into / build_dir.name
     out.mkdir(parents=True, exist_ok=True)
     entries = json.loads((build_dir / "compile_commands.json").read_text())
     for entry in entries:
-        entry["command"] = " ".join(a for a in entry["command"].split() if parseable(a))
+        entry["command"] = " ".join(
+            a for a in entry["command"].split() if parseable(a)
+        )
     (out / "compile_commands.json").write_text(json.dumps(entries))
     return out
 

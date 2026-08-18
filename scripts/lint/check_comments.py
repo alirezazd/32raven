@@ -65,7 +65,9 @@ import subprocess
 import sys
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-EXCEPTIONS_FILE = pathlib.Path(__file__).resolve().parent / "comment_exceptions.txt"
+EXCEPTIONS_FILE = (
+    pathlib.Path(__file__).resolve().parent / "comment_exceptions.txt"
+)
 
 SOURCE_SUFFIXES = {".c", ".h", ".cpp", ".hpp", ".cc", ".cxx"}
 
@@ -108,8 +110,8 @@ ATTRIBUTION_RE = re.compile(
 # carries a call or an assignment. Prose rarely does both, and the rule is a
 # ratchet from zero rather than a cleanup, so a miss costs nothing.
 # A call or an assignment where the identifier is the first thing on the line.
-# Prose that happens to end in ");" -- a sentence about a register, say -- puts a
-# space after its first word, so it never matches.
+# Prose that happens to end in ");" -- a sentence about a register, say -- puts
+# a space after its first word, so it never matches.
 COMMENTED_CODE_RE = re.compile(
     r"^\s*//[ ]?(#include\s*[<\"]"
     r"|[A-Za-z_][\w:.<>]*\s*\(.*\)\s*;\s*$"
@@ -119,9 +121,34 @@ COMMENTED_CODE_RE = re.compile(
 # Words that carry no information about what a declaration does, so a comment
 # made only of these plus the identifier's own words is saying nothing new.
 FILLER_WORDS = {
-    "a", "an", "the", "for", "of", "to", "is", "this", "it", "and", "or",
-    "returns", "return", "sets", "set", "gets", "get", "getter", "setter",
-    "in", "on", "at", "by", "with", "from", "value", "function", "method",
+    "a",
+    "an",
+    "the",
+    "for",
+    "of",
+    "to",
+    "is",
+    "this",
+    "it",
+    "and",
+    "or",
+    "returns",
+    "return",
+    "sets",
+    "set",
+    "gets",
+    "get",
+    "getter",
+    "setter",
+    "in",
+    "on",
+    "at",
+    "by",
+    "with",
+    "from",
+    "value",
+    "function",
+    "method",
 }
 DECLARATION_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*[({;=]")
 WORD_RE = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])")
@@ -136,6 +163,7 @@ def restates_declaration(comment: str, following: str) -> bool:
         return False
     identifier = {w.lower() for w in WORD_RE.findall(match.group(1))}
     return words <= identifier
+
 
 # The optional suffix has to be consumed before the lookahead, or NOLINTBEGIN
 # matches as a bare NOLINT followed by a "B".
@@ -257,7 +285,9 @@ FIXABLE = {"banner", "empty"}
 # are always wrong, the label may be the sole thing naming a block. Stripping
 # to the label is the edit that cannot lose information; whether the label then
 # earns its line is a review question.
-LABELLED_BANNER_RE = re.compile(rf"^(\s*//\s*){FILL}{{3,}}\s*(\S.*?)\s*{FILL}{{3,}}\s*$")
+LABELLED_BANNER_RE = re.compile(
+    rf"^(\s*//\s*){FILL}{{3,}}\s*(\S.*?)\s*{FILL}{{3,}}\s*$"
+)
 
 
 def fix_file(path: pathlib.Path, lines: list[str], findings) -> int:
@@ -280,7 +310,9 @@ def fix_file(path: pathlib.Path, lines: list[str], findings) -> int:
 
     path.write_text(
         "".join(
-            line for number, line in enumerate(edited, start=1) if number not in drop
+            line
+            for number, line in enumerate(edited, start=1)
+            if number not in drop
         ),
         encoding="utf-8",
     )
@@ -298,10 +330,13 @@ def main() -> int:
     parser.add_argument(
         "--strict",
         action="store_true",
-        help="also flag empty comments and ones that only repeat the declaration",
+        help="also flag empty comments and ones that only repeat "
+        "the declaration",
     )
     parser.add_argument(
-        "paths", nargs="*", help="files to check; defaults to every tracked source"
+        "paths",
+        nargs="*",
+        help="files to check; defaults to every tracked source",
     )
     args = parser.parse_args()
 
@@ -341,8 +376,10 @@ def main() -> int:
         for failure in failures:
             print(f"  {failure}", file=sys.stderr)
         print(
-            f"\n{len(failures)} violation(s). Fix them, or add '<path>:<rule>' to "
-            f"{EXCEPTIONS_FILE.relative_to(REPO_ROOT)} with a reason if the file "
+            f"\n{len(failures)} violation(s). Fix them, or add "
+            "'<path>:<rule>' to "
+            f"{EXCEPTIONS_FILE.relative_to(REPO_ROOT)} with a reason "
+            "if the file "
             f"is vendored or generated.",
             file=sys.stderr,
         )

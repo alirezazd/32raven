@@ -44,6 +44,7 @@ having no enumerable domain.
 Run:
   uv run --quiet --script scripts/lint/check_config_sweep.py [--pinned]
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -56,11 +57,11 @@ DOT_CONFIG = REPO / "config/32raven.config"
 
 sys.path.insert(0, str(REPO / "scripts"))
 
-import kconfiglib  # noqa: E402
-import kconfig_gen  # noqa: E402
 import generate_common_config  # noqa: E402
 import generate_esp32_config  # noqa: E402
 import generate_stm32_config  # noqa: E402
+import kconfig_gen  # noqa: E402
+import kconfiglib  # noqa: E402
 
 # Neither is a Kconfig input, and both cost a subprocess on every render. Held
 # fixed so the fingerprint reflects the sweep and not the working tree.
@@ -95,7 +96,9 @@ def _fingerprint(kconf: kconfiglib.Kconfig) -> str:
         module._validate(kconf)
         parts.append(
             kconfig_gen.render_template(
-                env, runtime_template, module._runtime_context(DOT_CONFIG, kconf)
+                env,
+                runtime_template,
+                module._runtime_context(DOT_CONFIG, kconf),
             )
         )
         parts.append(
@@ -195,7 +198,7 @@ def _sweep(
 
 
 def _setters(kconf: kconfiglib.Kconfig, symbol_name: str, text: str):
-    """Assign, and report whether the assignment survived the dependency graph."""
+    """Assign; report whether it survived the dependency graph."""
 
     def apply() -> bool:
         symbol = kconf.syms[symbol_name]

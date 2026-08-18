@@ -18,6 +18,7 @@ mutates source files breaks reproducibility and would erase a freshly-added
 enumerator before its consumer was wired up. Run `--fix` manually when you
 want the cleanup applied.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -152,7 +153,8 @@ def main() -> int:
     ap.add_argument(
         "--fix",
         action="store_true",
-        help="remove dead enumerators in-place from header + source, then exit 0",
+        help="remove dead enumerators in-place from header + source, "
+        "then exit 0",
     )
     args = ap.parse_args()
 
@@ -162,7 +164,9 @@ def main() -> int:
 
     enums = parse_enum_values(HEADER.read_text(encoding="utf-8"))
     if not enums:
-        print(f"error: no enum class blocks parsed from {HEADER}", file=sys.stderr)
+        print(
+            f"error: no enum class blocks parsed from {HEADER}", file=sys.stderr
+        )
         return 2
 
     dead = find_dead(enums)
