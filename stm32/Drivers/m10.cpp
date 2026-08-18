@@ -24,6 +24,11 @@ inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
   }
 }
 
+M10 &M10::GetInstance() {
+  static M10 instance;
+  return instance;
+}
+
 void M10::WaitForReady() {
   auto &uart = Uart<UartInstance::kUart2>::GetInstance();
   auto &time = System::GetInstance().Time();

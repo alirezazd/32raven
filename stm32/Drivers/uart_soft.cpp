@@ -30,6 +30,11 @@ constexpr uint32_t kMaxBaudDeviationDivisor = 50u;
 
 }  // namespace
 
+UartSoft &UartSoft::GetInstance() {
+  static UartSoft instance;
+  return instance;
+}
+
 void UartSoft::Init(const UartSoftConfig &config) {
   if (initialized_ || config.baud_rate == 0u || config.baud_rate > 1000000u) {
     Panic(ErrorCode::Stm32::kUartSoftReinit);

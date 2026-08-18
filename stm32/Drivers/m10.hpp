@@ -60,10 +60,7 @@ class M10 {
     return static_cast<uint32_t>(baud_rate);
   }
 
-  static M10 &GetInstance() {
-    static M10 instance;
-    return instance;
-  }
+  static M10 &GetInstance();
 
   struct Config {
     BaudRate baud_rate;

@@ -43,10 +43,7 @@ struct UartSoftConfig {
 
 class UartSoft {
  public:
-  static UartSoft &GetInstance() {
-    static UartSoft instance;
-    return instance;
-  }
+  static UartSoft &GetInstance();
 
   // Binds the wire. Left driven high, which is idle, so the far end sees idle
   // rather than a spurious start bit the moment the pin is claimed.

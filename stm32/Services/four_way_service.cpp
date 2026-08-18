@@ -8,6 +8,7 @@
 
 #include "checksum.hpp"
 #include "dshot_codec.hpp"
+#include "dshot_tim1.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 
@@ -62,12 +63,14 @@ void FourWayService::Init(UsbCdc &usb, EscBootloader &bootloader) {
 
 void FourWayService::Enter() {
   active_ = true;
+  DShotTim1::GetInstance().SuspendKeepAlive();
   bootloader_->HoldAll();
   Reset();
 }
 
 void FourWayService::Exit() {
   bootloader_->ReleaseAll();
+  DShotTim1::GetInstance().ResumeKeepAlive();
   active_ = false;
   Reset();
 }

@@ -137,6 +137,11 @@ void ApplyConfig(GPIO_TypeDef *port, const GpioInit &init) {
 
 }  // namespace
 
+GPIO &GPIO::GetInstance() {
+  static GPIO instance;
+  return instance;
+}
+
 void GPIO::Init(std::span<const PinConfig> pins) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kGpioReinit);
