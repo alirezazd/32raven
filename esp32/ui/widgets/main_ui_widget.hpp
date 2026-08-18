@@ -11,10 +11,7 @@ class MainUiWidget : public IWidget {
  public:
   using Mode = Ui::MainScreen;
 
-  static MainUiWidget &GetInstance() {
-    static MainUiWidget instance;
-    return instance;
-  }
+  static MainUiWidget &GetInstance();
 
   const char *Name() const override { return "main_ui"; }
 
@@ -35,6 +32,7 @@ class MainUiWidget : public IWidget {
     std::array<LinkPacketGlyph, kLinkLaneCapacity> packets{};
     size_t active_count = 0;
     uint32_t last_seen_packet_count = 0;
+    uint32_t last_seen_heartbeat_count = 0;
   };
 
   Mode CurrentMode() const;
@@ -50,6 +48,8 @@ class MainUiWidget : public IWidget {
     size_t left_icon_width = 0;
     uint32_t rx_count = 0;
     uint32_t tx_count = 0;
+    uint32_t rx_heartbeat_count = 0;
+    uint32_t tx_heartbeat_count = 0;
   };
 
   static LinkPacketSource PacketSourceForMode(Mode mode, TimeMs now);

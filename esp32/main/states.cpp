@@ -8,6 +8,7 @@
 #include "ctx.hpp"
 #include "error_code.hpp"
 #include "esp32_config.hpp"
+#include "fc_link.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
@@ -21,6 +22,10 @@ extern "C" {
 
 static constexpr const char *kTag = "ESP32-SM";
 
+// Same patience as the boot handshake: the same STM32 on the same link.
+static constexpr uint16_t kStm32RequestAttempts =
+    FcLink::HandshakeAttempts(kFcLinkConfig.handshake_window_s);
+
 // Mavlink().Poll stays at the call sites: ESC config drains the link but runs
 // with the telemetry link off.
 static void DrainFcLink(AppContext &ctx) {
@@ -30,9 +35,44 @@ static void DrainFcLink(AppContext &ctx) {
   }
 }
 
+struct MenuTarget {
+  IState<AppContext> &state;
+  const char *name;
+};
+
+// The press that wakes the display is spent doing that, so a short press only
+// acts on an awake screen; a long press always acts.
+static bool CycleOnButton(AppContext &ctx, const char *from,
+                          const MenuTarget &press,
+                          const MenuTarget &long_press,
+                          void (*on_exit)(AppContext &) = nullptr) {
+  auto &button = ctx.sys->Button();
+  button.Poll();
+
+  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+    ESP_LOGI(kTag, "%s -> %s (press)", from, press.name);
+    if (on_exit != nullptr) {
+      on_exit(ctx);
+    }
+    ctx.sm->ReqTransition(press.state);
+    return true;
+  }
+  if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
+    ESP_LOGI(kTag, "%s -> %s (long press)", from, long_press.name);
+    if (on_exit != nullptr) {
+      on_exit(ctx);
+    }
+    ctx.sm->ReqTransition(long_press.state);
+    return true;
+  }
+  return false;
+}
+
 // Navigation model. Two menus, one gesture each:
 //   short press — cycle within the current menu
-//     normal: Serving -> MavlinkWifi -> MavlinkUsb -> Serving
+//     normal: Serving -> MavlinkWifi -> WifiLog -> UsbLog -> MavlinkUsb
+//             -> Serving
 //     config: Dfu -> EscConfig -> Dfu
 //   hold        — swap menus, from anywhere
 //     normal -> Dfu (config entry point), config -> Serving
@@ -56,21 +96,13 @@ void ServingState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
 }
 
-void ServingState::OnStep(AppContext &ctx, SmTick now) {
-  auto &button = ctx.sys->Button();
-  button.Poll();
-
-  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
-    ctx.sm->ReqTransition(*ctx.mavlink_wifi_state);
-    return;
-  }
-  if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
-    ctx.sm->ReqTransition(*ctx.dfu_state);
+void ServingState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "Serving", {*ctx.mavlink_wifi_state, "MavlinkWifi"},
+                    {*ctx.dfu_state, "Dfu"})) {
     return;
   }
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(now);
+  ctx.sys->Mavlink().Poll(ctx.now_ms);
 }
 
 // MavlinkWifi State
@@ -82,26 +114,16 @@ void MavlinkWifiState::OnEnter(AppContext &ctx) {
   ctx.sys->Tcp().Stop();
   ctx.sys->Wifi().StartAp();
   // Telemetry only: a dead socket must not take the whole bench tool down.
-  (void)ctx.sys->Udp().Start();
+  ctx.sys->Udp().Start();
 }
 
-void MavlinkWifiState::OnStep(AppContext &ctx, SmTick now) {
-  auto &button = ctx.sys->Button();
-  button.Poll();
-
-  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
-    ESP_LOGI(kTag, "MavlinkWifi -> MavlinkUsb (press)");
-    ctx.sm->ReqTransition(*ctx.mavlink_usb_state);
-    return;
-  }
-  if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
-    ESP_LOGI(kTag, "MavlinkWifi -> Dfu (long press)");
-    ctx.sm->ReqTransition(*ctx.dfu_state);
+void MavlinkWifiState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "MavlinkWifi", {*ctx.wifi_log_state, "WifiLog"},
+                    {*ctx.dfu_state, "Dfu"})) {
     return;
   }
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(now);
+  ctx.sys->Mavlink().Poll(ctx.now_ms);
 }
 
 // MavlinkUsb State
@@ -117,23 +139,13 @@ void MavlinkUsbState::OnEnter(AppContext &ctx) {
   ctx.sys->StopNetwork();
 }
 
-void MavlinkUsbState::OnStep(AppContext &ctx, SmTick now) {
-  auto &button = ctx.sys->Button();
-  button.Poll();
-
-  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
-    ESP_LOGI(kTag, "MavlinkUsb -> Serving (press)");
-    ctx.sm->ReqTransition(*ctx.serving_state);
-    return;
-  }
-  if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
-    ESP_LOGI(kTag, "MavlinkUsb -> Dfu (long press)");
-    ctx.sm->ReqTransition(*ctx.dfu_state);
+void MavlinkUsbState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "MavlinkUsb", {*ctx.serving_state, "Serving"},
+                    {*ctx.dfu_state, "Dfu"})) {
     return;
   }
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(now);
+  ctx.sys->Mavlink().Poll(ctx.now_ms);
 }
 
 // Dfu State
@@ -148,29 +160,27 @@ void DfuState::OnEnter(AppContext &ctx) {
   ctx.sys->Tcp().DisableBridge();
 }
 
-void DfuState::OnStep(AppContext &ctx, SmTick now) {
-  auto &button = ctx.sys->Button();
-  button.Poll();
-
-  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
-    ESP_LOGI(kTag, "DFU -> EscConfig (press)");
-    ctx.sm->ReqTransition(*ctx.esc_config_state);
-    return;
-  }
-  if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
-    ESP_LOGI(kTag, "DFU -> Serving (long press)");
-    ctx.sm->ReqTransition(*ctx.serving_state);
+void DfuState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "DFU", {*ctx.esc_config_state, "EscConfig"},
+                    {*ctx.serving_state, "Serving"})) {
     return;
   }
 
-  ctx.sys->Tcp().Poll(now);
+  ctx.sys->Tcp().Poll();
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    if (ctx.sys->CommandHandler().Dispatch(ctx, *ev) ==
-        CommandHandler::DfuTcpAction::kEnterProgram) {
-      ctx.sm->ReqTransition(*ctx.program_state);
-      return;
+    switch (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
+      case CommandHandler::DfuTcpAction::kEnterProgram:
+        ctx.sys->Tcp().SendCtrlLine("OK\n");
+        ctx.sm->ReqTransition(*ctx.program_state);
+        return;
+      case CommandHandler::DfuTcpAction::kEnterLogPull:
+        // Logs are served from the WiFi log page, where the screen shows
+        // the transfer.
+        ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
+        break;
+      case CommandHandler::DfuTcpAction::kStayInDfu:
+        break;
     }
   }
 }
@@ -184,11 +194,11 @@ void ProgramState::OnEnter(AppContext &ctx) {
   ctx.sys->Mavlink().SetTelemetryLink(false);
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
-  last_activity_ = ctx.sys->Timebase().NowMs();
+  last_activity_ = ctx.now_ms;
   last_written_ = ctx.sys->Programmer().Written();
 }
 
-void ProgramState::OnStep(AppContext &ctx, SmTick now) {
+void ProgramState::OnStep(AppContext &ctx) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
@@ -198,14 +208,14 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   if (button.ConsumeLongPress()) {
     ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "Program -> Dfu (long press)");
-    ctx.sys->Programmer().Abort(now);
+    ctx.sys->Programmer().Abort();
     ctx.sys->Tcp().StopDownload();
     ctx.sm->ReqTransition(*ctx.dfu_state);
     return;
   }
 
-  ctx.sys->Tcp().Poll(now);
-  ctx.sys->Programmer().Poll(now);
+  ctx.sys->Tcp().Poll();
+  ctx.sys->Programmer().Poll();
 
   auto &tcp = ctx.sys->Tcp();
   auto &prog = ctx.sys->Programmer();
@@ -213,7 +223,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
   if (prog.Error()) {
     const uint32_t programmer_error = prog.LastErrorCode();
     tcp.StopDownload();
-    prog.Abort(now);
+    prog.Abort();
     ESP_LOGE(kTag, "Prog Error -> Panic");
     Panic(programmer_error);
   }
@@ -238,7 +248,7 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
         ev->id == TcpServer::EventId::kDataDown) {
       ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev->id);
       tcp.StopDownload();
-      prog.Abort(now);
+      prog.Abort();
       if (ev->id == TcpServer::EventId::kAbort) {
         ctx.sm->ReqTransition(*ctx.serving_state);
       } else {
@@ -264,26 +274,36 @@ void ProgramState::OnStep(AppContext &ctx, SmTick now) {
     const size_t n = tcp.ReadDownload(
         chunk.first((free < chunk.size()) ? free : chunk.size()));
     if (n > 0) {
-      prog.PushBytes(chunk.first(n), now);
+      prog.PushBytes(chunk.first(n));
       ctx.sys->Led().Toggle();
-      last_activity_ = now;
+      last_activity_ = ctx.now_ms;
     }
   }
 
   uint32_t current_written = prog.Written();
   if (current_written != last_written_) {
-    last_activity_ = now;
+    last_activity_ = ctx.now_ms;
     last_written_ = current_written;
   }
 
   if (!prog.IsVerifying() && !prog.Done()) {
-    if ((now - last_activity_) > Programmer::kStallTimeoutMs) {
+    if ((ctx.now_ms - last_activity_) > Programmer::kStallTimeoutMs) {
       ESP_LOGE(kTag, "Programmer timed out -> Panic");
       tcp.StopDownload();
-      prog.Abort(now);
+      prog.Abort();
       Panic(ErrorCode::Esp32::kProgrammerTimedOut);
     }
   }
+}
+
+static void SendUsbMode(AppContext &ctx, message::UsbMode mode) {
+  ctx.sys->FcLink().SendPacket(
+      message::MsgId::kSetUsbMode,
+      message::SetUsbModeMsg{.mode = static_cast<uint8_t>(mode)});
+}
+
+static void DropUsbMode(AppContext &ctx) {
+  SendUsbMode(ctx, message::UsbMode::kNone);
 }
 
 // EscConfig State
@@ -296,35 +316,15 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->FcLink().ResetRxState();
   warned_armed_ = false;
   stream_seen_ = false;
-  last_usb_frames_ = 0;
-  request_attempts_ = 1;
-  last_request_ms_ = ctx.sys->Timebase().NowMs();
-  RequestEscConfig(ctx, true);
+  activity_.Reset(0);
+  grant_.Begin(ctx.now_ms);
+  SendUsbMode(ctx, message::UsbMode::kEscConfig);
 }
 
-void EscConfigState::RequestEscConfig(AppContext &ctx, bool enabled) const {
-  ctx.sys->FcLink().SendPacket(
-      message::MsgId::kSetEscConfigMode,
-      message::SetEscConfigModeMsg{.enabled = static_cast<uint8_t>(enabled)});
-}
-
-void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
-  auto &button = ctx.sys->Button();
-  button.Poll();
-
-  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
-    ESP_LOGI(kTag, "EscConfig -> Dfu (press)");
-    ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
-                                 message::SetEscConfigModeMsg{.enabled = 0u});
-    ctx.sm->ReqTransition(*ctx.dfu_state);
-    return;
-  }
-  if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
-    ESP_LOGI(kTag, "EscConfig -> Serving (long press)");
-    ctx.sys->FcLink().SendPacket(message::MsgId::kSetEscConfigMode,
-                                 message::SetEscConfigModeMsg{.enabled = 0u});
-    ctx.sm->ReqTransition(*ctx.serving_state);
+void EscConfigState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "EscConfig", {*ctx.dfu_state, "Dfu"},
+                    {*ctx.serving_state, "Serving"},
+                    DropUsbMode)) {
     return;
   }
 
@@ -336,30 +336,27 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   // handshake cadence rather than on the report closes the loop that a
   // report-driven retry cannot: no reports means nothing to answer.
   if (!stream_seen_) {
-    if (ctx.sys->Ui().PeerUsb(now).has_value()) {
+    if (ctx.sys->Ui().PeerUsb(ctx.now_ms).has_value()) {
       stream_seen_ = true;
-    } else if ((now - last_request_ms_) >=
-               kFcLinkConfig.handshake_retry_period_ms) {
-      if (request_attempts_ >= kFcLinkConfig.handshake_attempts) {
+    } else if (grant_.Due(ctx.now_ms, FcLink::kHandshakeRetryPeriodMs)) {
+      if (grant_.Exhausted(kStm32RequestAttempts)) {
         ESP_LOGW(kTag, "EscConfig -> Serving (STM32 never opened the port)");
         ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
         ctx.sys->Ui().NotifyUserActivity();
         ctx.sm->ReqTransition(*ctx.serving_state);
         return;
       }
-      last_request_ms_ = now;
-      request_attempts_++;
-      RequestEscConfig(ctx, true);
+      grant_.Sent(ctx.now_ms);
+      SendUsbMode(ctx, message::UsbMode::kEscConfig);
     }
   }
 
   // Edge triggered because the report arrives every second either way, so
   // anything less would hold the screen awake for the whole session.
-  if (const auto usb = ctx.sys->Ui().PeerUsb(now)) {
-    const uint16_t frames = static_cast<uint16_t>(
-        (static_cast<uint16_t>(usb->rx_frames) << 8) | usb->tx_frames);
-    if (frames != last_usb_frames_) {
-      last_usb_frames_ = frames;
+  if (const auto usb = ctx.sys->Ui().PeerUsb(ctx.now_ms)) {
+    const uint32_t frames =
+        (static_cast<uint32_t>(usb->rx_frames) << 8) | usb->tx_frames;
+    if (activity_.Advanced(frames)) {
       ctx.sys->Ui().NotifyUserActivity();
     }
   }
@@ -367,10 +364,289 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   // The port stays shut while armed, and the screen says so -- but the screen
   // may well be asleep, so say it out loud too. Edge-triggered: the condition
   // holds for as long as the vehicle stays armed.
-  const bool armed = ctx.sys->Mavlink().PeerArmed().value_or(false);
+  const bool armed = ctx.sys->Mavlink().PeerArmed(ctx.now_ms).value_or(false);
   if (armed && !warned_armed_) {
     ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
     ctx.sys->Ui().NotifyUserActivity();
   }
   warned_armed_ = armed;
+}
+
+// UsbLog State
+void UsbLogState::OnEnter(AppContext &ctx) {
+  ESP_LOGI(kTag, "entering UsbLog");
+  ctx.sys->Ui().SetAppState(Ui::AppState::kUsbLog);
+  ctx.sys->Mavlink().SetTelemetryLink(false);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
+  ctx.sys->StopNetwork();
+  ctx.sys->FcLink().ResetRxState();
+  stream_seen_ = false;
+  activity_.Reset(0);
+  grant_.Begin(ctx.now_ms);
+  SendUsbMode(ctx, message::UsbMode::kMsc);
+}
+
+void UsbLogState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "UsbLog", {*ctx.mavlink_usb_state, "MavlinkUsb"},
+                    {*ctx.dfu_state, "Dfu"},
+                    DropUsbMode)) {
+    return;
+  }
+
+  DrainFcLink(ctx);
+
+  // The kUsbStatus stream exists only inside the session, so its arrival is
+  // the grant.
+  if (!stream_seen_) {
+    if (ctx.sys->Ui().PeerUsb(ctx.now_ms).has_value()) {
+      stream_seen_ = true;
+    } else if (grant_.Due(ctx.now_ms, FcLink::kHandshakeRetryPeriodMs)) {
+      if (grant_.Exhausted(kStm32RequestAttempts)) {
+        ESP_LOGW(kTag, "UsbLog -> Serving (STM32 never granted MSC)");
+        ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+        ctx.sys->Ui().NotifyUserActivity();
+        ctx.sm->ReqTransition(*ctx.serving_state);
+        return;
+      }
+      grant_.Sent(ctx.now_ms);
+      SendUsbMode(ctx, message::UsbMode::kMsc);
+    }
+  }
+
+  // Block counters ride the frame fields; movement means the host is copying.
+  if (const auto usb = ctx.sys->Ui().PeerUsb(ctx.now_ms)) {
+    const uint32_t frames =
+        (static_cast<uint32_t>(usb->rx_frames) << 8) | usb->tx_frames;
+    if (activity_.Advanced(frames)) {
+      ctx.sys->Ui().NotifyUserActivity();
+    }
+  }
+}
+
+// WifiLog State
+void WifiLogState::OnEnter(AppContext &ctx) {
+  ESP_LOGI(kTag, "entering WifiLog");
+  ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
+  ctx.sys->Mavlink().SetTelemetryLink(false);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
+  ctx.sys->FcLink().ResetRxState();
+  // Best effort: a failed start only leaves nothing listening.
+  ctx.sys->StartNetwork();
+  ctx.sys->Tcp().DisableBridge();
+}
+
+void WifiLogState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "WifiLog", {*ctx.usb_log_state, "UsbLog"},
+                    {*ctx.dfu_state, "Dfu"})) {
+    return;
+  }
+
+  ctx.sys->Tcp().Poll();
+  DrainFcLink(ctx);
+
+  while (auto ev = ctx.sys->Tcp().PopEvent()) {
+    switch (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
+      case CommandHandler::DfuTcpAction::kEnterLogPull:
+        ctx.sys->Tcp().SendCtrlLine("OK\n");
+        ctx.sm->ReqTransition(*ctx.log_pull_state);
+        return;
+      case CommandHandler::DfuTcpAction::kEnterProgram:
+        // BEGIN's dispatch already opened the download, so close it first.
+        ctx.sys->Tcp().StopDownload();
+        ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
+        break;
+      case CommandHandler::DfuTcpAction::kStayInDfu:
+        break;
+    }
+  }
+}
+
+// LogPull State
+namespace {
+constexpr uint32_t kLogPullRetryMs = 400;
+// A peer that vanishes without closing leaves the socket blocking rather
+// than erroring, so refusing to wait forever is the only way out.
+constexpr uint32_t kLogPullStallMs = 10000;
+constexpr uint8_t kLogPullMaxAttempts = 5;
+}  // namespace
+
+void LogPullState::PrepareList() {
+  op_ = Op::kList;
+  list_first_ = 0;
+}
+
+void LogPullState::PrepareGet(const char *name) {
+  op_ = Op::kGet;
+  std::snprintf(name_, sizeof(name_), "%s", name);
+  offset_ = 0;
+}
+
+void LogPullState::OnEnter(AppContext &ctx) {
+  ESP_LOGI(kTag, "entering LogPull (%s)", op_ == Op::kList ? "list" : name_);
+  ctx_ = &ctx;
+  // Stays on the WiFi log screen, where the lanes show the transfer.
+  ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
+  reply_pending_ = false;
+  done_ = false;
+  reply_.Clear();
+  chunk_valid_ = false;
+  chunk_sent_ = 0;
+  total_bytes_ = 0;
+  rx_frames_ = 0;
+  tx_frames_ = 0;
+  activity_.Reset(0);
+  last_progress_ms_ = ctx.now_ms;
+  ctx.sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  mbedtls_sha256_init(&sha_);
+  mbedtls_sha256_starts(&sha_, 0);
+  SendRequest(ctx);
+}
+
+void LogPullState::SendRequest(AppContext &ctx) {
+  if (op_ == Op::kList) {
+    ctx.sys->FcLink().SendPacket(message::MsgId::kLogList,
+                                 message::LogListMsg{.first = list_first_});
+  } else {
+    message::LogReadMsg req{};
+    std::memcpy(req.name, name_, message::kLogNameLen);
+    req.offset = offset_;
+    req.len = message::kLogDataMaxBytes;
+    ctx.sys->FcLink().SendPacket(message::MsgId::kLogRead, req);
+  }
+  reply_pending_ = true;
+  reply_.Sent(ctx.now_ms);
+  ++tx_frames_;
+  ctx.sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+}
+
+void LogPullState::OnListReply(const message::LogListReplyMsg &reply) {
+  reply_pending_ = false;
+  reply_.Clear();
+  ++rx_frames_;
+  ctx_->sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  if (static_cast<message::LogStatus>(reply.status) !=
+      message::LogStatus::kOk) {
+    Finish(*ctx_, "ERR busy\n");
+    return;
+  }
+  char line[48];
+  for (uint8_t i = 0; i < reply.count && i < message::kLogListMaxEntries; ++i) {
+    char name[13] = {};
+    std::memcpy(name, reply.entries[i].name, message::kLogNameLen);
+    std::snprintf(line, sizeof(line), "LOG %s %u\n", name,
+                  (unsigned)reply.entries[i].size_bytes);
+    ctx_->sys->Tcp().SendCtrlLine(line);
+  }
+  const uint8_t next = static_cast<uint8_t>(reply.first + reply.count);
+  if (reply.count == message::kLogListMaxEntries && next < reply.total) {
+    list_first_ = next;
+    SendRequest(*ctx_);
+    return;
+  }
+  std::snprintf(line, sizeof(line), "DONE total=%u\n", (unsigned)reply.total);
+  Finish(*ctx_, line);
+}
+
+void LogPullState::OnData(const message::LogDataMsg &data) {
+  if (data.offset != offset_) {
+    return;  // an answer to a request this state already gave up on
+  }
+  reply_pending_ = false;
+  reply_.Clear();
+  ++rx_frames_;
+  ctx_->sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  if (static_cast<message::LogStatus>(data.status) != message::LogStatus::kOk) {
+    Finish(*ctx_, static_cast<message::LogStatus>(data.status) ==
+                          message::LogStatus::kNotFound
+                      ? "ERR not_found\n"
+                      : "ERR busy\n");
+    return;
+  }
+  if (data.len == 0u) {
+    done_ = true;
+    return;
+  }
+  chunk_ = data;
+  chunk_sent_ = 0;
+  chunk_valid_ = true;
+  last_progress_ms_ = ctx_->now_ms;
+  mbedtls_sha256_update(&sha_, data.data, data.len);
+  total_bytes_ += data.len;
+  offset_ += data.len;
+}
+
+void LogPullState::Finish(AppContext &ctx, const char *ctrl_line) {
+  ctx.sys->Tcp().SendCtrlLine(ctrl_line);
+  mbedtls_sha256_free(&sha_);
+  ctx.sm->ReqTransition(*ctx.wifi_log_state);
+}
+
+void LogPullState::OnStep(AppContext &ctx) {
+  auto &button = ctx.sys->Button();
+  button.Poll();
+  if (button.ConsumeLongPress()) {
+    ctx.sys->Ui().NotifyUserActivity();
+    Finish(ctx, "ERR aborted\n");
+    return;
+  }
+
+  ctx.sys->Tcp().Poll();
+  DrainFcLink(ctx);
+
+  // A pull outlasts the inactivity timeout many times over, so traffic keeps
+  // the screen up.
+  const uint32_t frames =
+      (static_cast<uint32_t>(rx_frames_) << 16) | tx_frames_;
+  if (activity_.Advanced(frames)) {
+    ctx.sys->Ui().NotifyUserActivity();
+  }
+
+  // Forward before requesting more: the unsent tail is the flow control.
+  if (chunk_valid_) {
+    const int sent = ctx.sys->Tcp().SendData(&chunk_.data[chunk_sent_],
+                                             chunk_.len - chunk_sent_);
+    // Negative is the socket reporting the peer gone; zero is only
+    // backpressure, which the stall deadline below bounds.
+    if (sent < 0) {
+      Finish(ctx, "ERR peer_gone\n");
+      return;
+    }
+    if (sent > 0) {
+      chunk_sent_ = static_cast<uint16_t>(chunk_sent_ + sent);
+      last_progress_ms_ = ctx.now_ms;
+    }
+    if (chunk_sent_ < chunk_.len) {
+      if ((ctx.now_ms - last_progress_ms_) >= kLogPullStallMs) {
+        Finish(ctx, "ERR peer_stalled\n");
+      }
+      return;
+    }
+    chunk_valid_ = false;
+    if (!done_) {
+      SendRequest(ctx);
+      return;
+    }
+  }
+
+  if (done_ && !chunk_valid_) {
+    char line[96];
+    uint8_t hash[32];
+    mbedtls_sha256_finish(&sha_, hash);
+    char hex[65];
+    for (int i = 0; i < 32; ++i) {
+      std::snprintf(&hex[i * 2], 3, "%02x", hash[i]);
+    }
+    std::snprintf(line, sizeof(line), "DONE size=%u sha256=%s\n",
+                  (unsigned)total_bytes_, hex);
+    Finish(ctx, line);
+    return;
+  }
+
+  if (reply_pending_ && reply_.Due(ctx.now_ms, kLogPullRetryMs)) {
+    if (reply_.Exhausted(kLogPullMaxAttempts)) {
+      Finish(ctx, "ERR fc_timeout\n");
+      return;
+    }
+    SendRequest(ctx);
+  }
 }

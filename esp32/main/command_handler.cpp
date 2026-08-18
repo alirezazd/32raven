@@ -8,6 +8,7 @@
 #include "ctx.hpp"
 #include "dispatcher.hpp"
 #include "error_code.hpp"
+#include "fc_link.hpp"
 #include "mavlink.hpp"
 #include "message.hpp"
 #include "panic.hpp"
@@ -35,22 +36,22 @@ static constexpr const char *kTag = "cmd";
 // check that pairing, so keeping it to a single line per message is the whole
 // defence against routing a packet into the wrong struct.
 template <typename T>
-static void OnTelemetry(AppContext &ctx, const message::Packet &pkt) {
+static void OnTelemetry(const AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->Mavlink().UpdateTelemetryCache(message::PayloadAs<T>(pkt),
                                           ctx.sys->Timebase().NowMs());
 }
 
 template <typename T>
-static void OnConfig(AppContext &ctx, const message::Packet &pkt) {
+static void OnConfig(const AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->Mavlink().UpdateConfigCache(message::PayloadAs<T>(pkt),
                                        ctx.sys->Timebase().NowMs());
 }
 
 // Expected traffic this side has nothing to do with. Listed rather than
 // omitted: an absent id is an unknown one, and unknown ids panic.
-static void OnIgnored(AppContext &, const message::Packet &) {}
+static void OnIgnored(const AppContext &, const message::Packet &) {}
 
-static void OnLog(AppContext &, const message::Packet &pkt) {
+static void OnLog(const AppContext &, const message::Packet &pkt) {
   if (pkt.header.len == 0) {
     return;
   }
@@ -58,16 +59,16 @@ static void OnLog(AppContext &, const message::Packet &pkt) {
   char buf[message::kMaxLogTextPayload + 1];
   memcpy(buf, pkt.payload, pkt.header.len);
   buf[pkt.header.len] = '\0';
-  ESP_LOGI("FC", "%s", buf);
+  ESP_LOGI(FcLink::kPeerLogTag, "%s", buf);
 }
 
-static void OnTone(AppContext &ctx, const message::Packet &pkt) {
+static void OnTone(const AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->TonePlayer().PlayBuiltin(static_cast<message::Tone>(
       message::PayloadAs<message::ToneMsg>(pkt).tone));
   ctx.sys->Ui().NotifyUserActivity();
 }
 
-static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
+static void OnPanic(const AppContext &ctx, const message::Packet &pkt) {
   const uint32_t error_code =
       message::PayloadAs<message::PanicMsg>(pkt).error_code;
 
@@ -91,34 +92,56 @@ static void OnPanic(AppContext &ctx, const message::Packet &pkt) {
   Panic(error_code);
 }
 
-static void OnUsbStatus(AppContext &ctx, const message::Packet &pkt) {
+static void OnUsbStatus(const AppContext &ctx, const message::Packet &pkt) {
   const auto &msg = message::PayloadAs<message::UsbStatusMsg>(pkt);
-  const bool granted = (msg.flags & message::kUsbStatusEscConfigGranted) != 0u;
+  const auto reported = static_cast<message::UsbMode>(msg.mode);
+  const uint32_t now_ms = ctx.sys->Timebase().NowMs();
   ctx.sys->Ui().UpdatePeerUsb(
       {
           .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
           .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
           .port_open = (msg.flags & message::kUsbStatusPortOpen) != 0u,
-          .esc_config_granted = granted,
+          .mode = reported,
           .rx_frames = msg.rx_frames,
           .tx_frames = msg.tx_frames,
       },
-      ctx.sys->Timebase().NowMs());
+      now_ms);
 
-  // The STM32 latches the grant, so correcting drift is this side's job.
+  // The STM32 latches the mode, so correcting drift is this side's job.
   // Answering the report that carries it covers a command lost in either
   // direction, and a reboot that left the port open. Armed is excluded
-  // because the STM32 refuses then, and asking anyway just loops.
-  const bool want = ctx.sm->CurrentState() == ctx.esc_config_state &&
-                    !ctx.sys->Mavlink().PeerArmed().value_or(false);
-  if (granted != want) {
+  // because the STM32 refuses then, and asking anyway just loops. Unknown
+  // arm reads as disarmed on purpose: this frame proves the peer is live.
+  message::UsbMode want = message::UsbMode::kNone;
+  if (!ctx.sys->Mavlink().PeerArmed(now_ms).value_or(false)) {
+    if (ctx.sm->CurrentState() == ctx.esc_config_state) {
+      want = message::UsbMode::kEscConfig;
+    } else if (ctx.sm->CurrentState() == ctx.usb_log_state) {
+      want = message::UsbMode::kMsc;
+    }
+  }
+  if (reported != want) {
     ctx.sys->FcLink().SendPacket(
-        message::MsgId::kSetEscConfigMode,
-        message::SetEscConfigModeMsg{.enabled = static_cast<uint8_t>(want)});
+        message::MsgId::kSetUsbMode,
+        message::SetUsbModeMsg{.mode = static_cast<uint8_t>(want)});
   }
 }
 
-static const Dispatcher<AppContext>::Entry kHandlers[] = {
+// Stale replies to an abandoned pull are not a protocol error.
+static void OnLogListReply(const AppContext &ctx, const message::Packet &pkt) {
+  if (ctx.sm->CurrentState() == ctx.log_pull_state) {
+    ctx.log_pull_state->OnListReply(
+        message::PayloadAs<message::LogListReplyMsg>(pkt));
+  }
+}
+
+static void OnLogData(const AppContext &ctx, const message::Packet &pkt) {
+  if (ctx.sm->CurrentState() == ctx.log_pull_state) {
+    ctx.log_pull_state->OnData(message::PayloadAs<message::LogDataMsg>(pkt));
+  }
+}
+
+static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPong, OnIgnored},
     {message::MsgId::kLog, OnLog},
     {message::MsgId::kTone, OnTone},
@@ -134,16 +157,23 @@ static const Dispatcher<AppContext>::Entry kHandlers[] = {
      OnConfig<message::RcCalibrationConfigMsg>},
     {message::MsgId::kGyroCalibrationIdConfig,
      OnConfig<message::GyroCalibrationIdConfigMsg>},
+    {message::MsgId::kLogListReply, OnLogListReply},
+    {message::MsgId::kLogData, OnLogData},
 };
 
-static const Dispatcher<AppContext> kDispatcher(kHandlers);
+static const Dispatcher<const AppContext> kDispatcher(kHandlers);
+
+CommandHandler &CommandHandler::GetInstance() {
+  static CommandHandler instance;
+  return instance;
+}
 
 void CommandHandler::Init(const Config &cfg) {
   cfg_ = cfg;
   ESP_LOGI(kTag, "Initialized");
 }
 
-void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
+void CommandHandler::Dispatch(const AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
     ESP_LOGW(kTag, "Rejected invalid packet id=0x%02X len=%u",
              (unsigned)pkt.header.id, (unsigned)pkt.header.len);
@@ -156,16 +186,24 @@ void CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
 }
 
 CommandHandler::DfuTcpAction CommandHandler::Dispatch(
-    AppContext &ctx, const TcpServer::Event &ev) {
+    const AppContext &ctx, const TcpServer::Event &ev) {
   switch (ev.id) {
     case TcpServer::EventId::kBegin: {
       ctx.sys->Tcp().StartDownload(ev.begin.size);
       ctx.sys->Programmer().SetTarget(ev.begin.target);
 
-      ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%d",
+      ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%s",
                (unsigned)ev.begin.size, (unsigned)ev.begin.crc,
-               (int)ev.begin.target);
+               ev.begin.target[0] != '\0' ? ev.begin.target : "stm32");
       return DfuTcpAction::kEnterProgram;
+    }
+    case TcpServer::EventId::kLogList: {
+      ctx.log_pull_state->PrepareList();
+      return DfuTcpAction::kEnterLogPull;
+    }
+    case TcpServer::EventId::kLogGet: {
+      ctx.log_pull_state->PrepareGet(ev.log_name);
+      return DfuTcpAction::kEnterLogPull;
     }
     case TcpServer::EventId::kAbort: {
       ctx.sys->Tcp().StopDownload();

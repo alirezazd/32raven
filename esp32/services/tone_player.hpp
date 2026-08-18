@@ -22,15 +22,15 @@ class TonePlayer {
     uint8_t volume = 3;  // 0..10
   };
 
-  static TonePlayer &GetInstance() {
-    static TonePlayer instance;
-    return instance;
-  }
+  static TonePlayer &GetInstance();
 
   void Init(const Config &cfg, Buzzer *buzzer);
 
   bool PlayRtttl(const char *rtttl, int volume = -1);
   void PlayBuiltin(BuiltinTone tone, int volume = -1);
+  // Jumps the queue: drops what is pending and cuts the note in flight. For
+  // fault tones, where arriving after the backlog is not arriving at all.
+  void PlayBuiltinNow(BuiltinTone tone, int volume = -1);
   bool IsPlaying() const { return playing_; }
 
  private:
@@ -56,6 +56,7 @@ class TonePlayer {
   bool ParseHeader(const char *rtttl);
   std::optional<NoteEvent> ParseNextNote();
   void StartEvent(const NoteEvent &event, TimeMs now);
+  void StopPlayback();
   float DutyCycleForVolume(uint8_t volume) const;
 
   static void SkipSeparators(const char *&p);
@@ -66,6 +67,8 @@ class TonePlayer {
   Buzzer *buzzer_ = nullptr;
   Config cfg_{};
   bool playing_ = false;
+  // Set from the requesting task, cleared by the player task.
+  volatile bool preempt_ = false;
   const char *score_ = nullptr;
   const char *cursor_ = nullptr;
 

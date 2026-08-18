@@ -11,6 +11,7 @@
 
 #include "display_renderer.hpp"
 #include "error_code.hpp"
+#include "message.hpp"
 #include "ssd1306_panel.hpp"
 #include "timebase.hpp"
 
@@ -97,6 +98,8 @@ class Ui {
     kMavlinkUsb,
     kProgram,
     kEscConfig,
+    kWifiLog,
+    kUsbLog,
     kHardError,
   };
 
@@ -114,6 +117,10 @@ class Ui {
     kEscConfigDisconnected,   // no host has enumerated the port
     kEscConfigIdleConnected,  // enumerated, no configurator attached yet
     kEscConfigConnected,      // configurator opened the port
+    kWifiLogDisconnected,     // AP up, no station associated
+    kWifiLogConnected,        // a station joined; pulls animate the lanes
+    kUsbLogIdle,              // MSC granted, no host has enumerated the disk
+    kUsbLogActive,            // host mounted the card
   };
 
   struct Config {
@@ -127,10 +134,7 @@ class Ui {
   static constexpr size_t kHeight = DisplayCanvas::kHeight;
   static constexpr TimeMs kDefaultMosaicTransitionDurationMs = 900;
   static constexpr uint8_t kDefaultMosaicBlockSizePx = 8;
-  static Ui &GetInstance() {
-    static Ui instance;
-    return instance;
-  }
+  static Ui &GetInstance();
 
   // Lives here because the display is its only consumer. Decoding the wire
   // message into this shape is the dispatcher's job.
@@ -138,8 +142,9 @@ class Ui {
     bool attached = false;
     bool configured = false;
     bool port_open = false;
-    bool esc_config_granted = false;
+    message::UsbMode mode = message::UsbMode::kNone;
     // Wrapping: compare against what you saw last, never read as a total.
+    // In MSC mode they carry SD block counts instead of protocol frames.
     uint8_t rx_frames = 0;
     uint8_t tx_frames = 0;
   };
@@ -150,6 +155,15 @@ class Ui {
   // came up.
   std::optional<PeerUsbState> PeerUsb(uint32_t now_ms) const;
 
+  // WiFi-log pull traffic: requests out, replies back.
+  // Wrapping: compare against what you saw last, never read as a total.
+  struct LogTraffic {
+    uint16_t rx_frames = 0;
+    uint16_t tx_frames = 0;
+  };
+
+  void UpdateLogTraffic(uint16_t rx_frames, uint16_t tx_frames);
+  LogTraffic GetLogTraffic() const;
 
   void Init(const Config &cfg, Ssd1306Panel *panel);
   void LoadWidget(IWidget *widget);
@@ -187,6 +201,8 @@ class Ui {
   // fresh one with the previous report. Zero means nothing heard yet.
   volatile uint32_t peer_usb_report_ = 0;
   volatile uint32_t peer_usb_update_ms_ = 0;
+  // rx in the low half, tx in the high; one word so the pair cannot tear.
+  volatile uint32_t log_traffic_word_ = 0;
 
   Ui();
   static void TaskEntry(void *param);
@@ -225,6 +241,7 @@ class Ui {
     kBoot,
     kServing,
     kMavlink,
+    kLog,
     kDfu,
     kProgram,
     kEscConfig,

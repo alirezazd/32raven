@@ -83,11 +83,21 @@ uint32_t Mavlink::GetUdpTxPacketCount() const {
   return udp_tx_packet_count_.load(std::memory_order_relaxed);
 }
 
-std::optional<bool> Mavlink::PeerArmed() const {
-  if (!vehicle_status_.have_data) {
-    return std::nullopt;
+uint32_t Mavlink::GetUdpRxHeartbeatCount() const {
+  return udp_rx_heartbeat_count_.load(std::memory_order_relaxed);
+}
+
+uint32_t Mavlink::GetUdpTxHeartbeatCount() const {
+  return udp_tx_heartbeat_count_.load(std::memory_order_relaxed);
+}
+
+std::optional<bool> Mavlink::PeerArmed(uint32_t now_ms) const {
+  if (!vehicle_status_.have_data ||
+      (now_ms - vehicle_status_.update_ms) > peer_timeout_ms_) {
+    return std::nullopt;  // Peer is unresponsive or unknown
   }
-  return vehicle_status_.value.armed_state == message::kVehicleArmedStateArmed;
+  return static_cast<message::ArmedState>(vehicle_status_.value.armed_state) ==
+         message::ArmedState::kArmed;
 }
 
 std::optional<Mavlink::LatestRcChannelsData> Mavlink::GetLatestRcChannelsData()

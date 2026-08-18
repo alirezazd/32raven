@@ -11,7 +11,6 @@
 #include "ring_buffer.hpp"
 
 extern "C" {
-#include "esp_err.h"
 }
 
 class UdpServer : public IMavlinkTransport {
@@ -23,12 +22,10 @@ class UdpServer : public IMavlinkTransport {
     uint32_t overflow_threshold = 16;
   };
 
-  static UdpServer &GetInstance() {
-    static UdpServer instance;
-    return instance;
-  }
+  static UdpServer &GetInstance();
 
-  [[nodiscard]] esp_err_t Start();
+  // Failure is tolerated by design and leaves the socket closed.
+  void Start();
   void Stop();
   void ClearPeer() override;
 

@@ -135,10 +135,10 @@ class Mavlink {
   void ReportPanic(PanicSource source, uint32_t error_code);
   uint32_t GetUdpRxPacketCount() const;
   uint32_t GetUdpTxPacketCount() const;
+  uint32_t GetUdpRxHeartbeatCount() const;
+  uint32_t GetUdpTxHeartbeatCount() const;
   std::optional<LatestRcChannelsData> GetLatestRcChannelsData() const;
-  // nullopt until the STM32 has said, so callers cannot read "not armed" out
-  // of never having been told.
-  std::optional<bool> PeerArmed() const;
+  std::optional<bool> PeerArmed(uint32_t now_ms) const;
 
  private:
   template <typename T>
@@ -319,7 +319,6 @@ class Mavlink {
     bool is_hb_ = false;
   };
 
-
   Mavlink();
   ~Mavlink();
   Mavlink(const Mavlink &) = delete;
@@ -331,6 +330,10 @@ class Mavlink {
   std::array<uint16_t, 64> unhandled_logged_msgids_{};
   std::atomic<uint32_t> udp_rx_packet_count_{0};
   std::atomic<uint32_t> udp_tx_packet_count_{0};
+  // Bumped before the totals above, so a reader that sees a total move already
+  // sees whether that packet was a heartbeat.
+  std::atomic<uint32_t> udp_rx_heartbeat_count_{0};
+  std::atomic<uint32_t> udp_tx_heartbeat_count_{0};
   uint8_t unhandled_logged_msgid_count_ = 0;
   std::array<uint16_t, 64> unhandled_logged_commands_{};
   uint8_t unhandled_logged_command_count_ = 0;
@@ -425,6 +428,7 @@ class Mavlink {
   // not from when the slot came due.
   uint32_t last_hb_done_ms_ = 0;
   uint32_t next_tx_poll_ms_ = 0;
+  uint32_t peer_timeout_ms_ = 500;
   void ServiceTx(uint32_t now_ms);
   void ServiceUdpTx(uint32_t now_ms);
   bool StartNextFrameIfIdle(TxState &tx, const Config::Tx &cfg_tx,

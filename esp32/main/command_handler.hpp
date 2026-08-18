@@ -13,18 +13,16 @@ class CommandHandler {
   enum class DfuTcpAction : uint8_t {
     kStayInDfu = 0,
     kEnterProgram,
+    kEnterLogPull,
   };
 
-  static CommandHandler &GetInstance() {
-    static CommandHandler instance;
-    return instance;
-  }
+  static CommandHandler &GetInstance();
 
   void Init(const Config &cfg);
 
-  void Dispatch(AppContext &ctx, const message::Packet &pkt);
+  void Dispatch(const AppContext &ctx, const message::Packet &pkt);
 
-  DfuTcpAction Dispatch(AppContext &ctx, const TcpServer::Event &ev);
+  DfuTcpAction Dispatch(const AppContext &ctx, const TcpServer::Event &ev);
 
  private:
   CommandHandler() = default;

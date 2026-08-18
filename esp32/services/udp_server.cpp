@@ -26,6 +26,11 @@ static bool IsWouldBlock(int error) {
   return error == EWOULDBLOCK || error == EAGAIN;
 }
 
+UdpServer &UdpServer::GetInstance() {
+  static UdpServer instance;
+  return instance;
+}
+
 void UdpServer::ClearPeer() {
   peer_ipv4_ = 0;
   peer_port_ = 0;
@@ -95,15 +100,15 @@ void UdpServer::RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
   last_refill_us = now_us;
 }
 
-esp_err_t UdpServer::Start() {
+void UdpServer::Start() {
   if (running_) {
-    return ESP_OK;
+    return;
   }
 
   fd_ = static_cast<int>(socket(AF_INET, SOCK_DGRAM, IPPROTO_IP));
   if (fd_ < 0) {
     ESP_LOGE(kTag, "socket() failed: errno=%d", errno);
-    return ESP_FAIL;
+    return;
   }
 
   int reuse_addr = 1;
@@ -123,21 +128,20 @@ esp_err_t UdpServer::Start() {
              static_cast<unsigned>(cfg_.port), errno);
     close(fd_);
     fd_ = -1;
-    return ESP_FAIL;
+    return;
   }
 
   if (!SetNonblock(fd_)) {
     ESP_LOGE(kTag, "failed to enable non-blocking mode");
     close(fd_);
     fd_ = -1;
-    return ESP_FAIL;
+    return;
   }
 
   ClearPeer();
   ResetShaperState();
   running_ = true;
   ESP_LOGI(kTag, "listening on UDP port %u", static_cast<unsigned>(cfg_.port));
-  return ESP_OK;
 }
 
 void UdpServer::Stop() {

@@ -31,6 +31,11 @@ const char *BuiltinToneToRtttl(TonePlayer::BuiltinTone tone) {
 }
 }  // namespace
 
+TonePlayer &TonePlayer::GetInstance() {
+  static TonePlayer instance;
+  return instance;
+}
+
 void TonePlayer::Init(const Config &cfg, Buzzer *buzzer) {
   static constexpr uint32_t kTaskStackBytes = 3072;
   static StaticQueue_t request_queue_buffer;
@@ -78,6 +83,30 @@ void TonePlayer::PlayBuiltin(BuiltinTone tone, int volume) {
   (void)PlayRtttl(rtttl, volume);
 }
 
+void TonePlayer::PlayBuiltinNow(BuiltinTone tone, int volume) {
+  const char *rtttl = BuiltinToneToRtttl(tone);
+  if (rtttl == nullptr || request_queue_ == nullptr) {
+    return;
+  }
+  const PendingRequest request = {.score = rtttl, .volume = volume};
+  preempt_ = true;
+  xQueueReset((QueueHandle_t)request_queue_);
+  (void)xQueueSend((QueueHandle_t)request_queue_, &request, 0);
+  // The player sleeps out the current note, so the queue alone would not
+  // be seen until it ends.
+  if (task_handle_ != nullptr) {
+    xTaskNotifyGive((TaskHandle_t)task_handle_);
+  }
+}
+
+void TonePlayer::StopPlayback() {
+  playing_ = false;
+  score_ = nullptr;
+  cursor_ = nullptr;
+  next_change_ms_ = 0;
+  buzzer_->Stop();
+}
+
 void TonePlayer::TaskEntry(void *param) {
   static_cast<TonePlayer *>(param)->Task();
 }
@@ -85,23 +114,26 @@ void TonePlayer::TaskEntry(void *param) {
 void TonePlayer::Task() {
   while (true) {
     if (playing_) {
+      if (preempt_) {
+        preempt_ = false;
+        StopPlayback();
+        continue;
+      }
+
       const TimeMs now = Sys().Timebase().NowMs();
       if (TimeReached(now, next_change_ms_)) {
         const std::optional<NoteEvent> event = ParseNextNote();
         if (!event) {
-          playing_ = false;
-          score_ = nullptr;
-          cursor_ = nullptr;
-          next_change_ms_ = 0;
-          buzzer_->Stop();
+          StopPlayback();
         } else {
           StartEvent(*event, now);
         }
         continue;
       }
 
+      // Woken early by a preempt; otherwise this sleeps out the note.
       const TimeMs wait_ms = next_change_ms_ - now;
-      vTaskDelay(pdMS_TO_TICKS(wait_ms > 0 ? wait_ms : 1));
+      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(wait_ms > 0 ? wait_ms : 1));
       continue;
     }
 
@@ -113,14 +145,13 @@ void TonePlayer::Task() {
     if (request.score == nullptr) {
       continue;
     }
+    // The flag belongs to whatever was playing when the preempt arrived;
+    // clearing it here stops the replacement from cutting itself off.
+    preempt_ = false;
 
     if (!ParseHeader(request.score)) {
       ESP_LOGE(kTag, "RTTTL header parse failed");
-      playing_ = false;
-      score_ = nullptr;
-      cursor_ = nullptr;
-      next_change_ms_ = 0;
-      buzzer_->Stop();
+      StopPlayback();
       continue;
     }
 
@@ -132,11 +163,7 @@ void TonePlayer::Task() {
 
     const std::optional<NoteEvent> event = ParseNextNote();
     if (!event) {
-      playing_ = false;
-      score_ = nullptr;
-      cursor_ = nullptr;
-      next_change_ms_ = 0;
-      buzzer_->Stop();
+      StopPlayback();
       continue;
     }
 

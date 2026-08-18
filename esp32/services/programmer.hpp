@@ -18,14 +18,10 @@ extern "C" {
 #include <span>
 
 #include "esp32_limits.hpp"
-#include "state_machine.hpp"
 
 class Programmer {
  public:
-  static Programmer &GetInstance() {
-    static Programmer instance;
-    return instance;
-  }
+  static Programmer &GetInstance();
 
   enum class Target { kStm32, kEsp32 };
 
@@ -56,21 +52,23 @@ class Programmer {
     VerifyConfig verify{};
   };
 
-  void SetTarget(Target t) { ctx_.target = t; }
+  // The wire token off the BEGIN line; "esp32" selects the ESP32, anything
+  // else defaults to the STM32.
+  void SetTarget(const char *name);
 
   void Start(uint32_t total_size);
-  void Poll(SmTick now);
-  void Abort(SmTick now);
+  void Poll();
+  void Abort();
 
   // Feed bytes and internally advance writing SM.
   // Returns bytes accepted (may be < n for backpressure).
-  size_t PushBytes(std::span<const uint8_t> bytes, SmTick now);
+  size_t PushBytes(std::span<const uint8_t> bytes);
 
-  bool Ready() const;  // handshake done, ready to accept bytes
-  bool Done() const;
-  bool Error() const;
+  bool Ready() const { return ctx_.ready && !Error(); }
+  bool Done() const { return phase_ == Phase::kDone; }
+  bool Error() const { return phase_ == Phase::kError; }
   uint32_t LastErrorCode() const;
-  bool IsVerifying() const;
+  bool IsVerifying() const { return phase_ == Phase::kVerifying; }
   uint32_t Total() const;
   uint32_t Written() const;
   uint32_t VerifyOffset() const;
@@ -79,8 +77,14 @@ class Programmer {
 
  private:
   friend class System;
+
+  // A lifecycle, not derivable from the session data: Writing and Verifying
+  // do different per-tick work, and Done versus Error is a decision.
+  enum class Phase : uint8_t { kIdle, kWriting, kVerifying, kDone, kError };
+
   void Init(const Config &cfg, UartFcLink *uart);
-  // Internal context used by StateMachine<Ctx>
+
+  // The programming session's data, reset by Start.
   struct Ctx {
     UartFcLink *uart = nullptr;
     Config cfg{};
@@ -88,8 +92,6 @@ class Programmer {
 
     uint32_t total_size = 0;
     uint32_t written = 0;
-
-    StateMachine<Ctx> *sm = nullptr;
 
     bool ready = false;
     uint32_t restore_baud_rate = 115200;
@@ -111,10 +113,6 @@ class Programmer {
 
     uint32_t err = static_cast<uint32_t>(ErrorCode::Common::kOk);
 
-    // transitions
-    IState<Ctx> *st_verifying = nullptr;
-    IState<Ctx> *st_done = nullptr;
-
     // verification
     mbedtls_sha256_context sha_ctx;
     uint8_t computed_hash[32];
@@ -132,60 +130,32 @@ class Programmer {
     return (cap - 1) - RbUsed(head, tail, cap);
   }
 
-  class IdleState : public IState<Ctx> {
-   public:
-    const char *Name() const override { return "P.Idle"; }
-    void OnStep(Ctx &, SmTick) override {}
-  };
-
-  class WritingState : public IState<Ctx> {
-   public:
-    const char *Name() const override { return "P.Writing"; }
-    void OnStep(Ctx &c, SmTick now) override;
-  };
-
-  class VerifyingState : public IState<Ctx> {
-   public:
-    const char *Name() const override { return "P.Verifying"; }
-    void OnEnter(Ctx &c) override;
-    void OnStep(Ctx &c, SmTick now) override;
-  };
-
-  class DoneState : public IState<Ctx> {
-   public:
-    const char *Name() const override { return "P.Done"; }
-    void OnEnter(Ctx &c) override;
-    void OnStep(Ctx &, SmTick) override {}
-  };
-
-  class ErrorState : public IState<Ctx> {
-   public:
-    const char *Name() const override { return "P.Error"; }
-    void OnStep(Ctx &, SmTick) override {}
-  };
-
-  void Fail(Ctx &c, ErrorCode::Esp32 code);
+  void StepWriting();
+  void StepVerifying();
+  void EnterVerifying();
+  void EnterDone();
+  void Fail(ErrorCode::Esp32 code);
 
   void GpioInit();
   void Boot0Set(bool on);
   void NrstPulse(uint32_t pulse_ms);
-  bool BeginTargetSession(Ctx &c);
-  size_t TargetWriteChunkLimit(const Ctx &c) const;
-  bool WriteTargetChunk(Ctx &c, const uint8_t *bytes, size_t len);
-  bool FinalizeTargetWrite(Ctx &c);
-  size_t TargetVerifyChunkSize(const Ctx &c) const;
+  bool BeginTargetSession();
+  size_t TargetWriteChunkLimit() const;
+  bool WriteTargetChunk(const uint8_t *bytes, size_t len);
+  bool FinalizeTargetWrite();
+  size_t TargetVerifyChunkSize() const;
   [[nodiscard]] std::optional<size_t> ReadTargetVerifyChunk(
-      Ctx &c, std::span<uint8_t> dst);
-  bool CompleteSuccessfulProgram(Ctx &c);
+      std::span<uint8_t> dst);
+  bool CompleteSuccessfulProgram();
 
-  bool BeginEsp32Ota(Ctx &c);
-  bool WriteEsp32Chunk(Ctx &c, const uint8_t *bytes, size_t len);
-  bool FinalizeEsp32Ota(Ctx &c);
-  bool ActivateEsp32Ota(Ctx &c);
-  bool ReadEsp32PartitionBlock(const Ctx &c, uint32_t offset, uint8_t *bytes,
+  bool BeginEsp32Ota();
+  bool WriteEsp32Chunk(const uint8_t *bytes, size_t len);
+  bool FinalizeEsp32Ota();
+  bool ActivateEsp32Ota();
+  bool ReadEsp32PartitionBlock(uint32_t offset, uint8_t *bytes,
                                size_t len) const;
 
-  bool BeginStm32Session(Ctx &c);
+  bool BeginStm32Session();
   bool EnterStm32Bootloader();    // BOOT0/reset/0x7F/ACK (bounded retries)
   bool GetStm32BootloaderInfo();  // CMD_GET (0x00)
   bool EraseStm32Sectors();       // STM32 targeted EXT_ERASE preserving EEPROM
@@ -194,15 +164,12 @@ class Programmer {
   bool ReadStm32Block(uint32_t addr, uint8_t *bytes,
                       size_t len);  // CMD_READ_MEMORY (0x11)
   Ctx ctx_{};
-  StateMachine<Ctx> sm_{ctx_};
+  Phase phase_ = Phase::kIdle;
 
-  IdleState StIdle_{};
-  WritingState StWriting_{};
-  VerifyingState StVerifying_{};
-  DoneState StDone_{};
-  ErrorState StError_{};
+  // Out of line so the instance in GetInstance cannot constant-initialize:
+  // a few non-zero members would drag the whole 12 KB object into .data.
+  Programmer();
 
-  Programmer() = default;
   ~Programmer() = default;
   Programmer(const Programmer &) = delete;
   Programmer &operator=(const Programmer &) = delete;

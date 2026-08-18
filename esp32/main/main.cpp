@@ -19,6 +19,9 @@ AppContext MakeAppContext() {
   static DfuState dfu_state;
   static ProgramState program_state;
   static EscConfigState esc_config_state;
+  static WifiLogState wifi_log_state;
+  static UsbLogState usb_log_state;
+  static LogPullState log_pull_state;
 
   AppContext ctx{};
   ctx.sys = &Sys();
@@ -28,6 +31,9 @@ AppContext MakeAppContext() {
   ctx.dfu_state = &dfu_state;
   ctx.program_state = &program_state;
   ctx.esc_config_state = &esc_config_state;
+  ctx.wifi_log_state = &wifi_log_state;
+  ctx.usb_log_state = &usb_log_state;
+  ctx.log_pull_state = &log_pull_state;
   return ctx;
 }
 
@@ -38,9 +44,11 @@ extern "C" void app_main(void) {  // NOLINT: IDF requires this exact signature
   AppContext ctx = MakeAppContext();
   StateMachine<AppContext> sm(ctx);
   ctx.sm = &sm;
+  ctx.now_ms = Sys().Timebase().NowMs();
   sm.Start(*ctx.serving_state);
   while (true) {
-    sm.Step(Sys().Timebase().NowMs());
+    ctx.now_ms = Sys().Timebase().NowMs();
+    sm.Step();
     vTaskDelay(1);  // must block at least 1 tick for watchdog
   }
 }

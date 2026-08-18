@@ -8,13 +8,6 @@
 #include <optional>
 #include <span>
 
-extern "C" {
-#include "esp_err.h"
-}
-
-#include "programmer.hpp"
-#include "state_machine.hpp"
-
 class TcpServer {
  public:
   // Longest control line accepted. The longest legitimate one is BEGIN with
@@ -22,10 +15,7 @@ class TcpServer {
   // which comes to 75 bytes. The rest is headroom, not a tight bound.
   static constexpr size_t kMaxLineBytes = 160;
 
-  static TcpServer &GetInstance() {
-    static TcpServer inst;
-    return inst;
-  }
+  static TcpServer &GetInstance();
 
   struct Config {
     uint16_t ctrl_port = 9000;
@@ -37,13 +27,14 @@ class TcpServer {
     int keepalive_cnt = 3;
   };
 
-  [[nodiscard]] esp_err_t Start();
+  // Failure is tolerated by design; Running() is the queryable fact.
+  void Start();
   void Stop();
 
   bool Running() const { return running_; }
 
   // Tick entry point (non-blocking)
-  void Poll(SmTick now);
+  void Poll();
 
   enum class EventId : uint8_t {
     kNone = 0,
@@ -55,19 +46,20 @@ class TcpServer {
     kCtrlDown,
     kDataUp,
     kDataDown,
+    kLogList,
+    kLogGet,
   };
-
-  using Target = Programmer::Target;
 
   struct BeginArgs {
     uint32_t size = 0;
     uint32_t crc = 0;
-    Target target = Target::kStm32;
+    char target[8] = {};  // wire token verbatim ("esp32", "stm32", or empty)
   };
 
   struct Event {
     EventId id = EventId::kNone;
     BeginArgs begin{};
+    char log_name[13] = {};  // kLogGet only, 8.3 + terminator
   };
 
   std::optional<Event> PopEvent();
@@ -96,50 +88,22 @@ class TcpServer {
   void SetStatus(const Status &s);
   Status GetStatus() const;
 
-  // Optional: send a single line response to CTRL client
-  esp_err_t SendCtrlLine(const char *line);
+  void SendCtrlLine(const char *line);
 
   // Send raw data to DATA client
   int SendData(const uint8_t *data, size_t len);
 
  private:
   friend class System;
-  TcpServer() = default;
+  // Out of line so the instance in GetInstance cannot constant-initialize:
+  // a few non-zero members would drag the whole object into .data.
+  TcpServer();
   ~TcpServer() = default;
   TcpServer(const TcpServer &) = delete;
   TcpServer &operator=(const TcpServer &) = delete;
 
-  // Internal SM wiring
-  struct Ctx {
-    TcpServer *self = nullptr;
-    StateMachine<Ctx> *sm = nullptr;
-
-    // sockets
-    int ctrl_listen_fd = -1;
-    int data_listen_fd = -1;
-    int ctrl_fd = -1;
-    int data_fd = -1;
-
-    // peer bind (optional, for “single client session”)
-    uint32_t ctrl_peer_ipv4 = 0;
-
-    // parser
-    // One past the longest accepted line, for the NUL written at line_len
-    // before HandleLine sees it.
-    char line_buf[kMaxLineBytes + 1]{};
-    size_t line_len = 0;
-
-    // timing (if you want accept throttling etc.)
-    SmTick now = 0;
-  };
-
-  class StStopped;
-  class StListening;
-  class StCtrl;
-  class StCtrlData;
   void Init(const Config &cfg);
 
-  // Helpers used by states
   void CloseCtrl();
   void CloseData();
   void CloseAll();
@@ -158,7 +122,6 @@ class TcpServer {
   bool WriteDownload(const uint8_t *data, size_t len);
 
   // Line parser helper
-  void ResetLinebuf();
   bool LinebufAdd(char c);
 
   // Socket helpers
@@ -169,14 +132,17 @@ class TcpServer {
   Config cfg_{};
   bool running_ = false;
 
-  // Internal SM instance + states (no heap)
-  Ctx ctx_{};
-  StateMachine<Ctx> sm_{ctx_};
+  // ctrl is the session anchor; data only lives inside a ctrl session.
+  int ctrl_listen_fd_ = -1;
+  int data_listen_fd_ = -1;
+  int ctrl_fd_ = -1;
+  int data_fd_ = -1;
 
-  StStopped *s_stopped_ = nullptr;
-  StListening *s_listen_ = nullptr;
-  StCtrl *s_ctrl_ = nullptr;
-  StCtrlData *s_ctrldata_ = nullptr;
+  uint32_t ctrl_peer_ipv4_ = 0;
+
+  // One past the longest line, for the NUL written before HandleLine sees it.
+  char line_buf_[kMaxLineBytes + 1]{};
+  size_t line_len_ = 0;
 
   // Async network events queued while the loop services the previous one. One
   // control connection issues one verb per line, so the depth is rarely past

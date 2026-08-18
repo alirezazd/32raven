@@ -11,6 +11,11 @@ extern "C" {
 }
 static constexpr const char *kTag = "system";
 
+System &System::GetInstance() {
+  static System instance;
+  return instance;
+}
+
 void System::Init() {
   main_task_handle_ = xTaskGetCurrentTaskHandle();
   InitComponent(Component::kLed);
@@ -124,8 +129,8 @@ void System::StopNetwork() {
 // sockets.
 void System::StartNetwork() {
   Wifi().StartAp();
-  (void)Tcp().Start();
-  (void)Udp().Start();
+  Tcp().Start();
+  Udp().Start();
 }
 
 void System::Halt() {

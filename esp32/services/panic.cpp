@@ -155,10 +155,10 @@ class RecoverySession {
     kStopNetwork,
   };
 
-  bool EnterDfuMode(SmTick now, NetworkAction network_on_error);
-  void EnterProgramMode(SmTick now);
-  void StepDfuMode(SmTick now);
-  void StepProgramMode(SmTick now);
+  bool EnterDfuMode(TimeMs now, NetworkAction network_on_error);
+  void EnterProgramMode(TimeMs now);
+  void StepDfuMode(TimeMs now);
+  void StepProgramMode(TimeMs now);
   void Exit(uint32_t code, NetworkAction network);
 
   System &sys_;
@@ -167,14 +167,14 @@ class RecoverySession {
   Mode mode_ = Mode::kDfu;
   uint32_t result_ = Raw(ErrorCode::Common::kOk);
   bool exit_ = false;
-  SmTick last_activity_ = 0;
+  TimeMs last_activity_ = 0;
   uint32_t last_written_ = 0;
 };
 
 RecoverySession::RecoverySession(System &sys)
     : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
 
-bool RecoverySession::EnterDfuMode(SmTick now, NetworkAction network_on_error) {
+bool RecoverySession::EnterDfuMode(TimeMs now, NetworkAction network_on_error) {
   const uint32_t recovery_error = EnterRecoveryDfuMode();
   if (recovery_error != Raw(ErrorCode::Common::kOk)) {
     Exit(recovery_error, network_on_error);
@@ -187,16 +187,17 @@ bool RecoverySession::EnterDfuMode(SmTick now, NetworkAction network_on_error) {
   return true;
 }
 
-void RecoverySession::StepDfuMode(SmTick now) {
+void RecoverySession::StepDfuMode(TimeMs now) {
   while (auto ev = tcp_.PopEvent()) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
+        tcp_.SendCtrlLine("OK\n");
         tcp_.StartDownload(ev->begin.size);
         prog_.SetTarget(ev->begin.target);
         EnterProgramMode(now);
         return;
       case TcpServer::EventId::kAbort: {
-        prog_.Abort(now);
+        prog_.Abort();
         tcp_.StopDownload();
         if (!EnterDfuMode(now, NetworkAction::kStopNetwork)) {
           return;
@@ -222,19 +223,19 @@ void RecoverySession::StepDfuMode(SmTick now) {
   }
 }
 
-void RecoverySession::EnterProgramMode(SmTick now) {
+void RecoverySession::EnterProgramMode(TimeMs now) {
   mode_ = Mode::kProgram;
   last_written_ = EnterRecoveryProgramMode();
   last_activity_ = now;
 }
 
-void RecoverySession::StepProgramMode(SmTick now) {
-  prog_.Poll(now);
+void RecoverySession::StepProgramMode(TimeMs now) {
+  prog_.Poll();
 
   if (prog_.Error()) {
     const uint32_t programmer_error = prog_.LastErrorCode();
     tcp_.StopDownload();
-    prog_.Abort(now);
+    prog_.Abort();
     Exit(programmer_error, NetworkAction::kStopNetwork);
     return;
   }
@@ -254,12 +255,13 @@ void RecoverySession::StepProgramMode(SmTick now) {
   while (auto ev = tcp_.PopEvent()) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
+        tcp_.SendCtrlLine("OK\n");
         tcp_.StartDownload(ev->begin.size);
         prog_.SetTarget(ev->begin.target);
         EnterProgramMode(now);
         return;
       case TcpServer::EventId::kAbort:
-        prog_.Abort(now);
+        prog_.Abort();
         tcp_.StopDownload();
         (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
         return;
@@ -273,7 +275,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
         break;
       case TcpServer::EventId::kCtrlDown:
       case TcpServer::EventId::kDataDown:
-        prog_.Abort(now);
+        prog_.Abort();
         tcp_.StopDownload();
         (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
         return;
@@ -299,7 +301,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
     const size_t read_size = std::min(free, sizeof(buf));
     const size_t n = tcp_.ReadDownload({buf, read_size});
     if (n > 0) {
-      prog_.PushBytes({buf, n}, now);
+      prog_.PushBytes({buf, n});
       last_activity_ = now;
     }
   }
@@ -311,7 +313,7 @@ void RecoverySession::StepProgramMode(SmTick now) {
   }
 
   if (!prog_.Done() && (now - last_activity_) > Programmer::kStallTimeoutMs) {
-    prog_.Abort(now);
+    prog_.Abort();
     Exit(Raw(ErrorCode::Esp32::kProgrammerTimedOut),
          NetworkAction::kStopNetwork);
   }
@@ -331,9 +333,9 @@ uint32_t RecoverySession::RunUntilFailure() {
   }
 
   while (true) {
-    const SmTick now = sys_.Timebase().NowMs();
+    const TimeMs now = sys_.Timebase().NowMs();
     sys_.Button().Poll();
-    tcp_.Poll(now);
+    tcp_.Poll();
 
     switch (mode_) {
       case Mode::kDfu:
@@ -362,7 +364,7 @@ uint32_t RunRecoverableLoop() {
   Sys().Halt();
   bool recoverable = SupportsDfuRecovery(code);
   const char *msg = GetMessage(code);
-  Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+  Sys().TonePlayer().PlayBuiltinNow(::TonePlayer::BuiltinTone::kError);
   ShowPanicUi(code, recoverable);
   gpio_reset_pin(kPinMap.led);
   gpio_set_direction(kPinMap.led, GPIO_MODE_OUTPUT);

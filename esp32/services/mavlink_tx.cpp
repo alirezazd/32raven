@@ -21,6 +21,14 @@
 
 namespace {
 
+// PX4's main_mode byte, from src/modules/commander/px4_custom_mode.h. That
+// header is not vendored, so these enumerators are the only record here.
+enum class Px4MainMode : uint8_t {
+  kUnset = 0,
+  kAcro = 5,
+  kStabilized = 7,
+};
+
 int64_t DaysFromCivil(int64_t year, unsigned month, unsigned day) {
   year -= month <= 2 ? 1 : 0;
   const int64_t era = (year >= 0 ? year : year - 399) / 400;
@@ -255,14 +263,10 @@ namespace {
 constexpr uint16_t kSysStatusPeriodMs = 1000;
 
 constexpr uint32_t kSlotPeriodsMs[] = {
-    kMavlinkConfig.tx.periods.hb_ms,
-    kSysStatusPeriodMs,
-    kMavlinkConfig.tx.periods.gps_ms,
-    kMavlinkConfig.tx.periods.att_ms,
-    kMavlinkConfig.tx.periods.gpos_ms,
-    kMavlinkConfig.tx.periods.batt_ms,
-    kMavlinkConfig.tx.periods.rc_ms,
-    kMavlinkConfig.tx.periods.esc_ms,
+    kMavlinkConfig.tx.periods.hb_ms,   kSysStatusPeriodMs,
+    kMavlinkConfig.tx.periods.gps_ms,  kMavlinkConfig.tx.periods.att_ms,
+    kMavlinkConfig.tx.periods.gpos_ms, kMavlinkConfig.tx.periods.batt_ms,
+    kMavlinkConfig.tx.periods.rc_ms,   kMavlinkConfig.tx.periods.esc_ms,
 };
 static_assert(std::size(kSlotPeriodsMs) == Mavlink::kTxSlotCount,
               "a TxSlot has no period here, so its offset goes unchecked");
@@ -270,14 +274,13 @@ static_assert(std::size(kSlotPeriodsMs) == Mavlink::kTxSlotCount,
 // Equal priority throughout leaves the tie-break as the whole rule: of the
 // streams due, the one waiting longest goes. Raising the heartbeat's would not
 // help -- its precedence comes from being dispatched before these at all.
-constexpr std::array<TopicConfig, Mavlink::kTxSlotCount>
-    kTxSlotConfigs = [] {
-      std::array<TopicConfig, Mavlink::kTxSlotCount> configs{};
-      for (size_t i = 0; i < configs.size(); ++i) {
-        configs[i] = TopicConfig{.period = kSlotPeriodsMs[i]};
-      }
-      return configs;
-    }();
+constexpr std::array<TopicConfig, Mavlink::kTxSlotCount> kTxSlotConfigs = [] {
+  std::array<TopicConfig, Mavlink::kTxSlotCount> configs{};
+  for (size_t i = 0; i < configs.size(); ++i) {
+    configs[i] = TopicConfig{.period = kSlotPeriodsMs[i]};
+  }
+  return configs;
+}();
 
 // 210 ms measured best against today's stream set. Pick keeps it while it
 // clears every slot and moves to the next value up when a period is retuned
@@ -309,8 +312,7 @@ bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
     return false;
   }
 
-  const int32_t since_done =
-      static_cast<int32_t>(now_ms - last_hb_done_ms_);
+  const int32_t since_done = static_cast<int32_t>(now_ms - last_hb_done_ms_);
   if (since_done >= static_cast<int32_t>(cfg_tx.schedule.hb_deadline_ms)) {
     return true;
   }
@@ -371,16 +373,23 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
                                                    uint32_t now_ms) {
   constexpr uint8_t mav_autopilot_32raven = 200;
 
-  const bool vehicle_armed =
+  // `have_data` latches on the first report and never clears, so without this
+  // a silent STM32 would keep the ground station asserting what it last saw.
+  const bool vehicle_fresh =
       vehicle_status_.have_data &&
-      vehicle_status_.value.armed_state == message::kVehicleArmedStateArmed;
+      (uint32_t)(now_ms - vehicle_status_.update_ms) <= peer_timeout_ms_;
+
+  const bool vehicle_armed =
+      vehicle_fresh &&
+      static_cast<message::ArmedState>(vehicle_status_.value.armed_state) ==
+          message::ArmedState::kArmed;
 
   uint8_t base_mode =
       MAV_MODE_FLAG_CUSTOM_MODE_ENABLED | MAV_MODE_FLAG_MANUAL_INPUT_ENABLED;
   if (vehicle_armed) {
     base_mode |= MAV_MODE_FLAG_SAFETY_ARMED;
   }
-  if (vehicle_status_.have_data &&
+  if (vehicle_fresh &&
       static_cast<FlightMode>(vehicle_status_.value.flight_mode) ==
           FlightMode::kStabilize) {
     base_mode |= MAV_MODE_FLAG_STABILIZE_ENABLED;
@@ -395,13 +404,17 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
         (status.flags & message::kSystemStatusFlagLoopAlive) != 0u;
     const bool system_error =
         status.error_code != static_cast<uint32_t>(ErrorCode::Common::kOk) ||
-        status.boot_state == message::kSystemBootStateError;
+        static_cast<message::BootState>(status.boot_state) ==
+            message::BootState::kError;
+    // Not gated on freshness: a stale failsafe can only hold MAV_STATE at
+    // CRITICAL, and a link that died with one raised is not the time to stop.
     const bool vehicle_failsafe =
         vehicle_status_.have_data && vehicle_status_.value.failsafe_flags != 0u;
 
     if (!fresh || !loop_alive || system_error || vehicle_failsafe) {
       system_status = MAV_STATE_CRITICAL;
-    } else if (status.boot_state != message::kSystemBootStateReady) {
+    } else if (static_cast<message::BootState>(status.boot_state) !=
+               message::BootState::kReady) {
       system_status = MAV_STATE_BOOT;
     } else if (vehicle_armed) {
       system_status = MAV_STATE_ACTIVE;
@@ -411,17 +424,14 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   }
 
   // PX4 custom_mode layout: bytes [reserved(2), main_mode, sub_mode].
-  // main_mode values from
-  // PX4-Autopilot/src/modules/commander/px4_custom_mode.h:
-  //   5 = PX4_CUSTOM_MAIN_MODE_ACRO, 7 = PX4_CUSTOM_MAIN_MODE_STABILIZED.
-  uint8_t main_mode = 0;
-  if (vehicle_status_.have_data) {
+  Px4MainMode main_mode = Px4MainMode::kUnset;
+  if (vehicle_fresh) {
     switch (static_cast<FlightMode>(vehicle_status_.value.flight_mode)) {
       case FlightMode::kAcro:
-        main_mode = 5;
+        main_mode = Px4MainMode::kAcro;
         break;
       case FlightMode::kStabilize:
-        main_mode = 7;
+        main_mode = Px4MainMode::kStabilized;
         break;
     }
   }
@@ -723,6 +733,9 @@ void Mavlink::ServiceUdpTx(uint32_t now_ms) {
 
   const int sent = transport_->Send(tx_frame_.Bytes());
   if (sent > 0) {
+    if (tx_frame_.IsHeartbeat()) {
+      udp_tx_heartbeat_count_.fetch_add(1, std::memory_order_relaxed);
+    }
     udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
   }
   CompleteFrame(tx_frame_, now_ms);

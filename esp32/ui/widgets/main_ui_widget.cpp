@@ -15,6 +15,7 @@
 #include "bitmap/chip_verify_bitmap.hpp"
 #include "bitmap/gear0_bitmap.hpp"
 #include "bitmap/gear1_bitmap.hpp"
+#include "bitmap/sd_card_bitmap.hpp"
 #include "bitmap/magnifying_glass_bitmap.hpp"
 #include "bitmap/mavlink0_bitmap.hpp"
 #include "bitmap/mavlink1_bitmap.hpp"
@@ -48,6 +49,8 @@ constexpr char kServingStatus[] = "Serving";
 constexpr char kDfuStatus[] = "DFU";
 constexpr char kMavlinkWifiStatus[] = "MAVLink";
 constexpr char kEscConfigStatus[] = "ESC Config";
+constexpr char kWifiLogStatus[] = "WiFi Log Download";
+constexpr char kUsbLogStatus[] = "USB Log Download";
 constexpr size_t kDfuIconLeftX = 0;
 constexpr size_t kDfuIconRightInsetX = 0;
 constexpr size_t kCornerBadgeRightInsetX = 0;
@@ -113,6 +116,10 @@ void AppendDots(std::span<char> buffer, uint8_t dot_count) {
 
 char RandomBinaryGlyph() { return ((esp_random() & 0x1u) != 0u) ? '1' : '0'; }
 
+// CP437 0x03 in the GFX built-in font. Chars below 176 skip the charset
+// fixup in drawChar, so it lands without cp437(true).
+constexpr char kHeartbeatGlyph = '\x03';
+
 const char *StatusTextForMode(WidgetMode mode) {
   switch (mode) {
     case WidgetMode::kBooting:
@@ -130,6 +137,12 @@ const char *StatusTextForMode(WidgetMode mode) {
     case WidgetMode::kEscConfigIdleConnected:
     case WidgetMode::kEscConfigConnected:
       return kEscConfigStatus;
+    case WidgetMode::kWifiLogDisconnected:
+    case WidgetMode::kWifiLogConnected:
+      return kWifiLogStatus;
+    case WidgetMode::kUsbLogIdle:
+    case WidgetMode::kUsbLogActive:
+      return kUsbLogStatus;
     case WidgetMode::kProgramming:
       return "Programming";
     case WidgetMode::kVerifying:
@@ -148,13 +161,22 @@ bool IsEscConfigMode(WidgetMode mode) {
          mode == WidgetMode::kEscConfigConnected;
 }
 
+bool IsWifiLogMode(WidgetMode mode) {
+  return mode == WidgetMode::kWifiLogDisconnected ||
+         mode == WidgetMode::kWifiLogConnected;
+}
+
+bool IsUsbLogMode(WidgetMode mode) {
+  return mode == WidgetMode::kUsbLogIdle || mode == WidgetMode::kUsbLogActive;
+}
+
 bool IsDfuVisualMode(WidgetMode mode) {
   return mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kDfuIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected ||
-         IsEscConfigMode(mode) || mode == WidgetMode::kProgramming ||
-         mode == WidgetMode::kVerifying;
+         IsEscConfigMode(mode) || IsWifiLogMode(mode) || IsUsbLogMode(mode) ||
+         mode == WidgetMode::kProgramming || mode == WidgetMode::kVerifying;
 }
 
 bool IsScrollableProgressMode(WidgetMode mode) {
@@ -166,7 +188,9 @@ bool ShouldBlinkCornerBadge(WidgetMode mode) {
   return mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kEscConfigDisconnected ||
-         mode == WidgetMode::kEscConfigArmed;
+         mode == WidgetMode::kEscConfigArmed ||
+         mode == WidgetMode::kWifiLogDisconnected ||
+         mode == WidgetMode::kUsbLogIdle;
 }
 
 bool IsBodyTextMode(WidgetMode mode) { return ShouldBlinkCornerBadge(mode); }
@@ -175,7 +199,9 @@ bool IsBodyTextMode(WidgetMode mode) { return ShouldBlinkCornerBadge(mode); }
 bool HasPacketLanes(WidgetMode mode) {
   return mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected ||
-         mode == WidgetMode::kEscConfigConnected;
+         mode == WidgetMode::kEscConfigConnected ||
+         mode == WidgetMode::kWifiLogConnected ||
+         mode == WidgetMode::kUsbLogActive;
 }
 
 bool IsMavlinkMode(WidgetMode mode) {
@@ -238,7 +264,7 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
 // Names the transport the mode is reachable on. Verifying gets none: it runs
 // off the link that brought it here.
 PackedBitmap CornerBadgeForMode(WidgetMode mode) {
-  if (IsEscConfigMode(mode)) {
+  if (IsEscConfigMode(mode) || IsUsbLogMode(mode)) {
     return usb_bitmap::kBitmap;
   }
   if (IsDfuVisualMode(mode) && mode != WidgetMode::kVerifying) {
@@ -274,9 +300,24 @@ PackedBitmap LeftIconForMode(WidgetMode mode, TimeMs now) {
   if (IsEscConfigMode(mode)) {
     return am32_bitmap::kBitmap;
   }
+  if (IsWifiLogMode(mode) || IsUsbLogMode(mode)) {
+    return sd_card_bitmap::kBitmap;
+  }
 
-  if (!IsMavlinkMode(mode)) {
+  if (IsMavlinkMode(mode)) {
+    return chip_bitmap::kBitmap;
+  }
+  return pc_bitmap::kBitmap;
+}
+
+// The far end of the session: the PC, the GCS across the WiFi link, or the
+// STM32 when flashing.
+PackedBitmap RightIconForMode(WidgetMode mode, TimeMs now) {
+  if (IsEscConfigMode(mode) || IsUsbLogMode(mode) || IsWifiLogMode(mode)) {
     return pc_bitmap::kBitmap;
+  }
+  if (!IsMavlinkMode(mode)) {
+    return chip_bitmap::kBitmap;
   }
 
   switch ((now / kMavlinkIconFramePeriodMs) % 4u) {
@@ -296,7 +337,8 @@ bool ShouldAnimateEntryText(WidgetMode mode) {
   return mode == WidgetMode::kServing || mode == WidgetMode::kDfuDisconnected ||
          mode == WidgetMode::kDfuIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected || IsEscConfigMode(mode);
+         mode == WidgetMode::kMavlinkWifiConnected ||
+         IsEscConfigMode(mode) || IsWifiLogMode(mode) || IsUsbLogMode(mode);
 }
 
 // Shared by the AP credentials and the ESC-config guidance, which differ only
@@ -452,6 +494,11 @@ int16_t VerifyMagnifierTravelPx() {
 }
 
 }  // namespace
+
+MainUiWidget &MainUiWidget::GetInstance() {
+  static MainUiWidget instance;
+  return instance;
+}
 
 void MainUiWidget::SetMode(Mode mode) {
   taskENTER_CRITICAL(&g_main_ui_widget_lock);
@@ -651,25 +698,38 @@ bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
   return true;
 }
 
-// MAVLink counts UDP packets locally; ESC config has to be told, since those
-// frames are on the STM32's USB port and never touch this MCU.
+// MAVLink counts UDP packets locally; ESC config and USB log have to be told,
+// since those frames are on the STM32's USB port and never touch this MCU.
 MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(Mode mode,
                                                                  TimeMs now) {
-  if (mode == Mode::kEscConfigConnected) {
+  if (mode == Mode::kEscConfigConnected || mode == Mode::kUsbLogActive) {
     const auto usb = Sys().Ui().PeerUsb(now);
     return {
         .active = usb.has_value(),
-        .left_icon_width = am32_bitmap::kVisibleWidth,
+        .left_icon_width = mode == Mode::kUsbLogActive
+                               ? sd_card_bitmap::kVisibleWidth
+                               : am32_bitmap::kVisibleWidth,
         .rx_count = usb.has_value() ? usb->rx_frames : 0u,
         .tx_count = usb.has_value() ? usb->tx_frames : 0u,
+    };
+  }
+  if (mode == Mode::kWifiLogConnected) {
+    const auto traffic = Sys().Ui().GetLogTraffic();
+    return {
+        .active = true,
+        .left_icon_width = sd_card_bitmap::kVisibleWidth,
+        .rx_count = traffic.rx_frames,
+        .tx_count = traffic.tx_frames,
     };
   }
   if (IsMavlinkMode(mode)) {
     return {
         .active = true,
-        .left_icon_width = mavlink0_bitmap::kVisibleWidth,
+        .left_icon_width = chip_bitmap::kVisibleWidth,
         .rx_count = Sys().Mavlink().GetUdpRxPacketCount(),
         .tx_count = Sys().Mavlink().GetUdpTxPacketCount(),
+        .rx_heartbeat_count = Sys().Mavlink().GetUdpRxHeartbeatCount(),
+        .tx_heartbeat_count = Sys().Mavlink().GetUdpTxHeartbeatCount(),
     };
   }
   return {};
@@ -680,6 +740,8 @@ void MainUiWidget::ResetLinkPacketAnimation(const LinkPacketSource &source) {
   link_rx_lane_ = {};
   link_tx_lane_.last_seen_packet_count = source.tx_count;
   link_rx_lane_.last_seen_packet_count = source.rx_count;
+  link_tx_lane_.last_seen_heartbeat_count = source.tx_heartbeat_count;
+  link_rx_lane_.last_seen_heartbeat_count = source.rx_heartbeat_count;
   link_packet_last_step_ms_ = Sys().Timebase().NowMs();
 }
 
@@ -749,26 +811,31 @@ bool MainUiWidget::AdvanceLinkPacketAnimation(DisplayRenderer &renderer,
     }
   }
 
-  const auto maybe_spawn = [&](LinkPacketLane &lane, uint32_t packet_count) {
+  const auto maybe_spawn = [&](LinkPacketLane &lane, uint32_t packet_count,
+                               uint32_t heartbeat_count) {
     if (packet_count == lane.last_seen_packet_count) {
       return;
     }
+    // One glyph per redraw, not per packet, so a burst collapses into one --
+    // the heart wins it whenever a heartbeat was anywhere in that burst.
+    const bool heartbeat = heartbeat_count != lane.last_seen_heartbeat_count;
     const bool can_accept =
         lane.active_count == 0 ||
         lane.packets[lane.active_count - 1].progress_subpx >=
             min_spawn_progress_subpx;
     if (can_accept && lane.active_count < lane.packets.size()) {
       lane.packets[lane.active_count++] = {
-          .glyph = RandomBinaryGlyph(),
+          .glyph = heartbeat ? kHeartbeatGlyph : RandomBinaryGlyph(),
           .progress_subpx = 0,
       };
       changed = true;
     }
     lane.last_seen_packet_count = packet_count;
+    lane.last_seen_heartbeat_count = heartbeat_count;
   };
 
-  maybe_spawn(link_tx_lane_, source.tx_count);
-  maybe_spawn(link_rx_lane_, source.rx_count);
+  maybe_spawn(link_tx_lane_, source.tx_count, source.tx_heartbeat_count);
+  maybe_spawn(link_rx_lane_, source.rx_count, source.rx_heartbeat_count);
 
   return changed;
 }
@@ -1051,7 +1118,12 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     }
     if (IsBodyTextMode(mode)) {
       const int16_t body_top = static_cast<int16_t>(status_bounds.height);
-      if (IsEscConfigMode(mode)) {
+      if (mode == Mode::kUsbLogIdle) {
+        char guidance[kStatusLineBufferSize]{};
+        std::snprintf(guidance, sizeof(guidance), "%s", "Waiting for USB");
+        AppendDots(guidance, dot_count);
+        DrawBodyTextLines(renderer, now, body_top, guidance);
+      } else if (IsEscConfigMode(mode)) {
         // Enumerated, so the missing piece is the configurator opening it.
         char guidance[kStatusLineBufferSize]{};
         if (mode == Mode::kEscConfigArmed) {
@@ -1139,20 +1211,21 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
     }
 
     const PackedBitmap left_icon = LeftIconForMode(mode, now);
+    const PackedBitmap right_icon = RightIconForMode(mode, now);
     if (left_icon.Valid() && left_icon.width <= renderer.Width() &&
-        chip_bitmap::kVisibleWidth <= renderer.Width() &&
+        right_icon.width <= renderer.Width() &&
         left_icon.height <= renderer.Height() &&
-        chip_bitmap::kVisibleHeight <= renderer.Height()) {
+        right_icon.height <= renderer.Height()) {
       const size_t right_icon_x =
-          renderer.Width() - chip_bitmap::kVisibleWidth - kDfuIconRightInsetX;
+          renderer.Width() - right_icon.width - kDfuIconRightInsetX;
       const int16_t icon_region_height = static_cast<int16_t>(
-          std::max(left_icon.height, chip_bitmap::kVisibleHeight));
+          std::max(left_icon.height, right_icon.height));
       const int16_t icon_region_y = static_cast<int16_t>(
           renderer.Height() - icon_bottom_inset - icon_region_height);
       const int16_t left_icon_y = static_cast<int16_t>(
           renderer.Height() - icon_bottom_inset - left_icon.height);
       const int16_t chip_icon_y = static_cast<int16_t>(
-          renderer.Height() - icon_bottom_inset - chip_bitmap::kVisibleHeight);
+          renderer.Height() - icon_bottom_inset - right_icon.height);
       const int16_t gap_left =
           static_cast<int16_t>(kDfuIconLeftX + left_icon.width);
       const int16_t gap_right = static_cast<int16_t>(right_icon_x);
@@ -1197,8 +1270,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           const int16_t lane_bottom_y = std::max<int16_t>(
               0, std::max<int16_t>(
                      left_icon_y + static_cast<int16_t>(left_icon.height),
-                     chip_icon_y +
-                         static_cast<int16_t>(chip_bitmap::kVisibleHeight)) -
+                     chip_icon_y + static_cast<int16_t>(right_icon.height)) -
                      dfu_link_glyph_height_px_);
           const auto draw_lane = [&](const LinkPacketLane &lane,
                                      int16_t start_x, int16_t direction_sign,
@@ -1218,17 +1290,19 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
             }
           };
 
-          draw_lane(link_tx_lane_,
+          // Device left, host right: the host's frames fly right-to-left on
+          // the top lane, the device's answers left-to-right on the bottom.
+          draw_lane(link_rx_lane_,
                     static_cast<int16_t>(gap_right - dfu_link_glyph_width_px_),
                     -1, lane_top_y);
-          draw_lane(link_rx_lane_, gap_left, 1, lane_bottom_y);
+          draw_lane(link_tx_lane_, gap_left, 1, lane_bottom_y);
         }
       }
 
       renderer.DrawBitmap(left_icon, kDfuIconLeftX,
                           static_cast<size_t>(left_icon_y));
-      renderer.DrawBitmap(chip_bitmap::kBitmap,
-                          right_icon_x, static_cast<size_t>(chip_icon_y));
+      renderer.DrawBitmap(right_icon, right_icon_x,
+                          static_cast<size_t>(chip_icon_y));
 
       if ((mode == Mode::kDfuIdleConnected ||
            mode == Mode::kEscConfigIdleConnected) &&

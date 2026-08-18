@@ -218,16 +218,36 @@ void WidgetContext::LoadWidget(IWidget *widget) const {
 }
 
 // Packed into one word because two volatile stores are all the ordering there
-// is: the timestamp publishes the report. The layout is private to this pair.
+// is: the timestamp publishes the report. Bits 0-2 are the link flags, 3-4
+// the mode, 8-15 and 16-23 the frame counters.
+static_assert(static_cast<uint32_t>(message::UsbMode::kMsc) < 4u,
+              "UsbMode outgrew the two bits the report word reserves for it");
+Ui &Ui::GetInstance() {
+  static Ui instance;
+  return instance;
+}
+
 void Ui::UpdatePeerUsb(const PeerUsbState &state, uint32_t now_ms) {
-  const uint32_t report = (state.attached ? 1u : 0u) |
-                          (state.configured ? 2u : 0u) |
-                          (state.port_open ? 4u : 0u) |
-                          (state.esc_config_granted ? 8u : 0u) |
-                          (static_cast<uint32_t>(state.rx_frames) << 8) |
-                          (static_cast<uint32_t>(state.tx_frames) << 16);
+  const uint32_t report =
+      (state.attached ? 1u : 0u) | (state.configured ? 2u : 0u) |
+      (state.port_open ? 4u : 0u) | (static_cast<uint32_t>(state.mode) << 3) |
+      (static_cast<uint32_t>(state.rx_frames) << 8) |
+      (static_cast<uint32_t>(state.tx_frames) << 16);
   peer_usb_report_ = report;
   peer_usb_update_ms_ = (now_ms == 0u) ? 1u : now_ms;
+}
+
+void Ui::UpdateLogTraffic(uint16_t rx_frames, uint16_t tx_frames) {
+  log_traffic_word_ = static_cast<uint32_t>(rx_frames) |
+                      (static_cast<uint32_t>(tx_frames) << 16);
+}
+
+Ui::LogTraffic Ui::GetLogTraffic() const {
+  const uint32_t word = log_traffic_word_;
+  return LogTraffic{
+      .rx_frames = static_cast<uint16_t>(word),
+      .tx_frames = static_cast<uint16_t>(word >> 16),
+  };
 }
 
 std::optional<Ui::PeerUsbState> Ui::PeerUsb(uint32_t now_ms) const {
@@ -241,7 +261,7 @@ std::optional<Ui::PeerUsbState> Ui::PeerUsb(uint32_t now_ms) const {
       .attached = (report & 1u) != 0u,
       .configured = (report & 2u) != 0u,
       .port_open = (report & 4u) != 0u,
-      .esc_config_granted = (report & 8u) != 0u,
+      .mode = static_cast<message::UsbMode>((report >> 3) & 0x3u),
       .rx_frames = static_cast<uint8_t>(report >> 8),
       .tx_frames = static_cast<uint8_t>(report >> 16),
   };
@@ -380,16 +400,28 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
       return MainScreen::kProgramming;
     case AppState::kEscConfig: {
       // Not being told USB is up differs from being told it is down.
-      const auto usb = PeerUsb(Sys().Timebase().NowMs());
+      const uint32_t now_ms = Sys().Timebase().NowMs();
+      const auto usb = PeerUsb(now_ms);
       if (!usb.has_value() || !usb->configured) {
         return MainScreen::kEscConfigDisconnected;
       }
       // Checked after USB: an unreported link is the more useful thing to say.
-      if (Sys().Mavlink().PeerArmed().value_or(false)) {
+      if (Sys().Mavlink().PeerArmed(now_ms).value_or(false)) {
         return MainScreen::kEscConfigArmed;
       }
       return usb->port_open ? MainScreen::kEscConfigConnected
                             : MainScreen::kEscConfigIdleConnected;
+    }
+    case AppState::kWifiLog:
+      return Sys().Wifi().HasAssociatedStations()
+                 ? MainScreen::kWifiLogConnected
+                 : MainScreen::kWifiLogDisconnected;
+    case AppState::kUsbLog: {
+      const auto usb = PeerUsb(Sys().Timebase().NowMs());
+      if (usb.has_value() && usb->configured) {
+        return MainScreen::kUsbLogActive;
+      }
+      return MainScreen::kUsbLogIdle;
     }
     case AppState::kHardError:
     default:
@@ -415,6 +447,11 @@ Ui::ScreenGroup Ui::ScreenGroupFor(MainScreen screen) const {
     case MainScreen::kEscConfigIdleConnected:
     case MainScreen::kEscConfigConnected:
       return ScreenGroup::kEscConfig;
+    case MainScreen::kWifiLogDisconnected:
+    case MainScreen::kWifiLogConnected:
+    case MainScreen::kUsbLogIdle:
+    case MainScreen::kUsbLogActive:
+      return ScreenGroup::kLog;
     case MainScreen::kBooting:
     default:
       return ScreenGroup::kBoot;

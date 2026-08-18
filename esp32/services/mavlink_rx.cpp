@@ -21,6 +21,9 @@ void Mavlink::ServiceUdpRx() {
     }
     for (int i = 0; i < received; ++i) {
       if (mavlink_parse_char(MAVLINK_COMM_2, rx_buf[i], &msg, nullptr)) {
+        if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+          udp_rx_heartbeat_count_.fetch_add(1, std::memory_order_relaxed);
+        }
         udp_rx_packet_count_.fetch_add(1, std::memory_order_relaxed);
         HandleMessage(msg);
       }
