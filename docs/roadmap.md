@@ -355,6 +355,25 @@ asserting *armed* indefinitely from a dead flight controller. The stale `system_
 force `MAV_STATE_CRITICAL`, so it is half-caught, but a GCS reading the mode flags is being
 told something false. A small fix that does not need to wait for the service.
 
+#### A condition it should carry: the card that left
+
+`LogService` panics at boot on a missing or unusable card, then tolerates the same condition in
+near silence afterwards. The only notice is a write failing, and writes only happen while armed,
+so a card pulled on the bench produces nothing at all until the next arm and then a warning a few
+tens of milliseconds into the flight. The aircraft spends that gap believing it is logging.
+
+Nothing detects removal on its own. There is no card-detect line — the pin map carries only the
+six bus signals — and `Sdio` has no ISR at all, so presence can only be established by asking over
+the bus with CMD13. A periodic probe would put a bench-only concern on the flight path for the
+sake of a question nobody is asking in the air, which is why the driver stays demand-driven. The
+cheap trigger is `StartFlight`: it runs at the one moment the answer changes a decision, and costs
+a single command with no data phase.
+
+Doctor cannot ask the question itself, since only the STM32 touches the card. So the probe stays
+on the STM32 and Doctor takes the reporting: the fact joins the logger counters `StatPublisher`
+already carries, and Doctor is what turns "mandatory at boot, absent now" into something a GCS
+sees rather than a tone nobody is standing next to.
+
 #### Constraint
 
 Doctor reports to MAVLink and the logs, **not to the OLED**. The display stays a bench tool and
