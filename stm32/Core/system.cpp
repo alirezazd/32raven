@@ -14,6 +14,7 @@
 #include "led.hpp"
 #include "panic.hpp"
 #include "rcc.hpp"
+#include "sdio.hpp"
 #include "spi.hpp"
 #include "stm32_config.hpp"
 #include "time_base.hpp"
@@ -56,6 +57,9 @@ constexpr std::array<System::Component,
         System::Component::kAttitudeController,
         System::Component::kSentinel,
         System::Component::kStatPublisher,
+        System::Component::kSdio,
+        System::Component::kLogService,
+        System::Component::kMscService,
     };
 
 // -Werror=switch already ties Component to InitComponent's switch; this ties it
@@ -228,6 +232,15 @@ void System::InitComponent(Component c) {
       break;
     case Component::kAttitudeController:
       attitude_controller_.Init(kAttitudeControllerConfig);
+      break;
+    case Component::kSdio:
+      Sdio::GetInstance().Init();
+      break;
+    case Component::kLogService:
+      log_service_.Init(kLogServiceConfig, blackboard_);
+      break;
+    case Component::kMscService:
+      msc_service_.Init(UsbCdc::GetInstance(), log_service_, blackboard_);
       break;
     case Component::kCount:
       break;

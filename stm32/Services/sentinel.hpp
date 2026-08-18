@@ -24,12 +24,12 @@ class Sentinel {
   // Every arm request on the board lands here -- the privileged command today,
   // an RC switch when one exists. Returns false when an interlock refuses;
   // the caller owns whatever the refusal should sound like.
-  bool RequestArm(AppContext &ctx, bool armed);
+  bool RequestArm(const AppContext &ctx, bool armed);
 
-  // Called from the slow tick, never the control loop: PendSV is pended by the
+  // Called from the main tick, never the control loop: PendSV is pended by the
   // sample interrupt, so a watchdog living there would fall silent in exactly
   // the failure it exists to catch.
-  void Supervise(AppContext &ctx, uint32_t now_us);
+  void Supervise(const AppContext &ctx, uint32_t now_us);
 
  private:
   friend class System;
@@ -41,7 +41,7 @@ class Sentinel {
   EscService *esc_ = nullptr;
   RateController *rate_controller_ = nullptr;
   // Rate-limits recovery to one attempt per stall window, rather than every
-  // slow tick while the heartbeat stays frozen.
+  // main tick while the heartbeat stays frozen.
   uint32_t last_imu_recovery_us_ = 0;
   bool initialized_ = false;
 };

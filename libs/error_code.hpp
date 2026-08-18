@@ -97,6 +97,13 @@ enum class Stm32 : uint32_t {
   kUartSoftReinit,
   kEscBootloaderReinit,
   kSentinelReinit,
+  kSdioReinit,
+  kLogServiceReinit,
+  kMscServiceReinit,
+  kSdCardMissing,
+  kSdCardCorrupted,
+  kSdCardFull,
+  kHardFault,
 };
 
 enum class Esp32 : uint32_t {

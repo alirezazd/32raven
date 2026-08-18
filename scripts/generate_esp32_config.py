@@ -21,13 +21,11 @@ from kconfig_gen import (
     autogen_warning,
     choice_value,
     cpp_string_literal,
-    sym,
     sym_bool,
     sym_int,
     sym_str,
 )
 from kconfig_gen import run as run_generator
-
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -88,10 +86,20 @@ LEDC_SPEED_MODE = "LEDC_LOW_SPEED_MODE"
 # duty-resolution sym, carrier frequency in Hz or None when the consumer sets
 # its own note by note).
 LEDC_CLAIMS = (
-    ("LED", "ESP32_LED_LEDC_TIMER", "ESP32_LED_LEDC_CHANNEL",
-     "ESP32_LED_LEDC_DUTY_RES_BITS", "ESP32_LED_LEDC_FREQ_HZ"),
-    ("buzzer", "ESP32_BUZZER_LEDC_TIMER", "ESP32_BUZZER_LEDC_CHANNEL",
-     "ESP32_BUZZER_LEDC_DUTY_RES_BITS", "ESP32_BUZZER_MAX_NOTE_HZ"),
+    (
+        "LED",
+        "ESP32_LED_LEDC_TIMER",
+        "ESP32_LED_LEDC_CHANNEL",
+        "ESP32_LED_LEDC_DUTY_RES_BITS",
+        "ESP32_LED_LEDC_FREQ_HZ",
+    ),
+    (
+        "buzzer",
+        "ESP32_BUZZER_LEDC_TIMER",
+        "ESP32_BUZZER_LEDC_CHANNEL",
+        "ESP32_BUZZER_LEDC_DUTY_RES_BITS",
+        "ESP32_BUZZER_MAX_NOTE_HZ",
+    ),
 )
 UDP_SERVER_SHAPER_BUFFER_WINDOW_MS = 300
 UDP_SERVER_SHAPER_BUFFER_MAX_BYTES = 32768
@@ -112,6 +120,7 @@ UI_TRANSITION_SPEED_CHOICES = {
     "ESP32_WIDGET_UI_TRANSITION_SPEED_2X": "2",
     "ESP32_WIDGET_UI_TRANSITION_SPEED_3X": "3",
 }
+
 
 def _git_head_short_hash() -> str:
     try:
@@ -135,7 +144,8 @@ def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
     parts = version_string.strip().split(".")
     if len(parts) != 3:
         raise SystemExit(
-            f"unexpected firmware version format '{version_string}'; expected X.Y.Z"
+            f"unexpected firmware version format '{version_string}'; "
+            "expected X.Y.Z"
         )
 
     try:
@@ -144,7 +154,8 @@ def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
         patch = int(parts[2], 10)
     except ValueError as exc:
         raise SystemExit(
-            f"unexpected firmware version format '{version_string}'; expected X.Y.Z"
+            f"unexpected firmware version format '{version_string}'; "
+            "expected X.Y.Z"
         ) from exc
 
     if not 0 <= major <= 0xFF:
@@ -165,7 +176,9 @@ def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
 def _firmware_version_string() -> str:
     version_string = resolve_firmware_version().strip()
     if not version_string:
-        raise SystemExit("firmware version tool returned an empty version string")
+        raise SystemExit(
+            "firmware version tool returned an empty version string"
+        )
     return version_string
 
 
@@ -202,8 +215,10 @@ def _validate_unique_gpio_assignments(
 
     if duplicates:
         raise ValueError(
-            "duplicate ESP32 pin assignments are not allowed: " + "; ".join(duplicates)
+            "duplicate ESP32 pin assignments are not allowed: "
+            + "; ".join(duplicates)
         )
+
 
 def _validate_pin_assignments(kconf: kconfiglib.Kconfig) -> None:
     gpio_symbols = (
@@ -237,7 +252,8 @@ def _validate_wifi(kconf: kconfiglib.Kconfig) -> None:
         )
     if len(wifi_password) > WIFI_AP_PASSWORD_MAX_LEN:
         raise ValueError(
-            f"ESP32_WIFI_AP_PASSWORD must be at most {WIFI_AP_PASSWORD_MAX_LEN} characters"
+            "ESP32_WIFI_AP_PASSWORD must be at most "
+            f"{WIFI_AP_PASSWORD_MAX_LEN} characters"
         )
     if 0 < len(wifi_password) < WIFI_AP_PASSWORD_MIN_LEN:
         raise ValueError(
@@ -245,11 +261,15 @@ def _validate_wifi(kconf: kconfiglib.Kconfig) -> None:
             f"{WIFI_AP_PASSWORD_MIN_LEN} characters"
         )
     if sym_int(kconf, "ESP32_WIFI_AP_BEACON_INTERVAL_TU") % 100 != 0:
-        raise ValueError("ESP32_WIFI_AP_BEACON_INTERVAL_TU must be a multiple of 100")
+        raise ValueError(
+            "ESP32_WIFI_AP_BEACON_INTERVAL_TU must be a multiple of 100"
+        )
     if sym_bool(kconf, "ESP32_WIFI_PMF_REQUIRED") and not sym_bool(
         kconf, "ESP32_WIFI_PMF_CAPABLE"
     ):
-        raise ValueError("ESP32_WIFI_PMF_REQUIRED requires ESP32_WIFI_PMF_CAPABLE")
+        raise ValueError(
+            "ESP32_WIFI_PMF_REQUIRED requires ESP32_WIFI_PMF_CAPABLE"
+        )
 
 
 def _validate_cross_field(kconf: kconfiglib.Kconfig) -> None:
@@ -257,12 +277,15 @@ def _validate_cross_field(kconf: kconfiglib.Kconfig) -> None:
         kconf, "ESP32_TCP_SERVER_DATA_PORT"
     ):
         raise ValueError(
-            "ESP32_TCP_SERVER_CTRL_PORT and ESP32_TCP_SERVER_DATA_PORT must differ"
+            "ESP32_TCP_SERVER_CTRL_PORT and ESP32_TCP_SERVER_DATA_PORT "
+            "must differ"
         )
     if sym_bool(kconf, "ESP32_BUTTON_PULLUP") and sym_bool(
         kconf, "ESP32_BUTTON_PULLDOWN"
     ):
-        raise ValueError("ESP32 button pull-up and pull-down cannot both be enabled")
+        raise ValueError(
+            "ESP32 button pull-up and pull-down cannot both be enabled"
+        )
     # A long press is only recognised once debounce has already elapsed, so a
     # debounce at or above it makes DFU entry unreachable.
     debounce_ms = sym_int(kconf, "ESP32_BUTTON_DEBOUNCE_MS")
@@ -354,6 +377,7 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
 # Each helper resolves Kconfig + chosen-value maps for one peripheral and
 # returns the sub-dict used by the matching block in esp32_config.hpp.j2.
 
+
 def _pin_map_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "led": sym_int(kconf, "ESP32_PINMAP_LED_GPIO_NUM"),
@@ -365,12 +389,20 @@ def _pin_map_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "ssd1306_panel_i2c_scl": sym_int(
             kconf, "ESP32_PINMAP_SSD1306_PANEL_I2C_SCL_GPIO_NUM"
         ),
-        "fclink_uart_tx": sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM"),
-        "fclink_uart_rx": sym_int(kconf, "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM"),
+        "fclink_uart_tx": sym_int(
+            kconf, "ESP32_PINMAP_FCLINK_UART_TX_GPIO_NUM"
+        ),
+        "fclink_uart_rx": sym_int(
+            kconf, "ESP32_PINMAP_FCLINK_UART_RX_GPIO_NUM"
+        ),
         "telem_uart_tx": sym_int(kconf, "ESP32_PINMAP_TELEM_UART_TX_GPIO_NUM"),
         "telem_uart_rx": sym_int(kconf, "ESP32_PINMAP_TELEM_UART_RX_GPIO_NUM"),
-        "programmer_boot0": sym_int(kconf, "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM"),
-        "programmer_nrst": sym_int(kconf, "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM"),
+        "programmer_boot0": sym_int(
+            kconf, "ESP32_PINMAP_PROGRAMMER_BOOT0_GPIO_NUM"
+        ),
+        "programmer_nrst": sym_int(
+            kconf, "ESP32_PINMAP_PROGRAMMER_NRST_GPIO_NUM"
+        ),
     }
 
 
@@ -396,7 +428,9 @@ def _display_panel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "settle_time_ms": sym_int(kconf, "ESP32_DISPLAY_PANEL_SETTLE_TIME_MS"),
         "i2c_address": sym_int(kconf, "ESP32_DISPLAY_PANEL_I2C_ADDRESS"),
         "i2c_scl_speed_hz": sym_int(kconf, "ESP32_DISPLAY_PANEL_I2C_CLOCK_HZ"),
-        "i2c_scl_wait_us": sym_int(kconf, "ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US"),
+        "i2c_scl_wait_us": sym_int(
+            kconf, "ESP32_DISPLAY_PANEL_I2C_SCL_WAIT_US"
+        ),
         "invert": sym_bool(kconf, "ESP32_DISPLAY_PANEL_INVERT"),
         "rotate_180": sym_bool(kconf, "ESP32_DISPLAY_PANEL_ROTATE_180"),
     }
@@ -407,7 +441,9 @@ def _ui_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "fps_cap": sym_int(kconf, "ESP32_DISPLAY_MANAGER_FPS_CAP"),
         "boot_logo_timeout_s": sym_int(kconf, "ESP32_WIDGET_BOOT_TIMEOUT_S"),
         "ui_timeout_s": sym_int(kconf, "ESP32_WIDGET_UI_TIMEOUT_S"),
-        "transition_speed_x": int(choice_value(kconf, UI_TRANSITION_SPEED_CHOICES)),
+        "transition_speed_x": int(
+            choice_value(kconf, UI_TRANSITION_SPEED_CHOICES)
+        ),
     }
 
 
@@ -416,7 +452,9 @@ def _tcp_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "ctrl_port": sym_int(kconf, "ESP32_TCP_SERVER_CTRL_PORT"),
         "data_port": sym_int(kconf, "ESP32_TCP_SERVER_DATA_PORT"),
         "keepalive_idle_s": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_IDLE_S"),
-        "keepalive_intvl_s": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S"),
+        "keepalive_intvl_s": sym_int(
+            kconf, "ESP32_TCP_SERVER_KEEPALIVE_INTERVAL_S"
+        ),
         "keepalive_cnt": sym_int(kconf, "ESP32_TCP_SERVER_KEEPALIVE_COUNT"),
     }
 
@@ -425,8 +463,12 @@ def _udp_server_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "port": sym_int(kconf, "ESP32_UDP_SERVER_PORT"),
         "upload_cap_kbits": sym_int(kconf, "ESP32_UDP_SERVER_UPLOAD_CAP_KBITS"),
-        "download_cap_kbits": sym_int(kconf, "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS"),
-        "overflow_threshold": sym_int(kconf, "ESP32_UDP_SERVER_OVERFLOW_THRESHOLD"),
+        "download_cap_kbits": sym_int(
+            kconf, "ESP32_UDP_SERVER_DOWNLOAD_CAP_KBITS"
+        ),
+        "overflow_threshold": sym_int(
+            kconf, "ESP32_UDP_SERVER_OVERFLOW_THRESHOLD"
+        ),
     }
 
 
@@ -458,10 +500,7 @@ def _telem_uart_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "handshake_attempts": sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_ATTEMPTS"),
-        "handshake_retry_period_ms": sym_int(
-            kconf, "ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS"
-        ),
+        "handshake_window_s": sym_int(kconf, "ESP32_FCLINK_HANDSHAKE_WINDOW_S"),
         "invalid_packet_threshold": sym_int(
             kconf, "ESP32_FCLINK_INVALID_PACKET_THRESHOLD"
         ),
@@ -490,14 +529,19 @@ def _programmer_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         },
     }
 
+
 def _wifi_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "ap": {
             "ssid": cpp_string_literal(sym_str(kconf, "ESP32_WIFI_AP_SSID")),
-            "password": cpp_string_literal(sym_str(kconf, "ESP32_WIFI_AP_PASSWORD")),
+            "password": cpp_string_literal(
+                sym_str(kconf, "ESP32_WIFI_AP_PASSWORD")
+            ),
             "channel": sym_int(kconf, "ESP32_WIFI_AP_CHANNEL"),
             "max_connections": sym_int(kconf, "ESP32_WIFI_AP_MAX_CONNECTIONS"),
-            "beacon_interval_tu": sym_int(kconf, "ESP32_WIFI_AP_BEACON_INTERVAL_TU"),
+            "beacon_interval_tu": sym_int(
+                kconf, "ESP32_WIFI_AP_BEACON_INTERVAL_TU"
+            ),
             "hidden": sym_bool(kconf, "ESP32_WIFI_AP_HIDDEN"),
         },
         "pmf": {

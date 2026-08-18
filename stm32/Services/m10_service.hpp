@@ -94,7 +94,7 @@ struct M10ParserContext {
   uint8_t ck_a_calc;
   uint8_t ck_b_calc;
   uint32_t pvt_itow_ms = 0;
-  uint64_t pvt_rx_us = 0;
+  uint32_t pvt_rx_us = 0;
 
   static constexpr size_t kMaxPayloadSize = 120;
   uint8_t payload_buf[kMaxPayloadSize];

@@ -16,12 +16,15 @@
 #include "gpio.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
+#include "log_service.hpp"
 #include "m10_service.hpp"
+#include "msc_service.hpp"
 #include "msp_service.hpp"
 #include "multirotor_mixer.hpp"
 #include "rate_controller.hpp"
 #include "rc_receiver.hpp"
 #include "rcc.hpp"
+#include "sdio.hpp"
 #include "sentinel.hpp"
 #include "shared_state.hpp"
 #include "stat_publisher.hpp"
@@ -67,6 +70,9 @@ class System {
     kAttitudeController,
     kSentinel,
     kStatPublisher,
+    kSdio,
+    kLogService,
+    kMscService,
 
     kCount,  // terminator: keep last
   };
@@ -93,6 +99,9 @@ class System {
   EscBootloader &EscBootSvc() { return esc_bootloader_; }
   M10Service &GpsSvc() { return gps_service_; }
   Icm42688p &Imu() { return Icm42688p::GetInstance(); }
+  Sdio &Sd() { return Sdio::GetInstance(); }
+  LogService &LogSvc() { return log_service_; }
+  MscService &MscSvc() { return msc_service_; }
   multirotor_mixer::Mixer &MixerSvc() { return mixer_; }
   Ahrs &AhrsSvc() { return ahrs_; }
   RateController &RateControllerSvc() { return rate_controller_; }
@@ -109,7 +118,9 @@ class System {
   static void CoreInit();  // flash cache + NVIC priority grouping
   bool initialized_ = false;
   M10Service gps_service_;
-  ::SharedState blackboard_;
+  LogService log_service_;
+  MscService msc_service_;
+  SharedState blackboard_;
   CrsfLinkService crsf_link_service_;
   EscService esc_service_;
   MspService msp_service_;

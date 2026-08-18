@@ -68,14 +68,15 @@ inline constexpr uint32_t GPIO_PULLUP = 0x00000001u;
 inline constexpr uint32_t GPIO_PULLDOWN = 0x00000002u;
 
 // Alternate functions (value = AF index)
-inline constexpr uint32_t GPIO_AF1_TIM1 = 0x01u;
-inline constexpr uint32_t GPIO_AF5_SPI1 = 0x05u;
-inline constexpr uint32_t GPIO_AF5_SPI2 = 0x05u;
-inline constexpr uint32_t GPIO_AF7_USART1 = 0x07u;
-inline constexpr uint32_t GPIO_AF7_USART2 = 0x07u;
-inline constexpr uint32_t GPIO_AF7_USART3 = 0x07u;
-inline constexpr uint32_t GPIO_AF8_USART6 = 0x08u;
-inline constexpr uint32_t GPIO_AF10_OTG_FS = 0x0Au;
+inline constexpr uint32_t GPIO_AF1_TIM1 = 1u;
+inline constexpr uint32_t GPIO_AF5_SPI1 = 5u;
+inline constexpr uint32_t GPIO_AF5_SPI2 = 5u;
+inline constexpr uint32_t GPIO_AF7_USART1 = 7u;
+inline constexpr uint32_t GPIO_AF7_USART2 = 7u;
+inline constexpr uint32_t GPIO_AF7_USART3 = 7u;
+inline constexpr uint32_t GPIO_AF8_USART6 = 8u;
+inline constexpr uint32_t GPIO_AF10_OTG_FS = 10u;
+inline constexpr uint32_t GPIO_AF12_SDIO = 12u;
 // NOLINTEND(readability-identifier-naming)
 
 class GPIO {
@@ -93,10 +94,7 @@ class GPIO {
   friend class System;
   void Init(std::span<const PinConfig> pins);
 
-  static GPIO &GetInstance() {
-    static GPIO instance;
-    return instance;
-  }
+  static GPIO &GetInstance();
 
   GPIO() = default;
   ~GPIO() = default;

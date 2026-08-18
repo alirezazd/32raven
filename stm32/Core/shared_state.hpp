@@ -14,9 +14,7 @@
 
 // POD (Plain Old Data) Sensor Packets
 
-// One IMU sample, already through the axis map: body-NED, SI units. Declared
-// here rather than in the driver because the mailbox below is what carries it,
-// and nothing downstream should have to name a driver type to read the burst.
+// One IMU sample, already through the axis map: body-NED, SI units.
 struct ImuSample {
   uint64_t timestamp_us = 0;
   float accel_mps2[3] = {0.0f, 0.0f, 0.0f};
@@ -28,25 +26,15 @@ struct ImuSampleBatch {
   ImuSample samples[stm32_limits::kIcm42688pMaxWatermarkRecords]{};
 };
 
-// The fast path's handoff, and the one entry here that is not a plain store.
-// Every other field means "latest value, read whenever"; this one is a
-// single-slot mailbox with a two-party contract:
-//
-//   the sample interrupt sets `fresh` 0 -> 1 and refuses to write while it is
-//   set, so a burst landing mid-read is dropped and counted rather than tearing
-//   the batch under the reader;
-//   the consumer clears it 1 -> 0, and only once it has finished reading.
-//
-// `fresh` leads so the producer's test reads one word. Clearing it from
-// anywhere but the consumer silently costs that consumer a burst, which is why
-// both sides are reached through keyed accessors rather than the field.
+// A mailbox, not a plain store: the interrupt sets `fresh` and will not write
+// while it is set; the consumer clears it once it has finished reading.
 struct ImuSampleSlot {
   volatile bool fresh = false;
   ImuSampleBatch batch{};
 };
 
 struct GpsData {
-  uint64_t timestamp_us;
+  uint32_t timestamp_us;
   uint16_t year;
   uint8_t month;
   uint8_t day;
@@ -81,6 +69,9 @@ struct GpsData {
 };
 
 struct BatteryData {
+  // When the conversion was *started*: publish trails it by up to the whole
+  // decimation period.
+  uint32_t timestamp_us = 0;
   float voltage;
   float current;
   float mah_drawn;
@@ -109,20 +100,15 @@ struct EscTelemetryData {
   uint32_t uart_error_count = 0;
 };
 
-// The sample path's own account of itself: what it produced, where the rest
-// went. Written from the sample interrupt on every burst, so `timestamp_us`
-// doubles as that path's heartbeat -- a stalled sensor freezes the whole
-// struct, which is what a staleness check is looking for.
-//
-// Counters only, deliberately: the thresholds that decide when a fault rate
-// matters live with Sentinel, not with the driver that trips over them.
+// Written on every burst, so `timestamp_us` doubles as the sample path's
+// heartbeat. Counters only: the thresholds live with Sentinel.
 struct ImuHealth {
   uint32_t timestamp_us = 0;
   uint32_t publish_count = 0;  // bursts handed to the control loop
   // Any exit from a sample interrupt that did not publish. The sum of the four
   // below, kept because it is what the driver's recovery window counts.
   uint32_t path_faults = 0;
-  uint32_t true_overruns = 0;   // interrupt arrived with a transfer in flight
+  uint32_t true_overruns = 0;  // interrupt arrived with a transfer in flight
   uint32_t dma_start_fails = 0;
   uint32_t spi_errors = 0;
   uint32_t parse_fails = 0;
@@ -133,16 +119,8 @@ struct ImuHealth {
   uint8_t last_bad_header = 0;
 };
 
-// Die temperature, on its own cadence rather than in EstimatorState. The
-// signal has a ~90 s thermal constant, so riding the fast path would carry a
-// thousand identical values a second; the driver publishes it about once a
-// second instead. `timestamp_us` is when the sample it decoded from arrived.
-//
-// Two aligned words written from the sample interrupt and read from the slow
-// loop. Deliberately unguarded: a reader caught between them pairs a reading
-// with the previous timestamp, and one publication interval of a 90 s signal is
-// millikelvin. Compare EstimatorState, where a torn quaternion is not unit and
-// the value is wrong rather than stale.
+// Die temperature, ~1 Hz: a ~90 s thermal constant does not belong on the fast
+// path. Unguarded on purpose -- a torn read is off by millikelvin.
 struct ImuTemperature {
   uint32_t timestamp_us = 0;
   float celsius = 0.0f;
@@ -150,10 +128,7 @@ struct ImuTemperature {
 
 struct EstimatorState {
   uint64_t timestamp_us = 0;
-  // Both averaged over the burst the control tick consumed. Accel is here so
-  // the one physical-units view of the sensor is complete: telemetry, logging
-  // and accelerometer calibration all want it, and none of them should have to
-  // know the chip's frame or full-scale rules to get it.
+  // Both averaged over the burst the control tick consumed.
   Eigen::Vector3f gyro_body_rad_s = Eigen::Vector3f::Zero();
   Eigen::Vector3f accel_body_mps2 = Eigen::Vector3f::Zero();
   // Body attitude in world (NED).
@@ -162,9 +137,7 @@ struct EstimatorState {
 
 struct RcData {
   uint32_t timestamp_us = 0;
-  // As the receiver reported them. Calibration is a flight-control reading of
-  // the sticks, not a property of the signal, so it stops at the four axes
-  // below -- everything leaving the vehicle quotes the receiver instead.
+  // As the receiver reported them; calibration stops at the four axes below.
   std::array<uint16_t, message::kRcChannelCount> channels_raw{};
   uint16_t roll_us = 0;
   uint16_t pitch_us = 0;
@@ -172,9 +145,8 @@ struct RcData {
   uint16_t throttle_us = 0;
 };
 
-// CRSF LINK_STATISTICS (0x14). Separate from RcData because it arrives on its
-// own frame: carried on the channels' timestamp it could be arbitrarily stale
-// while reading as fresh as the sticks.
+// CRSF LINK_STATISTICS (0x14). Its own frame, so its own timestamp -- on the
+// channels' it could read as fresh as the sticks while being arbitrarily old.
 struct CrsfLinkData {
   uint32_t timestamp_us = 0;
   uint8_t uplink_rssi_ant1_dbm = 0;
@@ -189,12 +161,8 @@ struct CrsfLinkData {
   int8_t downlink_snr_db = 0;
 };
 
-// The USB bench session: link state from the CDC driver plus the two dialects
-// that share the port. MspService is the one writer.
-//
-// `timestamp_us` marks when a field below last *changed*, not when it was
-// sampled: outside a session nothing here moves for minutes, so a sample time
-// would make every poll look like news.
+// The USB bench session. Two writers, never concurrent: MspService in ESC
+// config, MscService in MSC. `timestamp_us` is when a field last *changed*.
 struct UsbStatusData {
   uint32_t timestamp_us = 0;
   uint32_t msp_requests = 0;
@@ -205,6 +173,7 @@ struct UsbStatusData {
   bool configured = false;
   bool port_open = false;
   bool esc_config_granted = false;
+  bool msc_active = false;
 };
 
 class SharedState {
@@ -216,13 +185,11 @@ class SharedState {
   void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
   void UpdateRc(const RcData &data) { rc_ = data; }
   void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
-  // Written from the TIM5 interrupt. Milliseconds in a single word on
-  // purpose: the store is one instruction and cannot be observed torn,
-  // which a 64-bit microsecond count on a 32-bit core would be.
+  // Written from the TIM5 interrupt. Milliseconds in one word so the store
+  // cannot be observed torn, which a 64-bit microsecond count would be.
   void UpdateUptimeMs(uint32_t uptime_ms) { uptime_ms_ = uptime_ms; }
   // Monotonic counters, so a reader preempted mid-copy is off by at most one
-  // increment on one field -- worth knowing where a rate is derived from it,
-  // not worth a seqlock.
+  // increment on one field -- not worth a seqlock.
   void UpdateImuHealth(const ImuHealth &data) { imu_health_ = data; }
   void UpdateImuTemperature(const ImuTemperature &data) { imu_temp_ = data; }
 
@@ -251,10 +218,6 @@ class SharedState {
   // what keeps it here rather than behind a Sentinel accessor.
   uint32_t FailsafeFlags() const { return failsafe_flags_; }
 
-  // The burst's two parties, each reaching only its own side of the handshake.
-  // Roadmap #19 replaces these with per-producer passkeys; friendship is the
-  // interim, and it is deliberately narrow -- neither class has any other
-  // reason to touch a private here.
   const ImuSampleSlot &GetImuSampleSlot() const { return imu_slot_; }
 
  private:
@@ -262,9 +225,7 @@ class SharedState {
   friend class Ahrs;
   ImuSampleSlot &ImuSampleMailbox() { return imu_slot_; }
 
-  // Sentinel owns every arm transition and every failsafe verdict, so it is the
-  // only writer of both. Readers get IsArmed() and FailsafeFlags() above;
-  // anything that needs to *change* the arm state goes through
+  // Sentinel is the only writer of both: changing the arm state goes through
   // Sentinel::RequestArm, which carries the interlock and the stop frames.
   friend class Sentinel;
   void SetArmed(bool armed) { armed_ = armed; }
@@ -278,8 +239,6 @@ class SharedState {
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
   ImuTemperature imu_temp_{};
-  // Written from the sample interrupt, so it leads the members the slow loop
-  // reads rather than sitting among them.
   alignas(8) ImuSampleSlot imu_slot_{};
   EstimatorState estimate_{};
   UsbStatusData usb_{};

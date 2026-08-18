@@ -19,7 +19,7 @@ FcLink &FcLink::GetInstance() {
   return instance;
 }
 
-void FcLink::Init(AppContext *ctx) { ctx_ = ctx; }
+void FcLink::Init(const AppContext *ctx) { ctx_ = ctx; }
 
 void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   if (!ctx_) return;
@@ -266,5 +266,30 @@ void FcLink::SendLog(const char *format, ...) {
     pkt.header.len = (uint8_t)len;
     memcpy(pkt.payload, buf, len);
     Send(pkt);
+
+    // Before Init, Poll -- the only drain -- never runs, so a boot-time log
+    // would sit in the ring and vanish entirely if init wedges.
+    if (ctx_ == nullptr) {
+      auto &uart = System::GetInstance().FcUart();
+      uint8_t byte = 0;
+      uint8_t chunk[64];
+      size_t n = 0;
+      while (tx_rb_.Pop(byte)) {
+        chunk[n++] = byte;
+        if (n == sizeof(chunk)) {
+          uart.Send(chunk, n);
+          n = 0;
+        }
+      }
+      if (n > 0) {
+        uart.Send(chunk, n);
+      }
+      // Panic masks the TX interrupt and writes the UART raw, so bytes still
+      // pending here would splice mid-packet into the panic stream.
+      const uint32_t drain_start = System::GetInstance().Time().Micros();
+      while (uart.TxPending() > 0 &&
+             (System::GetInstance().Time().Micros() - drain_start) < 20000u) {
+      }
+    }
   }
 }

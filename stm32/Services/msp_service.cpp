@@ -166,7 +166,7 @@ void MspService::Poll(uint32_t now_us) {
     return;
   }
 
-  // Bounded like the GPS drain in the same slow tick: an unbounded loop can
+  // Bounded like the GPS drain in the same main tick: an unbounded loop can
   // consume the whole 1 KB ring plus a reply per frame, blowing the tick budget
   // and starving the fast cascade behind it. Leftovers wait for the next tick.
   uint8_t byte = 0;

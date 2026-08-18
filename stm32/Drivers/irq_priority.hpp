@@ -24,10 +24,10 @@ enum class Tier : uint32_t {
   kPendSv,           // express bottom-half, just under the IMU path
   kSensorTelemetry,  // ESC telemetry, GPS and RC receiver
   kDshotDma,         // motor frame DMA
-  kSlowTick,         // releases one slow-loop pass, and kicks the DShot DMA
   kBackgroundLink,   // ESP32 link, fully background
   kUsb,              // ESC config CDC; host-paced
-  kBootTick,         // coarse boot ms-tick; lowest
+  kBootTick,         // coarse boot ms-tick
+  kEstimator,        // TIM5: estimator + main tick; longest job, so lowest
   kTierCount,
 };
 
@@ -61,12 +61,14 @@ inline constexpr uint32_t kUart6Dma =
 inline constexpr uint32_t kDshotTim1Dma = Of(Tier::kDshotDma);  // DMA2 Stream5
 
 // Background
-inline constexpr uint32_t kTimeBaseTim5 = Of(Tier::kSlowTick);
 inline constexpr uint32_t kUart1 = Of(Tier::kBackgroundLink);  // FcLink USART1
 inline constexpr uint32_t kUart1Dma =
     Of(Tier::kBackgroundLink);  // DMA2 Stream2/7
 inline constexpr uint32_t kUsbOtgFs = Of(Tier::kUsb);
 inline constexpr uint32_t kSysTick = Of(Tier::kBootTick);
+
+// Estimator
+inline constexpr uint32_t kTimeBaseTim5 = Of(Tier::kEstimator);
 
 // Written to AIRCR's PRIGROUP field, which splits the implemented bits between
 // preemption and subpriority. Every bit has to go to preemption or the tiers

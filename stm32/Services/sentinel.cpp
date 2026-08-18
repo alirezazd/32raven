@@ -34,7 +34,7 @@ void Sentinel::Init(SharedState &blackboard, EscService &esc,
   initialized_ = true;
 }
 
-bool Sentinel::RequestArm(AppContext &ctx, bool armed) {
+bool Sentinel::RequestArm(const AppContext &ctx, bool armed) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kSentinelReinit);
   }
@@ -72,7 +72,7 @@ bool Sentinel::RequestArm(AppContext &ctx, bool armed) {
   return true;
 }
 
-void Sentinel::Supervise(AppContext &ctx, uint32_t now_us) {
+void Sentinel::Supervise(const AppContext &ctx, uint32_t now_us) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kSentinelReinit);
   }

@@ -157,14 +157,19 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/icm42688p.cpp
     Drivers/rc_receiver.cpp
     Drivers/ee.cpp
+    Drivers/sdio.cpp
+    Drivers/sd_diskio.cpp
+    ../third_party/fatfs/ff.c
     Core/printf_impl.cpp
     Core/cxa_atexit_stub.cpp
     Core/states.cpp
     Services/m10_service.cpp
+    Services/log_service.cpp
     Services/crsf_link_service.cpp
     Drivers/ee_config_storage.cpp
     Drivers/dshot_codec.cpp
     Services/esc_service.cpp
+    Services/msc_service.cpp
     Services/msp_service.cpp
     Services/four_way_service.cpp
     Drivers/esc_bootloader.cpp
@@ -175,6 +180,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/panic.cpp
     Control/multirotor_mixer.cpp
     Control/ahrs.cpp
+    Control/iekf.cpp
     Control/rate_controller.cpp
     Control/attitude_controller.cpp
     ../libs/error_code.cpp
@@ -197,6 +203,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE
     ../third_party/eigen
+    ../third_party/fatfs
     ../third_party/nanoprintf
 )
 

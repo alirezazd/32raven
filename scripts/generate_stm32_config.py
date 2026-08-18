@@ -22,8 +22,7 @@ import kconfiglib
 
 # Sibling module — pin_constraints.py lives next to this script.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from pin_constraints import PinConstraints  # noqa: E402
-from kconfig_gen import (  # noqa: E402
+from kconfig_gen import (
     autogen_warning,
     choice_value,
     cpp_string_literal,
@@ -32,7 +31,8 @@ from kconfig_gen import (  # noqa: E402
     sym_int,
     sym_str,
 )
-from kconfig_gen import run as run_generator  # noqa: E402
+from kconfig_gen import run as run_generator
+from pin_constraints import PinConstraints
 
 ICM42688P_FIFO_BYTES = 2048
 # Twins of Icm42688pReg::kPacket3Bytes / kPacket4Bytes. HiRes selects Packet4,
@@ -52,6 +52,13 @@ USB_CDC_SERIAL_CHARS = 24
 # and bLength is one byte, so no descriptor can exceed 255.
 USB_STRING_DESCRIPTOR_HEADER_BYTES = 2
 USB_STRING_DESCRIPTOR_MAX_BYTES = 255
+
+# Joined here rather than in the firmware so the buffer below is sized from
+# the longest final string: BuildStringDescriptor truncates silently.
+USB_PRODUCT_SUFFIXES = {
+    "product": " Virtual COM Port",
+    "product_msc": " SD Card",
+}
 
 # Every serial link on this board runs 8N1, so a byte costs ten bit times.
 UART_BITS_PER_BYTE_8N1 = 10
@@ -217,9 +224,7 @@ M10_UART_STOP_BITS_CHOICES = _prefixed(
 M10_UART_PARITY_CHOICES = _prefixed(
     "STM32_GPS_M10_UART_PARITY", _UART_PARITY_VALUES
 )
-M10_UART_MODE_CHOICES = _prefixed(
-    "STM32_GPS_M10_UART_MODE", _UART_MODE_VALUES
-)
+M10_UART_MODE_CHOICES = _prefixed("STM32_GPS_M10_UART_MODE", _UART_MODE_VALUES)
 M10_UART_HW_FLOW_CONTROL_CHOICES = _prefixed(
     "STM32_GPS_M10_UART_HW_FLOW_CONTROL", _UART_HW_FLOW_VALUES
 )
@@ -304,6 +309,7 @@ DSHOT_TIM1_MODE_CHOICES = {
 # only carry the Kconfig-symbol -> C++-enum-value mapping the generator needs
 # to render `kSystemDefault` in stm32_config.hpp.
 
+
 def _rcc_choices(
     enum_cpp_name: str, kconfig_to_value: dict[str, str]
 ) -> dict[str, str]:
@@ -352,6 +358,7 @@ class _SignalPin:
     `pull` defaults to NOPULL but can be overridden for protocol-specific
     idle states (e.g. ESC telemetry RX is a single-wire idle-high line).
     """
+
     board_const: str
     signal: str
     choice_options: dict[str, str]
@@ -372,13 +379,14 @@ class _GpioPin:
     For inputs, `active_low_sym` (when set) auto-selects PULLUP / PULLDOWN
     to match the switch convention.
     """
+
     board_const: str
     port_options: dict[str, str]
     pin_int_symbol: str
-    direction: str = "output"          # "output" | "input"
-    speed: str = "low"                 # output speed; ignored for inputs
-    pull: str | None = None            # input pull; None → derive from active_low
-    active_low: bool = False           # constant (used when active_low_sym is None)
+    direction: str = "output"  # "output" | "input"
+    speed: str = "low"  # output speed; ignored for inputs
+    pull: str | None = None  # input pull; None → derive from active_low
+    active_low: bool = False  # constant (used when active_low_sym is None)
     active_low_sym: str | None = None  # Kconfig bool symbol pinning active_low
 
 
@@ -391,6 +399,7 @@ class _ExtiPin:
     number (EXTI0..4 individual; 5-9 share EXTI9_5; 10-15 share
     EXTI15_10).
     """
+
     board_const: str
     port_options: dict[str, str]
     pin_int_symbol: str
@@ -406,6 +415,7 @@ class _AnalogPin:
     package — only PA0-PA7, PB0-PB1, PC0-PC5 are valid. The generator
     validates the pick and emits a matching `kFooAdcChannel` constant.
     """
+
     board_const: str
     adc_const: str
     port_options: dict[str, str]
@@ -415,9 +425,10 @@ class _AnalogPin:
 # F407V ADC1 input-channel mapping. ADC2 shares the same pinout; ADC3 has a
 # different (smaller) set we don't use.
 _ADC1_CHANNEL_MAP: dict[str, int] = {
-    **{f"PA{n}": n for n in range(8)},      # IN0..IN7
-    "PB0": 8, "PB1": 9,                     # IN8..IN9
-    **{f"PC{n}": 10 + n for n in range(6)}, # IN10..IN15
+    **{f"PA{n}": n for n in range(8)},  # IN0..IN7
+    "PB0": 8,
+    "PB1": 9,  # IN8..IN9
+    **{f"PC{n}": 10 + n for n in range(6)},  # IN10..IN15
 }
 
 _GPIO_PULL_MAP = {
@@ -515,14 +526,13 @@ PINMAP_ENTRIES: tuple = (
         },
     ),
     # USART3 (ESC telemetry): RX-only one-way line from the ESC. PCB routes
-    # to PB11; PC11 / PD9 are the other silicon-valid choices. The line
-    # idles high — pull-up holds it there when the ESC isn't driving.
+    # to PB11; PD9 is the other silicon-valid choice (PC11 is spent on
+    # SDIO_D3). Idles high — the pull-up holds it when the ESC isn't driving.
     _SignalPin(
         board_const="kEscTlmRx",
         signal="USART3_RX",
         choice_options={
             "STM32_ESC_TLM_RX_PIN_PB11": "PB11",
-            "STM32_ESC_TLM_RX_PIN_PC11": "PC11",
             "STM32_ESC_TLM_RX_PIN_PD9": "PD9",
         },
         pull="pullup",
@@ -560,6 +570,56 @@ PINMAP_ENTRIES: tuple = (
         choice_options={
             "STM32_USB_DP_PIN_PA12": "PA12",
         },
+    ),
+    # ---- SD card -------------------------------------------------------
+    # SDIO 4-bit group, bonded out exactly once on this package. CMD and
+    # D0-D3 idle high per the SD spec, backed by the internal pull-ups.
+    _SignalPin(
+        board_const="kSdioD0",
+        signal="SDIO_D0",
+        choice_options={
+            "STM32_SDIO_D0_PIN_PC8": "PC8",
+        },
+        pull="pullup",
+    ),
+    _SignalPin(
+        board_const="kSdioD1",
+        signal="SDIO_D1",
+        choice_options={
+            "STM32_SDIO_D1_PIN_PC9": "PC9",
+        },
+        pull="pullup",
+    ),
+    _SignalPin(
+        board_const="kSdioD2",
+        signal="SDIO_D2",
+        choice_options={
+            "STM32_SDIO_D2_PIN_PC10": "PC10",
+        },
+        pull="pullup",
+    ),
+    _SignalPin(
+        board_const="kSdioD3",
+        signal="SDIO_D3",
+        choice_options={
+            "STM32_SDIO_D3_PIN_PC11": "PC11",
+        },
+        pull="pullup",
+    ),
+    _SignalPin(
+        board_const="kSdioCk",
+        signal="SDIO_CK",
+        choice_options={
+            "STM32_SDIO_CK_PIN_PC12": "PC12",
+        },
+    ),
+    _SignalPin(
+        board_const="kSdioCmd",
+        signal="SDIO_CMD",
+        choice_options={
+            "STM32_SDIO_CMD_PIN_PD2": "PD2",
+        },
+        pull="pullup",
     ),
     # ---- Motors --------------------------------------------------------
     # TIM1 DShot motor outputs. Each channel only routes to PORTA or PORTE
@@ -728,7 +788,8 @@ def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
 
     if word_length_9 and parity_none:
         raise ValueError(
-            "CONFIG_STM32_GPS_M10_UART_WORD_LENGTH_9BITS requires parity on the "
+            "CONFIG_STM32_GPS_M10_UART_WORD_LENGTH_9BITS requires parity "
+            "on the "
             "M10 link; choose 8 bits or enable parity"
         )
 
@@ -832,8 +893,12 @@ def _imu_watermark_records(kconf: kconfiglib.Kconfig) -> int:
     records, remainder = divmod(record_rate_hz, loop_hz)
     if remainder:
         achievable = sorted(
-            {record_rate_hz // n for n in range(1, record_rate_hz + 1)
-             if record_rate_hz % n == 0 and record_rate_hz // n <= record_rate_hz},
+            {
+                record_rate_hz // n
+                for n in range(1, record_rate_hz + 1)
+                if record_rate_hz % n == 0
+                and record_rate_hz // n <= record_rate_hz
+            },
             reverse=True,
         )
         near = [hz for hz in achievable if loop_hz // 2 <= hz <= loop_hz * 2]
@@ -915,7 +980,9 @@ def _validate_pinmap_entry(
             )
 
 
-BOARD_TOML = pathlib.Path(__file__).resolve().parent.parent / "config" / "board.toml"
+BOARD_TOML = (
+    pathlib.Path(__file__).resolve().parent.parent / "config" / "board.toml"
+)
 
 
 def _board_reserved_pins() -> dict[str, str]:
@@ -934,7 +1001,8 @@ def _legal_signal_pins(
     option in turn, so this settles rather than running a single pass.
     """
     available = {
-        entry.signal: {p.pin for p in db.pins_for_signal(entry.signal)} - reserved
+        entry.signal: {p.pin for p in db.pins_for_signal(entry.signal)}
+        - reserved
         for entry in PINMAP_ENTRIES
         if isinstance(entry, _SignalPin)
     }
@@ -956,7 +1024,8 @@ def _legal_signal_pins(
             if not available[signal]:
                 raise ValueError(
                     f"no pin left for {signal}: every pin ST allows on this "
-                    "package is either held by a peripheral with no alternative "
+                    "package is either held by a peripheral with no "
+                    "alternative "
                     "or reserved in config/board.toml"
                 )
 
@@ -995,12 +1064,17 @@ def _validate_pinmap(kconf: kconfiglib.Kconfig) -> None:
             if offered != expected:
                 detail = []
                 if expected - offered:
-                    detail.append(f"never offered: {sorted(expected - offered)}")
+                    detail.append(
+                        f"never offered: {sorted(expected - offered)}"
+                    )
                 if offered - expected:
-                    detail.append(f"offered but spent: {sorted(offered - expected)}")
+                    detail.append(
+                        f"offered but spent: {sorted(offered - expected)}"
+                    )
                 raise ValueError(
                     f"pinmap {entry.board_const}: {entry.signal} offers "
-                    f"{sorted(offered)} but the legal set is {sorted(expected)} "
+                    f"{sorted(offered)} but the legal set is "
+                    f"{sorted(expected)} "
                     f"({'; '.join(detail)})"
                 )
 
@@ -1073,19 +1147,21 @@ def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:
             adc_const = entry.adc_const
             gpio_mode = "GPIO_MODE_ANALOG"
 
-        rendered.append({
-            "name": entry.board_const,
-            "port": f"GPIO{port_letter}",
-            "pin": f"GPIO_PIN_{pin_num}",
-            "af": af,
-            "irqn": irqn,
-            "adc_const": adc_const,
-            "adc_channel": adc_channel,
-            "gpio_mode": gpio_mode,
-            "gpio_pull": gpio_pull,
-            "gpio_speed": gpio_speed,
-            "gpio_active_low": gpio_active_low,
-        })
+        rendered.append(
+            {
+                "name": entry.board_const,
+                "port": f"GPIO{port_letter}",
+                "pin": f"GPIO_PIN_{pin_num}",
+                "af": af,
+                "irqn": irqn,
+                "adc_const": adc_const,
+                "adc_channel": adc_channel,
+                "gpio_mode": gpio_mode,
+                "gpio_pull": gpio_pull,
+                "gpio_speed": gpio_speed,
+                "gpio_active_low": gpio_active_low,
+            }
+        )
     return rendered
 
 
@@ -1096,12 +1172,16 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
     hardware_max_records = _imu_fifo_capacity_records(kconf)
     if watermark_records > hardware_max_records:
         packet_bytes = _imu_packet_bytes(kconf)
+        packet_name = (
+            "Packet4" if packet_bytes == ICM42688P_PACKET4_BYTES else "Packet3"
+        )
         raise ValueError(
-            f"a {sym_int(kconf, 'STM32_CONTROL_LOOP_HZ')} Hz control loop at this gyro "
+            f"a {sym_int(kconf, 'STM32_CONTROL_LOOP_HZ')} Hz control loop "
+            "at this gyro "
             f"ODR needs {watermark_records} FIFO records, over the ICM42688P "
             f"capacity of {hardware_max_records} "
             f"({ICM42688P_FIFO_BYTES} bytes / {packet_bytes}-byte "
-            f"{'Packet4' if packet_bytes == ICM42688P_PACKET4_BYTES else 'Packet3'} "
+            f"{packet_name} "
             "records)"
         )
 
@@ -1190,14 +1270,16 @@ def _validate_gps_link_budget(kconf: kconfiglib.Kconfig) -> None:
 def _validate_battery_sample_budget(kconf: kconfiglib.Kconfig) -> None:
     """The span of one sample against the period it has to fit in.
 
-    Battery::Poll starts one conversion per slow loop pass and collects it on
+    Battery::Poll starts one conversion per main tick and collects it on
     the next, so a sample spans two passes per oversample. Overrunning the
     period would stretch the publish interval that filter_alpha was solved
     against, which the smoothing then no longer matches.
     """
     oversample = sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT")
     tick_hz = sym_int(kconf, "STM32_TIMEBASE_TIM5_TICK_HZ")
-    period_us = sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS") * MICROS_PER_MILLI
+    period_us = (
+        sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS") * MICROS_PER_MILLI
+    )
     pass_us = MICROS_PER_SECOND // tick_hz
     span_us = oversample * 2 * pass_us
     if span_us >= period_us:
@@ -1212,6 +1294,9 @@ def _validate_battery_sample_budget(kconf: kconfiglib.Kconfig) -> None:
 
 
 def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    tilt_rad = math.radians(
+        sym_int(kconf, "STM32_PILOT_STABILIZE_MAX_TILT_DEG")
+    )
     return {
         "acro_max_rate_roll_pitch_milli": sym_int(
             kconf, "STM32_PILOT_ACRO_MAX_RATE_ROLL_PITCH_MILLI"
@@ -1222,9 +1307,7 @@ def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         # Degrees are what the knob states and radians are what the cascade
         # wants, so the conversion happens once here rather than at the use
         # site.
-        "stabilize_max_tilt_rad": (
-            f"{math.radians(sym_int(kconf, 'STM32_PILOT_STABILIZE_MAX_TILT_DEG')):.6f}f"
-        ),
+        "stabilize_max_tilt_rad": f"{tilt_rad:.6f}f",
         # The knob is numbered the way a transmitter numbers channels; the
         # array is not.
         "slot": sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL") - 1,
@@ -1248,24 +1331,29 @@ def _usb_string_descriptor_bytes(kconf: kconfiglib.Kconfig) -> int:
     fixed buffer would cut a long product name in the host's port picker with
     nothing to say it had happened.
     """
-    longest = USB_CDC_SERIAL_CHARS
-    for name in ("STM32_USB_MANUFACTURER", "STM32_USB_PRODUCT"):
-        value = sym_str(kconf, name)
-        if len(value) > longest:
-            longest = len(value)
+    base = sym_str(kconf, "STM32_USB_PRODUCT")
+    candidates = [
+        sym_str(kconf, "STM32_USB_MANUFACTURER"),
+        *(base + suffix for suffix in USB_PRODUCT_SUFFIXES.values()),
+    ]
+    longest = max(USB_CDC_SERIAL_CHARS, *(len(v) for v in candidates))
 
     total = USB_STRING_DESCRIPTOR_HEADER_BYTES + (longest * 2)
     if total > USB_STRING_DESCRIPTOR_MAX_BYTES:
         raise SystemExit(
-            f"USB string of {longest} characters needs a {total}-byte descriptor, "
-            f"over the {USB_STRING_DESCRIPTOR_MAX_BYTES}-byte limit imposed by a "
+            f"USB string of {longest} characters needs a {total}-byte "
+            "descriptor, "
+            f"over the {USB_STRING_DESCRIPTOR_MAX_BYTES}-byte limit "
+            "imposed by a "
             f"single-byte bLength. Shorten STM32_USB_MANUFACTURER or "
             f"STM32_USB_PRODUCT."
         )
     return total
 
 
-def _limits_context(source: pathlib.Path, kconf: kconfiglib.Kconfig) -> dict[str, object]:
+def _limits_context(
+    source: pathlib.Path, kconf: kconfiglib.Kconfig
+) -> dict[str, object]:
     return {
         "autogen_warning": autogen_warning(source),
         "max_watermark_records": _imu_watermark_records(kconf),
@@ -1298,6 +1386,7 @@ APB2_MAX_HZ = 84_000_000
 FLASH_WAIT_STATE_STEP_HZ = 30_000_000
 # The regulator scale caps SYSCLK: the F407 needs scale 1 above this.
 VOLTAGE_SCALE2_MAX_HZ = 144_000_000
+
 
 # RM0090 6.2: a timer on an APB bus runs at PCLK when that bus divides by one,
 # and at twice PCLK otherwise. TIMPRE is never written, so the rule is
@@ -1389,7 +1478,9 @@ def _solve_rcc_clock(kconf: kconfiglib.Kconfig) -> int:
     hse = sym_int(kconf, "STM32_RCC_HSE_HZ")
     use_hse = choice_value(kconf, RCC_OSC_CHOICES).endswith("kHse")
     src_hz = hse if use_hse else HSI_HZ
-    src_name = f"HSE {hse / 1e6:g} MHz" if use_hse else f"HSI {HSI_HZ / 1e6:g} MHz"
+    src_name = (
+        f"HSE {hse / 1e6:g} MHz" if use_hse else f"HSI {HSI_HZ / 1e6:g} MHz"
+    )
 
     pllm = sym_int(kconf, "STM32_RCC_PLL_M")
     plln = sym_int(kconf, "STM32_RCC_PLL_N")
@@ -1499,7 +1590,7 @@ def _rcc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 
 def _spi_prescaler(pclk_hz: int, max_sck_hz: int, who: str) -> str:
-    """Fastest SPI_CR1.BR divider whose SCK still lands at or under max_sck_hz."""
+    """Fastest SPI_CR1.BR divider with SCK at or under max_sck_hz."""
     for divisor in SPI_PRESCALER_DIVISORS:
         if pclk_hz // divisor <= max_sck_hz:
             return f"SpiPrescaler::kDiv{divisor}"
@@ -1510,7 +1601,7 @@ def _spi_prescaler(pclk_hz: int, max_sck_hz: int, who: str) -> str:
 
 
 def _adc_prescaler(pclk2_hz: int) -> int:
-    """Fastest ADC_CCR.ADCPRE setting whose ADCCLK still lands at or under the cap."""
+    """Fastest ADC_CCR.ADCPRE setting with ADCCLK at or under the cap."""
     for bits, divisor in enumerate(ADC_PRESCALER_DIVISORS):
         if pclk2_hz // divisor <= ADC_MAX_CLOCK_HZ:
             return bits
@@ -1526,7 +1617,7 @@ def _timebase_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
     Both timers count microseconds, so one prescaler serves both. TIM2 free-runs
     as the 32-bit microsecond clock; TIM5's period is how many microseconds it
-    counts before releasing a slow-loop pass. A prescaler hand-set against an
+    counts before releasing a main-tick pass. A prescaler hand-set against an
     assumed bus clock is how TIM5 came to tick at 976.74 Hz while every comment
     called it 1 kHz.
     """
@@ -1536,15 +1627,17 @@ def _timebase_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     prescaler, remainder = divmod(timer_hz, MICROS_PER_SECOND)
     if remainder:
         raise ValueError(
-            f"the APB1 timer clock ({timer_hz} Hz) is not a whole number of MHz, "
-            "so no prescaler gives the microsecond tick TIM2 and TIM5 both count"
+            f"the APB1 timer clock ({timer_hz} Hz) is not a whole "
+            "number of MHz, so no prescaler gives the microsecond tick "
+            "TIM2 and TIM5 both count"
         )
 
     tick_hz = sym_int(kconf, "STM32_TIMEBASE_TIM5_TICK_HZ")
     tim5_counts, remainder = divmod(MICROS_PER_SECOND, tick_hz)
     if remainder:
         raise ValueError(
-            f"CONFIG_STM32_TIMEBASE_TIM5_TICK_HZ ({tick_hz} Hz) does not divide "
+            f"CONFIG_STM32_TIMEBASE_TIM5_TICK_HZ ({tick_hz} Hz) does "
+            "not divide "
             f"{MICROS_PER_SECOND}, so the tick would land a fraction of a "
             "microsecond early or late on every period"
         )
@@ -1572,6 +1665,41 @@ def _esc_telemetry_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+# Scheduled log topics, in MsgId order. The estimator stream is absent
+# because it rides the control tick rather than the scheduler.
+LOG_TOPICS = (
+    "rc_input",
+    "battery",
+    "esc_telemetry",
+    "gps",
+    "imu_health",
+    "crsf_link",
+    "logger_status",
+)
+
+
+def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    """Preallocation size plus one cadence per scheduled topic.
+
+    `max_silence` mirrors `period` and `priority` is uniform: this scheduler
+    emits every due topic instead of choosing one, and never suppresses an
+    unchanged payload, so neither field is read. They are emitted so the
+    TopicConfig this renders is the same shape StatPublisher's is.
+    """
+    topics = {
+        name: {
+            "period_ms": sym_int(
+                kconf, f"STM32_LOG_TOPIC_{name.upper()}_PERIOD_MS"
+            ),
+        }
+        for name in LOG_TOPICS
+    }
+    return {
+        "prealloc_mb": sym_int(kconf, "STM32_LOG_PREALLOC_MB"),
+        "topics": topics,
+    }
+
+
 def _usb_cdc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "vendor_id": sym_hex_literal(kconf, "STM32_USB_VENDOR_ID"),
@@ -1579,7 +1707,12 @@ def _usb_cdc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "manufacturer": cpp_string_literal(
             sym_str(kconf, "STM32_USB_MANUFACTURER")
         ),
-        "product": cpp_string_literal(sym_str(kconf, "STM32_USB_PRODUCT")),
+        **{
+            key: cpp_string_literal(
+                sym_str(kconf, "STM32_USB_PRODUCT") + suffix
+            )
+            for key, suffix in USB_PRODUCT_SUFFIXES.items()
+        },
     }
 
 
@@ -1588,11 +1721,15 @@ def _msp_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "board_identifier": cpp_string_literal(
             sym_str(kconf, "STM32_MSP_BOARD_IDENTIFIER")
         ),
-        "board_name": cpp_string_literal(sym_str(kconf, "STM32_MSP_BOARD_NAME")),
+        "board_name": cpp_string_literal(
+            sym_str(kconf, "STM32_MSP_BOARD_NAME")
+        ),
         "manufacturer_id": cpp_string_literal(
             sym_str(kconf, "STM32_MSP_MANUFACTURER_ID")
         ),
-        "craft_name": cpp_string_literal(sym_str(kconf, "STM32_MSP_CRAFT_NAME")),
+        "craft_name": cpp_string_literal(
+            sym_str(kconf, "STM32_MSP_CRAFT_NAME")
+        ),
     }
 
 
@@ -1600,7 +1737,9 @@ def _esc_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "dshot_gap_bits": sym_int(kconf, "STM32_ESC_SERVICE_DSHOT_GAP_BITS"),
         "idle_period_us": sym_int(kconf, "STM32_ESC_SERVICE_IDLE_PERIOD_US"),
-        "command_period_us": sym_int(kconf, "STM32_ESC_SERVICE_COMMAND_PERIOD_US"),
+        "command_period_us": sym_int(
+            kconf, "STM32_ESC_SERVICE_COMMAND_PERIOD_US"
+        ),
         "telemetry_request_period_us": sym_int(
             kconf, "STM32_ESC_SERVICE_TELEMETRY_REQUEST_PERIOD_US"
         ),
@@ -1642,7 +1781,9 @@ def _iir_alpha(cutoff_hz: int, sample_hz: int) -> float:
     """
     if cutoff_hz == 0:
         return 1.0
-    return _iir_alpha_from_tau(1.0 / (2.0 * math.pi * cutoff_hz), 1.0 / sample_hz)
+    return _iir_alpha_from_tau(
+        1.0 / (2.0 * math.pi * cutoff_hz), 1.0 / sample_hz
+    )
 
 
 def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
@@ -1657,16 +1798,21 @@ def _rate_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 kconf, f"STM32_RATE_CTRL_{axis}_SP_RATE_LIMIT"
             ),
             "sp_lpf_alpha": _iir_alpha(
-                sym_int(kconf, f"STM32_RATE_CTRL_{axis}_SP_LPF_CUTOFF_HZ"), loop_hz
+                sym_int(kconf, f"STM32_RATE_CTRL_{axis}_SP_LPF_CUTOFF_HZ"),
+                loop_hz,
             ),
         }
 
     return {
-        "smoothing_enabled": sym_bool(kconf, "STM32_RATE_CTRL_SMOOTHING_ENABLED"),
+        "smoothing_enabled": sym_bool(
+            kconf, "STM32_RATE_CTRL_SMOOTHING_ENABLED"
+        ),
         "integrator_clamp_milli": sym_int(
             kconf, "STM32_RATE_CTRL_INTEGRATOR_CLAMP_MILLI"
         ),
-        "output_clamp_milli": sym_int(kconf, "STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI"),
+        "output_clamp_milli": sym_int(
+            kconf, "STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI"
+        ),
         "d_term_lpf_alpha": _iir_alpha(
             sym_int(kconf, "STM32_RATE_CTRL_DLPF_CUTOFF_HZ"), loop_hz
         ),
@@ -1704,7 +1850,9 @@ def _ahrs_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
-def _attitude_controller_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+def _attitude_controller_context(
+    kconf: kconfiglib.Kconfig,
+) -> dict[str, object]:
     def axis_gains(axis: str) -> dict[str, int]:
         return {
             "kp_milli": sym_int(kconf, f"STM32_ATT_CTRL_{axis}_KP_MILLI"),
@@ -1756,7 +1904,9 @@ def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         },
         "uart": {
             "stop_bits": _UART_STOP_BITS_VALUES[str(FCLINK_UART_STOP_BITS)],
-            "over_sampling": choice_value(kconf, FCLINK_UART_OVERSAMPLING_CHOICES),
+            "over_sampling": choice_value(
+                kconf, FCLINK_UART_OVERSAMPLING_CHOICES
+            ),
         },
     }
 
@@ -1769,14 +1919,18 @@ def _m10_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "stop_bits": choice_value(kconf, M10_UART_STOP_BITS_CHOICES),
             "parity": choice_value(kconf, M10_UART_PARITY_CHOICES),
             "mode": choice_value(kconf, M10_UART_MODE_CHOICES),
-            "hw_flow_control": choice_value(kconf, M10_UART_HW_FLOW_CONTROL_CHOICES),
+            "hw_flow_control": choice_value(
+                kconf, M10_UART_HW_FLOW_CONTROL_CHOICES
+            ),
             "over_sampling": choice_value(kconf, M10_UART_OVERSAMPLING_CHOICES),
         },
         "config": {
             "baud_rate": choice_value(kconf, M10_BAUD_RATE_CHOICES),
             "uart1": {
                 "enabled": sym_bool(kconf, "STM32_GPS_M10_UART_ENABLED"),
-                "stop_bits": choice_value(kconf, M10_CFG_UART_STOP_BITS_CHOICES),
+                "stop_bits": choice_value(
+                    kconf, M10_CFG_UART_STOP_BITS_CHOICES
+                ),
                 "data_bits": _m10_uart_data_bits_value(kconf),
                 "parity": choice_value(kconf, M10_CFG_UART_PARITY_CHOICES),
             },
@@ -1808,7 +1962,9 @@ def _m10_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 "len": sym_int(kconf, "STM32_GPS_M10_TP1_LEN"),
                 "timegrid": choice_value(kconf, M10_TIMEGRID_CHOICES),
                 "sync_gnss": sym_bool(kconf, "STM32_GPS_M10_TP1_SYNC_GNSS"),
-                "align_to_tow": sym_bool(kconf, "STM32_GPS_M10_TP1_ALIGN_TO_TOW"),
+                "align_to_tow": sym_bool(
+                    kconf, "STM32_GPS_M10_TP1_ALIGN_TO_TOW"
+                ),
                 "pol_rising": sym_bool(kconf, "STM32_GPS_M10_TP1_POL_RISING"),
             },
             "ack_timeout_us": sym_int(kconf, "STM32_GPS_M10_ACK_TIMEOUT_US"),
@@ -1864,7 +2020,9 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "accel_cfg1": sym_int(kconf, "STM32_IMU_UI_FILTER_ACCEL_CFG1"),
         },
         "notch": {
-            "freq_hz": f'{float(sym_int(kconf, "STM32_IMU_NOTCH_FREQ_HZ")):.6f}f',
+            "freq_hz": (
+                f"{float(sym_int(kconf, 'STM32_IMU_NOTCH_FREQ_HZ')):.6f}f"
+            ),
             "bw_idx": sym_int(kconf, "STM32_IMU_NOTCH_BW_IDX"),
             "enabled": sym_bool(kconf, "STM32_IMU_NOTCH_ENABLED"),
         },
@@ -1920,7 +2078,9 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "adc_prescaler_bits": _adc_prescaler(
             _solve_rcc_clock(kconf) // _apb_divider(kconf, 2)
         ),
-        "oversample_count": sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT"),
+        "oversample_count": sym_int(
+            kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT"
+        ),
         "filter_alpha": _iir_alpha_from_tau(
             sym_int(kconf, "STM32_BATTERY_FILTER_TIME_CONSTANT_MS"),
             sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS"),
@@ -1937,7 +2097,9 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             kconf, "STM32_BATTERY_CURRENT_SCALE_MA_PER_V"
         ),
         "current_offset_mv": sym_int(kconf, "STM32_BATTERY_CURRENT_OFFSET_MV"),
-        "current_deadband_ma": sym_int(kconf, "STM32_BATTERY_CURRENT_DEADBAND_MA"),
+        "current_deadband_ma": sym_int(
+            kconf, "STM32_BATTERY_CURRENT_DEADBAND_MA"
+        ),
         # Charge already drawn from the pack on the bench is runtime state, not
         # a property of the build: honouring a non-zero value would mean a
         # regenerate, rebuild and reflash between packs. The field stays for
@@ -1949,7 +2111,7 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 def _crsf_periodic_msg_context(
     kconf: kconfiglib.Kconfig, key: str
 ) -> dict[str, object]:
-    """CRSF GPS / battery messages share the same shape; key picks the prefix."""
+    """CRSF GPS/battery messages share one shape; key picks the prefix."""
     prefix = f"STM32_RC_RECEIVER_CRSF_{key.upper()}"
     return {
         "period_ms": sym_int(kconf, f"{prefix}_PERIOD_MS"),
@@ -1963,11 +2125,15 @@ def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "rc_map": _rc_map(kconf),
         "uart": {
-            "baud_rate": choice_value(kconf, RC_RECEIVER_UART_BAUD_RATE_CHOICES),
+            "baud_rate": choice_value(
+                kconf, RC_RECEIVER_UART_BAUD_RATE_CHOICES
+            ),
             "word_length": choice_value(
                 kconf, RC_RECEIVER_UART_WORD_LENGTH_CHOICES
             ),
-            "stop_bits": choice_value(kconf, RC_RECEIVER_UART_STOP_BITS_CHOICES),
+            "stop_bits": choice_value(
+                kconf, RC_RECEIVER_UART_STOP_BITS_CHOICES
+            ),
             "parity": choice_value(kconf, RC_RECEIVER_UART_PARITY_CHOICES),
             "mode": choice_value(kconf, RC_RECEIVER_UART_MODE_CHOICES),
             "hw_flow_control": choice_value(
@@ -2015,6 +2181,7 @@ def _runtime_context(
         "timebase": _timebase_context(kconf),
         "esc_telemetry": _esc_telemetry_context(kconf),
         "esc_service": _esc_service_context(kconf),
+        "log_service": _log_service_context(kconf),
         "usb_cdc": _usb_cdc_context(kconf),
         "msp": _msp_context(kconf),
         "fclink": _fclink_context(kconf),

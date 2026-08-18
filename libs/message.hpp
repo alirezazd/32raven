@@ -41,9 +41,13 @@ enum class MsgId : uint8_t {
   kPanic = 0x14,
   kEscTelemetry = 0x15,
   kPrivilegedArm = 0x16,  // Override the main arming state machine
-  kSetEscConfigMode = 0x17,
+  kSetUsbMode = 0x17,
   kUsbStatus = 0x18,
   kTone = 0x19,
+  kLogList = 0x1B,
+  kLogListReply = 0x1C,
+  kLogRead = 0x1D,
+  kLogData = 0x1E,
   kReboot = 0xC0,
   kBootload = 0xC1,
   kError = 0xEE
@@ -136,9 +140,13 @@ struct GpsData {
   int8_t batt_remaining;  // %
 } __attribute__((packed));
 
-inline constexpr uint8_t kSystemBootStateBooting = 0u;
-inline constexpr uint8_t kSystemBootStateReady = 1u;
-inline constexpr uint8_t kSystemBootStateError = 2u;
+// Wire vocabularies: the enumerator is the transmitted byte -- append only,
+// never renumber. Struct fields stay uint8_t: a peer can send an unknown one.
+enum class BootState : uint8_t {
+  kBooting = 0,
+  kReady,
+  kError,
+};
 
 inline constexpr uint8_t kSystemStatusFlagLoopAlive = 1u << 0;
 
@@ -161,8 +169,10 @@ struct SystemStatusMsg {
   uint8_t flags;
 } __attribute__((packed));
 
-inline constexpr uint8_t kVehicleArmedStateDisarmed = 0u;
-inline constexpr uint8_t kVehicleArmedStateArmed = 1u;
+enum class ArmedState : uint8_t {
+  kDisarmed = 0,
+  kArmed,
+};
 
 inline constexpr uint32_t kVehicleFailsafeFlagRcLoss = 1u << 0;
 inline constexpr uint32_t kVehicleFailsafeFlagBattery = 1u << 1;
@@ -184,14 +194,67 @@ struct PrivilegedArmMsg {
   uint8_t armed;  // 0 = disarm, non-zero = arm
 } __attribute__((packed));
 
-struct SetEscConfigModeMsg {
-  uint8_t enabled;  // 0 = revoke, non-zero = grant
+// One USB port, one personality: a mode rather than a flag per dialect, so
+// two grants cannot disagree about what the port currently is.
+enum class UsbMode : uint8_t {
+  kNone = 0,
+  kEscConfig,
+  kMsc,
+};
+
+struct SetUsbModeMsg {
+  uint8_t mode;
 } __attribute__((packed));
+
+// Log retrieval: host-paced, and the STM32 serves it only while disarmed in
+// Idle. Frames are fixed-size with an inner count, so length checks stay exact.
+
+inline constexpr uint8_t kLogNameLen = 12u;  // 8.3, no terminator
+inline constexpr uint8_t kLogListMaxEntries = 14u;
+inline constexpr uint16_t kLogDataMaxBytes = 232u;
+
+enum class LogStatus : uint8_t {
+  kOk = 0,
+  kBusy,
+  kNotFound,
+  kIoError,
+};
+
+struct LogListMsg {
+  uint8_t first;
+} __attribute__((packed));
+
+struct LogListEntry {
+  char name[kLogNameLen];
+  uint32_t size_bytes;
+} __attribute__((packed));
+
+struct LogListReplyMsg {
+  uint8_t status;
+  uint8_t total;  // files on the card, so the reader knows to page
+  uint8_t first;
+  uint8_t count;  // valid entries below
+  LogListEntry entries[kLogListMaxEntries];
+} __attribute__((packed));
+
+struct LogReadMsg {
+  char name[kLogNameLen];
+  uint32_t offset;
+  uint16_t len;  // capped to kLogDataMaxBytes by the server
+} __attribute__((packed));
+
+struct LogDataMsg {
+  uint32_t offset;
+  uint16_t len;  // valid bytes below; 0 with status Ok means EOF
+  uint8_t status;
+  uint8_t data[kLogDataMaxBytes];
+} __attribute__((packed));
+static_assert(sizeof(LogDataMsg) <= kMaxPayload);
+static_assert(sizeof(LogListReplyMsg) <= kMaxPayload);
 
 inline constexpr uint8_t kUsbStatusAttached = 1u << 0;    // D+ pull-up driven
 inline constexpr uint8_t kUsbStatusConfigured = 1u << 1;  // host enumerated us
 inline constexpr uint8_t kUsbStatusPortOpen = 1u << 2;    // DTR asserted
-inline constexpr uint8_t kUsbStatusEscConfigGranted = 1u << 3;
 
 // ToneMsg carries this value directly, so the enumerators are the wire
 // format: append only, never renumber. kCount bounds the ESP32's score table
@@ -219,6 +282,7 @@ struct ToneMsg {
 
 struct UsbStatusMsg {
   uint8_t flags;
+  uint8_t mode;       // UsbMode, the same one SetUsbModeMsg commands
   uint8_t rx_frames;  // configurator -> flight controller
   uint8_t tx_frames;  // flight controller -> configurator
 } __attribute__((packed));
@@ -282,9 +346,13 @@ inline constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kPanic:
     case MsgId::kEscTelemetry:
     case MsgId::kPrivilegedArm:
-    case MsgId::kSetEscConfigMode:
+    case MsgId::kSetUsbMode:
     case MsgId::kUsbStatus:
     case MsgId::kTone:
+    case MsgId::kLogList:
+    case MsgId::kLogListReply:
+    case MsgId::kLogRead:
+    case MsgId::kLogData:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
@@ -328,8 +396,16 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<EscTelemetryMsg>();
     case MsgId::kPrivilegedArm:
       return len == PayloadLength<PrivilegedArmMsg>();
-    case MsgId::kSetEscConfigMode:
-      return len == PayloadLength<SetEscConfigModeMsg>();
+    case MsgId::kSetUsbMode:
+      return len == PayloadLength<SetUsbModeMsg>();
+    case MsgId::kLogList:
+      return len == PayloadLength<LogListMsg>();
+    case MsgId::kLogListReply:
+      return len == PayloadLength<LogListReplyMsg>();
+    case MsgId::kLogRead:
+      return len == PayloadLength<LogReadMsg>();
+    case MsgId::kLogData:
+      return len == PayloadLength<LogDataMsg>();
     case MsgId::kUsbStatus:
       return len == PayloadLength<UsbStatusMsg>();
     case MsgId::kTone:

@@ -22,6 +22,7 @@ struct UsbCdcConfig {
   uint16_t product_id;
   const char *manufacturer;
   const char *product;
+  const char *product_msc;
 };
 
 class UsbCdc {
@@ -36,18 +37,35 @@ class UsbCdc {
   // services size their frame buffers from this and static_assert against it.
   static constexpr size_t kMaxPayloadBytes = 256;
   static constexpr size_t kFrameOverheadBytes = 16;
-  static constexpr size_t kMaxFrameBytes = kMaxPayloadBytes + kFrameOverheadBytes;
+  static constexpr size_t kMaxFrameBytes =
+      kMaxPayloadBytes + kFrameOverheadBytes;
 
-  // One slot is spent on RingBuffer's full/empty discrimination, so a ring
-  // holds Size - 1 bytes. TX must swallow a whole frame in one push: a short
-  // write is dropped rather than truncated, which costs the host a timeout. RX
-  // additionally keeps one bulk packet free, because the driver refuses to
-  // re-arm the OUT endpoint below that and the host is NAKed until it can.
-  static constexpr size_t kTxRingSize = kMaxFrameBytes + 1;
+  // +1 is RingBuffer's full/empty slot. 1 KB refilled per 1 kHz tick is the
+  // full-speed bulk ceiling; RX needs a spare bulk packet or the driver will
+  // not re-arm the OUT endpoint.
+  static constexpr size_t kTxRingSize = 1024u + 1u;
+  static_assert(kTxRingSize > kMaxFrameBytes);
   static constexpr size_t kRxRingSize =
       kMaxFrameBytes + kBulkMaxPacketBytes + 1;
 
+  // Switched only while detached: a live host has cached the descriptors.
+  enum class ClassMode : uint8_t { kCdc, kMsc };
+
   static UsbCdc &GetInstance();
+
+  void SetClassMode(ClassMode mode);
+  ClassMode GetClassMode() const { return mode_; }
+
+  // MSC's failed-command signalling: BOT stalls the bulk IN endpoint and the
+  // host clears it with CLEAR_FEATURE. CDC never stalls a data endpoint.
+  void StallBulkIn();
+  bool BulkInHalted() const { return ep_in_halted_; }
+
+  // Bumped by the Bulk-Only Mass Storage Reset class request. The consumer
+  // compares and resynchronises; nothing is cleared from interrupt context.
+  uint32_t MscResetCount() const { return msc_reset_count_; }
+
+  size_t TxFree() const { return tx_ring_.Capacity() - tx_ring_.Available(); }
 
   // Samples the SOF frame counter. Unplugging raises no interrupt with VBUS
   // sensing off, and the core's suspend flag was measured never to set on
@@ -128,6 +146,7 @@ class UsbCdc {
   void CloseDataEndpoints();
   void ArmBulkOut();
   void PumpTx();
+  void SetBulkHalt(bool in, bool halt);
 
   UsbCdcConfig cfg_{};
   bool initialized_ = false;
@@ -145,10 +164,19 @@ class UsbCdc {
   bool ctrl_out_is_line_coding_ = false;
 
   uint8_t bulk_out_buf_[kBulkMaxPacketBytes]{};
+  // Reassembles a packet the TX ring's wrap split in two.
+  uint8_t tx_stage_[kBulkMaxPacketBytes]{};
   uint8_t ctrl_out_buf_[kEp0MaxPacketBytes]{};
 
   // One buffer suffices: only one control transfer is ever live.
   uint8_t string_desc_buf_[stm32_limits::kUsbCdcStringDescriptorBytes]{};
+  uint8_t status_reply_[2]{};
+  uint8_t max_lun_reply_ = 0;
+
+  ClassMode mode_ = ClassMode::kCdc;
+  volatile bool ep_in_halted_ = false;
+  volatile bool ep_out_halted_ = false;
+  volatile uint32_t msc_reset_count_ = 0;
 
   volatile bool attached_ = false;
   volatile bool bulk_out_stalled_ = false;

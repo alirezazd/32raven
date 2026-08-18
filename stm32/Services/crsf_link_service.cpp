@@ -262,7 +262,7 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
     case TelemetryTopic::kGps: {
       const GpsData &gps = blackboard_->GetGps();
       if (gps.timestamp_us == 0 ||
-          (uint32_t)(now_us - gps.timestamp_us) > cfg_.gps_fresh_timeout_us) {
+          (now_us - gps.timestamp_us) > cfg_.gps_fresh_timeout_us) {
         return std::nullopt;
       }
       frame.type = kCrsfFrameTypeGps;

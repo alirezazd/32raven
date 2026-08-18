@@ -10,6 +10,8 @@
 #include "message.hpp"
 #include "panic.hpp"
 #include "rc_receiver.hpp"
+#include "state_machine.hpp"
+#include "states.hpp"  // IWYU pragma: keep
 #include "system.hpp"
 
 CommandHandler &CommandHandler::GetInstance() {
@@ -17,7 +19,7 @@ CommandHandler &CommandHandler::GetInstance() {
   return instance;
 }
 
-static void OnPing(AppContext &ctx, const message::Packet &pkt) {
+static void OnPing(const AppContext &ctx, const message::Packet &pkt) {
   (void)pkt;
   message::Packet tx_pkt;
   tx_pkt.header.id = (uint8_t)message::MsgId::kPong;
@@ -25,7 +27,7 @@ static void OnPing(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->FcLinkSvc().Send(tx_pkt);
 }
 
-static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
+static void OnRcChannels(const AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kRcChannels,
                                      pkt.header.len)) {
     return;
@@ -35,7 +37,7 @@ static void OnRcChannels(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->RcRx().ProcessRawState(rc, ctx.sys->Time().Micros());
 }
 
-static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
+static void OnReqRcMap(const AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kReqRcMap,
                                      pkt.header.len)) {
     return;
@@ -48,7 +50,8 @@ static void OnReqRcMap(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->FcLinkSvc().SendRcMapConfig(rc_map);
 }
 
-static void OnReqRcCalibration(AppContext &ctx, const message::Packet &pkt) {
+static void OnReqRcCalibration(const AppContext &ctx,
+                               const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kReqRcCalibration,
                                      pkt.header.len)) {
     return;
@@ -85,7 +88,8 @@ static message::RcCalibrationConfigMsg GetRcCalibrationConfigMsg(
   return rc_cal;
 }
 
-static void OnSetRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
+static void OnSetRcMapConfig(const AppContext &ctx,
+                             const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kSetRcMapConfig,
                                      pkt.header.len)) {
     return;
@@ -103,7 +107,8 @@ static void OnSetRcMapConfig(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->FcLinkSvc().SendRcMapConfig(rc_map);
 }
 
-static void OnSetRcCalibration(AppContext &ctx, const message::Packet &pkt) {
+static void OnSetRcCalibration(const AppContext &ctx,
+                               const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kSetRcCalibrationConfig,
                                      pkt.header.len)) {
     return;
@@ -122,7 +127,7 @@ static void OnSetRcCalibration(AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->FcLinkSvc().SendRcCalibrationConfig(rc_cal);
 }
 
-static void OnReqGyroCalibrationId(AppContext &ctx,
+static void OnReqGyroCalibrationId(const AppContext &ctx,
                                    const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kReqGyroCalibrationId,
                                      pkt.header.len)) {
@@ -138,7 +143,8 @@ static void OnReqGyroCalibrationId(AppContext &ctx,
   ctx.sys->FcLinkSvc().SendGyroCalibrationIdConfig(cfg);
 }
 
-static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
+static void OnReqReceiverBind(const AppContext &ctx,
+                              const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kReqReceiverBind,
                                      pkt.header.len)) {
     return;
@@ -152,7 +158,7 @@ static void OnReqReceiverBind(AppContext &ctx, const message::Packet &pkt) {
 // arming state machine. Trust model matches kReboot/kBootload (gated only by
 // FCLink access). Used by test fixtures to drive non-zero mixer outputs
 // without physical RC stick gestures.
-static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
+static void OnPrivilegedArm(const AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kPrivilegedArm,
                                      pkt.header.len)) {
     return;
@@ -167,16 +173,62 @@ static void OnPrivilegedArm(AppContext &ctx, const message::Packet &pkt) {
   }
 }
 
-static void OnSetEscConfigMode(AppContext &ctx, const message::Packet &pkt) {
-  if (!message::IsPayloadLengthValid(message::MsgId::kSetEscConfigMode,
+// Revoke before grant: UsbCdc refuses to swap class descriptors while
+// attached, so granting first leaves the new dialect on the old descriptors.
+static void OnSetUsbMode(const AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kSetUsbMode,
                                      pkt.header.len)) {
     return;
   }
-  const auto &req = message::PayloadAs<message::SetEscConfigModeMsg>(pkt);
-  ctx.sys->MspSvc().SetEscConfigMode(req.enabled != 0u);
+  const auto mode = static_cast<message::UsbMode>(
+      message::PayloadAs<message::SetUsbModeMsg>(pkt).mode);
+
+  if (mode != message::UsbMode::kEscConfig) {
+    ctx.sys->MspSvc().SetEscConfigMode(false);
+  }
+  if (mode != message::UsbMode::kMsc) {
+    ctx.sys->MscSvc().SetMscMode(false);
+  }
+  if (mode == message::UsbMode::kEscConfig) {
+    ctx.sys->MspSvc().SetEscConfigMode(true);
+  } else if (mode == message::UsbMode::kMsc) {
+    ctx.sys->MscSvc().SetMscMode(true);
+  }
 }
 
-static const Dispatcher<AppContext>::Entry kHandlers[] = {
+// Outside Idle the card belongs to the flight (armed) or to the host (MSC).
+static void OnLogList(const AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kLogList,
+                                     pkt.header.len)) {
+    return;
+  }
+  const auto &req = message::PayloadAs<message::LogListMsg>(pkt);
+  message::LogListReplyMsg reply{};
+  if (ctx.sm->CurrentState() != ctx.idle_state) {
+    reply.status = static_cast<uint8_t>(message::LogStatus::kBusy);
+  } else {
+    ctx.sys->LogSvc().ListLogs(req.first, reply);
+  }
+  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kLogListReply, reply);
+}
+
+static void OnLogRead(const AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kLogRead,
+                                     pkt.header.len)) {
+    return;
+  }
+  const auto &req = message::PayloadAs<message::LogReadMsg>(pkt);
+  message::LogDataMsg reply{};
+  if (ctx.sm->CurrentState() != ctx.idle_state) {
+    reply.offset = req.offset;
+    reply.status = static_cast<uint8_t>(message::LogStatus::kBusy);
+  } else {
+    ctx.sys->LogSvc().ReadLog(req, reply);
+  }
+  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kLogData, reply);
+}
+
+static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPing, OnPing},
     {message::MsgId::kReqRcMap, OnReqRcMap},
     {message::MsgId::kReqRcCalibration, OnReqRcCalibration},
@@ -186,14 +238,17 @@ static const Dispatcher<AppContext>::Entry kHandlers[] = {
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
-    {message::MsgId::kSetEscConfigMode, OnSetEscConfigMode},
+    {message::MsgId::kSetUsbMode, OnSetUsbMode},
+    {message::MsgId::kLogList, OnLogList},
+    {message::MsgId::kLogRead, OnLogRead},
 };
 
-static const Dispatcher<AppContext> kDispatcher(kHandlers);
+static const Dispatcher<const AppContext> kDispatcher(kHandlers);
 
 void CommandHandler::Init() {}
 
-bool CommandHandler::Dispatch(AppContext &ctx, const message::Packet &pkt) {
+bool CommandHandler::Dispatch(const AppContext &ctx,
+                              const message::Packet &pkt) {
   if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
     return false;
   }

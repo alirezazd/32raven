@@ -17,22 +17,22 @@ static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 
 static uint32_t g_fault_led_last_toggle_us = 0;
 
-static uint32_t g_slow_loop_counter = 0;
+static uint32_t g_main_tick_counter = 0;
 
-static void StepSlow(AppContext &ctx, SmTick now);
+static void MainTick(AppContext &ctx);
 
 static void EnterFlightLoop(AppContext &ctx, IControlTickState *state) {
   ctx.control_tick_state = state;
   ctx.sys->ResumeFlightComponents();
 }
 
-static void StepFlightLoop(AppContext &ctx, SmTick now) {
+static void StepFlightLoop(AppContext &ctx) {
   const uint32_t ticks = ctx.sys->Time().ConsumeTim5Ticks();
   if (ticks == 0) {
     return;
   }
 
-  StepSlow(ctx, now);
+  MainTick(ctx);
 }
 
 static void ControlTickFlightLoop(AppContext &ctx) {
@@ -42,6 +42,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   const EstimatorState estimate =
       ctx.sys->AhrsSvc().Process(ctx.sys->Blackboard());
   ctx.sys->Blackboard().UpdateEstimate(estimate);
+  ctx.sys->LogSvc().PushEstimate(estimate);
 
   // Cascade: sticks → rate_sp → rate PID → torque → mixer → DShot.
   // Mixer and ESC both read the blackboard's armed flag, which Sentinel is
@@ -133,8 +134,8 @@ static void ControlTickFlightLoop(AppContext &ctx) {
     const Eigen::Quaternionf q_desired = q_yaw * q_rp;
 
     const Eigen::Vector3f attitude_rate_sp =
-        ctx.sys->AttitudeControllerSvc().Step(
-            q_desired, estimate.attitude_world_to_body);
+        ctx.sys->AttitudeControllerSvc().Step(q_desired,
+                                              estimate.attitude_world_to_body);
     rate_sp = attitude_rate_sp;
     // Yaw bypasses the attitude loop — stick = desired yaw rate.
     rate_sp.z() = RcReceiver::NormalizedAxis(rc.yaw_us) * max_rate_yaw;
@@ -176,12 +177,12 @@ static void ControlTickFlightLoop(AppContext &ctx) {
                                             stick);
 }
 
-static void StepSlow(AppContext &ctx, SmTick now) {
+static void MainTick(AppContext &ctx) {
   auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
   ctx.sys->SentinelSvc().Supervise(ctx, micros());
 
   UsbCdc::GetInstance().Poll(micros());
-  ctx.sys->StatPubSvc().Poll(ctx, micros(), g_slow_loop_counter);
+  ctx.sys->StatPubSvc().Poll(ctx, micros(), g_main_tick_counter);
 
   auto &btn = ctx.sys->Btn();
   btn.Poll(micros() / 1000u);
@@ -189,7 +190,7 @@ static void StepSlow(AppContext &ctx, SmTick now) {
     ctx.sys->Led().Toggle();
   }
 
-  g_slow_loop_counter++;
+  g_main_tick_counter++;
 
   if (ctx.sys->Blackboard().GetImuHealth().path_faults != 0) {
     const uint32_t current_us = micros();
@@ -200,7 +201,6 @@ static void StepSlow(AppContext &ctx, SmTick now) {
       ctx.sys->Led().Toggle();
       g_fault_led_last_toggle_us = current_us;
     }
-
   }
 
   ctx.sys->FcLinkSvc().Poll();
@@ -208,6 +208,8 @@ static void StepSlow(AppContext &ctx, SmTick now) {
   ctx.sys->EscSvc().Poll(micros());
 
   ctx.sys->Batt().Poll(micros());
+
+  ctx.sys->LogSvc().Poll(micros());
 
   ctx.sys->MspSvc().Poll(micros());
 
@@ -252,27 +254,28 @@ static void StepSlow(AppContext &ctx, SmTick now) {
   }
 }
 
-void IdleState::OnControlTick(AppContext &ctx) {
-  ControlTickFlightLoop(ctx);
-}
+void IdleState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
 
-void ArmedState::OnControlTick(AppContext &ctx) {
-  ControlTickFlightLoop(ctx);
-}
+void ArmedState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
 
 void IdleState::OnEnter(AppContext &ctx) {
   EnterFlightLoop(ctx, this);
+  // Idempotent: this entry is the disarm edge when a flight just ended.
+  ctx.sys->LogSvc().StopFlight();
   ctx.sys->Led().Set(false);
 }
 
-void IdleState::OnStep(AppContext &ctx, SmTick now) {
-  StepFlightLoop(ctx, now);
+void IdleState::OnStep(AppContext &ctx) {
+  StepFlightLoop(ctx);
 
-  // ESC configuration is reachable only from here. That is what makes the
-  // interlock structural: there is no edge from Armed, so a session cannot
-  // start on a vehicle whose motors are live.
+  // No edge to these from Armed, which is what makes the interlock
+  // structural: no session can start on a vehicle whose motors are live.
   if (ctx.sys->MspSvc().EscConfigGranted()) {
     ctx.sm->ReqTransition(*ctx.esc_config_state);
+    return;
+  }
+  if (ctx.sys->MscSvc().MscGranted()) {
+    ctx.sm->ReqTransition(*ctx.msc_state);
     return;
   }
 
@@ -283,11 +286,12 @@ void IdleState::OnStep(AppContext &ctx, SmTick now) {
 
 void ArmedState::OnEnter(AppContext &ctx) {
   EnterFlightLoop(ctx, this);
+  ctx.sys->LogSvc().StartFlight(ctx.now_us);
   ctx.sys->Led().Set(true);
 }
 
-void ArmedState::OnStep(AppContext &ctx, SmTick now) {
-  StepFlightLoop(ctx, now);
+void ArmedState::OnStep(AppContext &ctx) {
+  StepFlightLoop(ctx);
 
   if (!ctx.sys->Blackboard().IsArmed()) {
     ctx.sm->ReqTransition(*ctx.idle_state);
@@ -303,8 +307,7 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().Set(true);
 }
 
-void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
-  (void)now;
+void EscConfigState::OnStep(AppContext &ctx) {
   if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
     return;
   }
@@ -317,9 +320,7 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   // there is no count to report.
   ctx.sys->StatPubSvc().Poll(ctx, current_time, 0u);
 
-  // AM32 reboots itself half a second after the DShot stream stops, replaying
-  // its startup tune for as long as the mode is held. Passthrough is where the
-  // pins change hands; until then they are still TIM1's.
+  // Gated because passthrough hands the pins to the bit-bang.
   if (!ctx.sys->FourWaySvc().IsActive()) {
     ctx.sys->EscSvc().Poll(current_time);
   }
@@ -327,6 +328,30 @@ void EscConfigState::OnStep(AppContext &ctx, SmTick now) {
   ctx.sys->FcLinkSvc().Poll();
 
   if (!ctx.sys->MspSvc().EscConfigGranted()) {
+    ctx.sm->ReqTransition(*ctx.idle_state);
+  }
+}
+
+void MscState::OnEnter(AppContext &ctx) {
+  // The card changed hands in SetMscMode, before attach.
+  ctx.control_tick_state = nullptr;
+  ctx.sys->SuspendFlightComponents();
+  ctx.sys->Led().Set(true);
+}
+
+void MscState::OnStep(AppContext &ctx) {
+  if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
+    return;
+  }
+
+  const uint32_t current_time = ctx.sys->Time().Micros();
+
+  UsbCdc::GetInstance().Poll(current_time);
+  ctx.sys->MscSvc().Poll(current_time);
+  ctx.sys->StatPubSvc().Poll(ctx, current_time, 0u);
+  ctx.sys->FcLinkSvc().Poll();
+
+  if (!ctx.sys->MscSvc().MscGranted()) {
     ctx.sm->ReqTransition(*ctx.idle_state);
   }
 }

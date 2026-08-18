@@ -12,7 +12,7 @@ class CommandHandler {
   static CommandHandler &GetInstance();
 
   void Init();
-  bool Dispatch(AppContext &ctx, const message::Packet &pkt);
+  bool Dispatch(const AppContext &ctx, const message::Packet &pkt);
 
  private:
   CommandHandler() = default;

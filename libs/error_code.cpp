@@ -149,6 +149,20 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 sentinel re-init or used before init";
     case ErrorCode::Stm32::kUsbReinit:
       return "USB CDC re-init";
+    case ErrorCode::Stm32::kSdioReinit:
+      return "STM32 SDIO re-init";
+    case ErrorCode::Stm32::kLogServiceReinit:
+      return "STM32 log service re-init";
+    case ErrorCode::Stm32::kMscServiceReinit:
+      return "STM32 MSC service re-init";
+    case ErrorCode::Stm32::kSdCardMissing:
+      return "No SD card detected";
+    case ErrorCode::Stm32::kSdCardCorrupted:
+      return "Corrupted SD card";
+    case ErrorCode::Stm32::kSdCardFull:
+      return "SD card full";
+    case ErrorCode::Stm32::kHardFault:
+      return "STM32 hard fault";
   }
   return "Unknown error";
 }

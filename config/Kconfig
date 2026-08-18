@@ -609,20 +609,19 @@ config ESP32_FCLINK_INVALID_PACKET_THRESHOLD
       is considered unavailable. Invalid packets are those that fail basic
       parsing checks such as header magic bytes and length limits.
 
-config ESP32_FCLINK_HANDSHAKE_ATTEMPTS
-    int "Handshake attempts"
-    range 1 1000
-    default 100
+config ESP32_FCLINK_HANDSHAKE_WINDOW_S
+    int "Handshake window (s)"
+    range 1 10
+    default 5
     help
-      Number of ping attempts made during the ESP32 FcLink startup handshake
-      before the link is considered unavailable.
+      How long the ESP32 pings the STM32 at startup before calling the link
+      unavailable. One ping goes out every FcLink::kHandshakeRetryPeriodMs,
+      and the attempt count is derived from the two.
 
-config ESP32_FCLINK_HANDSHAKE_RETRY_PERIOD_MS
-    int "Handshake retry period (ms)"
-    range 1 1000
-    default 20
-    help
-      Delay between consecutive FcLink handshake attempts.
+      The window has to outlast the STM32's slowest boot -- a card that needs
+      mounting and a fresh log preallocated pushes that out by seconds. A peer
+      that answers or panics inside the window reports what actually happened;
+      one that misses it is indistinguishable from a dead wire.
 
 endmenu
 
@@ -1073,9 +1072,6 @@ choice
 config STM32_ESC_TLM_RX_PIN_PB11
     bool "PB11 (AF7)"
 
-config STM32_ESC_TLM_RX_PIN_PC11
-    bool "PC11 (AF7)"
-
 config STM32_ESC_TLM_RX_PIN_PD9
     bool "PD9 (AF7)"
 
@@ -1122,6 +1118,41 @@ config STM32_USB_DM_PIN_PA11
     default y
 
 config STM32_USB_DP_PIN_PA12
+    bool
+    default y
+
+endmenu
+
+menu "SD Card (SDIO)"
+
+# The DevEBox board routes its microSD slot to the SDIO peripheral, whose
+# 4-bit group is bonded out exactly once on this package. These symbols keep
+# the pins in the generated pin map and under its collision checks; there is
+# nothing to choose.
+
+comment "PC8-PC12/PD2 are fixed: the package bonds out no other SDIO group"
+
+config STM32_SDIO_D0_PIN_PC8
+    bool
+    default y
+
+config STM32_SDIO_D1_PIN_PC9
+    bool
+    default y
+
+config STM32_SDIO_D2_PIN_PC10
+    bool
+    default y
+
+config STM32_SDIO_D3_PIN_PC11
+    bool
+    default y
+
+config STM32_SDIO_CK_PIN_PC12
+    bool
+    default y
+
+config STM32_SDIO_CMD_PIN_PD2
     bool
     default y
 
@@ -1655,6 +1686,11 @@ config STM32_USB_PRODUCT_ID
       virtual COM port (0x5740), which pairs with the default vendor ID to
       form the identity configurators recognise.
 
+      This claims two consecutive IDs, not one: mass storage reports
+      idProduct + 1. Hosts cache a driver against VID:PID, so the CDC port
+      and the SD card have to enumerate as different products or a machine
+      that saw one would bind its driver to the other.
+
 config STM32_USB_MANUFACTURER
     string "Manufacturer string"
     default "32Raven"
@@ -1663,11 +1699,15 @@ config STM32_USB_MANUFACTURER
       host's device listing.
 
 config STM32_USB_PRODUCT
-    string "Product string"
-    default "32Raven Virtual COM Port"
+    string "Product name"
+    default "32Raven"
     help
-      iProduct string descriptor. Cosmetic — shown by lsusb and in the host's
-      port picker alongside the serial number.
+      Base of the iProduct string descriptor. Cosmetic — shown by lsusb and
+      in the host's port picker alongside the serial number.
+
+      Each USB mode appends its own suffix, so this names the board rather
+      than the function: "32Raven" enumerates as "32Raven Virtual COM Port"
+      for the ESC-config port and "32Raven SD Card" for mass storage.
 
 endmenu
 
@@ -3093,6 +3133,104 @@ config STM32_ESC_SERVICE_FIRMWARE_CHECKS
       ESC first reports; an ESC that never reports is not a failure, so a
       bench session with no battery still runs. Turn this off only to bring
       up an ESC whose settings are known wrong.
+
+endmenu
+
+menu "Log Service"
+
+config STM32_LOG_PREALLOC_MB
+    int "Blackbox log preallocation (MB)"
+    range 16 1024
+    default 256
+    help
+      Each flight records into one contiguous file preallocated at this size,
+      so arming never waits on FAT work and the in-flight path writes raw
+      sectors. The file is truncated to what was actually written at disarm.
+      Preallocation fails, and logging with it, once the card has no
+      contiguous run this large left.
+
+# Cadences for the scheduled topics. The estimator stream is absent on
+# purpose: it rides the control tick and its rate is CONTROL_LOOP_HZ.
+#
+# Defaults come from PX4's logger, src/modules/logger/logged_topics.cpp,
+# add_default_topics(), taking the nearest equivalent topic. Two of ours
+# each cover two of theirs, and the faster of the pair wins:
+#   rc_input      input_rc 500 ms + manual_control_setpoint 200 ms  -> 200
+#   crsf_link     input_rc 500 ms + radio_status (event-driven)     -> 100
+# crsf_link is faster than either because a link dropout is a sub-second
+# event, and a per-second sample only ever says the link was fine on average.
+#
+# One semantic difference from PX4 worth knowing: PX4 reads interval 0 as
+# "log at the topic's full rate", this scheduler reads 0 as "disabled". So
+# esc_telemetry cannot express PX4's uncapped esc_status; 20 ms is one full
+# request round across four motors, which is as fast as new data exists.
+
+config STM32_LOG_TOPIC_RC_INPUT_PERIOD_MS
+    int "RC input period (ms)"
+    range 0 60000
+    default 200
+    help
+      Receiver channels as reported, plus the four mapped stick values. Set
+      to 0 to disable. PX4: manual_control_setpoint 200 ms.
+
+config STM32_LOG_TOPIC_BATTERY_PERIOD_MS
+    int "Battery period (ms)"
+    range 0 60000
+    default 200
+    help
+      Pack voltage, current, mAh drawn and the percentage estimate. Set to 0
+      to disable. PX4: battery_status 200 ms.
+
+config STM32_LOG_TOPIC_ESC_TELEMETRY_PERIOD_MS
+    int "ESC telemetry period (ms)"
+    range 0 60000
+    default 0
+    help
+      Per-motor RPM, voltage, current and temperature.
+
+      Disabled on purpose, not by oversight. The four motors answer their own
+      requests and carry their own timestamps, so a record with one timestamp
+      dates itself by a motor the reader cannot identify, and a motor that
+      goes quiet is inferred rather than seen. Recording something misleading
+      is worse than recording nothing, so this stays off until the record
+      shape is right -- see #33. Set to 20 (one full round-robin across four
+      motors) to turn it back on as it stands.
+
+config STM32_LOG_TOPIC_GPS_PERIOD_MS
+    int "GPS period (ms)"
+    range 0 60000
+    default 100
+    help
+      Position, velocity, heading and fix quality. Set to 0 to disable.
+      PX4: vehicle_gps_position 100 ms.
+
+config STM32_LOG_TOPIC_IMU_HEALTH_PERIOD_MS
+    int "IMU health period (ms)"
+    range 0 60000
+    default 200
+    help
+      Sample-path counters: publishes, path faults, overruns, DMA and SPI
+      failures, parse failures, drops. Set to 0 to disable. PX4:
+      sensors_status_imu 200 ms.
+
+config STM32_LOG_TOPIC_CRSF_LINK_PERIOD_MS
+    int "CRSF link period (ms)"
+    range 0 60000
+    default 100
+    help
+      Uplink and downlink RSSI, link quality, SNR, RF mode and TX power. Set
+      to 0 to disable. Faster than PX4's nearest equivalent on purpose: a
+      dropout is sub-second, so a slower sample cannot show one.
+
+config STM32_LOG_TOPIC_LOGGER_STATUS_PERIOD_MS
+    int "Logger status period (ms)"
+    range 0 60000
+    default 200
+    help
+      The logger's own account of itself: bytes dropped for a full ring, and
+      write errors. Set to 0 to disable, though a log that cannot say it lost
+      data is the one case where this costs more than it saves. PX4:
+      logger_status 200 ms.
 
 endmenu
 

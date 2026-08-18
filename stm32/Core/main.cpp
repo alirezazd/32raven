@@ -13,6 +13,7 @@ StateMachine<AppContext> sm(app);
 IdleState idle_state;
 ArmedState armed_state;
 EscConfigState esc_config_state;
+MscState msc_state;
 
 }  // namespace
 
@@ -36,12 +37,15 @@ int main(void) {
   app.idle_state = &idle_state;
   app.armed_state = &armed_state;
   app.esc_config_state = &esc_config_state;
+  app.msc_state = &msc_state;
   System::GetInstance().GetCommandHandler().Init();
   System::GetInstance().FcLinkSvc().Init(&app);
 
+  app.now_us = app.sys->Time().Micros();
   sm.Start(idle_state);
   while (1) {
-    app.sm->Step(app.sys->Time().Micros());
+    app.now_us = app.sys->Time().Micros();
+    app.sm->Step();
     app.sys->Wdg().Kick();  // main-loop liveness; wedged loop -> reset
     __WFI();
   }

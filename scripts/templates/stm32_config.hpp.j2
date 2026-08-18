@@ -17,6 +17,7 @@
 #include "gpio.hpp"
 #include "icm42688p.hpp"
 #include "led.hpp"
+#include "log_service.hpp"
 #include "m10.hpp"
 #include "msp_service.hpp"
 #include "multirotor_mixer.hpp"
@@ -355,6 +356,19 @@ inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
     .response_timeout_us = {{ esc_telemetry.response_timeout_us }},
 };
 
+inline constexpr LogService::Config kLogServiceConfig = {
+    .prealloc_mb = {{ log_service.prealloc_mb }}u,
+{% for name in ["rc_input", "battery", "esc_telemetry", "gps", "imu_health",
+                "crsf_link", "logger_status"] %}
+{% set topic = log_service.topics[name] %}
+    .{{ name }} = {
+        .period = {{ topic.period_ms }}u * 1000u,
+        .max_silence = {{ topic.period_ms }}u * 1000u,
+        .priority = 1u,
+    },
+{% endfor %}
+};
+
 static_assert(kEscTelemetryConfig.response_timeout_us >
                   EscTelemetry::kMinResponseTimeoutUs,
               "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US is shorter than "
@@ -366,6 +380,7 @@ inline constexpr UsbCdcConfig kUsbCdcConfig = {
     .product_id = {{ usb_cdc.product_id }},
     .manufacturer = {{ usb_cdc.manufacturer }},
     .product = {{ usb_cdc.product }},
+    .product_msc = {{ usb_cdc.product_msc }},
 };
 
 {# Fixed by the ESC bootloader, not by this board: AM32 and BLHeli listen at

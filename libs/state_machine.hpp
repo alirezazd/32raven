@@ -2,16 +2,13 @@
 // Copyright (C) 2026 Alireza Azadi
 
 #pragma once
-#include <cstdint>
-
-using SmTick = uint32_t;
 
 template <typename Context>
 struct IState {
   virtual ~IState() = default;
   virtual const char *Name() const = 0;
   virtual void OnEnter(Context &ctx) { (void)ctx; }
-  virtual void OnStep(Context &ctx, SmTick now) = 0;
+  virtual void OnStep(Context &ctx) = 0;
 };
 
 template <typename Context>
@@ -25,21 +22,21 @@ class StateMachine {
     current_->OnEnter(ctx_);
   }
 
-  void Step(SmTick now) {
+  void Step() {
     // Apply any pending transition first
     if (next_) {
       IState<Context> *t = next_;
       next_ = nullptr;  // clear BEFORE transition
-      TransitionTo(*t, now);
+      TransitionTo(*t);
     }
 
-    if (current_) current_->OnStep(ctx_, now);
+    if (current_) current_->OnStep(ctx_);
 
     // Apply transition requested during on_step
     if (next_) {
       IState<Context> *t = next_;
       next_ = nullptr;
-      TransitionTo(*t, now);
+      TransitionTo(*t);
     }
   }
 
@@ -52,7 +49,7 @@ class StateMachine {
   const IState<Context> *CurrentState() const { return current_; }
 
  private:
-  void TransitionTo(IState<Context> &target, SmTick now) {
+  void TransitionTo(IState<Context> &target) {
     if (current_ == &target) return;  // ignore self transition
     current_ = &target;
     current_->OnEnter(ctx_);

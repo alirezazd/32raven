@@ -22,7 +22,7 @@ struct VehicleStatusMsg;
 // Every periodic publication on this board, each with a Kconfig period and
 // priority. Poll() emits at most `max_frames_per_poll` of whichever are due, so
 // what drops when the loop runs late is a stated policy rather than a
-// consequence of where a call sits in the slow loop.
+// consequence of where a call sits in the main tick.
 //
 // Only publications with a *rate* belong here. Replies, tones, logs and the
 // panic packet fire at their trigger site, carrying data that exists only at
@@ -47,14 +47,11 @@ class StatPublisher {
   static constexpr size_t kFcLinkTopicCount = 5u;
   static constexpr size_t kCrsfTopicCount = CrsfLinkService::kTopicCount;
 
-  static StatPublisher &GetInstance() {
-    static StatPublisher instance;
-    return instance;
-  }
+  static StatPublisher &GetInstance();
 
   // `loop_counter` reaches SystemStatus verbatim. An argument rather than a
   // member because it describes the caller's loop, not this publisher.
-  void Poll(AppContext &ctx, uint32_t now_us, uint32_t loop_counter);
+  void Poll(const AppContext &ctx, uint32_t now_us, uint32_t loop_counter);
 
  private:
   friend class System;
@@ -83,7 +80,7 @@ class StatPublisher {
     kBlocked,
   };
 
-  using Publish = Outcome (*)(StatPublisher &self, AppContext &ctx,
+  using Publish = Outcome (*)(StatPublisher &self, const AppContext &ctx,
                               uint32_t now_us);
 
   // A scheduler and the deadlines it owns. Groups are independent by
@@ -103,39 +100,39 @@ class StatPublisher {
   static uint16_t BatteryVoltageMv(const BatteryData &battery);
   static int16_t BatteryCurrentCa(const BatteryData &battery);
   static int8_t BatteryRemainingPct(const BatteryData &battery);
-  static message::SystemStatusMsg BuildSystemStatusMsg(AppContext &ctx,
+  static message::SystemStatusMsg BuildSystemStatusMsg(const AppContext &ctx,
                                                        uint32_t now_us,
                                                        uint32_t loop_counter);
-  static message::VehicleStatusMsg BuildVehicleStatusMsg(AppContext &ctx);
-  static message::UsbStatusMsg BuildUsbStatusMsg(AppContext &ctx);
+  static message::VehicleStatusMsg BuildVehicleStatusMsg(const AppContext &ctx);
+  static message::UsbStatusMsg BuildUsbStatusMsg(const AppContext &ctx);
 
-  static Outcome PublishSystemStatus(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishSystemStatus(StatPublisher &self, const AppContext &ctx,
                                      uint32_t now_us);
-  static Outcome PublishVehicleStatus(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishVehicleStatus(StatPublisher &self, const AppContext &ctx,
                                       uint32_t now_us);
-  static Outcome PublishEscTelemetry(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishEscTelemetry(StatPublisher &self, const AppContext &ctx,
                                      uint32_t now_us);
-  static Outcome PublishRcChannels(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishRcChannels(StatPublisher &self, const AppContext &ctx,
                                    uint32_t now_us);
-  static Outcome PublishUsbStatus(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishUsbStatus(StatPublisher &self, const AppContext &ctx,
                                   uint32_t now_us);
 
   // CrsfLinkService owns the payloads and the change detection; the silence
   // bound is the scheduler's, so it is passed in rather than duplicated there.
-  static Outcome PublishCrsfTopic(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishCrsfTopic(StatPublisher &self, const AppContext &ctx,
                                   uint32_t now_us,
                                   CrsfLinkService::TelemetryTopic topic);
-  static Outcome PublishCrsfHeartbeat(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishCrsfHeartbeat(StatPublisher &self, const AppContext &ctx,
                                       uint32_t now_us);
-  static Outcome PublishCrsfGps(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishCrsfGps(StatPublisher &self, const AppContext &ctx,
                                 uint32_t now_us);
-  static Outcome PublishCrsfBattery(StatPublisher &self, AppContext &ctx,
+  static Outcome PublishCrsfBattery(StatPublisher &self, const AppContext &ctx,
                                     uint32_t now_us);
 
   // Emit whichever topics of one group are due, up to `budget` frames.
   template <size_t N>
   void PollGroup(Group<N> &group, const std::array<Publish, N> &publishers,
-                 uint8_t budget, AppContext &ctx, uint32_t now_us);
+                 uint8_t budget, const AppContext &ctx, uint32_t now_us);
 
   Config cfg_{};
   Group<kFcLinkTopicCount> fclink_{};  // -> UART1, the ESP32

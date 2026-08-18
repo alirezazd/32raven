@@ -4,6 +4,7 @@
 #include "panic.hpp"
 
 
+#include "error_code.hpp"
 #include "message.hpp"
 #include "stm32f4xx.h"
 
@@ -83,6 +84,72 @@ static void UartSend(const uint8_t *data, size_t len) {
   (void)WaitCondTimeout(&USART1->SR, USART_SR_TC, true, tc_timeout_us);
 }
 
+// AM32 reboots half a second after the DShot stream stops and replays its
+// startup tune until power-off, so the panic loop keeps sending motor-stop.
+
+// Value 0, telemetry 0, CRC 0: every bit of a motor-stop frame is a '0' bit.
+// The trailing zero slots park the lines low; no completion ISR runs here.
+static constexpr uint32_t kDshotFrameBits = 16u;
+static constexpr uint32_t kDshotGapBits = 2u;
+static constexpr uint32_t kDshotMotors = 4u;
+static constexpr uint32_t kDshotFrameWords =
+    (kDshotFrameBits + kDshotGapBits) * kDshotMotors;
+static uint16_t g_dshot_stop_frame[kDshotFrameWords];
+
+// CEN and MOE are set only by DShotTim1::Init and never cleared, so a panic
+// before the driver exists refuses rather than faults. Under four-way
+// passthrough the pins are GPIO's, out of TIM1's reach.
+static bool DshotReady() {
+  if ((RCC->APB2ENR & RCC_APB2ENR_TIM1EN) == 0u) return false;
+  if ((RCC->AHB1ENR & RCC_AHB1ENR_DMA2EN) == 0u) return false;
+  if ((TIM1->CR1 & TIM_CR1_CEN) == 0u) return false;
+  if ((TIM1->BDTR & TIM_BDTR_MOE) == 0u) return false;
+  return true;
+}
+
+static void SendDshotStopFrame() {
+  if (!DshotReady()) {
+    return;
+  }
+
+  // '0'-bit duty is 3/8 of the bit period, the driver's rounding included;
+  // rebuilt from ARR so nothing here trusts init order.
+  const uint32_t period_ticks = (uint32_t)TIM1->ARR + 1u;
+  const uint16_t t0h = (uint16_t)(((period_ticks * 3u) + 4u) / 8u);
+  for (uint32_t i = 0; i < kDshotFrameBits * kDshotMotors; ++i) {
+    g_dshot_stop_frame[i] = t0h;
+  }
+  for (uint32_t i = kDshotFrameBits * kDshotMotors; i < kDshotFrameWords; ++i) {
+    g_dshot_stop_frame[i] = 0u;
+  }
+
+  // FinishAndIdle's order: requests off, stream off, flags clear. A stream
+  // that will not stop means the motors are not ours to drive; bail.
+  TIM1->DIER &= ~TIM_DIER_UDE;
+  DMA2_Stream5->CR &= ~DMA_SxCR_EN;
+  if (!WaitCondTimeout(&DMA2_Stream5->CR, DMA_SxCR_EN, false, 1000)) {
+    return;
+  }
+  DMA2->HIFCR = DMA_HIFCR_CTCIF5 | DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTEIF5 |
+                DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5;
+
+  // Burst target CCR1..CCR4, rewritten in case the fault trampled it.
+  TIM1->DCR = (0x0Du << TIM_DCR_DBA_Pos) | (3u << TIM_DCR_DBL_Pos);
+
+  // The driver's transfer setup minus the interrupt enables.
+  DMA2_Stream5->CR = (6u << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_DIR_0 |
+                     DMA_SxCR_MINC | DMA_SxCR_PSIZE_0 | DMA_SxCR_MSIZE_0 |
+                     DMA_SxCR_PL_1;
+  DMA2_Stream5->FCR &= ~(DMA_SxFCR_DMDIS | DMA_SxFCR_FTH);
+  DMA2_Stream5->PAR = (uint32_t)&TIM1->DMAR;
+  DMA2_Stream5->M0AR = (uint32_t)g_dshot_stop_frame;
+  DMA2_Stream5->NDTR = kDshotFrameWords;
+  DMA2_Stream5->CR |= DMA_SxCR_EN;
+
+  TIM1->DIER |= TIM_DIER_UDE;
+  TIM1->EGR = TIM_EGR_UG;
+}
+
 static void SendPanicMessage(uint32_t error_code) {
   message::PanicMsg panic_msg = {};
   panic_msg.error_code = error_code;
@@ -101,10 +168,16 @@ static void SendPanicMessage(uint32_t error_code) {
   UartSend(pkt_buf.data(), pkt_len);
 }
 
+// C-callable entry for the fault vectors in stm32f4xx_it.c: a bare while(1)
+// there says nothing, and fault priority masks the keep-alive tick.
+extern "C" void PanicHardFault(void) {
+  Panic(ErrorCode::Stm32::kHardFault);
+}
+
 void PanicImpl(uint32_t code) {
-  // Fail safe: drive the DShot/TIM1 lines idle low so any panic disarms the
-  // motors (ESCs failsafe on signal loss). Gated on the TIM1 clock — touching a
-  // clock-gated peripheral (panic before the motor driver is up) would fault.
+  // Fail safe: stop any in-flight frame and latch the lines low. Gated on the
+  // TIM1 clock — touching a clock-gated peripheral (panic before the motor
+  // driver is up) would fault.
   if (RCC->APB2ENR & RCC_APB2ENR_TIM1EN) {
     TIM1->DIER &= ~TIM_DIER_UDE;  // stop the burst-DMA frame requests
     TIM1->CCR1 = 0;
@@ -116,14 +189,17 @@ void PanicImpl(uint32_t code) {
 
   __disable_irq();
 
-  // Blink/report every ~100 ms, refreshing IWDG each pass so this deliberate
-  // disarmed state persists rather than being reset out of it (a real hang
-  // elsewhere still trips the watchdog). No-op if the watchdog never started.
+  // Motor-stop frames at 100 Hz between blink/report passes (~100 ms). The
+  // IWDG refresh keeps this deliberate disarmed state alive — a real hang
+  // elsewhere still trips the watchdog — and no-ops if it never started.
   while (true) {
     SendPanicMessage(code);
     ToggleLed();
     IWDG->KR =
         0x0000AAAAu;  // IWDG reload key; raw write, panic depends on no drivers
-    DelayMs(100);
+    for (uint32_t i = 0; i < 10u; ++i) {
+      SendDshotStopFrame();
+      DelayMs(10);
+    }
   }
 }

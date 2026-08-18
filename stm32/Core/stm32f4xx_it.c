@@ -22,7 +22,6 @@
 
 #include "stm32f4xx.h"
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -78,6 +77,9 @@ extern void Uart1RxDmaError(uint32_t);
 extern void Uart2RxDmaError(uint32_t);
 extern void Uart6RxDmaError(uint32_t);
 extern void TimeBaseOnTim5Irq(void);
+extern void EstimatorOnTim5Irq(void);
+extern void DshotTim1KeepAlive(void);
+extern void PanicHardFault(void);
 extern void ImuTick(void);
 extern void Spi2RxDmaComplete(void);
 extern void Spi2DmaError(uint32_t isr);
@@ -110,7 +112,8 @@ extern void EscTelemetryRxDmaError(uint32_t);
 void NMI_Handler(void) {
   /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
   if (RCC->CIR & RCC_CIR_CSSF) {
-    SystemOnClockSecurityFailure(); /* disarm + reclock + panic; never returns */
+    SystemOnClockSecurityFailure(); /* disarm + reclock + panic; never returns
+                                     */
   }
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
@@ -124,7 +127,7 @@ void NMI_Handler(void) {
  */
 void HardFault_Handler(void) {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+  PanicHardFault();
   /* USER CODE END HardFault_IRQn 0 */
   while (1) {
     /* USER CODE BEGIN W1_HardFault_IRQn 0 */
@@ -504,6 +507,8 @@ void TIM5_IRQHandler(void) {
   if (TIM5->SR & TIM_SR_UIF) {
     TIM5->SR = (uint16_t)~TIM_SR_UIF;
     TimeBaseOnTim5Irq();
+    DshotTim1KeepAlive();
+    EstimatorOnTim5Irq();
   }
 }
 

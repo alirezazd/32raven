@@ -13,7 +13,7 @@ class FcLink {
  public:
   static FcLink &GetInstance();
 
-  void Init(AppContext *ctx);
+  void Init(const AppContext *ctx);
 
   // Min RX byte budget per Poll to drain one max-sized packet. Smaller
   // budgets stall: frames arriving faster than rx_budget/frame_size per
@@ -52,7 +52,7 @@ class FcLink {
   FcLink(const FcLink &) = delete;
   FcLink &operator=(const FcLink &) = delete;
 
-  AppContext *ctx_ = nullptr;
+  const AppContext *ctx_ = nullptr;
 
   // RX Parsing State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };

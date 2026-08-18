@@ -16,10 +16,7 @@ enum class DShotMode : uint8_t { kDshot150, kDshot300, kDshot600 };
 
 class DShotTim1 {
  public:
-  static DShotTim1 &GetInstance() {
-    static DShotTim1 instance;
-    return instance;
-  }
+  static DShotTim1 &GetInstance();
 
   struct Config {
     DShotMode mode;
@@ -58,6 +55,15 @@ class DShotTim1 {
 
   void FinishAndIdle();
 
+  // AM32 reboots half a second into silence and beeps until it ends, so a
+  // disarmed wire has to keep saying "stop".
+  void KeepAlive();
+
+  // A stop frame is sixteen low pulses, and a low line tells an AM32
+  // bootloader to hand over to firmware -- so passthrough mutes this.
+  void SuspendKeepAlive() { keep_alive_suspended_ = true; }
+  void ResumeKeepAlive() { keep_alive_suspended_ = false; }
+
   bool IsInitialized() const { return initialized_; }
   uint32_t DmaStartFailCount() const { return dma_start_fail_count_; }
 
@@ -78,7 +84,16 @@ class DShotTim1 {
 
   static constexpr uint8_t kMotors = 4;
 
+  // Well under AM32's ~0.5 s silence-to-reboot, well over any real gap.
+  static constexpr uint32_t kKeepAliveSilenceUs = 100000u;
+  // Motor stop is value 0, telemetry 0, CRC 0 -- sixteen '0' bits -- plus two
+  // trailing zero slots that park the lines low.
+  static constexpr uint16_t kStopFrameBits = 18;
+
   DShotTim1Timings timings_{};
+  uint16_t stop_frame_[kStopFrameBits * kMotors] = {};
+  volatile uint32_t last_frame_us_ = 0;
+  volatile bool keep_alive_suspended_ = false;
   volatile bool busy_ = false;
   volatile uint32_t dma_start_fail_count_ = 0;
   bool initialized_ = false;

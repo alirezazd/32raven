@@ -93,6 +93,11 @@ static_assert(kCrsfStaggerUs != 0,
 
 }  // namespace
 
+StatPublisher &StatPublisher::GetInstance() {
+  static StatPublisher instance;
+  return instance;
+}
+
 uint16_t StatPublisher::BatteryVoltageMv(const BatteryData &battery) {
   if (battery.voltage <= 0.0f) {
     return 0;
@@ -128,7 +133,7 @@ int8_t StatPublisher::BatteryRemainingPct(const BatteryData &battery) {
 }
 
 message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
-    AppContext &ctx, uint32_t now_us, uint32_t loop_counter) {
+    const AppContext &ctx, uint32_t now_us, uint32_t loop_counter) {
   const SharedState &blackboard = ctx.sys->Blackboard();
   const GpsData &gps = blackboard.GetGps();
   const BatteryData &battery = blackboard.GetBattery();
@@ -183,36 +188,43 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   msg.batt_voltage = BatteryVoltageMv(battery);
   msg.batt_current = BatteryCurrentCa(battery);
   msg.batt_remaining = BatteryRemainingPct(battery);
-  msg.boot_state = message::kSystemBootStateReady;
+  msg.boot_state = static_cast<uint8_t>(message::BootState::kReady);
   msg.flags = message::kSystemStatusFlagLoopAlive;
   return msg;
 }
 
 message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg(
-    AppContext &ctx) {
+    const AppContext &ctx) {
   message::VehicleStatusMsg msg{};
-  msg.armed_state = ctx.sys->Blackboard().IsArmed()
-                        ? message::kVehicleArmedStateArmed
-                        : message::kVehicleArmedStateDisarmed;
+  msg.armed_state = static_cast<uint8_t>(ctx.sys->Blackboard().IsArmed()
+                                             ? message::ArmedState::kArmed
+                                             : message::ArmedState::kDisarmed);
   msg.failsafe_flags = ctx.sys->Blackboard().FailsafeFlags();
   msg.flight_mode = static_cast<uint8_t>(ctx.sys->Blackboard().GetFlightMode());
   return msg;
 }
 
-message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(AppContext &ctx) {
+message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(const AppContext &ctx) {
   const UsbStatusData &usb = ctx.sys->Blackboard().GetUsbStatus();
 
   uint8_t flags = 0u;
   if (usb.attached) flags |= message::kUsbStatusAttached;
   if (usb.configured) flags |= message::kUsbStatusConfigured;
   if (usb.port_open) flags |= message::kUsbStatusPortOpen;
-  if (usb.esc_config_granted) flags |= message::kUsbStatusEscConfigGranted;
+
+  // The states that set these two flags are mutually exclusive, so the pair
+  // cannot both be true.
+  const message::UsbMode mode = usb.esc_config_granted
+                                    ? message::UsbMode::kEscConfig
+                                : usb.msc_active ? message::UsbMode::kMsc
+                                                 : message::UsbMode::kNone;
 
   // Both dialects share the port, so their frames share one count -- the
   // reader is drawing "data moved", not attributing it to a protocol. They
   // stay apart on the Blackboard; merging is this message's view of them.
   return message::UsbStatusMsg{
       .flags = flags,
+      .mode = static_cast<uint8_t>(mode),
       .rx_frames =
           static_cast<uint8_t>(usb.msp_requests + usb.four_way_requests),
       .tx_frames = static_cast<uint8_t>(usb.msp_replies + usb.four_way_replies),
@@ -220,7 +232,7 @@ message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(AppContext &ctx) {
 }
 
 StatPublisher::Outcome StatPublisher::PublishSystemStatus(StatPublisher &self,
-                                                          AppContext &ctx,
+                                                          const AppContext &ctx,
                                                           uint32_t now_us) {
   ctx.sys->FcLinkSvc().SendSystemStatus(
       BuildSystemStatusMsg(ctx, now_us, self.loop_counter_));
@@ -228,7 +240,7 @@ StatPublisher::Outcome StatPublisher::PublishSystemStatus(StatPublisher &self,
 }
 
 StatPublisher::Outcome StatPublisher::PublishVehicleStatus(StatPublisher &self,
-                                                           AppContext &ctx,
+                                                           const AppContext &ctx,
                                                            uint32_t now_us) {
   (void)self;
   (void)now_us;
@@ -237,7 +249,7 @@ StatPublisher::Outcome StatPublisher::PublishVehicleStatus(StatPublisher &self,
 }
 
 StatPublisher::Outcome StatPublisher::PublishEscTelemetry(StatPublisher &self,
-                                                          AppContext &ctx,
+                                                          const AppContext &ctx,
                                                           uint32_t now_us) {
   (void)self;
   (void)now_us;
@@ -250,7 +262,7 @@ StatPublisher::Outcome StatPublisher::PublishEscTelemetry(StatPublisher &self,
 }
 
 StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
-                                                        AppContext &ctx,
+                                                        const AppContext &ctx,
                                                         uint32_t now_us) {
   const RcData &rc = ctx.sys->Blackboard().GetRc();
   if (rc.timestamp_us == 0u) {
@@ -298,13 +310,14 @@ StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
 }
 
 StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
-                                                       AppContext &ctx,
+                                                       const AppContext &ctx,
                                                        uint32_t now_us) {
-  // Only a configuration session has anything to report -- outside one the
+  // Only a USB bench session has anything to report -- outside one the
   // port is detached and every field reads zero. The silence is load bearing:
   // it is what the ESP32 times out on to learn the session never opened, so
   // the stream's presence is the grant and no flag has to carry it.
-  if (ctx.sm->CurrentState() != ctx.esc_config_state) {
+  if (ctx.sm->CurrentState() != ctx.esc_config_state &&
+      ctx.sm->CurrentState() != ctx.msc_state) {
     // Drop the snapshot with it, or a session that reopens onto identical
     // values would have its first report suppressed as unchanged.
     self.have_usb_status_ = false;
@@ -313,8 +326,8 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
 
   // One compare: MspService stamps the Blackboard only when something moved.
   const UsbStatusData &usb = ctx.sys->Blackboard().GetUsbStatus();
-  const bool unchanged = self.have_usb_status_ &&
-                         usb.timestamp_us == self.usb_sent_timestamp_us_;
+  const bool unchanged =
+      self.have_usb_status_ && usb.timestamp_us == self.usb_sent_timestamp_us_;
   if (unchanged && !self.fclink_.scheduler.SilenceExpired(
                        static_cast<size_t>(FcLinkTopic::kUsbStatus), now_us)) {
     return Outcome::kSkipped;
@@ -328,7 +341,7 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
-    StatPublisher &self, AppContext &ctx, uint32_t now_us,
+    StatPublisher &self, const AppContext &ctx, uint32_t now_us,
     CrsfLinkService::TelemetryTopic topic) {
   const bool silence_expired =
       self.crsf_.scheduler.SilenceExpired(static_cast<size_t>(topic), now_us);
@@ -345,21 +358,21 @@ StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfHeartbeat(StatPublisher &self,
-                                                           AppContext &ctx,
+                                                           const AppContext &ctx,
                                                            uint32_t now_us) {
   return PublishCrsfTopic(self, ctx, now_us,
                           CrsfLinkService::TelemetryTopic::kHeartbeat);
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfGps(StatPublisher &self,
-                                                     AppContext &ctx,
+                                                     const AppContext &ctx,
                                                      uint32_t now_us) {
   return PublishCrsfTopic(self, ctx, now_us,
                           CrsfLinkService::TelemetryTopic::kGps);
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfBattery(StatPublisher &self,
-                                                         AppContext &ctx,
+                                                         const AppContext &ctx,
                                                          uint32_t now_us) {
   return PublishCrsfTopic(self, ctx, now_us,
                           CrsfLinkService::TelemetryTopic::kBattery);
@@ -376,7 +389,7 @@ void StatPublisher::Init(const Config &cfg, uint32_t now_us) {
 template <size_t N>
 void StatPublisher::PollGroup(Group<N> &group,
                               const std::array<Publish, N> &publishers,
-                              uint8_t budget, AppContext &ctx,
+                              uint8_t budget, const AppContext &ctx,
                               uint32_t now_us) {
   size_t sent = 0;
   while (sent < budget) {
@@ -399,7 +412,7 @@ void StatPublisher::PollGroup(Group<N> &group,
   }
 }
 
-void StatPublisher::Poll(AppContext &ctx, uint32_t now_us,
+void StatPublisher::Poll(const AppContext &ctx, uint32_t now_us,
                          uint32_t loop_counter) {
   if (!initialized_) {
     return;

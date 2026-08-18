@@ -10,6 +10,8 @@
 #include "panic.hpp"
 #include "rcc.hpp"
 #include "stm32f4xx.h"
+#include "system.hpp"
+#include "time_base.hpp"
 
 static uint16_t DivRoundU16(uint32_t num, uint32_t den) {
   return static_cast<uint16_t>((num + (den / 2u)) / den);
@@ -42,6 +44,11 @@ static inline void Dma2Stream5DisableAndWait() {
 static inline void Dma2Stream5ClearFlags() {
   DMA2->HIFCR = DMA_HIFCR_CTCIF5 | DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTEIF5 |
                 DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5;
+}
+
+DShotTim1 &DShotTim1::GetInstance() {
+  static DShotTim1 instance;
+  return instance;
 }
 
 void DShotTim1::Init(const Config &config) {
@@ -89,6 +96,11 @@ void DShotTim1::Init(const Config &config) {
   TIM1->CCR2 = 0;
   TIM1->CCR3 = 0;
   TIM1->CCR4 = 0;
+
+  for (uint32_t i = 0; i < 16u * kMotors; ++i) {
+    stop_frame_[i] = timings_.t0h;
+  }
+  last_frame_us_ = System::GetInstance().Time().Micros();
 
   StartOutputsOnce();
   busy_ = false;
@@ -159,7 +171,24 @@ bool DShotTim1::SendBitsImpl(const uint16_t *interleaved_ccr,
     busy_ = false;
     return false;
   }
+  last_frame_us_ = System::GetInstance().Time().Micros();
   return true;
+}
+
+void DShotTim1::KeepAlive() {
+  if (!initialized_ || keep_alive_suspended_) {
+    return;
+  }
+  const uint32_t now_us = System::GetInstance().Time().Micros();
+  if (static_cast<uint32_t>(now_us - last_frame_us_) < kKeepAliveSilenceUs) {
+    return;
+  }
+  // A refused send (transfer in flight, DMA wedged) retries on the next tick.
+  (void)SendBitsImpl(stop_frame_, kStopFrameBits);
+}
+
+extern "C" void DshotTim1KeepAlive(void) {
+  DShotTim1::GetInstance().KeepAlive();
 }
 
 bool DShotTim1::StartTransfer(const uint16_t *buf, uint32_t count_words) {

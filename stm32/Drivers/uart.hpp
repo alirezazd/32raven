@@ -82,6 +82,7 @@ class Uart {
   size_t TxFree() const {
     return tx_buffer_.Capacity() - tx_buffer_.Available();
   }
+  size_t TxPending() const { return tx_buffer_.Available(); }
 
   // Called from ISR
   void IrqHandler();
@@ -90,7 +91,7 @@ class Uart {
 
   // RX Controls
   void StartRxDma();
-  uint64_t GetLastRxTime() const { return last_idle_time_; }
+  uint32_t GetLastRxTime() const { return last_idle_time_; }
 
   // ISR Callbacks
   void OnUartInterrupt();
@@ -116,7 +117,7 @@ class Uart {
   uint8_t rx_dma_buf_[RxDmaSize];
   uint16_t rx_last_pos_ = 0;
   RingBuffer<uint8_t, RxRingSize> rx_ring_;
-  volatile uint64_t last_idle_time_ = 0;
+  volatile uint32_t last_idle_time_ = 0;
 
   void DrainRx();
 

@@ -137,6 +137,10 @@ uint8_t g_device_desc[] = {
     0x01u,                      // bNumConfigurations
 };
 
+constexpr size_t kDeviceDescClassOffset = 4;
+constexpr size_t kDeviceDescVidOffset = 8;
+constexpr size_t kDeviceDescPidOffset = 10;
+
 // Single CDC-ACM configuration: a control interface plus a data interface.
 const uint8_t kConfigDesc[] = {
     // Configuration: 67 bytes total, 2 interfaces, bus-powered, 250 mA
@@ -225,6 +229,58 @@ static_assert(sizeof(kConfigDesc) == 67u,
               "wTotalLength in the configuration descriptor must match its "
               "actual byte count");
 
+// No notify endpoint here, so TXFIFO2 sits idle in MSC mode.
+const uint8_t kMscConfigDesc[] = {
+    9u,
+    kDescConfiguration,
+    32u,
+    0x00u,
+    1u,
+    1u,
+    0u,
+    0x80u,
+    125u,
+
+    // Interface 0: mass storage, SCSI transparent, BOT
+    9u,
+    0x04u,
+    0u,
+    0u,
+    2u,
+    0x08u,
+    0x06u,
+    0x50u,
+    0u,
+    // Endpoint 1 IN, bulk, 64 bytes
+    7u,
+    0x05u,
+    0x81u,
+    0x02u,
+    0x40u,
+    0x00u,
+    0x00u,
+    // Endpoint 1 OUT, bulk, 64 bytes
+    7u,
+    0x05u,
+    0x01u,
+    0x02u,
+    0x40u,
+    0x00u,
+    0x00u,
+};
+static_assert(sizeof(kMscConfigDesc) == 32u,
+              "wTotalLength in the configuration descriptor must match its "
+              "actual byte count");
+
+// Mass-storage class requests (USB MSC BOT 1.0 §3).
+constexpr uint8_t kMscGetMaxLun = 0xFEu;
+constexpr uint8_t kMscBotReset = 0xFFu;
+
+constexpr uint8_t kReqRecipientMask = 0x1Fu;
+constexpr uint8_t kReqRecipientDevice = 0x00u;
+constexpr uint8_t kReqRecipientEndpoint = 0x02u;
+constexpr uint16_t kFeatureEndpointHalt = 0x0000u;
+
 const uint8_t kLangIdDesc[] = {4u, kDescString, 0x09u, 0x04u};  // en-US
 
 char HexDigit(uint32_t nibble) {
@@ -245,10 +301,12 @@ void UsbCdc::Init(const UsbCdcConfig &config) {
   }
 
   cfg_ = config;
-  g_device_desc[8] = static_cast<uint8_t>(cfg_.vendor_id);
-  g_device_desc[9] = static_cast<uint8_t>(cfg_.vendor_id >> 8);
-  g_device_desc[10] = static_cast<uint8_t>(cfg_.product_id);
-  g_device_desc[11] = static_cast<uint8_t>(cfg_.product_id >> 8);
+  g_device_desc[kDeviceDescVidOffset] = static_cast<uint8_t>(cfg_.vendor_id);
+  g_device_desc[kDeviceDescVidOffset + 1] =
+      static_cast<uint8_t>(cfg_.vendor_id >> 8);
+  g_device_desc[kDeviceDescPidOffset] = static_cast<uint8_t>(cfg_.product_id);
+  g_device_desc[kDeviceDescPidOffset + 1] =
+      static_cast<uint8_t>(cfg_.product_id >> 8);
 
   CoreInit();
   DeviceInit();
@@ -297,8 +355,54 @@ void UsbCdc::SetAttached(bool attached) {
   ctrl_out_is_line_coding_ = false;
   current_configuration_ = 0;
   bulk_out_stalled_ = false;
+  ep_in_halted_ = false;
+  ep_out_halted_ = false;
   rx_ring_.Clear();
   tx_ring_.Clear();
+  NVIC_EnableIRQ(OTG_FS_IRQn);
+}
+
+void UsbCdc::SetClassMode(ClassMode mode) {
+  if (mode == mode_ || attached_) {
+    return;
+  }
+  mode_ = mode;
+  // The two personalities must not share a PID: hosts cache descriptors by
+  // VID:PID:serial and would bind the COM driver to the disk.
+  const uint16_t pid = static_cast<uint16_t>(
+      cfg_.product_id + ((mode == ClassMode::kMsc) ? 1u : 0u));
+  g_device_desc[kDeviceDescClassOffset] =
+      (mode == ClassMode::kMsc) ? 0x00u : 0x02u;
+  g_device_desc[kDeviceDescPidOffset] = static_cast<uint8_t>(pid & 0xFFu);
+  g_device_desc[kDeviceDescPidOffset + 1] = static_cast<uint8_t>(pid >> 8);
+}
+
+void UsbCdc::SetBulkHalt(bool in, bool halt) {
+  if (in) {
+    ep_in_halted_ = halt;
+    if (halt) {
+      InEp(kBulkEp)->DIEPCTL |= USB_OTG_DIEPCTL_STALL;
+    } else {
+      InEp(kBulkEp)->DIEPCTL &= ~USB_OTG_DIEPCTL_STALL;
+      // Clearing a halt resets the data toggle (USB 2.0 §9.4.5).
+      InEp(kBulkEp)->DIEPCTL |= USB_OTG_DIEPCTL_SD0PID_SEVNFRM;
+      tx_in_flight_ = false;
+    }
+  } else {
+    ep_out_halted_ = halt;
+    if (halt) {
+      OutEp(kBulkEp)->DOEPCTL |= USB_OTG_DOEPCTL_STALL;
+    } else {
+      OutEp(kBulkEp)->DOEPCTL &= ~USB_OTG_DOEPCTL_STALL;
+      OutEp(kBulkEp)->DOEPCTL |= USB_OTG_DOEPCTL_SD0PID_SEVNFRM;
+      ArmBulkOut();
+    }
+  }
+}
+
+void UsbCdc::StallBulkIn() {
+  NVIC_DisableIRQ(OTG_FS_IRQn);
+  SetBulkHalt(true, true);
   NVIC_EnableIRQ(OTG_FS_IRQn);
 }
 
@@ -570,8 +674,10 @@ void UsbCdc::OnInEndpoint() {
         tx_in_flight_ = false;
         // A maximum-size packet does not end the host's bulk transfer; without
         // a following zero-length packet the data can sit in the host's buffer
-        // until the next write happens to arrive.
-        if (last_tx_len_ == kBulkMaxPacket && tx_ring_.IsEmpty()) {
+        // until the next write happens to arrive. CDC only: BOT transfers are
+        // exact-length, and a ZLP mid data-phase ends the host's read early.
+        if (mode_ == ClassMode::kCdc && last_tx_len_ == kBulkMaxPacket &&
+            tx_ring_.IsEmpty()) {
           tx_zlp_pending_ = true;
         }
         PumpTx();
@@ -702,7 +808,11 @@ bool UsbCdc::HandleStandardRequest(const SetupPacket &setup) {
         return true;
       }
       if (desc_type == kDescConfiguration) {
-        ControlSend(kConfigDesc, sizeof(kConfigDesc));
+        if (mode_ == ClassMode::kMsc) {
+          ControlSend(kMscConfigDesc, sizeof(kMscConfigDesc));
+        } else {
+          ControlSend(kConfigDesc, sizeof(kConfigDesc));
+        }
         return true;
       }
       if (desc_type == kDescString) {
@@ -750,8 +860,18 @@ bool UsbCdc::HandleStandardRequest(const SetupPacket &setup) {
     }
 
     case kReqGetStatus: {
-      // Bus-powered, no remote wakeup — a constant for every recipient we
-      // expose.
+      const uint8_t recipient = setup.bm_request_type & kReqRecipientMask;
+      if (recipient == kReqRecipientEndpoint) {
+        // BOT recovery reads this back, so it must be the real halt state.
+        const uint8_t ep = static_cast<uint8_t>(setup.w_index & 0x0Fu);
+        const bool in = (setup.w_index & 0x80u) != 0u;
+        const bool halted =
+            (ep == kBulkEp) && (in ? ep_in_halted_ : ep_out_halted_);
+        status_reply_[0] = halted ? 1u : 0u;
+        status_reply_[1] = 0u;
+        ControlSend(status_reply_, sizeof(status_reply_));
+        return true;
+      }
       static const uint8_t kDeviceStatus[2] = {0u, 0u};
       ControlSend(kDeviceStatus, sizeof(kDeviceStatus));
       return true;
@@ -763,9 +883,22 @@ bool UsbCdc::HandleStandardRequest(const SetupPacket &setup) {
       return true;
     }
 
-    case kReqSetInterface:
     case kReqClearFeature:
-    case kReqSetFeature:
+    case kReqSetFeature: {
+      const uint8_t recipient = setup.bm_request_type & kReqRecipientMask;
+      if (recipient == kReqRecipientEndpoint &&
+          setup.w_value == kFeatureEndpointHalt) {
+        const uint8_t ep = static_cast<uint8_t>(setup.w_index & 0x0Fu);
+        const bool in = (setup.w_index & 0x80u) != 0u;
+        if (ep == kBulkEp) {
+          SetBulkHalt(in, setup.b_request == kReqSetFeature);
+        }
+      }
+      ControlSendZlp();
+      return true;
+    }
+
+    case kReqSetInterface:
       ControlSendZlp();
       return true;
 
@@ -775,6 +908,21 @@ bool UsbCdc::HandleStandardRequest(const SetupPacket &setup) {
 }
 
 bool UsbCdc::HandleClassRequest(const SetupPacket &setup) {
+  if (mode_ == ClassMode::kMsc) {
+    switch (setup.b_request) {
+      case kMscGetMaxLun:
+        max_lun_reply_ = 0u;
+        ControlSend(&max_lun_reply_, 1u);
+        return true;
+      case kMscBotReset:
+        // Halts survive: BOT has the host clear them with CLEAR_FEATURE.
+        msc_reset_count_ = msc_reset_count_ + 1u;
+        ControlSendZlp();
+        return true;
+      default:
+        return false;
+    }
+  }
   switch (setup.b_request) {
     case kCdcSetLineCoding:
       if (setup.w_length != sizeof(LineCoding)) {
@@ -806,7 +954,7 @@ uint16_t UsbCdc::BuildStringDescriptor(uint8_t index) {
   if (index == 1u) {
     text = cfg_.manufacturer;
   } else if (index == 2u) {
-    text = cfg_.product;
+    text = (mode_ == ClassMode::kMsc) ? cfg_.product_msc : cfg_.product;
   } else if (index == 3u) {
     const volatile uint32_t *uid =
         reinterpret_cast<const volatile uint32_t *>(UID_BASE);
@@ -848,18 +996,24 @@ void UsbCdc::OpenDataEndpoints() {
                            (kBulkEp << USB_OTG_DIEPCTL_TXFNUM_Pos) |
                            USB_OTG_DIEPCTL_SD0PID_SEVNFRM | kBulkMaxPacket;
 
-  InEp(kNotifyEp)->DIEPCTL = USB_OTG_DIEPCTL_USBAEP |
-                             (3u << USB_OTG_DIEPCTL_EPTYP_Pos) |  // interrupt
-                             (kNotifyEp << USB_OTG_DIEPCTL_TXFNUM_Pos) |
-                             USB_OTG_DIEPCTL_SD0PID_SEVNFRM | kNotifyMaxPacket;
+  if (mode_ == ClassMode::kCdc) {
+    InEp(kNotifyEp)->DIEPCTL =
+        USB_OTG_DIEPCTL_USBAEP | (3u << USB_OTG_DIEPCTL_EPTYP_Pos) |
+        (kNotifyEp << USB_OTG_DIEPCTL_TXFNUM_Pos) |
+        USB_OTG_DIEPCTL_SD0PID_SEVNFRM | kNotifyMaxPacket;
+  }
 
   OutEp(kBulkEp)->DOEPCTL = USB_OTG_DOEPCTL_USBAEP |
                             (2u << USB_OTG_DOEPCTL_EPTYP_Pos) |  // bulk
                             USB_OTG_DOEPCTL_SD0PID_SEVNFRM | kBulkMaxPacket;
 
-  Device()->DAINTMSK |=
-      (1u << kBulkEp) | (1u << kNotifyEp) | (1u << (kBulkEp + 16u));
+  Device()->DAINTMSK |= (1u << kBulkEp) | (1u << (kBulkEp + 16u));
+  if (mode_ == ClassMode::kCdc) {
+    Device()->DAINTMSK |= (1u << kNotifyEp);
+  }
 
+  ep_in_halted_ = false;
+  ep_out_halted_ = false;
   tx_in_flight_ = false;
   tx_zlp_pending_ = false;
   ArmBulkOut();
@@ -902,26 +1056,37 @@ void UsbCdc::PumpTx() {
     return;
   }
 
-  auto chunk = tx_ring_.ContiguousReadable();
-  if (chunk.empty()) {
+  const size_t avail = tx_ring_.Available();
+  if (avail == 0u) {
     return;
   }
-  if (chunk.size() > kBulkMaxPacket) {
-    chunk = chunk.first(kBulkMaxPacket);
-  }
+  const size_t send_len = (avail > kBulkMaxPacket) ? kBulkMaxPacket : avail;
 
-  const uint32_t words_needed = (static_cast<uint32_t>(chunk.size()) + 3u) / 4u;
+  const uint32_t words_needed = (static_cast<uint32_t>(send_len) + 3u) / 4u;
   if ((InEp(kBulkEp)->DTXFSTS & USB_OTG_DTXFSTS_INEPTFSAV) < words_needed) {
     return;
   }
 
+  // A short packet ends the host's transfer, legal in BOT only at a phase
+  // boundary, so a packet split by the ring's wrap must be reassembled.
+  auto chunk = tx_ring_.ContiguousReadable();
+  const uint8_t *src = chunk.data();
+  if (chunk.size() < send_len) {
+    for (size_t i = 0; i < send_len; ++i) {
+      (void)tx_ring_.Pop(tx_stage_[i]);
+    }
+    src = tx_stage_;
+  }
+
   tx_in_flight_ = true;
-  last_tx_len_ = static_cast<uint16_t>(chunk.size());
+  last_tx_len_ = static_cast<uint16_t>(send_len);
   InEp(kBulkEp)->DIEPTSIZ =
-      (1u << USB_OTG_DIEPTSIZ_PKTCNT_Pos) | static_cast<uint32_t>(chunk.size());
+      (1u << USB_OTG_DIEPTSIZ_PKTCNT_Pos) | static_cast<uint32_t>(send_len);
   InEp(kBulkEp)->DIEPCTL |= USB_OTG_DIEPCTL_EPENA | USB_OTG_DIEPCTL_CNAK;
-  WriteFifo(kBulkEp, chunk.data(), static_cast<uint16_t>(chunk.size()));
-  tx_ring_.Consume(chunk.size());
+  WriteFifo(kBulkEp, src, static_cast<uint16_t>(send_len));
+  if (src != tx_stage_) {
+    tx_ring_.Consume(send_len);
+  }
 }
 
 // Public data path

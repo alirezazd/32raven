@@ -71,7 +71,7 @@ void Battery::Init(const Config &cfg, SharedState &blackboard) {
 }
 
 // One conversion in flight at a time, started here and collected on a later
-// call. A conversion takes ~5 us and the slow loop comes back in ~1 ms, so the
+// call. A conversion takes ~5 us and the main tick comes back in ~1 ms, so the
 // result is always waiting by the next call and nothing ever spins on EOC.
 void Battery::Poll(uint32_t now_us) {
   if (conversion_in_flight_) {
@@ -109,7 +109,7 @@ void Battery::InitAdc() {
 
   // Single conversion per trigger, channel selected per conversion. A two
   // channel scan would start the second the instant the first finished, giving
-  // DR a read deadline of one conversion; Poll collects a whole slow-loop pass
+  // DR a read deadline of one conversion; Poll collects a whole main tick
   // later, so it could never meet one. Missing it latches OVR, which stops EOC
   // for good.
   ADC1->CR1 = 0;
@@ -224,7 +224,8 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
   last_integrator_us_ = now_us;
 
   blackboard_->UpdateBattery(
-      BatteryData{.voltage = filtered_voltage_v_,
+      BatteryData{.timestamp_us = last_sample_us_,
+                  .voltage = filtered_voltage_v_,
                   .current = filtered_current_a_,
                   .mah_drawn = mah_drawn_,
                   .percentage = EstimatePercentage(filtered_voltage_v_)});

@@ -104,20 +104,8 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   System::GetInstance().Time().DelayMicros(MillisToMicros(50));
 
   spi.EnableIrqs(irq_priority::kImuSpiDma);
-  // FIFO_THS pulses only as the level crosses the watermark upward, so arming
-  // into a backlog leaves it permanently above the threshold and no interrupt
-  // ever arrives. The settle delay above is long enough to fill the FIFO
-  // outright, which makes that the normal case rather than a rare one.
-  WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(Reg::kIntStatus);
   NVIC_SetPriority(board::kImuInt.exti_irqn, irq_priority::kImuInt);
-  // The INT line pulsed throughout the settle delay above, latching an edge
-  // that would otherwise fire the moment this is enabled -- against the FIFO
-  // just flushed, so the burst reads 0xFF and fails to parse. EXTI's pending
-  // bit goes first: clearing only the NVIC's lets EXTI re-pend it at once.
-  EXTI->PR = board::kImuInt.pin;
-  NVIC_ClearPendingIRQ(board::kImuInt.exti_irqn);
-  NVIC_EnableIRQ(board::kImuInt.exti_irqn);
+  // Configured, not running: ResumeSampling arms this once a consumer exists.
 }
 
 bool Icm42688p::SaveAccelCalibration() {
@@ -712,8 +700,7 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
 void Icm42688p::PublishLatestBatch(const ImuSampleBatch &batch) {
   ImuSampleSlot &slot = blackboard_->ImuSampleMailbox();
   if (slot.fresh) {
-    // Either nobody is wired yet, or the consumer is still reading the previous
-    // burst -- in both cases the slot cannot be touched and this one is
+    // The consumer is still reading the previous burst, so this one is
     // dropped. Counted in samples to stay comparable with the ODR, which is
     // what kLossPanicPerSec is scaled from. No PendSV either: waking the
     // consumer would only re-offer the burst it already holds.
@@ -737,8 +724,7 @@ void Icm42688p::PublishLatestBatch(const ImuSampleBatch &batch) {
 void Icm42688p::CalibrateGyro() {
   const uint32_t duration_us =
       SecondsToMicros(calibration_cfg_.gyro_duration_s);
-  const uint32_t timeout_us =
-      SecondsToMicros(calibration_cfg_.gyro_timeout_s);
+  const uint32_t timeout_us = SecondsToMicros(calibration_cfg_.gyro_timeout_s);
   const uint32_t still_threshold_raw =
       calibration_cfg_.gyro_still_threshold_raw;
   const uint32_t odr_hz = gyro_odr_hz_;
@@ -757,8 +743,8 @@ void Icm42688p::CalibrateGyro() {
   uint32_t last_publish = publish_cnt_.load(std::memory_order_relaxed);
   // Body-NED now that the burst arrives scaled. The stillness knob is quoted in
   // chip LSB, so it converts once here rather than per comparison.
-  const float still_threshold_rad_s = static_cast<float>(still_threshold_raw) *
-                                      scale_config_.gyro_lsb_to_rad_s;
+  const float still_threshold_rad_s =
+      static_cast<float>(still_threshold_raw) * scale_config_.gyro_lsb_to_rad_s;
   float sum[3] = {0.0f, 0.0f, 0.0f};
   float min_g[3] = {0.0f, 0.0f, 0.0f};
   float max_g[3] = {0.0f, 0.0f, 0.0f};
@@ -835,6 +821,8 @@ void Icm42688p::CalibrateGyro() {
     offset_lsb[axis] = static_cast<int16_t>(code);
   }
 
+  // Restored, not asserted: sampling is armed only once a consumer is wired.
+  const bool was_sampling = NVIC_GetEnableIRQ(board::kImuInt.exti_irqn) != 0u;
   NVIC_DisableIRQ(board::kImuInt.exti_irqn);
   NVIC_ClearPendingIRQ(board::kImuInt.exti_irqn);
   while (inflight_.load(std::memory_order_acquire)) {
@@ -860,7 +848,9 @@ void Icm42688p::CalibrateGyro() {
   // stale by that window; carrying it would charge the whole gap to the next
   // burst.
   last_irq_cnt_ = System::GetInstance().Time().Micros();
-  NVIC_EnableIRQ(board::kImuInt.exti_irqn);
+  if (was_sampling) {
+    NVIC_EnableIRQ(board::kImuInt.exti_irqn);
+  }
 }
 
 void Icm42688p::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
@@ -1077,8 +1067,8 @@ void Icm42688p::ConfigureFifo() {
   WriteReg(Reg::kFifoConfig3,
            static_cast<uint8_t>((fifo_wm_records_ >> 8) & 0x0Fu));
   WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(Reg::kIntStatus);         // clear any pending status bits (R/C)
-  WriteReg(Reg::kFifoConfig, 0x40);       // FIFO Stream mode
+  (void)ReadReg(Reg::kIntStatus);    // clear any pending status bits (R/C)
+  WriteReg(Reg::kFifoConfig, 0x40);  // FIFO Stream mode
   SetupDmaBuffer();
 }
 
@@ -1135,8 +1125,16 @@ void Icm42688p::RestartSampling() {
 void Icm42688p::ResumeSampling() {
   // The chip never stopped sampling into its own FIFO, so what is in there is
   // a backlog rather than the present. Discarded instead of parsed: a stale
-  // burst would be integrated by the AHRS as if it had just happened.
+  // burst would be integrated by the AHRS as if it had just happened, and
+  // FIFO_THS never re-fires from a FIFO already above the watermark.
   WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadReg(Reg::kIntStatus);
+  // A batch published while no consumer was wired is the same backlog in
+  // software. The IRQ is still masked here, so nothing races the clear.
+  blackboard_->ImuSampleMailbox().fresh = false;
+  // EXTI latched an edge while sampling was unheard. Its pending bit goes
+  // first -- clearing only the NVIC's lets EXTI re-pend at once.
+  EXTI->PR = board::kImuInt.pin;
+  NVIC_ClearPendingIRQ(board::kImuInt.exti_irqn);
   NVIC_EnableIRQ(board::kImuInt.exti_irqn);
 }

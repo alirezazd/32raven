@@ -35,14 +35,32 @@ void PanicFromHandshakePacket(const message::Packet &packet) {
   Panic(error_code);
 }
 
+// Printed rather than queued: before the app loop runs the queue has no
+// consumer, so a chatty peer boot would grow it into the overflow panic.
+void PrintPeerLog(const message::Packet &packet) {
+  if (packet.header.len == 0u ||
+      packet.header.len > message::kMaxLogTextPayload) {
+    return;
+  }
+  char buf[message::kMaxLogTextPayload + 1];
+  std::memcpy(buf, packet.payload, packet.header.len);
+  buf[packet.header.len] = '\0';
+  ESP_LOGI(FcLink::kPeerLogTag, "%s", buf);
+}
+
 }  // namespace
+
+FcLink &FcLink::GetInstance() {
+  static FcLink instance;
+  return instance;
+}
 
 void FcLink::Init(const Config &cfg, UartFcLink *uart) {
   if (uart == nullptr) {
     Panic(ErrorCode::Esp32::kFcLinkInitFailed);
   }
   cfg_ = cfg;
-  if (cfg_.handshake_attempts == 0 || cfg_.handshake_retry_period_ms == 0 ||
+  if (cfg_.handshake_window_s == 0 ||
       cfg_.invalid_packet_threshold == 0) {
     Panic(ErrorCode::Esp32::kFcLinkInitFailed);
   }
@@ -74,43 +92,33 @@ void FcLink::PerformHandshake() {
   ping.header.id = static_cast<uint8_t>(message::MsgId::kPing);
   ping.header.len = 0;
 
-  for (uint16_t i = 0; i < cfg_.handshake_attempts; ++i) {
+  const uint16_t attempts = HandshakeAttempts(cfg_.handshake_window_s);
+  for (uint16_t i = 0; i < attempts; ++i) {
     SendPacket(ping);
-    vTaskDelay(pdMS_TO_TICKS(cfg_.handshake_retry_period_ms));
+    vTaskDelay(pdMS_TO_TICKS(kHandshakeRetryPeriodMs));
 
     Poll();
 
-    const size_t queued_packet_count = PendingRxPacketCount();
-    bool got_pong = false;
-    for (size_t packet_idx = 0; packet_idx < queued_packet_count;
-         ++packet_idx) {
-      auto packet = PopPacket();
-      if (!packet.has_value()) {
-        Panic(ErrorCode::Esp32::kFcLinkRxQueueFull);
-      }
+    while (auto packet = PopPacket()) {
+      const uint8_t id = packet->header.id;
 
-      if (packet->header.id == static_cast<uint8_t>(message::MsgId::kPing)) {
+      if (id == static_cast<uint8_t>(message::MsgId::kPong)) {
+        ESP_LOGI(kTag, "Handshake Success!");
+        // A pong means both MCUs are up and the link carries traffic each way.
+        Sys().TonePlayer().PlayBuiltin(message::Tone::kDoomShort);
+        return;
+      }
+      if (id == static_cast<uint8_t>(message::MsgId::kPing)) {
         continue;
       }
-
-      if (packet->header.id == static_cast<uint8_t>(message::MsgId::kPong)) {
-        got_pong = true;
+      if (id == static_cast<uint8_t>(message::MsgId::kLog)) {
+        PrintPeerLog(*packet);
         continue;
       }
-
-      if (packet->header.id == static_cast<uint8_t>(message::MsgId::kPanic)) {
+      if (id == static_cast<uint8_t>(message::MsgId::kPanic)) {
         PanicFromHandshakePacket(*packet);
       }
-
       QueueRxPacket(*packet);
-    }
-
-    if (got_pong) {
-      ESP_LOGI(kTag, "Handshake Success!");
-      // A pong is the STM32 answering, so this reports both MCUs up and the
-      // link carrying traffic each way -- not merely that this one booted.
-      Sys().TonePlayer().PlayBuiltin(message::Tone::kDoomShort);
-      return;
     }
   }
 
@@ -141,10 +149,6 @@ std::optional<message::Packet> FcLink::PopPacket() {
     return std::nullopt;
   }
   return packet;
-}
-
-size_t FcLink::PendingRxPacketCount() const {
-  return rx_packet_queue_.Available();
 }
 
 void FcLink::QueueRxPacket(const message::Packet &pkt) {

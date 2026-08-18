@@ -14,15 +14,20 @@
 class FcLink {
  public:
   struct Config {
-    uint16_t handshake_attempts = 0;
-    uint16_t handshake_retry_period_ms = 0;
+    uint16_t handshake_window_s = 0;
     uint8_t invalid_packet_threshold = 0;
   };
 
-  static FcLink &GetInstance() {
-    static FcLink instance;
-    return instance;
+  static constexpr uint16_t kHandshakeRetryPeriodMs = 200;
+
+  static constexpr uint16_t HandshakeAttempts(uint16_t window_s) {
+    return static_cast<uint16_t>((window_s * 1000u) / kHandshakeRetryPeriodMs);
   }
+
+  // Lines the STM32 sent, tagged apart from this side's own.
+  static constexpr const char *kPeerLogTag = "FC";
+
+  static FcLink &GetInstance();
   void Poll();
   void ResetRxState(bool flush_uart = true);
   void SendPacket(const message::Packet &pkt);
@@ -38,7 +43,6 @@ class FcLink {
   friend class System;
   void Init(const Config &cfg, UartFcLink *uart);
   void PerformHandshake();
-  size_t PendingRxPacketCount() const;
   void QueueRxPacket(const message::Packet &pkt);
   void FinishRxPacket();
   FcLink() = default;
