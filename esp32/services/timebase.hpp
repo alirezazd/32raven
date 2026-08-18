@@ -20,11 +20,11 @@ class Timebase {
   TimeUs NowUs() const;
   void SleepMs(TimeMs ms) const;
 
-  static bool Reached(TimeMs now, TimeMs deadline) {
+  static constexpr bool Reached(TimeMs now, TimeMs deadline) {
     return (int32_t)(now - deadline) >= 0;
   }
 
-  static TimeMs After(TimeMs now, TimeMs delta_ms) {
+  static constexpr TimeMs After(TimeMs now, TimeMs delta_ms) {
     return (TimeMs)(now + delta_ms);
   }
 
@@ -37,10 +37,10 @@ class Timebase {
 };
 
 // wraparound-safe: true if now is at/after deadline
-static inline bool TimeReached(TimeMs now, TimeMs deadline) {
+constexpr bool TimeReached(TimeMs now, TimeMs deadline) {
   return Timebase::Reached(now, deadline);
 }
 
-static inline TimeMs TimeAfter(TimeMs now, TimeMs delta_ms) {
+constexpr TimeMs TimeAfter(TimeMs now, TimeMs delta_ms) {
   return Timebase::After(now, delta_ms);
 }

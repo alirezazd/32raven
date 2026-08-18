@@ -22,6 +22,13 @@ extern "C" {
 
 static constexpr const char *kTag = "ESP32-SM";
 
+// LED cadence per page, so the board says where it is without the screen.
+// The three tool pages share one rate; DFU blinks faster because it is the
+// only page waiting on a host to connect.
+static constexpr uint32_t kServingBreatheMs = 3000;
+static constexpr uint32_t kDfuBlinkMs = 400;
+static constexpr uint32_t kToolPageBlinkMs = 800;
+
 // Same patience as the boot handshake: the same STM32 on the same link.
 static constexpr uint16_t kStm32RequestAttempts =
     FcLink::HandshakeAttempts(kFcLinkConfig.handshake_window_s);
@@ -93,7 +100,7 @@ void ServingState::OnEnter(AppContext &ctx) {
   // buffered bytes as fatal corruption.
   ctx.sys->FcLink().ResetRxState();
   ctx.sys->StopNetwork();
-  ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, 3000);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, kServingBreatheMs);
 }
 
 void ServingState::OnStep(AppContext &ctx) {
@@ -153,7 +160,7 @@ void DfuState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering Dfu");
   ctx.sys->Ui().SetAppState(Ui::AppState::kDfu);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 400);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kDfuBlinkMs);
   // Panicking here would be unrecoverable (kTcpServerStartFailed is not
   // DFU-recoverable), so a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
@@ -311,7 +318,7 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering EscConfig");
   ctx.sys->Ui().SetAppState(Ui::AppState::kEscConfig);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
   ctx.sys->StopNetwork();
   ctx.sys->FcLink().ResetRxState();
   warned_armed_ = false;
@@ -377,7 +384,7 @@ void UsbLogState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering UsbLog");
   ctx.sys->Ui().SetAppState(Ui::AppState::kUsbLog);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
   ctx.sys->StopNetwork();
   ctx.sys->FcLink().ResetRxState();
   stream_seen_ = false;
@@ -428,7 +435,7 @@ void WifiLogState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering WifiLog");
   ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, 800);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
   ctx.sys->FcLink().ResetRxState();
   // Best effort: a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
@@ -463,6 +470,8 @@ void WifiLogState::OnStep(AppContext &ctx) {
 
 // LogPull State
 namespace {
+constexpr size_t kSha256Bytes = 32;
+constexpr size_t kSha256HexSize = (kSha256Bytes * 2) + 1;
 constexpr uint32_t kLogPullRetryMs = 400;
 // A peer that vanishes without closing leaves the socket blocking rather
 // than erroring, so refusing to wait forever is the only way out.
@@ -630,10 +639,10 @@ void LogPullState::OnStep(AppContext &ctx) {
 
   if (done_ && !chunk_valid_) {
     char line[96];
-    uint8_t hash[32];
+    uint8_t hash[kSha256Bytes];
     mbedtls_sha256_finish(&sha_, hash);
-    char hex[65];
-    for (int i = 0; i < 32; ++i) {
+    char hex[kSha256HexSize];
+    for (size_t i = 0; i < kSha256Bytes; ++i) {
       std::snprintf(&hex[i * 2], 3, "%02x", hash[i]);
     }
     std::snprintf(line, sizeof(line), "DONE size=%u sha256=%s\n",
