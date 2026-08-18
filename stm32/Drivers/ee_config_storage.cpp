@@ -4,6 +4,7 @@
 #include "ee_config_storage.hpp"
 
 #include <cstring>
+#include <iterator>
 
 #include "error_code.hpp"
 #include "message.hpp"
@@ -51,7 +52,7 @@ ee_schema::ImuAccelCalibration MakeDefaultImuAccelCalibration() {
 ee_schema::RcCalibration MakeDefaultRcCalibration() {
   ee_schema::RcCalibration cal{};
   ee_schema::RcCalibration::PopulateHeader(cal);
-  for (size_t i = 0; i < 16; ++i) {
+  for (size_t i = 0; i < std::size(cal.min_us); ++i) {
     cal.min_us[i] = 1000;
     cal.max_us[i] = 2000;
     cal.trim_us[i] = 1500;
