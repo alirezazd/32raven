@@ -11,6 +11,7 @@
 #include "fc_link.hpp"
 #include "panic.hpp"
 #include "sdio.hpp"
+#include "system.hpp"
 #include "watchdog.hpp"
 
 namespace {
@@ -25,7 +26,7 @@ void ClearDirEntry(FILINFO &info) { info.fname[0] = '\0'; }
 
 void LogSdFailure(const char *what, int res) {
   const Sdio::Stats &s = Sdio::GetInstance().GetStats();
-  FcLink::GetInstance().SendLog(
+  System::GetInstance().FcLinkSvc().SendLog(
       "sd: %s failed (%d) cto=%lu ccrc=%lu dto=%lu dcrc=%lu", what, res,
       static_cast<unsigned long>(s.cmd_timeouts),
       static_cast<unsigned long>(s.cmd_crc_errors),
@@ -277,8 +278,8 @@ void LogService::PrepareNextFile() {
     // FatFs cannot detect a looped cluster chain, so a corrupted directory
     // scans forever; the cap turns that hang into a diagnosable fault.
     if (++scanned > kMaxRootScanEntries) {
-      FcLink::GetInstance().SendLog("sd: root scan runaway at '%s'",
-                                    info.fname);
+      System::GetInstance().FcLinkSvc().SendLog(
+          "sd: root scan runaway at '%s'", info.fname);
       Panic(ErrorCode::Stm32::kSdCardCorrupted);
     }
     const uint32_t index = LogFileIndex(info.fname);
@@ -330,7 +331,7 @@ void LogService::PrepareNextFile() {
 
   AdoptOpenFile(bytes);
 
-  FcLink::GetInstance().SendLog(
+  System::GetInstance().FcLinkSvc().SendLog(
       "sd: %s ready, card %lu MB", file_name_,
       static_cast<unsigned long>(
           (static_cast<uint64_t>(Sdio::GetInstance().BlockCount()) *
@@ -370,7 +371,7 @@ bool LogService::TryReuseEmptyLog(uint32_t index, FSIZE_t bytes) {
     return false;
   }
   AdoptOpenFile(bytes);
-  FcLink::GetInstance().SendLog("sd: %s reused", file_name_);
+  System::GetInstance().FcLinkSvc().SendLog("sd: %s reused", file_name_);
   return true;
 }
 
@@ -625,7 +626,7 @@ void LogService::TryStartFlush() {
   }
   if ((flushed_bytes_ + kStagingBytes) > file_capacity_bytes_) {
     FailSink();
-    FcLink::GetInstance().SendLog("sd: %s full", file_name_);
+    System::GetInstance().FcLinkSvc().SendLog("sd: %s full", file_name_);
     return;
   }
   const uint32_t lba = file_start_lba_ + (flushed_bytes_ / Sdio::kBlockBytes);
@@ -736,7 +737,7 @@ void LogService::StopFlight() {
   if (close_res != FR_OK) {
     LogSdFailure("finalize close", close_res);
   }
-  FcLink::GetInstance().SendLog(
+  System::GetInstance().FcLinkSvc().SendLog(
       "sd: %s closed (%lu KB, %lu dropped)", file_name_,
       static_cast<unsigned long>(final_bytes >> 10),
       static_cast<unsigned long>(stats_.dropped_bytes));
@@ -760,11 +761,11 @@ void LogService::RemountAfterMsc() {
   file_ready_ = false;
   mounted_ = false;
   if (!Sdio::GetInstance().Reprobe()) {
-    FcLink::GetInstance().SendLog("sd: no card after msc");
+    System::GetInstance().FcLinkSvc().SendLog("sd: no card after msc");
     Panic(ErrorCode::Stm32::kSdCardMissing);
   }
   if (f_mount(&fs_, "", 1) != FR_OK) {
-    FcLink::GetInstance().SendLog("sd: remount failed");
+    System::GetInstance().FcLinkSvc().SendLog("sd: remount failed");
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
   mounted_ = true;
