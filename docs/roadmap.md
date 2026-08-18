@@ -279,9 +279,9 @@ policy lives and what enforces it is #16.
 ### #16 — Sentinel, one owner for arming and failsafe authority — 🎯 CRITICAL
 
 Sentinel owns the arm decision, evaluates every failsafe condition #15 defines, writes the
-result to the `SharedState` once per slow loop, and is the only thing that disarms. The arming
-half is done: `RequestArm` is the sole entry point and the sole writer of `SharedState::armed_`,
-and it refuses from any state but Idle.
+result to the `SharedState` once per main tick, and is the only thing that disarms. The
+arming half is done: `RequestArm` is the sole entry point and the sole writer of
+`SharedState::armed_`, and it refuses from any state but Idle.
 
 #### What is left
 
@@ -292,7 +292,7 @@ zero. The conditions are still computed in a telemetry builder
 Moving detection into Sentinel means *relocating* that computation rather than writing a second
 copy of it. `Sentinel::Supervise` is the slot it lands in, and carries the `TODO(fc)` saying so.
 
-**Two panics, not one, and the second is the harder.** Alongside the slow-loop guard,
+**Two panics, not one, and the second is the harder.** Alongside the main-tick guard,
 `Icm42688p::HandleOverrunFault` calls `Panic(kImuOverrun)` once `overrun_threshold` faults land
 inside `overrun_window_s`. It fires from **interrupt context**, so the armed state a correct
 response depends on arrives too late to matter — the decision has already been taken by the time
@@ -307,7 +307,7 @@ path entirely and leaves the cascade running on the last RC values.
 
 #### What "high priority" means without an RTOS
 
-The STM32 is a superloop, and `StepSlow` sheds work at `budget_exhausted()` bail points, so
+The STM32 is a superloop, and `MainTick` sheds work at `budget_exhausted()` bail points, so
 priority is placement rather than a number: Sentinel's `Poll` has to run **above the first
 bail**, since a failsafe skipped under load is a failsafe that does not exist.
 
@@ -402,6 +402,72 @@ Supporting rather than critical only because the manual practice works. It stops
 the moment someone other than the author flashes this aircraft, or a wire change lands
 alongside a flight-day rebuild.
 
+### #35 — Flash the STM32 over the cable, not the air — 🟢 SUPPORTING
+
+`make flash-wifi-stm32` is the only way to program the flight computer, so the AP has to be up
+and joined before the STM32 can be fixed — including when the thing being debugged *is* the
+WiFi. The bridge already has a USB cable attached for `make flash-esp32`; the same cable should
+carry a `make flash-stm32`.
+
+Everything below the host leg is already transport-agnostic. `DfuState` and `ProgramState`
+drive `Programmer`, which pulses `BOOT0`/`NRST` and speaks the ROM bootloader over USART1;
+none of that knows or cares how the image arrived. Only the host-to-ESP32 hop is TCP, and the
+states touch it through about a dozen `TcpServer` calls — `Poll`, `PopEvent`, `SendCtrlLine`,
+`SendData`, `StartDownload`, `StopDownload`, `GetStatus`, `SetStatus`, the bridge pair and
+`Stop`. A USB transport that produces the same event stream and accepts the same writes drops
+in underneath without the states noticing.
+
+Two things make it more than a rename:
+
+- **One pipe, two channels.** TCP hands out a line-oriented ctrl socket and a binary data
+  socket; USB-Serial-JTAG is a single byte stream, so the two have to be multiplexed and
+  framed. `libs/message.hpp` already defines a framed packet with a length and a CRC, and both
+  firmwares compile it — reusing that shape is cheaper than inventing a second one.
+- **The console shares the pipe.** `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y`, so `ESP_LOG` output
+  interleaves with whatever else writes there — `UsbCdcServer::Init` says as much, and MAVLink
+  survives it only because pymavlink resynchronises on the `0xFD` magic byte. A firmware image
+  needs the same resync property from its framing, or the console silenced for the duration of
+  a transfer.
+
+Host side, `tools/esp32_client.py` opens two sockets and resolves an IP; it would open one
+serial port and demultiplex, with port discovery replacing `resolve_target_ip`. The existing
+`flash`/`flash_esp` command shapes and the `BEGIN size=… crc=…` handshake stay as they are.
+
+The one-USB-at-a-time rule in `docs/flashing.md` is unaffected: this uses the bridge's own
+port, the one already carrying `make flash-esp32`, and never the flight computer's.
+
+### #36 — Notifications the display can carry — 🟢 SUPPORTING
+
+Several conditions today are announced only by a warning tone and an `ESP_LOGW` nobody is
+watching: the ESC port refusing to open because the vehicle is armed, the STM32 never granting
+a session, the MAVLink TX queue dropping its oldest item. The beep says *something* happened
+and the console says what — but the console needs a cable, which is the one thing the bridge
+exists to avoid. The screen is right there and says nothing.
+
+A notification is a **message drawn over whatever screen is up, with the state machine
+untouched underneath**. That is the whole distinction from `AppState::kHardError`, which is
+terminal and replaces everything: telemetry keeps flowing, the pull keeps transferring, and
+dismissing it returns to exactly the screen that was there. The pieces already exist —
+`Ui::LoadWidget` swaps widgets, `IWidget` is a two-method interface, and `NotifyUserActivity`
+already wakes the panel for events worth seeing.
+
+- **Dismissal is a hold**, which collides with the menu. `CycleOnButton` gives every state the
+  same gesture pair, and a long press means "swap menus" everywhere. A notification has to
+  consume the hold that dismisses it and not swap menus with the same press — one edit, in the
+  one helper, now that the gesture lives in a single place.
+- **More than one can be pending.** A queue with a depth and a drop policy, and dedupe for a
+  condition that re-fires — armed-refusal holds for as long as the vehicle stays armed, and
+  today it is edge-triggered precisely so it does not repeat.
+- **Auto-expiry is a question, not a given.** A hold is a deliberate acknowledgement, which is
+  right for something the pilot must see; a timeout is right for something merely informative.
+  Deciding per notification rather than globally is what keeps both honest.
+- **The STM32 already has a channel.** `kLog` packets arrive and are printed under the peer tag
+  (`FcLink::kPeerLogTag`); a severity on that message is what turns the interesting ones into
+  notifications without inventing a second wire format.
+
+The natural first users are the sites that already play `kWarning`, plus #11's ESC derating
+warning, which needs somewhere to be seen the moment it exists.
+
 ### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
 `SharedState` is a const-correct store, not an access-controlled one. Readers get `const &` so
@@ -453,11 +519,11 @@ same shape. A key exposes exactly one function.
 
 Two panics decide policy where Sentinel cannot see them, and nothing watches whether the control
 loop runs at all. The groundwork is done: every cause has its own counter, `ImuHealth` is on the
-blackboard, and `Sentinel::Supervise` runs off the slow tick.
+blackboard, and `Sentinel::Supervise` runs off the main tick.
 
 #### The measurement is owed
 
-`StepSlow` panics with `kImuDroppedFrame` after `kLossPanicConsecutiveSec` seconds above
+`MainTick` panics with `kImuDroppedFrame` after `kLossPanicConsecutiveSec` seconds above
 `kLossPanicPerSec`. It read a structurally-zero counter for its whole life; `missed_samples` now
 has a live writer in `PublishLatestBatch`, so it can fire for the first time — on a threshold
 never checked against hardware.
@@ -478,9 +544,9 @@ disarmed idle, armed at motor idle, throttle sweeping, and every link streaming 
 
 `StatPublisher::BuildSystemStatusMsg` sets `msg.flags = kSystemStatusFlagLoopAlive`
 unconditionally, and the ESP32 gates `MAV_STATE_CRITICAL` on that bit. A SystemStatus frame
-needs only the *slow* loop, and `msg.loop_counter` is the slow loop's own count — so a wedged
-control loop leaves every indicator on the ground green. The IWDG misses it too: the main loop
-kicks it, and the main loop is fine.
+needs only the main tick, and `msg.loop_counter` is the main tick's own count — so a
+wedged control loop leaves every indicator on the ground green. The IWDG misses it too: the
+main loop kicks it, and the main loop is fine.
 
 `Supervise` covers the neighbouring failure, not this one — it watches `ImuHealth::timestamp_us`,
 which the *sample interrupt* stamps, and recovers a stalled sample path through
@@ -556,6 +622,44 @@ each catch part of the gap, and they do not overlap:
 All three stay advisory. The confidential SIL consumes this repo's public API, so a whole-program
 "unused" verdict from inside the repo is the exact false positive that rule exists to catch —
 a list to review, never a build gate.
+
+### #34 — Linter exceptions are scattered, and no rule can be silenced on one line — 🟢 SUPPORTING
+
+Seventeen scripts in `scripts/lint/` gate this repo, and the answer to "why does this file not
+have to obey" is in a different place for each of them:
+
+- **Two read an exceptions file, in two grammars that disagree.** `comment_exceptions.txt` takes
+  `<path>:<rule>`. `forbidden_exceptions.txt` takes a bare substring matched against either
+  `path:line:col` *or* the offending source text, so one entry can excuse a construct everywhere
+  rather than excuse a file — and it arrives through a `--exceptions` flag rather than a fixed
+  path. Both files are empty today, which is the only reason the difference has cost nothing yet.
+- **Two carry the list as Python constants.** `check_timer_access.py`'s `ALLOWED` (three paths)
+  and `check_license.py`'s `EXEMPT_PATTERNS` (fourteen globs). Both already demand a written
+  reason per entry, in a comment — the discipline is right, the storage is wrong.
+- **The hook config is a third location, and it is honoured in only one of the two runs.**
+  `.pre-commit-config.yaml` scopes each hook with `files:`/`exclude:` and a shared `&not_ours`
+  anchor, while `.github/workflows/lint.yml` runs every script bare over the whole tree. An
+  exclusion that lives only in the hook config is silently absent from CI.
+
+`check_tidy.py`'s `EXCLUDED` and `check_error_codes.py`'s `EXCLUDE_PATHS` look like the same
+thing and are not: one is the rule set itself, the other is the enum's own two definition files.
+Neither is an exception and neither should move.
+
+**Nothing has a per-line escape.** No script honours an inline suppression for its own rules.
+The single mention of one is `check_comments.py`'s `NOLINT_RE`, which *polices* clang-tidy's
+`NOLINT` — rejecting any that carries neither a check name nor a reason — rather than obeying it.
+Silencing `check_forbidden` for one honest line means editing the script.
+
+Shape: one loader shared by every script, one file format carrying path, rule and a mandatory
+reason, plus an inline `// LINT(<rule>): <reason>` for the single-line case, held to the same
+standard `check_comments.py` already imposes on `NOLINT`. Stale entries should fail — a rule that
+quietly stopped applying is worse than one that was never written.
+
+The counter-pressure is real and belongs in the design: thirteen of the seventeen have no
+exemption mechanism at all, and that is why they hold. A shared escape hatch makes suppression
+cheap for rules that currently cost an argument, so the inline form has to name the rule and the
+reason in the diff the reviewer reads, and the thirteen keep having no entries until something
+real needs one.
 
 ### #23 — Nothing filters the gyro in software — 🟢 SUPPORTING
 
@@ -688,13 +792,121 @@ trigger has to check the reset cause as well.
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
-An SD driver and a service. The blackboard is now the right shape to log from: every fact in one
-place, each timestamped, each with one writer, and change detection held per-consumer rather
-than shared.
+Delivered as far as the bench: SDIO driver, vendored FatFs, a ULog writer recording the
+blackboard set (estimator per control tick; RC, battery, ESC telemetry, GPS, IMU health, CRSF
+link, logger status on their own cadences) into one contiguous file preallocated per flight,
+retrieved over USB mass storage (the `SdCard` menu entry) or WiFi (`tools/pull_logs.py`).
+The encoding was validated against pyulog off-target; **none of it has touched hardware**, and
+the first bench pass is what confirms the DevEBox slot is SDIO-wired at all.
 
-The control path is the constraint. `EstimatorState` is 48 bytes, so at 2048 Hz it is ~98 KB/s —
-fine for the card, not something the slow loop should marshal synchronously. It wants its own
-buffer and a bulk flush.
+What the first version deliberately leaves out is #31.
+
+### #31 — Tuning-grade log content — 🟢 SUPPORTING
+
+The blackbox records what the vehicle *did*; a PID tune also needs what the controller *asked
+for*. The rate setpoints, torque command and per-motor thrust flow rate_controller → mixer →
+esc_service as locals and never touch the blackboard, so the logger cannot see them.
+
+- **A `ControlOutputs` POD on the SharedState**, written by the control tick — one plain store,
+  the same shape as `UpdateEstimate`. ~36 bytes at 2048 Hz adds ~80 KB/s to the stream.
+- **A decimation knob** for the fast topics, once real flights show whether full rate is worth
+  the file sizes.
+- **Raw pre-decimation gyro batches** as an optional topic, for the #23 filter design work —
+  the 8192 Hz stream is the one place motor noise is visible above 1024 Hz.
+- **Firmware identity in the ULog `I` messages.** The STM32 has no version constant (#18); when
+  it gains one, stamp it so a log names the code that flew it.
+
+### #32 — Format the card on the vehicle — 🟢 SUPPORTING
+
+A card the firmware cannot mount is currently a trip to a PC, and a card over 32 GB is a trip
+to a PC with third-party tooling, because Windows refuses to put FAT32 on one. `f_mkfs` with
+`FM_FAT32` does both. The cost is small and measured: `FF_USE_MKFS=1` takes `ff.c` from 7,552
+to 9,640 bytes of text — **+2,088 B of flash** — and no RAM at all, because `f_mkfs` takes an
+explicit work buffer and `LogService::staging_[0]` is 4 KB that is provably idle whenever a
+format could run.
+
+**It must never be automatic.** `f_mount` failing does not mean the card is blank: it also
+means a transient SDIO error, or a directory corrupted mid-write on a card whose log sectors
+are perfectly readable. Formatting on mount failure would wire the destruction of flight data
+to the exact symptom that says flight data is worth recovering — and would do it silently at
+power-up, in the post-incident case, before anyone could object.
+
+So it is a deliberate act, and the UI is what makes it one:
+
+- **A hidden entry**, not a fourth stop in the config menu cycle. Reachable by a gesture that
+  cannot be stumbled into and is documented only in the handbook, never on the screen.
+- **Hold-to-confirm** with the card's capacity and volume label shown, so the operator is
+  looking at what they are about to erase.
+- **Refused while armed**, on the same interlock as the MSC grant — it is a card-owning
+  operation, so it belongs in the `SdCard` state after `LogService::ReleaseCard()`.
+- **Bounded and fed.** A FAT32 mkfs writes both FAT copies — several MB on a large card. The
+  blocking waits in `Sdio` already kick the watchdog, but `f_mkfs` itself must be checked
+  against the ~700 ms window rather than assumed to fit.
+
+Worth doing when the SD path has flown and its failure modes are known, not before: the whole
+argument for a hidden format is that the operator understands what they are erasing, and right
+now nobody has lost a log yet.
+
+### #33 — The log records less than the vehicle already knows — 🟢 SUPPORTING
+
+Distinct from #31, which needs new plumbing before anything can be recorded. Everything here is
+already on the SharedState, already timestamped, and simply never written — so the work is
+record fields and format strings, not a design change. The whole list costs a few KB/s against
+a stream the estimator already dominates at 108 KB/s, except the first entry.
+
+| Source | Not recorded |
+| --- | --- |
+| Raw IMU batch | 4 samples per tick at 8192 Hz, each with its own sensor-domain timestamp |
+| `GpsData` | `hAcc`, `vAcc`, `gDOP`, `pDOP`, `vDOP`, UTC date/time, `valid`, `tAcc`, `posCov*`, `velCovValid` — 18 of 27 fields |
+| `EscTelemetryData` | the whole topic — recording is off, see below |
+| SharedState | `flight_mode`, `IsArmed()` |
+| `ImuTemperature` | the whole struct |
+| SharedState | `uptime_ms`, `loop_counter` |
+| `CrsfLinkData` | `active_antenna` |
+| `ImuHealth` | `last_bad_header` |
+
+**The raw IMU batch is the one that is not cheap and the one that matters most.** `Ahrs::Process`
+integrates every sample, but publishes their mean, so the logged stream is band-limited to
+1024 Hz by a 4-tap box — and #23 needs to see motor noise above exactly that. Logging all four
+is ~196 KB/s, roughly tripling the file, so it wants a bounded window or an on-demand mode
+rather than always-on. Note PX4 makes the opposite trade: `sensor_combined` at full rate,
+`vehicle_attitude` decimated to 20 Hz. It logs the measurement and thins the estimate; this
+logs the estimate and drops the measurement.
+
+**ESC telemetry is recorded not at all, deliberately.** `STM32_LOG_TOPIC_ESC_TELEMETRY_PERIOD_MS`
+defaults to 0. The four motors answer their own requests and carry their own timestamps, so a
+record with a single timestamp dates itself by whichever motor happened to be freshest, which
+the reader cannot identify — and a motor falling silent has to be inferred from `valid_mask`
+and a frozen RPM rather than seen. A log that quietly misattributes is worse than one that
+says nothing, so the topic stays dark until the record shape is decided rather than inherited:
+per-motor timestamps, the six bus counters (`crc_error_count`, `uart_error_count`,
+`rx_dma_error_count`, `rx_drop_bytes`, `frame_count`, `unassigned_frame_count` — richer than
+PX4's single per-ESC `esc_errorcount`), `consumption_mah` and `electrical_rpm`. Roughly 70 →
+134 bytes and ~3 KB/s, so cost is not what is holding it.
+
+**Two fields are absent because nothing produces them**, not because the logger skips them:
+`failsafe_flags` has no caller for its setter (#16), and `error_code` is hardcoded to `kOk` in
+`StatPublisher`. Recording either today would write a constant.
+
+**The ULog facilities the writer does not use yet**, each of which turns data into something a
+viewer renders rather than something a reader has to infer:
+
+- **`'P'` parameters.** Byte-identical layout to the `'I'` info message already emitted, so it
+  is a call, not a feature. Dumping the generated config means every log carries the tune that
+  flew it — and Flight Review draws `IMU_GYRO_CUTOFF` onto the noise spectrum, which is the
+  filter question answering itself.
+- **`'L'` logged strings.** `FcLink::SendLog` already produces this stream; today it scrolls
+  past on the ESP32 console and is gone. As ULog messages the same text lands on the plot
+  timeline beside the anomaly it explains.
+- **`'O'` dropout records.** A full ring increments `dropped_bytes` and moves on, so a gap
+  reads as "nothing happened". Viewers draw a dropout; they cannot draw a counter.
+
+**Topic naming is a decision, not a task.** Flight Review is hardcoded to PX4 topic names, and
+`estimator_state`'s fields already match `sensor_combined`'s `gyro_rad` and
+`accelerometer_m_s2` in both shape and units. Renaming would inherit PX4's whole analysis suite
+— vibration metrics, FFT, spectral density — for free. Against that: `estimator_state` is
+honest about being a fused estimate, and PX4's names would claim a compatibility the fields
+only partly honour. Worth deciding deliberately rather than drifting into.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
