@@ -17,6 +17,11 @@ extern "C" {
 // up without stalling the MAVLink TX scheduler.
 static constexpr TickType_t kSendTimeoutTicks = pdMS_TO_TICKS(50);
 
+UsbCdcServer &UsbCdcServer::GetInstance() {
+  static UsbCdcServer instance;
+  return instance;
+}
+
 void UsbCdcServer::Init(const Config &cfg) {
   cfg_ = cfg;
 

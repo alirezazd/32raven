@@ -11,10 +11,7 @@ extern "C" {
 
 class Button {
  public:
-  static Button &GetInstance() {
-    static Button instance;
-    return instance;
-  }
+  static Button &GetInstance();
   struct Config {
     struct Input {
       gpio_num_t pin = GPIO_NUM_NC;

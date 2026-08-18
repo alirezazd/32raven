@@ -13,10 +13,7 @@ extern "C" {
 
 class LED {
  public:
-  static LED &GetInstance() {
-    static LED instance;
-    return instance;
-  }
+  static LED &GetInstance();
 
   // Which LEDC timer and channel this driver claims. The generator checks the
   // claims against each other, so nothing here has to.

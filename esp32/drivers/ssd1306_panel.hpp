@@ -37,10 +37,7 @@ class Ssd1306Panel {
   static constexpr size_t kPageCount = kHeight / 8;
   static constexpr size_t kFramebufferSize = kWidth * kPageCount;
 
-  static Ssd1306Panel &GetInstance() {
-    static Ssd1306Panel instance;
-    return instance;
-  }
+  static Ssd1306Panel &GetInstance();
 
   void Init(const Config &cfg, I2cDisplay *i2c);
   void Flush(std::span<const uint8_t, kFramebufferSize> framebuffer);

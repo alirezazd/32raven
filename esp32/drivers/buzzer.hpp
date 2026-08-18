@@ -10,10 +10,7 @@ extern "C" {
 }
 class Buzzer {
  public:
-  static Buzzer &GetInstance() {
-    static Buzzer instance;
-    return instance;
-  }
+  static Buzzer &GetInstance();
   struct Config {
     struct Output {
       gpio_num_t pin = GPIO_NUM_NC;

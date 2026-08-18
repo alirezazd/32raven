@@ -28,10 +28,7 @@ extern "C" {
 
 class System {
  public:
-  static System &GetInstance() {
-    static System instance;
-    return instance;
-  }
+  static System &GetInstance();
 
   // Component identifiers used by InitComponent().
   enum class Component {

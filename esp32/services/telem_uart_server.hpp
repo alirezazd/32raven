@@ -16,10 +16,7 @@
 // works for any transparent serial peer.
 class TelemUartServer : public IMavlinkTransport {
  public:
-  static TelemUartServer &GetInstance() {
-    static TelemUartServer instance;
-    return instance;
-  }
+  static TelemUartServer &GetInstance();
 
   int Receive(std::span<uint8_t> dst) override;
   int Send(std::span<const uint8_t> bytes) override;

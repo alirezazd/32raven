@@ -11,10 +11,7 @@
 
 class WifiController {
  public:
-  static WifiController &GetInstance() {
-    static WifiController instance;
-    return instance;
-  }
+  static WifiController &GetInstance();
   struct Config {
     struct AccessPoint {
       const char *ssid = nullptr;

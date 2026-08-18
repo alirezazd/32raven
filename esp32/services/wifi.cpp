@@ -26,6 +26,11 @@ static inline void LogErr(const char *what, esp_err_t e) {
   if (e != ESP_OK) ESP_LOGE(kTag, "%s: %s", what, esp_err_to_name(e));
 }
 
+WifiController &WifiController::GetInstance() {
+  static WifiController instance;
+  return instance;
+}
+
 void WifiController::HandleWifiEvent(void *arg, esp_event_base_t event_base,
                                      int32_t event_id, void *event_data) {
   (void)event_data;

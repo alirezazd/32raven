@@ -23,10 +23,7 @@ class UsbCdcServer : public IMavlinkTransport {
     size_t tx_buffer_bytes = 1024;
   };
 
-  static UsbCdcServer &GetInstance() {
-    static UsbCdcServer instance;
-    return instance;
-  }
+  static UsbCdcServer &GetInstance();
 
   int Receive(std::span<uint8_t> dst) override;
   int Send(std::span<const uint8_t> bytes) override;

@@ -57,6 +57,11 @@ void DrawConstructionRibbon(DisplayRenderer &renderer, int16_t top,
 
 }  // namespace
 
+ErrorWidget &ErrorWidget::GetInstance() {
+  static ErrorWidget instance;
+  return instance;
+}
+
 void ErrorWidget::SetErrorCode(uint32_t code) {
   taskENTER_CRITICAL(&lock_);
   error_code_ = code;

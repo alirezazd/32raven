@@ -13,6 +13,11 @@ extern "C" {
 
 static constexpr const char *kTag = "button";
 
+Button &Button::GetInstance() {
+  static Button instance;
+  return instance;
+}
+
 void Button::Init(const Config &cfg) {
   cfg_ = cfg;
 

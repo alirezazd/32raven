@@ -29,6 +29,11 @@ constexpr size_t kMaxCommandBytes = kCommandBufferSize - 1;
 
 }  // namespace
 
+Ssd1306Panel &Ssd1306Panel::GetInstance() {
+  static Ssd1306Panel instance;
+  return instance;
+}
+
 void Ssd1306Panel::Init(const Config &cfg, I2cDisplay *i2c) {
   cfg_ = cfg;
   if (!cfg_.enabled) {

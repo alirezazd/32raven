@@ -9,6 +9,11 @@ extern "C" {
 #include "freertos/task.h"
 }
 
+Timebase &Timebase::GetInstance() {
+  static Timebase instance;
+  return instance;
+}
+
 TimeMs Timebase::NowMs() const { return (TimeMs)(esp_timer_get_time() / 1000); }
 
 TimeUs Timebase::NowUs() const { return (TimeUs)esp_timer_get_time(); }

@@ -12,10 +12,7 @@ using TimeUs = uint64_t;
 
 class Timebase {
  public:
-  static Timebase &GetInstance() {
-    static Timebase instance;
-    return instance;
-  }
+  static Timebase &GetInstance();
 
   struct Config {};
 

@@ -15,6 +15,11 @@ extern "C" {
 #include "freertos/task.h"
 }
 
+LED &LED::GetInstance() {
+  static LED instance;
+  return instance;
+}
+
 void LED::Init(const Config &cfg) {
   static constexpr uint32_t kTaskStackBytes = 2048;
   static StaticTask_t task_buffer;

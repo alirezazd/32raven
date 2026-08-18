@@ -3,6 +3,11 @@
 
 #include "telem_uart_server.hpp"
 
+TelemUartServer &TelemUartServer::GetInstance() {
+  static TelemUartServer instance;
+  return instance;
+}
+
 int TelemUartServer::Receive(std::span<uint8_t> dst) {
   if (dst.empty()) {
     return 0;

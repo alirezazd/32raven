@@ -13,10 +13,7 @@ extern "C" {
 
 class ErrorWidget : public IWidget {
  public:
-  static ErrorWidget &GetInstance() {
-    static ErrorWidget instance;
-    return instance;
-  }
+  static ErrorWidget &GetInstance();
 
   const char *Name() const override { return "error"; }
 

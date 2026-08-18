@@ -20,6 +20,11 @@ namespace {
 constexpr const char *kTag = "buzzer";
 }  // namespace
 
+Buzzer &Buzzer::GetInstance() {
+  static Buzzer instance;
+  return instance;
+}
+
 uint32_t Buzzer::NoteHz(uint32_t freq_hz) const {
   return std::min(freq_hz, cfg_.ledc.max_note_hz);
 }
