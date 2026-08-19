@@ -59,6 +59,7 @@ class Programmer {
   void Start(uint32_t total_size);
   void Poll();
   void Abort();
+  void WatchForStall();
 
   // Feed bytes and internally advance writing SM.
   // Returns bytes accepted (may be < n for backpressure).
@@ -165,6 +166,8 @@ class Programmer {
                       size_t len);  // CMD_READ_MEMORY (0x11)
   Ctx ctx_{};
   Phase phase_ = Phase::kIdle;
+  uint32_t stall_mark_ms_ = 0;
+  uint32_t stall_written_ = 0;
 
   // Out of line so the instance in GetInstance cannot constant-initialize:
   // a few non-zero members would drag the whole 12 KB object into .data.

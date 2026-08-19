@@ -561,6 +561,8 @@ void Programmer::Start(uint32_t total_size) {
 }
 
 void Programmer::Poll() {
+  WatchForStall();
+
   switch (phase_) {
     case Phase::kWriting:
       StepWriting();
@@ -713,9 +715,34 @@ void Programmer::EnterDone() {
   phase_ = Phase::kDone;
 }
 
+// Every failure in this file routes here, which makes it the one place that
+// knows a programming session died and why. Recorded before halting so the
+// panic loop's recovery path reads a settled phase if it ever gets back here.
 void Programmer::Fail(ErrorCode::Esp32 code) {
   ctx_.err = static_cast<uint32_t>(code);
   phase_ = Phase::kError;
+  Panic(code);
+}
+
+// The host going quiet mid-transfer is this driver's own condition: it owns the
+// timeout and is the only thing that sees whether bytes are still arriving.
+// Verification is excluded because it produces no writes to measure.
+void Programmer::WatchForStall() {
+  if (phase_ != Phase::kWriting) {
+    stall_mark_ms_ = 0;
+    return;
+  }
+
+  const TimeMs now = Sys().Timebase().NowMs();
+  if (stall_mark_ms_ == 0 || ctx_.written != stall_written_) {
+    stall_written_ = ctx_.written;
+    stall_mark_ms_ = now;
+    return;
+  }
+
+  if ((now - stall_mark_ms_) > kStallTimeoutMs) {
+    Fail(ErrorCode::Esp32::kProgrammerTimedOut);
+  }
 }
 
 bool Programmer::CompleteSuccessfulProgram() {

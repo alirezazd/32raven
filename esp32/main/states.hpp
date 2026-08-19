@@ -87,9 +87,6 @@ class ProgramState : public IState<AppContext> {
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 
- private:
-  TimeMs last_activity_ = 0;
-  uint32_t last_written_ = 0;
 };
 
 class EscConfigState : public IState<AppContext> {

@@ -6,10 +6,8 @@
 #include <cstdio>
 
 #include "ctx.hpp"
-#include "error_code.hpp"
 #include "esp32_config.hpp"
 #include "fc_link.hpp"
-#include "panic.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
 #include "timebase.hpp"
@@ -201,8 +199,6 @@ void ProgramState::OnEnter(AppContext &ctx) {
   ctx.sys->Mavlink().SetTelemetryLink(false);
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
-  last_activity_ = ctx.now_ms;
-  last_written_ = ctx.sys->Programmer().Written();
 }
 
 void ProgramState::OnStep(AppContext &ctx) {
@@ -227,14 +223,6 @@ void ProgramState::OnStep(AppContext &ctx) {
   auto &tcp = ctx.sys->Tcp();
   auto &prog = ctx.sys->Programmer();
 
-  if (prog.Error()) {
-    const uint32_t programmer_error = prog.LastErrorCode();
-    tcp.StopDownload();
-    prog.Abort();
-    ESP_LOGE(kTag, "Prog Error -> Panic");
-    Panic(programmer_error);
-  }
-
   if (prog.Done()) {
     ESP_LOGI(kTag, "Prog Done -> Transitioning to Dfu");
     TcpServer::Status st{};
@@ -256,11 +244,14 @@ void ProgramState::OnStep(AppContext &ctx) {
       ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev->id);
       tcp.StopDownload();
       prog.Abort();
-      if (ev->id == TcpServer::EventId::kAbort) {
-        ctx.sm->ReqTransition(*ctx.serving_state);
-      } else {
-        Panic(ErrorCode::Esp32::kTcpServerError);
+      // Dfu, where a completed flash also lands: the network stays up and the
+      // host can retry without walking the menu again. Only the unasked-for
+      // endings sound -- an ABORT line is the host's own doing, a dropped
+      // socket is not, and the STM32 left half-written says so on next boot.
+      if (ev->id != TcpServer::EventId::kAbort) {
+        ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
       }
+      ctx.sm->ReqTransition(*ctx.dfu_state);
       return;
     }
   }
@@ -283,22 +274,6 @@ void ProgramState::OnStep(AppContext &ctx) {
     if (n > 0) {
       prog.PushBytes(chunk.first(n));
       ctx.sys->Led().Toggle();
-      last_activity_ = ctx.now_ms;
-    }
-  }
-
-  uint32_t current_written = prog.Written();
-  if (current_written != last_written_) {
-    last_activity_ = ctx.now_ms;
-    last_written_ = current_written;
-  }
-
-  if (!prog.IsVerifying() && !prog.Done()) {
-    if ((ctx.now_ms - last_activity_) > Programmer::kStallTimeoutMs) {
-      ESP_LOGE(kTag, "Programmer timed out -> Panic");
-      tcp.StopDownload();
-      prog.Abort();
-      Panic(ErrorCode::Esp32::kProgrammerTimedOut);
     }
   }
 }
