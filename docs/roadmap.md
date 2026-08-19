@@ -206,8 +206,8 @@ commanding lift.
 
 ### #15 — Nothing acts on a lost link — 🎯 CRITICAL
 
-`StatPublisher::BuildVehicleStatusMsg` now reports `kVehicleFailsafeFlagRcLoss`, and that is all
-it does. No code anywhere changes behaviour when a link goes down.
+`kVehicleFailsafeFlagRcLoss` reaches the wire and nothing reads it. No code anywhere changes
+behaviour when a link goes down.
 
 The control loop reads `rc.roll_us`, `rc.throttle_us` and the rest straight out of `SharedState`
 with no freshness test, so RC loss means the last stick values are held and flown indefinitely.
@@ -269,36 +269,24 @@ the bench path stops working. The reporting side already takes this shape, gatin
 #### The other three flags
 
 `kVehicleFailsafeFlagBattery` needs a threshold knob chosen; the voltage and percentage are
-already on the blackboard. `kVehicleFailsafeFlagImu` has both a detector and a written intent
-waiting — `states.cpp` currently calls `Panic()` on sustained IMU frame loss and says halting
-is the wrong answer once this flies with props. `kVehicleFailsafeFlagGps` stays zero until
-something actually navigates by GPS.
+already on the blackboard. `kVehicleFailsafeFlagImu` is the one flag Sentinel raises, and
+nothing reads it either — deciding what an IMU failsafe *does* in the air is this item's job.
+`kVehicleFailsafeFlagGps` stays zero until something actually navigates by GPS.
 
 This item is the *policy*: which conditions count, how fast, and what each one does. Where that
 policy lives and what enforces it is #16.
 
 ### #16 — Sentinel, one owner for arming and failsafe authority — 🎯 CRITICAL
 
-Sentinel owns the arm decision, evaluates every failsafe condition #15 defines, writes the
-result to the `SharedState` once per main tick, and is the only thing that disarms. The
-arming half is done: `RequestArm` is the sole entry point and the sole writer of
-`SharedState::armed_`, and it refuses from any state but Idle.
+Sentinel is the single owner of the arm decision and of every failsafe condition #15 defines.
+It owns the arm path and the IMU conditions. Three things are still outside it: the remaining
+failsafe conditions, FcLink peer loss, and the watchdog.
 
-#### What is left
+#### The conditions still live in a telemetry builder
 
-`failsafe_flags` is plumbed end to end — `SetFailsafeFlags` exists, `StatPublisher` reads
-`FailsafeFlags()` onto the wire — and **nothing ever calls the setter**, so the word is always
-zero. The conditions are still computed in a telemetry builder
-(`StatPublisher::BuildSystemStatusMsg` derives IMU, GPS, battery and RC health from freshness).
-Moving detection into Sentinel means *relocating* that computation rather than writing a second
-copy of it. `Sentinel::Supervise` is the slot it lands in, and carries the `TODO(fc)` saying so.
-
-**Two panics, not one, and the second is the harder.** Alongside the main-tick guard,
-`Icm42688p::HandleOverrunFault` calls `Panic(kImuOverrun)` once `overrun_threshold` faults land
-inside `overrun_window_s`. It fires from **interrupt context**, so the armed state a correct
-response depends on arrives too late to matter — the decision has already been taken by the time
-any loop could weigh it. An ISR can raise a condition; it cannot choose a response. The driver's
-job ends at counting and flagging.
+`StatPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
+moving detection into Sentinel is *relocating* that computation rather than writing a second
+copy of it. `Sentinel::Supervise` is the slot, and carries the `TODO(fc)` naming the three.
 
 **It must live on the STM32**, because its whole purpose is to keep working when the ESP32 is
 gone. That is also why FcLink peer loss is Sentinel's to detect on this side (#17 owns the
@@ -308,9 +296,10 @@ path entirely and leaves the cascade running on the last RC values.
 
 #### What "high priority" means without an RTOS
 
-The STM32 is a superloop, and `MainTick` sheds work at `budget_exhausted()` bail points, so
-priority is placement rather than a number: Sentinel's `Poll` has to run **above the first
-bail**, since a failsafe skipped under load is a failsafe that does not exist.
+The STM32 is a superloop, so priority is placement rather than a number: `Supervise` runs first
+in `MainTick` and has to stay there, since a failsafe skipped under load is a failsafe that does
+not exist. Any future work-shedding under load inherits that constraint rather than negotiating
+with it.
 
 The shape to keep aiming at is an interlock that makes a state impossible rather than one that
 polls for it — the former costs nothing per pass, the latter costs something forever.
@@ -550,14 +539,13 @@ be the AHRS path's alone and `UpdateRc` `RcReceiver`'s alone; nothing says so an
 `armed_` and `failsafe_flags_` are the two with a real owner — private, with
 `friend class Sentinel` — because a second writer there spins motors.
 
-#### The failure it prevents is one this repo already had
+#### The failure it prevents
 
-`EscService` and `MultirotorMixer` each held their own `armed_`, kept in step only by
-`CommandHandler::OnPrivilegedArm` remembering to write both. A second disarm path — RC
-failsafe, battery cutoff, the IMU fault handler — that updated one and not the other would have
-left the ESCs disarmed while the mixer kept producing torque, with no gate to catch it. #16
-fixed that for `armed`. Nothing prevents the same shape recurring on any other field, and the
-next one will not announce itself either.
+Two components each holding their own copy of one fact, kept in step only by every writer
+remembering to update both. On `armed` that shape put the ESCs disarmed while the mixer kept
+producing torque, and only `friend class Sentinel` closes it. Every other field is still open to
+it, and the next occurrence will not announce itself either — the compiler has nothing to say
+about a setter anyone may call.
 
 #### Shape
 
@@ -589,56 +577,49 @@ same shape. A key exposes exactly one function.
 
 ### #20 — Sentinel watchdogs on the IMU and the control path — 🎯 CRITICAL
 
-Two panics decide policy where Sentinel cannot see them, and nothing watches whether the control
-loop runs at all. The groundwork is done: every cause has its own counter, `ImuHealth` is on the
-blackboard, and `Sentinel::Supervise` runs off the main tick.
-
-#### The measurement is owed
-
-`MainTick` panics with `kImuDroppedFrame` after `kLossPanicConsecutiveSec` seconds above
-`kLossPanicPerSec`. It read a structurally-zero counter for its whole life; `missed_samples` now
-has a live writer in `PublishLatestBatch`, so it can fire for the first time — on a threshold
-never checked against hardware.
-
-What it counts is real. `PENDSVSET` is a bit, not a queue: two bursts published inside one
-control tick collapse to one PendSV run and the older is dropped. That is the measurement that
-says whether the cascade fits its budget — **and the control loop has already been raised to
-2048 Hz without it**. That bump was argued from the aliasing corner and the DShot budget, not
-measured, so confirming it is the first thing this item owes.
-
-**The numbers cannot leave the board.** `ImuHealth` carries nine counters and all three
-consumers reduce them to booleans — an LED blink, a health bit, and the panic comparison.
-`SystemStatusMsg` has no field for any of them. So setting an honest threshold needs at least
-`missed_samples` on the wire first, read across the four cases that actually load the loop:
-disarmed idle, armed at motor idle, throttle sweeping, and every link streaming at once.
+Sentinel weighs the IMU counters and answers per arm state. Every threshold it uses is asserted
+rather than measured, and the failure that matters most — a control loop that has stopped
+running — has no detector at all.
 
 #### Nothing watches whether the control loop runs
 
 `StatPublisher::BuildSystemStatusMsg` sets `msg.flags = kSystemStatusFlagLoopAlive`
 unconditionally, and the ESP32 gates `MAV_STATE_CRITICAL` on that bit. A SystemStatus frame
-needs only the main tick, and `msg.loop_counter` is the main tick's own count — so a
-wedged control loop leaves every indicator on the ground green. The IWDG misses it too: the
-main loop kicks it, and the main loop is fine.
+needs only the main tick, and `msg.loop_counter` is the main tick's own count — so a wedged
+control loop leaves every indicator on the ground green. The IWDG misses it too: the main loop
+kicks it, and the main loop is fine, which is one concrete route to an in-flight reset (#21).
 
-`Supervise` covers the neighbouring failure, not this one — it watches `ImuHealth::timestamp_us`,
-which the *sample interrupt* stamps, and recovers a stalled sample path through
-`Icm42688p::RestartSampling`. Liveness is the opposite case: the interrupt publishing normally
-while the control loop fails to consume. It needs a stamp the control loop writes, which is also
-what makes the flag mean its name.
+`Sentinel::RecoverStalledImu` covers the neighbouring failure, not this one — it watches
+`ImuHealth::timestamp_us`, which the *sample interrupt* stamps. Liveness is the opposite case:
+the interrupt publishing normally while the control loop fails to consume. It needs a stamp the
+control loop writes, which is also what makes the flag mean its name, and what #16 needs before
+the watchdog kick can mean anything.
 
-#### What is left
+#### Every threshold is a guess
 
-The driver counts and recovers; it does not judge. `FlushAndResync` and `resync_pending_`
-stay in the ISR as mechanism. The thresholds, the window and both `Panic` calls leave, and
-Sentinel raises `kVehicleFailsafeFlagImu` instead — a halt stays right while disarmed, which
-Sentinel is the only thing positioned to know. Until the numbers exist a panic is the loudest
-instrument available and no props are fitted, which is why both sites stay as they are.
+| Threshold | Value | Guards |
+| --- | --- | --- |
+| `kLossPerSecThreshold` | 0.5% of gyro ODR, 3 consecutive seconds | unclaimed sample bursts |
+| `overrun_threshold` | 3 path faults in 1 second | sample-path faults |
+| `kImuStallTimeoutUs` | 20 ms | sample-path silence |
 
-One gap `Supervise` does not close: a stall with `inflight_` stuck true — a DMA that started
-and never completed — survives the flush, because nothing clears it or the SPI driver's
-`busy_`. Aborting a live DMA is real surgery and belongs here rather than in the driver.
+What the loss rule counts is real: `PENDSVSET` is a bit, not a queue, so two bursts published
+inside one control tick collapse to one PendSV run and the older is dropped. That is the
+measurement that says whether the cascade fits its budget — **and the loop was raised to
+2048 Hz without it**, argued from the aliasing corner and the DShot budget rather than measured.
 
-`kImuStallTimeoutUs = 20000u` is likewise asserted, not measured.
+**The numbers cannot leave the board.** `ImuHealth` carries ten counters and every consumer
+reduces them to a boolean — an LED blink, a health bit, a threshold comparison. `SystemStatusMsg`
+has no field for any of them. An honest threshold needs at least `missed_samples` on the wire,
+read across the four cases that load the loop: disarmed idle, armed at motor idle, throttle
+sweeping, and every link streaming at once. Worth landing with #21 — both are `SystemStatusMsg`
+additions, and one wire break costs one dual-flash.
+
+#### The stall recovery cannot clear
+
+A stall with `inflight_` stuck true — a DMA that started and never completed — survives
+`RestartSampling`, because nothing clears it or the SPI driver's `busy_`. Aborting a live DMA is
+real surgery and belongs here rather than in the driver.
 
 ### #21 — Know why the board restarted — 🟢 SUPPORTING
 
@@ -675,6 +656,43 @@ Auto-arming also inverts #16's charter. A bench reset would spin props on the ta
 trustworthy airborne test gates it, and sustained near-zero-g is about the only honest one — a
 signal that only arrives once things have already gone wrong. Fixing what causes the reset is
 worth more than recovering from it.
+
+### #40 — Faults that survive the battery being pulled — 🟢 SUPPORTING
+
+An IMU fault raised in flight is held in `Sentinel::imu_fault_latched_` and answered at the
+disarm edge. That latch lives in SRAM, so a pilot who lands and pulls the battery — rather than
+disarming and letting the board sit — takes the only record of the fault with them, and the next
+boot is clean with no one the wiser. Every fault this board can defer has the same hole.
+
+Car ECUs answer it with diagnostic trouble codes: a fault writes a code to non-volatile storage,
+the lamp stays lit across power cycles, and the code clears only when a tool reads it and is told
+to. The value is not the storage, it is the refusal to forget without someone acknowledging.
+
+`.noinit` SRAM is the wrong home, and #21 reaches the opposite conclusion for a different case:
+it survives a *reset*, which is what an in-flight watchdog restart needs, but not a power cycle,
+which is the case here. The ESP32 has NVS, already owns the display that would carry the
+indicator, and is the thing the operator connects to on the bench.
+
+#### Shape
+
+A fault code and the flight index it was raised in, sent over FcLink when Sentinel raises it and
+again on handshake so a fault raised while the link was down is not lost. The ESP32 appends to a
+small NVS ring — bounded, oldest dropped — and the UI shows a pending-fault indicator until it
+is cleared. Clearing is explicit and belongs behind #38's service menu; nothing clears on boot,
+on read, or on a good flight.
+
+`ErrorCode` is already the shared vocabulary, so the wire carries a code the ESP32 can name
+through `error_code.cpp` rather than a second enum invented for the purpose.
+
+#### The boot policy stays with Sentinel
+
+A stored fault must not become a thing that refuses to boot. The ESP32 records and reports; what
+a fault *means* — halt, refuse to arm, or warn — stays where #16 put it, and the STM32 must come
+up fully with a card full of history. Otherwise a stale code from a fixed problem grounds an
+airworthy aircraft, which is the failure mode ECUs are most criticised for.
+
+Pairs with #17: Doctor is the natural reader, and a fault log is the first thing it should
+present. #36 carries the notification.
 
 ### #22 — Nothing finds dead code — 🟢 SUPPORTING
 
@@ -864,14 +882,21 @@ trigger has to check the reset cause as well.
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
-Delivered as far as the bench: SDIO driver, vendored FatFs, a ULog writer recording the
-blackboard set (estimator per control tick; RC, battery, ESC telemetry, GPS, IMU health, CRSF
-link, logger status on their own cadences) into one contiguous file preallocated per flight,
-retrieved over USB mass storage (the `SdCard` menu entry) or WiFi (`tools/pull_logs.py`).
-The encoding was validated against pyulog off-target; **none of it has touched hardware**, and
-the first bench pass is what confirms the DevEBox slot is SDIO-wired at all.
+**None of the SD path has touched hardware.** The encoding is validated against pyulog
+off-target only, and the first bench pass is also what confirms the DevEBox slot is SDIO-wired
+at all — the repo has no schematic for it, so the pinout is taken from stm32-base.org and is
+proven only by the card answering CMD0/ACMD41.
 
-What the first version deliberately leaves out is #31.
+What that pass has to establish:
+
+- A card present at boot preallocates `LOG00001.ULG` at `STM32_LOG_PREALLOC_MB`, contiguous;
+  no card boots clean.
+- An armed props-off run truncates to real size at disarm, opens in pyulog and PlotJuggler,
+  shows `estimator_state` at ~2048 Hz and `dropped_records` at zero.
+- The `SdCard` menu entry mounts on a PC, and `tools/pull_logs.py` returns a byte-identical
+  copy over WiFi.
+
+Content gaps are #31 and #33; a card that fills is #37; formatting is #32.
 
 ### #31 — Tuning-grade log content — 🟢 SUPPORTING
 
@@ -993,9 +1018,9 @@ per-motor timestamps, the six bus counters (`crc_error_count`, `uart_error_count
 PX4's single per-ESC `esc_errorcount`), `consumption_mah` and `electrical_rpm`. Roughly 70 →
 134 bytes and ~3 KB/s, so cost is not what is holding it.
 
-**Two fields are absent because nothing produces them**, not because the logger skips them:
-`failsafe_flags` has no caller for its setter (#16), and `error_code` is hardcoded to `kOk` in
-`StatPublisher`. Recording either today would write a constant.
+**`error_code` is absent because nothing produces it**, not because the logger skips it: it is
+hardcoded to `kOk` in `StatPublisher`, so recording it today would write a constant.
+`failsafe_flags` only carries the IMU bit until #15 defines the rest.
 
 **The ULog facilities the writer does not use yet**, each of which turns data into something a
 viewer renders rather than something a reader has to infer:
