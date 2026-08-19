@@ -217,7 +217,9 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   msg.batt_voltage = BatteryVoltageMv(battery);
   msg.batt_current = BatteryCurrentCa(battery);
   msg.batt_remaining = BatteryRemainingPct(battery);
-  msg.boot_state = static_cast<uint8_t>(message::BootState::kReady);
+  msg.boot_state = static_cast<uint8_t>(ctx.control_tick_state != nullptr
+                                            ? message::BootState::kReady
+                                            : message::BootState::kBooting);
   msg.flags = message::kSystemStatusFlagLoopAlive;
   return msg;
 }
@@ -268,9 +270,8 @@ StatPublisher::Outcome StatPublisher::PublishSystemStatus(StatPublisher &self,
   return Outcome::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishVehicleStatus(StatPublisher &self,
-                                                           const AppContext &ctx,
-                                                           uint32_t now_us) {
+StatPublisher::Outcome StatPublisher::PublishVehicleStatus(
+    StatPublisher &self, const AppContext &ctx, uint32_t now_us) {
   (void)self;
   (void)now_us;
   ctx.sys->FcLinkSvc().SendVehicleStatus(BuildVehicleStatusMsg(ctx));
@@ -386,9 +387,8 @@ StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
   }
 }
 
-StatPublisher::Outcome StatPublisher::PublishCrsfHeartbeat(StatPublisher &self,
-                                                           const AppContext &ctx,
-                                                           uint32_t now_us) {
+StatPublisher::Outcome StatPublisher::PublishCrsfHeartbeat(
+    StatPublisher &self, const AppContext &ctx, uint32_t now_us) {
   return PublishCrsfTopic(self, ctx, now_us,
                           CrsfLinkService::TelemetryTopic::kHeartbeat);
 }
