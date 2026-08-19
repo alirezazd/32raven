@@ -1725,21 +1725,6 @@ config STM32_IMU_SPI_MAX_SCK_HZ
       slowest SPI2 prescaler at or under this value from the live APB1 clock.
 
 
-config STM32_IMU_RECOVERY_OVERRUN_THRESHOLD
-    int "Overrun panic threshold (faults)"
-    range 1 100
-    default 3
-    help
-      Number of FIFO overrun faults allowed inside the configured window before
-      the IMU recovery path escalates to a panic condition.
-
-config STM32_IMU_RECOVERY_OVERRUN_WINDOW_S
-    int "Overrun threshold window (s)"
-    range 1 60
-    default 1
-    help
-      Time window used when counting repeated FIFO overrun faults.
-
 config STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS
     int "Recovery fault LED period (ms)"
     range 20 5000
@@ -3231,6 +3216,65 @@ config STM32_LOG_TOPIC_LOGGER_STATUS_PERIOD_MS
       write errors. Set to 0 to disable, though a log that cannot say it lost
       data is the one case where this costs more than it saves. PX4:
       logger_status 200 ms.
+
+endmenu
+
+menu "Sentinel"
+
+config STM32_SENTINEL_IMU_LOSS_PERMILLE
+    int "Sample loss threshold (per mille of gyro ODR)"
+    range 1 500
+    default 5
+    help
+      Share of the gyro output data rate the control loop may fail to claim
+      inside one window before that window counts against the hysteresis. The
+      figure is a share rather than a sample count so it keeps its meaning when
+      the ODR changes. A burst is published but never claimed when the previous
+      one is still held, so this measures whether the cascade fits its budget.
+
+config STM32_SENTINEL_IMU_LOSS_WINDOW_MS
+    int "Sample loss window (ms)"
+    range 100 10000
+    default 1000
+    help
+      Length of one measurement window for the loss threshold above.
+
+config STM32_SENTINEL_IMU_LOSS_CONSECUTIVE
+    int "Consecutive windows before the loss rule fires"
+    range 1 60
+    default 3
+    help
+      How many windows in a row must exceed the threshold. One window is a
+      burst of loss around a single event; several in a row is a sample path
+      that has stopped keeping up. Set to 1 to remove the hysteresis, which
+      makes a single crowded window enough to raise the fault.
+
+config STM32_SENTINEL_IMU_FAULT_THRESHOLD
+    int "Sample-path faults per window"
+    range 1 100
+    default 3
+    help
+      Faults on the sample path -- overruns, DMA start failures, SPI errors,
+      parse failures -- allowed inside one window. The window tumbles rather
+      than sliding, so a burst split across a boundary may read as two
+      tolerable halves, which errs toward flying on.
+
+config STM32_SENTINEL_IMU_FAULT_WINDOW_MS
+    int "Sample-path fault window (ms)"
+    range 100 60000
+    default 1000
+    help
+      Length of one measurement window for the fault threshold above.
+
+config STM32_SENTINEL_IMU_STALL_TIMEOUT_MS
+    int "Sample path silence before recovery (ms)"
+    range 1 1000
+    default 20
+    help
+      Silence from the sample interrupt this long is taken as a stalled path
+      and answered by flushing the FIFO and restarting sampling. The interrupt
+      stamps its health every burst, so this is roughly twenty missed bursts at
+      the default -- far outside jitter, and nothing else produces it.
 
 endmenu
 

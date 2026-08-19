@@ -5,15 +5,9 @@
 
 #include <cmath>
 
-#include "error_code.hpp"
 #include "multirotor_mixer.hpp"
-#include "panic.hpp"
 #include "stm32_config.hpp"
 #include "system.hpp"
-
-static constexpr uint32_t kLossPanicPerSec =
-    Icm42688pReg::OdrHz(kIcm42688pConfig.rates.gyro) / 200u;  // 0.5%
-static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 
 static uint32_t g_fault_led_last_toggle_us = 0;
 
@@ -224,39 +218,6 @@ static void MainTick(AppContext &ctx) {
   }
 
   ctx.sys->CrsfLinkSvc().PollCommands();
-
-  // Once a second: the IMU loss guard. Telemetry is not here -- StatPublisher
-  // schedules that on the period each topic carries.
-  static uint32_t last_diag_print = 0;
-  static uint32_t last_drop_snapshot = 0;
-  static uint32_t high_loss_consec = 0;
-
-  const uint32_t current_time = micros();
-  if (current_time - last_diag_print >= 1000000) {
-    last_diag_print = current_time;
-
-    const uint32_t drops_now =
-        ctx.sys->Blackboard().GetImuHealth().missed_samples;
-    const uint32_t drop_rate_per_sec = drops_now - last_drop_snapshot;
-    last_drop_snapshot = drops_now;
-
-    if (drop_rate_per_sec >= kLossPanicPerSec) {
-      high_loss_consec++;
-    } else {
-      high_loss_consec = 0;
-    }
-
-    if (high_loss_consec == kLossPanicConsecutiveSec ||
-        (high_loss_consec > kLossPanicConsecutiveSec &&
-         high_loss_consec % 5 == 0)) {
-      // TODO(fc): halting is the wrong answer once this flies with props --
-      // move to Sentinel::Supervise and raise kVehicleFailsafeFlagImu,
-      // keeping the halt for the disarmed case. Deliberate until then: with
-      // no props fitted a panic is the loudest bench instrument there is, and
-      // the threshold above has never been measured against hardware.
-      Panic(ErrorCode::Stm32::kImuDroppedFrame);
-    }
-  }
 }
 
 void IdleState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }

@@ -1700,6 +1700,48 @@ def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _sentinel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    """Sentinel's thresholds, with the loss share resolved to a sample count.
+
+    The knob is a share of the record rate so it keeps its meaning when the
+    rate changes, and the rate is the CLKIN-scaled one rather than the nominal
+    ODR label -- `missed_samples` counts real records. The firmware wants the
+    count, and resolving it here keeps the multiply out of a comparison that
+    runs every window. A share that rounds
+    to zero would be met by an empty window and raise on every pass, so it
+    fails the build rather than reaching the board.
+    """
+    rate_hz = _imu_record_rate_hz(kconf)
+    permille = sym_int(kconf, "STM32_SENTINEL_IMU_LOSS_PERMILLE")
+    window_ms = sym_int(kconf, "STM32_SENTINEL_IMU_LOSS_WINDOW_MS")
+
+    samples_per_window = (rate_hz * window_ms) // 1000
+    threshold = (samples_per_window * permille) // 1000
+    if threshold == 0:
+        raise SystemExit(
+            f"STM32_SENTINEL_IMU_LOSS_PERMILLE={permille} over "
+            f"{window_ms} ms at {rate_hz} Hz rounds to a zero-sample "
+            f"threshold, which every window meets. Raise the share or "
+            f"lengthen the window."
+        )
+
+    return {
+        "loss_threshold_samples": threshold,
+        "loss_window_ms": window_ms,
+        "loss_permille": permille,
+        "loss_consecutive": sym_int(
+            kconf, "STM32_SENTINEL_IMU_LOSS_CONSECUTIVE"
+        ),
+        "fault_threshold": sym_int(kconf, "STM32_SENTINEL_IMU_FAULT_THRESHOLD"),
+        "fault_window_ms": sym_int(
+            kconf, "STM32_SENTINEL_IMU_FAULT_WINDOW_MS"
+        ),
+        "stall_timeout_ms": sym_int(
+            kconf, "STM32_SENTINEL_IMU_STALL_TIMEOUT_MS"
+        ),
+    }
+
+
 def _usb_cdc_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "vendor_id": sym_hex_literal(kconf, "STM32_USB_VENDOR_ID"),
@@ -2047,12 +2089,6 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             ),
         },
         "recovery": {
-            "overrun_threshold": sym_int(
-                kconf, "STM32_IMU_RECOVERY_OVERRUN_THRESHOLD"
-            ),
-            "overrun_window_s": sym_int(
-                kconf, "STM32_IMU_RECOVERY_OVERRUN_WINDOW_S"
-            ),
             "fault_led_period_ms": sym_int(
                 kconf, "STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS"
             ),
@@ -2182,6 +2218,7 @@ def _runtime_context(
         "esc_telemetry": _esc_telemetry_context(kconf),
         "esc_service": _esc_service_context(kconf),
         "log_service": _log_service_context(kconf),
+        "sentinel": _sentinel_context(kconf),
         "usb_cdc": _usb_cdc_context(kconf),
         "msp": _msp_context(kconf),
         "fclink": _fclink_context(kconf),

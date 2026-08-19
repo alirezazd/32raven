@@ -73,8 +73,6 @@ class Icm42688p {
     } calibration;
 
     struct Recovery {
-      uint32_t overrun_threshold;
-      uint32_t overrun_window_s;
       uint32_t fault_led_period_ms;
     } recovery;
 
@@ -225,6 +223,7 @@ class Icm42688p {
   std::atomic<uint32_t> dropped_records_{0};
   std::atomic<uint32_t> publish_cnt_{0};
   std::atomic<uint32_t> parse_fail_cnt_{0};
+  std::atomic<uint32_t> invalid_sample_cnt_{0};
   std::atomic<uint32_t> dma_start_fail_cnt_{0};
   std::atomic<uint32_t> last_bad_header_{0};
   // Accumulated from 32-bit deltas, exactly as tmst64_us_ is built from the
@@ -254,9 +253,6 @@ class Icm42688p {
   ScaleConfig scale_config_{};
   uint32_t gyro_odr_hz_{0};
   typename Config::Calibration calibration_cfg_{};
-  typename Config::Recovery recovery_cfg_{};
-  uint32_t last_overrun_fault_us_{0};
-  uint32_t overrun_window_count_{0};
   uint8_t who_am_i_{0};
   uint32_t device_id_{0};
 

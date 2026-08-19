@@ -97,6 +97,7 @@ enum class Stm32 : uint32_t {
   kUartSoftReinit,
   kEscBootloaderReinit,
   kSentinelReinit,
+  kSentinelInvalidConfig,
   kSdioReinit,
   kLogServiceReinit,
   kMscServiceReinit,

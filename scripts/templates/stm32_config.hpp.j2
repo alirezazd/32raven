@@ -23,6 +23,7 @@
 #include "multirotor_mixer.hpp"
 #include "rate_controller.hpp"
 #include "rc_receiver.hpp"
+#include "sentinel.hpp"
 #include "spi.hpp"
 #include "stat_publisher.hpp"
 #include "time_base.hpp"
@@ -213,8 +214,6 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .gyro_still_threshold_raw = {{ icm42688p.calibration.gyro_still_threshold_raw }},
     },
     .recovery = {
-        .overrun_threshold = {{ icm42688p.recovery.overrun_threshold }},
-        .overrun_window_s = {{ icm42688p.recovery.overrun_window_s }},
         .fault_led_period_ms = {{ icm42688p.recovery.fault_led_period_ms }},
     },
 {# Chip-frame -> body-NED axis remap. Identity: this board mounts the
@@ -374,6 +373,20 @@ static_assert(kEscTelemetryConfig.response_timeout_us >
               "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US is shorter than "
               "a KISS frame takes at the ESC's fixed baud, so every request "
               "would expire mid-reply");
+
+// The threshold below is {{ sentinel.loss_permille }} per mille of the record
+// rate over {{ sentinel.loss_window_ms }} ms, resolved here so the comparison
+// is a plain compare. The share is the knob
+// (STM32_SENTINEL_IMU_LOSS_PERMILLE); a share that rounds to zero samples
+// fails the build rather than matching every window.
+inline constexpr Sentinel::Config kSentinelConfig = {
+    .imu_loss_threshold_samples = {{ sentinel.loss_threshold_samples }}u,
+    .imu_loss_window_us = {{ sentinel.loss_window_ms }}u * 1000u,
+    .imu_loss_consecutive = {{ sentinel.loss_consecutive }}u,
+    .imu_fault_threshold = {{ sentinel.fault_threshold }}u,
+    .imu_fault_window_us = {{ sentinel.fault_window_ms }}u * 1000u,
+    .imu_stall_timeout_us = {{ sentinel.stall_timeout_ms }}u * 1000u,
+};
 
 inline constexpr UsbCdcConfig kUsbCdcConfig = {
     .vendor_id = {{ usb_cdc.vendor_id }},

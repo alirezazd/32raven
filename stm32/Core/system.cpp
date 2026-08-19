@@ -163,7 +163,8 @@ void System::InitComponent(Component c) {
                               blackboard_, RcReceiver::GetInstance());
       break;
     case Component::kSentinel:
-      sentinel_.Init(blackboard_, esc_service_, rate_controller_);
+      sentinel_.Init(kSentinelConfig, blackboard_, esc_service_,
+                     rate_controller_);
       break;
     case Component::kStatPublisher:
       StatPublisher::GetInstance().Init(kStatPublisherConfig,

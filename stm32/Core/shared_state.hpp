@@ -112,6 +112,9 @@ struct ImuHealth {
   uint32_t dma_start_fails = 0;
   uint32_t spi_errors = 0;
   uint32_t parse_fails = 0;
+  // Records the chip filled with its no-fresh-data sentinel. Separate from
+  // parse_fails because the cause is a configuration mismatch, not lost framing.
+  uint32_t invalid_samples = 0;
   uint32_t dropped_records = 0;  // discarded by a FIFO flush, counted exactly
   // Published but never claimed, because the control loop still held the
   // previous burst. In samples, so it compares directly against the ODR.

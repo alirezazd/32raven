@@ -66,7 +66,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   timestamp_tick_scale_q16_ = TimestampTickScaleQ16(cfg.external_clock);
   timestamp_tick_remainder_q16_ = 0;
   calibration_cfg_ = cfg.calibration;
-  recovery_cfg_ = cfg.recovery;
   accel_calibration_ = EeConfigStorage::LoadOrInitImuAccelCalibration(ee);
 
   System::GetInstance().Time().DelayMicros(MillisToMicros(10));
@@ -158,11 +157,6 @@ void Icm42688p::ValidateConfig(const Config &cfg) {
   if (cfg.calibration.gyro_duration_s == 0 ||
       cfg.calibration.gyro_timeout_s == 0) {
     Panic(ErrorCode::Stm32::kImuCalibrationInvalidConfig);
-  }
-
-  if (cfg.recovery.overrun_threshold == 0 ||
-      cfg.recovery.overrun_window_s == 0) {
-    Panic(ErrorCode::Stm32::kImuOverrun);
   }
 
   // axis_map must be a permutation of {0,1,2}: aliasing/dropping an axis
@@ -372,7 +366,6 @@ void Icm42688p::OnSpiDone(bool ok) {
       ok_rec = ParsePacket3Record(rec, s);
     }
     if (!ok_rec) {
-      last_bad_header_.store(rec[0], std::memory_order_relaxed);
       parse_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
       dropped_records_.fetch_add(fifo_wm_records_, std::memory_order_relaxed);
       FlushAndResync();
@@ -428,29 +421,6 @@ void Icm42688p::FlushAndResync() {
 
 void Icm42688p::HandleOverrunFault() {
   overrun_.fetch_add(1, std::memory_order_relaxed);
-
-  const uint32_t now_us = System::GetInstance().Time().Micros();
-  const uint32_t window_us =
-      static_cast<uint32_t>(SecondsToMicros(recovery_cfg_.overrun_window_s));
-
-  if (last_overrun_fault_us_ == 0 ||
-      (now_us - last_overrun_fault_us_) > window_us) {
-    overrun_window_count_ = 1;
-  } else {
-    overrun_window_count_++;
-  }
-
-  last_overrun_fault_us_ = now_us;
-
-  // TODO(fc): this belongs in Sentinel::Supervise, raising
-  // kVehicleFailsafeFlagImu instead. The driver's job ends at counting: how
-  // broken is too broken is policy, and deciding it inside an interrupt puts
-  // it above every loop that could weigh the armed state against it.
-  // Deliberate only while no props are fitted, and the threshold has never
-  // been measured against hardware.
-  if (overrun_window_count_ >= recovery_cfg_.overrun_threshold) {
-    Panic(ErrorCode::Stm32::kImuOverrun);
-  }
 }
 
 float Icm42688p::ScaleTemperature(int16_t temp_raw) const {
@@ -548,6 +518,7 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   // Accept both normal packets (0x68) and ODR-change-tagged variants (0x6C).
   const uint8_t hdr = rec[0];
   if ((hdr & 0xF8u) != 0x68u) {
+    last_bad_header_.store(hdr, std::memory_order_relaxed);
     return false;
   }
 
@@ -573,13 +544,14 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   out.gyro[2] = LoadBe16Signed(&rec[0x0B]);
 
   // INTF_CONFIG0.FIFO_HOLD_LAST_DATA_EN=0 inserts invalid code (-32768).
-  // Treat any detected invalid code as a hard fault.
+  // Rejecting the record is the whole answer here: the caller counts it and
+  // resyncs. Whether that is fatal is Sentinel's call, not an ISR's.
   if (!fifo_hold_last_data_en_) {
     static constexpr int32_t kInvalid16 = Icm42688pReg::kFifo16InvalidSentinel;
     if (out.accel[0] == kInvalid16 || out.accel[1] == kInvalid16 ||
         out.accel[2] == kInvalid16 || out.gyro[0] == kInvalid16 ||
         out.gyro[1] == kInvalid16 || out.gyro[2] == kInvalid16) {
-      Panic(ErrorCode::Stm32::kImuInvalidSampleDetected);
+      invalid_sample_cnt_.fetch_add(1, std::memory_order_relaxed);
       return false;
     }
   }
@@ -596,6 +568,7 @@ bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   const uint8_t hdr = rec[0];
   if ((hdr & Icm42688pReg::kFifoHeaderVariantMask) !=
       Icm42688pReg::kFifoHeaderPacket4) {
+    last_bad_header_.store(hdr, std::memory_order_relaxed);
     return false;
   }
 
@@ -652,7 +625,7 @@ bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
     if (out.accel[0] == kInvalid20 || out.accel[1] == kInvalid20 ||
         out.accel[2] == kInvalid20 || out.gyro[0] == kInvalid20 ||
         out.gyro[1] == kInvalid20 || out.gyro[2] == kInvalid20) {
-      Panic(ErrorCode::Stm32::kImuInvalidSampleDetected);
+      invalid_sample_cnt_.fetch_add(1, std::memory_order_relaxed);
       return false;
     }
   }
@@ -690,6 +663,7 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
       .dma_start_fails = dma_start_fail_cnt_.load(std::memory_order_relaxed),
       .spi_errors = spi_error_cnt_.load(std::memory_order_relaxed),
       .parse_fails = parse_fail_cnt_.load(std::memory_order_relaxed),
+      .invalid_samples = invalid_sample_cnt_.load(std::memory_order_relaxed),
       .dropped_records = dropped_records_.load(std::memory_order_relaxed),
       .missed_samples = missed_samples_.load(std::memory_order_relaxed),
       .last_bad_header = static_cast<uint8_t>(

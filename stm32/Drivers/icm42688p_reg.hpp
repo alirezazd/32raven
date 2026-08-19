@@ -328,9 +328,9 @@ static constexpr float FifoTemperatureC(int8_t fifo_temp_data) {
 
 // FIFO sample ranges (datasheet §12.8)
 // With FIFO_HOLD_LAST_DATA_EN=0 the chip inserts an invalid-sample
-// sentinel when no fresh data is available; parser Panics on detection
-// (Stm32::kImuInvalidSampleDetected). Valid samples stay within the
-// ranges below, never the raw int16/int20 limits.
+// sentinel when no fresh data is available; the parser rejects the record and
+// counts it, leaving Sentinel to decide whether that is fatal. Valid samples
+// stay within the ranges below, never the raw int16/int20 limits.
 // 20-bit mode enforces LSB constraints:
 //   gyro  — LSB[0]   = 0  (even, gap = 2)
 //   accel — LSB[1:0] = 0  (multiple of 4, gap = 4)
