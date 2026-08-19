@@ -100,9 +100,11 @@ class StatPublisher {
   static uint16_t BatteryVoltageMv(const BatteryData &battery);
   static int16_t BatteryCurrentCa(const BatteryData &battery);
   static int8_t BatteryRemainingPct(const BatteryData &battery);
+  uint16_t ComputeControlLoopLoad(const AppContext &ctx);
   static message::SystemStatusMsg BuildSystemStatusMsg(const AppContext &ctx,
                                                        uint32_t now_us,
-                                                       uint32_t loop_counter);
+                                                       uint32_t loop_counter,
+                                                       uint16_t load);
   static message::VehicleStatusMsg BuildVehicleStatusMsg(const AppContext &ctx);
   static message::UsbStatusMsg BuildUsbStatusMsg(const AppContext &ctx);
 
@@ -140,6 +142,8 @@ class StatPublisher {
   bool initialized_ = false;
 
   uint32_t loop_counter_ = 0;
+  uint32_t load_last_busy_cycles_ = 0;
+  uint32_t load_window_start_cycles_ = 0;
 
   // Last-published values, so a publisher can tell an unchanged payload from a
   // new one. Per-publisher rather than on the Blackboard: a shared flag would

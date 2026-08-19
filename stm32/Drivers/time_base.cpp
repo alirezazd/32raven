@@ -48,6 +48,12 @@ void TimeBase::Init(const Config &config, SharedState &blackboard) {
   }
   initialized_ = true;
 
+  // The cycle counter is debug-block hardware but runs without a probe once
+  // the trace enable is set.
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
   RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
   __DSB();
 

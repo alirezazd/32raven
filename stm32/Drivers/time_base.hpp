@@ -34,6 +34,13 @@ class TimeBase {
  public:
   using Config = TimeBaseConfig;
 
+  // Core-clocked, so it resolves a control tick that TIM2's 1 us step can
+  // only round. Wraps every ~25 s at 168 MHz, which unsigned subtraction
+  // carries across as long as callers only ever take deltas.
+  __attribute__((always_inline)) inline static uint32_t Cycles() {
+    return DWT->CYCCNT;
+  }
+
   __attribute__((always_inline)) inline uint32_t Micros()
       const {  // direct 32-bit counter read; inlined for fast-path overhead
     return TIM2->CNT;

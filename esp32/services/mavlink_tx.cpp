@@ -455,6 +455,7 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
   uint16_t voltage_battery = 0;
   int16_t current_battery = -1;
   int8_t battery_remaining = -1;
+  uint16_t load = 0;
   if (system_status_.have_data) {
     const message::SystemStatusMsg &status = system_status_.value;
     sensors_present =
@@ -465,6 +466,7 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
     voltage_battery = status.batt_voltage;
     current_battery = status.batt_current;
     battery_remaining = NormalizeBatteryRemaining(status.batt_remaining);
+    load = status.control_loop_load;
   } else if (const std::optional<message::GpsData> latest =
                  GetCachedValue(gps_)) {
     sensors_present |= MAV_SYS_STATUS_SENSOR_GPS;
@@ -486,7 +488,7 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
   mavlink_message_t m{};
   mavlink_msg_sys_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
                               sensors_present, sensors_enabled, sensors_health,
-                              0, voltage_battery, current_battery,
+                              load, voltage_battery, current_battery,
                               battery_remaining, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
   return TxFrameState{m, /*is_heartbeat=*/false};

@@ -162,6 +162,7 @@ struct SystemStatusMsg {
   uint32_t error_code;
   uint32_t sensor_present_flags;
   uint32_t sensor_health_flags;
+  uint16_t control_loop_load;
   uint16_t batt_voltage;
   int16_t batt_current;
   int8_t batt_remaining;

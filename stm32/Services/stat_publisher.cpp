@@ -132,8 +132,28 @@ int8_t StatPublisher::BatteryRemainingPct(const BatteryData &battery) {
                                    : static_cast<int8_t>(battery.percentage);
 }
 
+// A duty cycle over the window since the last publish, not a per-tick figure:
+// the reader owns the window, so a missed publish widens it rather than
+// corrupting it. The counter only grows, so this never writes what the control
+// tick is concurrently adding to.
+uint16_t StatPublisher::ComputeControlLoopLoad(const AppContext &ctx) {
+  const uint32_t busy = ctx.sys->Blackboard().GetControlLoopLoad().busy_cycles;
+  const uint32_t now = TimeBase::Cycles();
+  const uint32_t window = now - load_window_start_cycles_;
+  const uint32_t spent = busy - load_last_busy_cycles_;
+  load_window_start_cycles_ = now;
+  load_last_busy_cycles_ = busy;
+  if (window == 0u) {
+    return 0u;
+  }
+  const uint64_t per_mille =
+      (static_cast<uint64_t>(spent) * 1000u) / static_cast<uint64_t>(window);
+  return static_cast<uint16_t>(per_mille > 1000u ? 1000u : per_mille);
+}
+
 message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
-    const AppContext &ctx, uint32_t now_us, uint32_t loop_counter) {
+    const AppContext &ctx, uint32_t now_us, uint32_t loop_counter,
+    uint16_t load) {
   const SharedState &blackboard = ctx.sys->Blackboard();
   const GpsData &gps = blackboard.GetGps();
   const BatteryData &battery = blackboard.GetBattery();
@@ -182,6 +202,7 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   message::SystemStatusMsg msg{};
   msg.uptime_ms = ctx.sys->Blackboard().UptimeMs();
   msg.loop_counter = loop_counter;
+  msg.control_loop_load = load;
   msg.error_code = static_cast<uint32_t>(ErrorCode::Common::kOk);
   msg.sensor_present_flags = sensors_present;
   msg.sensor_health_flags = sensors_health;
@@ -234,8 +255,8 @@ message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(const AppContext &ctx) {
 StatPublisher::Outcome StatPublisher::PublishSystemStatus(StatPublisher &self,
                                                           const AppContext &ctx,
                                                           uint32_t now_us) {
-  ctx.sys->FcLinkSvc().SendSystemStatus(
-      BuildSystemStatusMsg(ctx, now_us, self.loop_counter_));
+  ctx.sys->FcLinkSvc().SendSystemStatus(BuildSystemStatusMsg(
+      ctx, now_us, self.loop_counter_, self.ComputeControlLoopLoad(ctx)));
   return Outcome::kSent;
 }
 

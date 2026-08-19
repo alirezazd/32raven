@@ -119,6 +119,14 @@ struct ImuHealth {
   uint8_t last_bad_header = 0;
 };
 
+// Accumulated by the control tick and published whole, so the blackboard
+// only ever receives a finished value. It only grows: the reader deltas
+// against its own snapshot rather than clearing it, which would race the
+// tick still adding to it.
+struct ControlLoopLoad {
+  uint32_t busy_cycles = 0;
+};
+
 // Die temperature, ~1 Hz: a ~90 s thermal constant does not belong on the fast
 // path. Unguarded on purpose -- a torn read is off by millikelvin.
 struct ImuTemperature {
@@ -191,6 +199,9 @@ class SharedState {
   // Monotonic counters, so a reader preempted mid-copy is off by at most one
   // increment on one field -- not worth a seqlock.
   void UpdateImuHealth(const ImuHealth &data) { imu_health_ = data; }
+  void UpdateControlLoopLoad(const ControlLoopLoad &data) {
+    control_loop_load_ = data;
+  }
   void UpdateImuTemperature(const ImuTemperature &data) { imu_temp_ = data; }
 
   void UpdateEstimate(const EstimatorState &data) { estimate_ = data; }
@@ -208,6 +219,9 @@ class SharedState {
   // Monotonic since boot; wraps at 49.7 days rather than TIM2's 71.6 min.
   uint32_t UptimeMs() const { return uptime_ms_; }
   const ImuHealth &GetImuHealth() const { return imu_health_; }
+  const ControlLoopLoad &GetControlLoopLoad() const {
+    return control_loop_load_;
+  }
   const ImuTemperature &GetImuTemperature() const { return imu_temp_; }
 
   const EstimatorState &GetEstimate() const { return estimate_; }
@@ -238,6 +252,7 @@ class SharedState {
   CrsfLinkData crsf_link_{};
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
+  ControlLoopLoad control_loop_load_{};
   ImuTemperature imu_temp_{};
   alignas(8) ImuSampleSlot imu_slot_{};
   EstimatorState estimate_{};

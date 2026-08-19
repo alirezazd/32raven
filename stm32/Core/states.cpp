@@ -18,6 +18,7 @@ static constexpr uint32_t kLossPanicConsecutiveSec = 3;
 static uint32_t g_fault_led_last_toggle_us = 0;
 
 static uint32_t g_main_tick_counter = 0;
+static ControlLoopLoad g_control_loop_load{};
 
 static void MainTick(AppContext &ctx);
 
@@ -36,6 +37,7 @@ static void StepFlightLoop(AppContext &ctx) {
 }
 
 static void ControlTickFlightLoop(AppContext &ctx) {
+  const uint32_t tick_start_cycles = TimeBase::Cycles();
   // AHRS: aggregate IMU burst → averaged ω + integrated quaternion →
   // EstimatorState → Blackboard. Acro reads gyro_body_rad_s; Stabilize also
   // reads attitude_world_to_body.
@@ -175,6 +177,9 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   //    freeze threshold, so it would never freeze at min stick.
   ctx.sys->RateControllerSvc().CommitTorque(mix.applied_torque, fast_dt_sec,
                                             stick);
+
+  g_control_loop_load.busy_cycles += TimeBase::Cycles() - tick_start_cycles;
+  ctx.sys->Blackboard().UpdateControlLoopLoad(g_control_loop_load);
 }
 
 static void MainTick(AppContext &ctx) {
