@@ -67,7 +67,7 @@ repos:
         files: '\.(c|h|cpp|hpp)$'
 
       - id: check-singleton-style
-        name: Singleton GetInstance placement
+        name: Singleton shape
         entry: uv run --quiet --script scripts/lint/check_singleton_style.py
         language: system
         files: '\.(h|hpp)$'

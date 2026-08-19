@@ -24,8 +24,6 @@ class TonePlayer {
 
   static TonePlayer &GetInstance();
 
-  void Init(const Config &cfg, Buzzer *buzzer);
-
   bool PlayRtttl(const char *rtttl, int volume = -1);
   void PlayBuiltin(BuiltinTone tone, int volume = -1);
   // Jumps the queue: drops what is pending and cuts the note in flight. For
@@ -34,6 +32,8 @@ class TonePlayer {
   bool IsPlaying() const { return playing_; }
 
  private:
+  friend class System;
+  void Init(const Config &cfg, Buzzer *buzzer);
   enum class Accidental : uint8_t { kNatural, kSharp, kFlat };
 
   struct NoteEvent {

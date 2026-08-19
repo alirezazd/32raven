@@ -39,7 +39,6 @@ class Ssd1306Panel {
 
   static Ssd1306Panel &GetInstance();
 
-  void Init(const Config &cfg, I2cDisplay *i2c);
   void Flush(std::span<const uint8_t, kFramebufferSize> framebuffer);
   void FlushPageRange(uint8_t page, std::span<const uint8_t, kWidth> row,
                       size_t x_begin, size_t count);
@@ -49,6 +48,7 @@ class Ssd1306Panel {
   void DisplayOff();
 
  private:
+  void Init(const Config &cfg, I2cDisplay *i2c);
   friend class System;
 
   // The SSD1306 always drives 128 columns regardless of the glass bonded

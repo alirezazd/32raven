@@ -163,6 +163,10 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "SD card full";
     case ErrorCode::Stm32::kHardFault:
       return "STM32 hard fault";
+    case ErrorCode::Stm32::kCommandHandlerReinit:
+      return "STM32 command handler re-init";
+    case ErrorCode::Stm32::kFcLinkReinit:
+      return "STM32 FcLink re-init";
   }
   return "Unknown error";
 }
@@ -297,6 +301,8 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "Display Service Init Failed";
     case ErrorCode::Esp32::kTonePlayerInitFailed:
       return "TonePlayer Init Failed";
+    case ErrorCode::Esp32::kSystemReinit:
+      return "ESP32 system re-init";
   }
   return "Unknown error";
 }

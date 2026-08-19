@@ -18,13 +18,13 @@ class CommandHandler {
 
   static CommandHandler &GetInstance();
 
-  void Init(const Config &cfg);
-
   void Dispatch(const AppContext &ctx, const message::Packet &pkt);
 
   DfuTcpAction Dispatch(const AppContext &ctx, const TcpServer::Event &ev);
 
  private:
+  friend class System;
+  void Init(const Config &cfg);
   CommandHandler() = default;
   ~CommandHandler() = default;
   CommandHandler(const CommandHandler &) = delete;

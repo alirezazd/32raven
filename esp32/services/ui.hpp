@@ -165,7 +165,6 @@ class Ui {
   void UpdateLogTraffic(uint16_t rx_frames, uint16_t tx_frames);
   LogTraffic GetLogTraffic() const;
 
-  void Init(const Config &cfg, Ssd1306Panel *panel);
   void LoadWidget(IWidget *widget);
   void SetAppState(AppState state);
   void SetErrorCode(uint32_t code);
@@ -194,6 +193,7 @@ class Ui {
   const DisplayCanvas &Canvas() const { return canvas_; }
 
  private:
+  void Init(const Config &cfg, Ssd1306Panel *panel);
   friend class System;
 
   // Written by the state-machine task, read by the UI task. volatile is for

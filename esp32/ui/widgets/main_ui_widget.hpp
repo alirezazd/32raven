@@ -97,4 +97,8 @@ class MainUiWidget : public IWidget {
   Mode mode_ = Mode::kBooting;
 
   MainUiWidget() = default;
+
+  MainUiWidget(const MainUiWidget &) = delete;
+
+  MainUiWidget &operator=(const MainUiWidget &) = delete;
 };

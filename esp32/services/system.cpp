@@ -3,7 +3,9 @@
 
 #include "system.hpp"
 
+#include "error_code.hpp"
 #include "esp32_config.hpp"
+#include "panic.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -17,6 +19,10 @@ System &System::GetInstance() {
 }
 
 void System::Init() {
+  if (initialized_) {
+    Panic(ErrorCode::Esp32::kSystemReinit);
+  }
+  initialized_ = true;
   main_task_handle_ = xTaskGetCurrentTaskHandle();
   InitComponent(Component::kLed);
   InitComponent(Component::kBuzzer);

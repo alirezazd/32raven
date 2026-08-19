@@ -11,6 +11,8 @@
 
 #include "checksum.hpp"
 #include "ctx.hpp"
+#include "error_code.hpp"
+#include "panic.hpp"
 #include "system.hpp"
 #include "uart.hpp"
 
@@ -19,7 +21,13 @@ FcLink &FcLink::GetInstance() {
   return instance;
 }
 
-void FcLink::Init(const AppContext *ctx) { ctx_ = ctx; }
+void FcLink::Init(const AppContext *ctx) {
+  if (initialized_) {
+    Panic(ErrorCode::Stm32::kFcLinkReinit);
+  }
+  initialized_ = true;
+  ctx_ = ctx;
+}
 
 void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   if (!ctx_) return;

@@ -245,7 +245,12 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
 
 static const Dispatcher<const AppContext> kDispatcher(kHandlers);
 
-void CommandHandler::Init() {}
+void CommandHandler::Init() {
+  if (initialized_) {
+    Panic(ErrorCode::Stm32::kCommandHandlerReinit);
+  }
+  initialized_ = true;
+}
 
 bool CommandHandler::Dispatch(const AppContext &ctx,
                               const message::Packet &pkt) {

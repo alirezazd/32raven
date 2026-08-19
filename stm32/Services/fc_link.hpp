@@ -69,4 +69,6 @@ class FcLink {
   // TX Buffer
   static constexpr size_t kTxBufSize = 512;
   RingBuffer<uint8_t, kTxBufSize> tx_rb_;
+
+  bool initialized_ = false;
 };

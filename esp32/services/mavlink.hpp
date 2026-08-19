@@ -74,8 +74,6 @@ class Mavlink {
 
   static Mavlink &GetInstance();
 
-  void Init(const Config &cfg, IMavlinkTransport *transport);
-
   // Swaps the link without re-initializing the service. Clears the in-flight
   // frame and the previous transport's peer, so a stale UDP address cannot be
   // carried into a serial swap.
@@ -141,6 +139,8 @@ class Mavlink {
   std::optional<bool> PeerArmed(uint32_t now_ms) const;
 
  private:
+  friend class System;
+  void Init(const Config &cfg, IMavlinkTransport *transport);
   template <typename T>
   struct CachedValue {
     T value{};

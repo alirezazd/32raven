@@ -32,4 +32,8 @@ class ErrorWidget : public IWidget {
   bool recoverable_ = false;
 
   ErrorWidget() = default;
+
+  ErrorWidget(const ErrorWidget &) = delete;
+
+  ErrorWidget &operator=(const ErrorWidget &) = delete;
 };

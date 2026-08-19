@@ -104,6 +104,8 @@ class Uart {
 
   Uart() = default;
   ~Uart() = default;
+  Uart(const Uart &) = delete;
+  Uart &operator=(const Uart &) = delete;
 
   USART_TypeDef *UartReg();
   bool initialized_ = false;

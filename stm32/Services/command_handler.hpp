@@ -19,4 +19,6 @@ class CommandHandler {
   ~CommandHandler() = default;
   CommandHandler(const CommandHandler &) = delete;
   CommandHandler &operator=(const CommandHandler &) = delete;
+
+  bool initialized_ = false;
 };

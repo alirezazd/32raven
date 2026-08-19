@@ -2,16 +2,50 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Alireza Azadi
 
-"""A singleton's instance lives where its GetInstance body is compiled.
+"""Check the shape every driver and service singleton is supposed to have.
 
-An inline body in a header emits the `static X instance;` initialization
-decision as a COMDAT in every including TU, and any TU that can see a
-constexpr-eligible constructor may constant-initialize it: one non-zero member
-drags the whole object, zero-filled buffers included, out of .bss into .data,
-and flash stores the zeros. That cost 17 KB.
+Forty classes across the two firmwares share one construction: a static
+GetInstance, a private Init the System calls, deleted copy members, and a
+defaulted private constructor. Where one of them drifts it is nearly always an
+oversight rather than a decision, and nothing catches it -- the code compiles
+either way, and the consequence shows up as a second initialization on a live
+peripheral or a silently copied singleton.
 
-So both firmwares declare `static X &GetInstance();` in the header and define
-it in the .cpp. Class templates are exempt: their body has nowhere else to go.
+Rules:
+
+  inline-getinstance
+                A GetInstance body in the header. It emits the
+                `static X instance;` initialization decision as a COMDAT in
+                every including TU, and any TU that can see a
+                constexpr-eligible constructor may constant-initialize it: one
+                non-zero member drags the whole object, zero-filled buffers
+                included, out of .bss into .data, and flash stores the zeros.
+                That cost 17 KB. Class templates are exempt -- their body has
+                nowhere else to go.
+  singleton-copy
+                Copy constructor and copy assignment not deleted. A private
+                destructor already makes a copy fail, but at the point it is
+                destroyed rather than the point it is made, which is a
+                confusing place to learn it.
+  singleton-init
+                An Init reachable twice. Private is the usual answer, since
+                only `friend class System` can then reach it. A public Init is
+                allowed where the caller cannot be System -- the two that need
+                an AppContext are constructed after System::Init -- but then
+                the definition has to open with the guard, before anything
+                else runs:
+
+                    void Foo::Init(...) {
+                      if (initialized_) {
+                        Panic(ErrorCode::Stm32::kFooReinit);
+                      }
+
+                Recognising a mandated form rather than inferring intent from
+                arbitrary code is deliberate: "guarded somewhere" cannot be
+                checked, "guarded first" can.
+
+Run:
+  uv run --quiet --script scripts/lint/check_singleton_style.py
 """
 
 from __future__ import annotations
@@ -28,32 +62,158 @@ ALLOWED = {
     # Kicked from the panic loop when nothing else -- System included -- is
     # trusted, and Kick() must stay a single inlined register write. Trivial
     # class, no buffers, so the .data trap cannot bite it.
-    "stm32/Drivers/watchdog.hpp",
+    "stm32/Drivers/watchdog.hpp": {"inline-getinstance"},
 }
 
-DEFINITION = re.compile(r"static\s+[\w:]+\s*&\s*GetInstance\(\)\s*\{")
-CLASS_LINE = re.compile(r"^\s*(?:class|struct)\s+\w+")
+INLINE_BODY = re.compile(r"static\s+[\w:]+\s*&\s*GetInstance\(\)\s*\{")
+DECLARES_GETINSTANCE = re.compile(r"\bGetInstance\s*\(")
+CLASS_HEAD = re.compile(r"^\s*(class|struct)\s+(\w+)\s*(?:final\s*)?(?::|\{|$)")
+ACCESS = re.compile(r"^\s*(public|private|protected)\s*:")
 TEMPLATE_LINE = re.compile(r"^\s*template\s*<")
+INIT_DECL = re.compile(r"^\s*(?:[\w:<>,\s*&]+\s)?Init\s*\(")
+GUARD = re.compile(
+    r"^\s*if\s*\(\s*initialized_\s*\)\s*\{\s*$\s*^\s*Panic\(", re.M
+)
 
 
-def enclosing_class_is_template(lines: list[str], hit: int) -> bool:
-    depth = 0
-    for i in range(hit, -1, -1):
-        line = lines[i]
-        depth += line.count("}") - line.count("{")
-        if depth <= 0 and CLASS_LINE.match(line):
-            # The template head may span lines; stop at the previous
-            # statement boundary.
-            for j in range(i - 1, -1, -1):
-                stripped = lines[j].strip()
-                if not stripped or stripped.startswith("//"):
-                    continue
-                if TEMPLATE_LINE.match(lines[j]):
-                    return True
-                if stripped.endswith((";", "{", "}")):
-                    return False
+class ClassInfo:
+    """One class body, with the facts the rules ask about."""
+
+    def __init__(self, name: str, line: int, is_template: bool):
+        self.name = name
+        self.line = line
+        self.is_template = is_template
+        self.has_getinstance = False
+        self.inline_getinstance = 0
+        self.deletes_copy = False
+        self.deletes_assign = False
+        self.init_line = 0
+        self.init_access = ""
+
+
+def is_template(lines: list[str], head: int) -> bool:
+    """Whether a template head precedes the class, over however many lines."""
+    for j in range(head - 1, -1, -1):
+        stripped = lines[j].strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        if TEMPLATE_LINE.match(lines[j]):
+            return True
+        # A template head wraps without punctuation; anything that closes a
+        # statement means the class stands on its own.
+        if stripped.endswith((";", "{", "}")):
             return False
     return False
+
+
+def parse_classes(lines: list[str]) -> list[ClassInfo]:
+    """Every class body in the file, with members read at its top level."""
+    out: list[ClassInfo] = []
+    i, total = 0, len(lines)
+    while i < total:
+        head = CLASS_HEAD.match(lines[i])
+        if not head:
+            i += 1
+            continue
+        keyword, name = head.group(1), head.group(2)
+        # A forward declaration or a variable of class type opens no body.
+        brace = i
+        while brace < total and "{" not in lines[brace]:
+            if ";" in lines[brace]:
+                brace = total
+                break
+            brace += 1
+        if brace >= total:
+            i += 1
+            continue
+
+        info = ClassInfo(name, i + 1, is_template(lines, i))
+        access = "private" if keyword == "class" else "public"
+        depth, k = 0, brace
+        while k < total:
+            text = lines[k]
+            if depth == 1:
+                found = ACCESS.match(text)
+                if found:
+                    access = found.group(1)
+                else:
+                    read_member(info, text, k, access, name)
+            depth += text.count("{") - text.count("}")
+            if depth <= 0 and k > brace:
+                break
+            k += 1
+        out.append(info)
+        i = k + 1
+    return out
+
+
+def read_member(
+    info: ClassInfo, text: str, idx: int, access: str, cls: str
+) -> None:
+    if DECLARES_GETINSTANCE.search(text):
+        info.has_getinstance = True
+        if INLINE_BODY.search(text):
+            info.inline_getinstance = idx + 1
+    if re.search(rf"{cls}\s*\(\s*const\s+{cls}\s*&\s*\)\s*=\s*delete", text):
+        info.deletes_copy = True
+    if re.search(
+        rf"operator=\s*\(\s*const\s+{cls}\s*&\s*\)\s*=\s*delete", text
+    ):
+        info.deletes_assign = True
+    if not info.init_line and INIT_DECL.match(text):
+        info.init_line = idx + 1
+        info.init_access = access
+
+
+def init_is_guarded(header: pathlib.Path, cls: str) -> bool:
+    """Whether Foo::Init opens with the mandated re-init guard."""
+    for source in (header.with_suffix(".cpp"), *header.parent.glob("*.cpp")):
+        if not source.exists():
+            continue
+        text = source.read_text(encoding="utf-8", errors="replace")
+        opened = re.search(rf"\b{cls}::Init\s*\([^)]*\)[^{{]*\{{", text)
+        if not opened:
+            continue
+        return bool(GUARD.match(text[opened.end() :].lstrip("\n")))
+    return False
+
+
+def check(path: pathlib.Path, rel: str) -> list[str]:
+    exempt = ALLOWED.get(rel, set())
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    findings: list[str] = []
+    for info in parse_classes(lines):
+        if not info.has_getinstance:
+            continue
+        if (
+            info.inline_getinstance
+            and not info.is_template
+            and "inline-getinstance" not in exempt
+        ):
+            findings.append(
+                f"{rel}:{info.inline_getinstance}: "
+                f"[inline-getinstance] {info.name} defines GetInstance in the "
+                f"header"
+            )
+        if (
+            not (info.deletes_copy and info.deletes_assign)
+            and "singleton-copy" not in exempt
+        ):
+            findings.append(
+                f"{rel}:{info.line}: [singleton-copy] {info.name} does not "
+                f"delete its copy members"
+            )
+        if (
+            info.init_line
+            and info.init_access != "private"
+            and "singleton-init" not in exempt
+            and not init_is_guarded(path, info.name)
+        ):
+            findings.append(
+                f"{rel}:{info.init_line}: [singleton-init] {info.name}::Init "
+                f"is {info.init_access} and opens with no re-init guard"
+            )
+    return findings
 
 
 def main(argv: list[str]) -> int:
@@ -74,26 +234,17 @@ def main(argv: list[str]) -> int:
         path = pathlib.Path(name)
         if path.suffix not in (".h", ".hpp") or "third_party" in path.parts:
             continue
-        rel = path.resolve().relative_to(REPO).as_posix()
-        if rel in ALLOWED:
-            continue
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for idx, line in enumerate(lines):
-            if not DEFINITION.search(line):
-                continue
-            if enclosing_class_is_template(lines, idx):
-                continue
-            findings.append(f"{name}:{idx + 1}: inline GetInstance body")
+        findings += check(path, path.resolve().relative_to(REPO).as_posix())
 
     if findings:
         for finding in findings:
             print(f"  {finding}", file=sys.stderr)
         print(
-            "\nDeclare `static X &GetInstance();` in the header and define it\n"
-            "in the .cpp. An inline body lets any including TU constant-\n"
-            "initialize the instance; one non-zero member then moves the\n"
-            "whole object into .data and flash stores its zero buffers.\n"
-            "Class templates are exempt: their body has nowhere else to go.",
+            "\nEvery driver and service singleton shares one shape. Declare\n"
+            "`static X &GetInstance();` and define it in the .cpp, delete the\n"
+            "copy members, and keep Init private so only the System reaches\n"
+            "it -- or, where the caller cannot be System, open Init\n"
+            "with `if (initialized_) { Panic(...Reinit); }`.",
             file=sys.stderr,
         )
 

@@ -44,7 +44,6 @@ class I2c {
     return instance;
   }
 
-  void Init(const I2cConfig &cfg);
   i2c_master_dev_handle_t AddDevice(const I2cDeviceConfig &cfg);
   bool Probe(uint16_t address) const;
 
@@ -58,6 +57,7 @@ class I2c {
                        std::span<uint8_t> read_buffer) const;
 
  private:
+  void Init(const I2cConfig &cfg);
   friend class System;
 
   I2cConfig cfg_{};

@@ -104,6 +104,8 @@ enum class Stm32 : uint32_t {
   kSdCardCorrupted,
   kSdCardFull,
   kHardFault,
+  kCommandHandlerReinit,
+  kFcLinkReinit,
 };
 
 enum class Esp32 : uint32_t {
@@ -179,6 +181,7 @@ enum class Esp32 : uint32_t {
   kDisplayPanelInitFailed,
   kUiInitFailed,
   kTonePlayerInitFailed,
+  kSystemReinit,
 };
 };
 
