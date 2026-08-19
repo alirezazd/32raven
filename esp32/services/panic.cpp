@@ -395,11 +395,31 @@ uint32_t RunRecoverableLoop() {
   }
 }
 
+// Reached when something inside RunPanicLoop panics -- the recovery paths are
+// the realistic source, since they drive services the first panic halted.
+// Re-entering the loop would nest it on the same static stack, so this reports
+// and stops: no UI, no tone, no recovery, and a faster blink than the loop it
+// is standing in for.
+[[noreturn]] void ReportNestedPanic(uint32_t code) {
+  const char *msg = GetMessage(code);
+  int level = 0;
+  while (true) {
+    gpio_set_level(kPinMap.led, level);
+    level = !level;
+    ESP_LOGE(kTag, "PANIC IN PANIC [0x%08lX]: %s", (unsigned long)code, msg);
+    vTaskDelay(pdMS_TO_TICKS(15));
+  }
+}
+
 }  // namespace
 
 [[noreturn]] void PanicImpl(uint32_t code) {
   EnsurePanicTaskStarted();
   Sys().Halt();
+
+  if (s_panic_task_handle == xTaskGetCurrentTaskHandle()) {
+    ReportNestedPanic(code);
+  }
 
   if (s_panic_task_handle != nullptr &&
       s_panic_task_handle != xTaskGetCurrentTaskHandle()) {
