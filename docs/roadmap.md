@@ -337,13 +337,14 @@ and correlates across FcLink. FreeRTOS makes it a task with a real priority, unl
 
 #### The part worth doing before the service exists
 
-`Mavlink::StartHeartbeatFrame` freshness-checks `system_status_` against
-`kMavlinkSystemStatusFreshMs`, but reads `vehicle_status_` gated only on `have_data`. If the
-STM32 goes silent, the ESP32 keeps reporting the last-known armed state, flight mode and
-failsafe flags to the GCS as current — `MAV_MODE_FLAG_SAFETY_ARMED` in particular would keep
-asserting *armed* indefinitely from a dead flight controller. The stale `system_status_` does
-force `MAV_STATE_CRITICAL`, so it is half-caught, but a GCS reading the mode flags is being
-told something false. A small fix that does not need to wait for the service.
+`Mavlink::StartHeartbeatFrame` gates the armed state and the mode flags on `vehicle_fresh`
+and the whole `MAV_STATE` ladder on `kMavlinkSystemStatusFreshMs`, so a silent STM32 reads as
+`MAV_STATE_CRITICAL` rather than a stale vehicle. One read is deliberately ungated:
+`vehicle_failsafe` tests `have_data` only, because a stale failsafe can only hold the state at
+CRITICAL and a link that died with one raised is not the moment to stop saying so.
+
+What is left is narrower than a service: nothing tells the GCS *why* the peer went quiet, and
+#41 is the reason it goes quiet most often.
 
 #### A condition it should carry: the card that left
 
@@ -693,6 +694,92 @@ airworthy aircraft, which is the failure mode ECUs are most criticised for.
 
 Pairs with #17: Doctor is the natural reader, and a fault log is the first thing it should
 present. #36 carries the notification.
+
+### #41 — The radio goes dark on every bench page — 🎯 CRITICAL
+
+The Telem UART is the aircraft's MAVLink link: `TelemUartServer` on GPIO20/21 at 57600, the
+SiK default, brought up by `ServingState` which is where `main.cpp` starts the machine. The
+WiFi and USB MAVLink pages are bench transports reached from the menu, not the vehicle's link.
+
+Five states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them has a reason.
+
+| State | STM32 | FcLink | Telem UART | Wanted |
+| --- | --- | --- | --- | --- |
+| Dfu, waiting for a host | Idle, running | free | free | on |
+| WifiLog, waiting for a host | Idle, running | free | free | on |
+| EscConfig | suspended | MSP relay | free | on, not-ready |
+| UsbLog (MSC) | suspended | grant only | free | on, not-ready |
+| LogPull, transferring | Idle, running | saturated | free | narrowed |
+| Program, flashing | ROM bootloader | held by Programmer | free | dark |
+
+`DfuState` and `WifiLogState` never touch the flight controller — they start the network and
+wait, indefinitely, while it runs normally. `ProgramState` is the only one with a physical
+reason: BOOT0 is asserted, `Programmer` owns USART1, and no firmware is left to publish.
+Recovery DFU is a seventh case, where the STM32 is halted in its panic loop and the ESP32
+holds the only fact worth sending — which is #40's.
+
+A dark link and a dead board are the same thing from the ground. That is the ambiguity #42
+removes from the fields, and there is no point making the values honest while the link that
+carries them disappears on the pages that make them interesting.
+
+#### The page should pick a profile, not own the radio
+
+`SetTelemetryLink(bool)` from `OnEnter` is a menu switching off a permanent fixture of the
+aircraft. A page should narrow the stream instead — full, heartbeat-plus-status, or nothing,
+with only Program picking nothing. That also answers the one real contention: `LogPullState`
+saturates FcLink's 64 B/ms TX budget with chunks, so fresh SystemStatus competes with the
+transfer while the Telem UART itself sits idle.
+
+`SetTransport` has the same shape. The five states never call it, so they inherit whatever the
+last page left — UDP after MavlinkWifi, CDC after MavlinkUsb. And `Mavlink().Poll()` is called
+only from the three states that stream today, so raising the flag is not sufficient on its own.
+
+#### boot_state is a readiness state, not a boot phase
+
+`kBooting` cannot mean booting: no SystemStatus frame can exist before `Init` finishes. What
+the ESP32 reads it for is flight-readiness, and `ctx.control_tick_state` is the predicate —
+the bench states are the only things that clear it.
+
+Ordering matters. The readiness value has to be honest *before* those states start streaming,
+or EscConfig and MSC would report `MAV_STATE_STANDBY` — "can be launched any time" — while the
+configurator holds the motor lines, which is worse than silence. `MAV_STATE_CALIBRATING` is
+the honest value for both, and PX4 sends exactly that for `in_esc_calibration_mode`. It needs
+a `kNotReady` enumerator in `libs/message.hpp`, so it costs a dual flash and wants to travel
+with #42's wire additions.
+
+Of the nine `MAV_STATE` values, four are ever sent: BOOT, STANDBY, ACTIVE, CRITICAL. UNINIT,
+CALIBRATING, EMERGENCY, POWEROFF and FLIGHT_TERMINATION are unreachable. EMERGENCY is the
+other absence worth closing — "lost control over parts or the whole airframe" is a real
+distinction from CRITICAL's "can however still navigate", and #15 is what would decide it.
+
+### #42 — SystemStatus reports values nothing produces — 🟢 SUPPORTING
+
+Four fields the STM32 fills with constants, and one whose health bits latch. #20 owns
+`kSystemStatusFlagLoopAlive`; these are the rest.
+
+| Field | Today | Wanted |
+| --- | --- | --- |
+| `sensor_health_flags` | gated on since-boot counters being zero | a windowed delta |
+| `error_code` | `kOk`, always | Sentinel's latched fault code |
+| `errors_count1..4` | four literal zeros in the pack call | four of the ten `ImuHealth` counters |
+| `loop_counter` | 0 on the bench pages | the flight loop's count, or the flag that says why not |
+
+**The health bits latch red and never recover.** `path_faults`, `rx_dma_error_count` and
+`uart_error_count` are cumulative since boot, so one transient fault ever leaves that sensor
+unhealthy for the rest of the session while the freshness test beside it reads fine. The
+windowed delta Sentinel already uses fixes it, with no wire change. It became easier to reach
+once the path-fault panic left the driver: those faults now accumulate instead of halting.
+
+**`error_code` has a producer for the first time.** A panic halts the board, so a running
+board had nothing to report and `kOk` was defensible. `Sentinel::imu_fault_latched_` ends
+that — an aircraft flying on a deferred fault holds a real code in a private member and
+nothing carries it. `failsafe_flags` says something is wrong; this says which.
+
+**The counters cannot leave the board**, which is #20's blocker for setting any threshold
+honestly. Four of the ten fit `errors_count1..4`, and `missed_samples` is the one #20 needs
+first. A wire change, so it wants #21's reset cause and #41's `kNotReady` in the same flash.
+
+Reading any of it needs #41 first.
 
 ### #22 — Nothing finds dead code — 🟢 SUPPORTING
 
