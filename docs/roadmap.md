@@ -488,6 +488,58 @@ already wakes the panel for events worth seeing.
 The natural first users are the sites that already play `kWarning`, plus #11's ESC derating
 warning, which needs somewhere to be seen the moment it exists.
 
+### #38 — Put the destructive pages behind a service menu — 🟢 SUPPORTING
+
+DFU is one long-press from the operational cycle. `CycleOnButton` walks Serving, MavlinkWifi,
+WifiLog, UsbLog, MavlinkUsb and back, with Dfu and EscConfig hanging off the long press, so
+detaching the STM32's firmware is as reachable as switching telemetry transports. #32 adds
+erasing the card to the same neighbourhood.
+
+#32 already answers this for formatting alone — a hidden entry, a gesture that cannot be
+stumbled into, documented in the handbook and never on the screen. The point here is that the
+answer should be one gate rather than a second mechanism per dangerous page. Everything that
+reprograms an MCU or destroys stored data lives behind it; the cycle carries only what an
+operator uses in normal service.
+
+#### The recovery path must not go behind the gate
+
+`EnterRecoveryDfuMode` reaches DFU directly from the panic loop, not through the menu, and that
+has to stay true. A gesture-gated DFU that a panicking board cannot reach turns a bricked STM32
+into a cable job — the exact situation the WiFi DFU path exists to avoid.
+
+Lands after #32, since formatting is the second occupant that makes a shared gate worth
+building rather than a one-off.
+
+### #39 — The LED says less than it has states — 🟢 SUPPORTING
+
+Six pages, three signals, and no scheme tying them together.
+
+| Page | Pattern |
+| --- | --- |
+| Serving | breathe, 3 s |
+| Dfu | blink, 400 ms |
+| EscConfig, UsbLog, WifiLog | blink, 800 ms — identical on all three |
+| MavlinkWifi, MavlinkUsb | nothing set |
+| Program | off |
+
+So the LED distinguishes "a tool page" from DFU but not which tool page, and on the two MAVLink
+pages it shows whatever the previous page happened to leave behind.
+
+**A one-shot never gives the page back.** `SetPattern(..., repeat_count)` installs `kOffStep`
+when the count exhausts rather than restoring the pattern underneath, so every transient use of
+the LED permanently claims it. `mavlink_rx.cpp` fires a `kDoubleBlink` per received heartbeat,
+which on a page with no pattern of its own reads as a link pulse — and on any page that has one
+would silently end it. The mechanism wants a foreground/background split: a page installs
+background, a transient plays over it and hands it back.
+
+**The STM32 has no vocabulary at all.** `stm32/Drivers/led.hpp` exposes `Set(bool)` and nothing
+else. That is fine while every annunciation goes to the ESP32's buzzer and screen, and stops
+being fine the moment #28 lands: an arm refused on the RC path with the bridge dead has one
+LED, no tone and no display, which is the silent refusal #28 names as its own failure mode.
+
+Worth deciding what the LED *means* before adding patterns to it — page identity, link
+liveness, or fault — because it currently attempts all three with no priority between them.
+
 ### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
 `SharedState` is a const-correct store, not an access-controlled one. Readers get `const &` so
@@ -866,6 +918,43 @@ So it is a deliberate act, and the UI is what makes it one:
 Worth doing when the SD path has flown and its failure modes are known, not before: the whole
 argument for a hidden format is that the operator understands what they are erasing, and right
 now nobody has lost a log yet.
+
+### #37 — Reuse the card when it fills, rather than refusing to boot — 🟢 SUPPORTING
+
+A full card is not a fault, it is where the feature ends up. Every flight consumes one whole
+preallocation whatever its length, so a 30-second hover costs the same 256 MB as a full pack:
+124 flights on a 32 GB card, 62 on a 16 GB one. That is a season, not a lifetime.
+
+What happens at the end of it is a panic. `f_expand` returns `FR_DENIED`, `PrepareNextFile`
+raises `kSdCardFull`, and because that call sits in `Init` as well as `StopFlight`, the board
+stops booting. The card filling on the last flight of a day panics *at disarm, after landing*,
+and the vehicle then refuses to start until a PC has been found.
+
+#### The ring is cheap here
+
+`PrepareNextFile` already walks the root for `LOGnnnnn.ULG` tracking the highest index; the
+lowest comes out of the same loop. `f_unlink` the oldest, retry `f_expand`. Uniform file sizes
+are what make this trivial — one deletion always frees exactly one preallocation, so none of
+the fragmentation reasoning that usually makes ring recording awkward applies.
+
+#### It is a knob, and the default keeps today's behaviour
+
+Overwriting flight data has to be something the operator chose, on #32's reasoning: the card
+that fills is also the card holding the incident nobody has looked at yet. So a Kconfig knob,
+default off.
+
+- **Off:** `kSdCardFull` panics, exactly as now.
+- **On:** the oldest log is reclaimed and the condition is announced instead — which is what
+  makes this wait for #36. A panic is a poor way to say "the card wrapped"; a notification at
+  startup is the right one, and before #36 there is no way to say it that does not need a
+  cable.
+- **Never the current flight's own log.** The file `StartFlight` is recording into is the one
+  the operator most likely wants, so the victim is the oldest *closed* log, and a card holding
+  only one log is full rather than wrapping.
+
+Pairs with #32: both are card-owning operations that destroy data deliberately, and both are
+worth doing only once the SD path has flown and somebody has an opinion about which logs they
+would rather lose.
 
 ### #33 — The log records less than the vehicle already knows — 🟢 SUPPORTING
 
