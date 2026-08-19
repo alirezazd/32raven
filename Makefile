@@ -22,8 +22,8 @@ ESP_PORT_VAR := $(or $(wildcard $(ESP_PORT_VAR)),$(shell readlink -f /dev/serial
 # Override per-invocation with `USE_DOCKER=0 make ...`.
 -include .build-mode
 
-# If we're already inside a container (e.g. the VSCode devcontainer), force
-# host-side execution so we don't try to run docker-in-docker.
+# If we're already inside a container, force host-side execution so we don't
+# try to run docker-in-docker.
 ifneq ($(wildcard /.dockerenv),)
   USE_DOCKER := 0
 endif
