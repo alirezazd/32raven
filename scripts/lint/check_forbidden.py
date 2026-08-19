@@ -4,11 +4,17 @@
 
 """Constructs this firmware may not contain, and where they hide.
 
-The rules are the ones a build gate has to enforce because the compiler will
-not: no heap, no double, no container that allocates. The build fails on them
-rather than a hygiene hook flagging them, because each one changes what the
-artifact does -- a `double` on this FPU is software-emulated, a `malloc` is a
-failure mode with no policy behind it.
+Most rules are ones a build gate has to enforce because the compiler will not:
+no heap, no double, no container that allocates. The build fails on them rather
+than a hygiene hook flagging them, because each one changes what the artifact
+does -- a `double` on this FPU is software-emulated, a `malloc` is a failure
+mode with no policy behind it.
+
+A rule may also carry a `scope`, which makes it a statement about layering
+rather than about the artifact: the construct is fine in general and wrong in
+these files. That is not an exception. An exception excuses a violation after
+the fact; a scope says the rule never reached there, and it is declared in this
+table where a reviewer reads it rather than in a suppression file.
 
 Matching runs over source with comments and string literals blanked out first.
 The shell version this replaced dropped any line containing `//`, which meant a
@@ -73,10 +79,37 @@ LIBC_ALLOC_APIS = (
 
 
 class Rule:
-    def __init__(self, name: str, pattern: str, reason: str) -> None:
+    """One forbidden construct, optionally narrowed to the files it governs.
+
+    `scope` holds repo-relative paths; empty means the whole tree.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        pattern: str,
+        reason: str,
+        scope: tuple[str, ...] = (),
+    ) -> None:
         self.name = name
         self.regex = re.compile(pattern)
         self.reason = reason
+        self.scope = scope
+
+    def covers(self, rel: str) -> bool:
+        return not self.scope or rel in self.scope
+
+
+# The two state machines sequence; they do not decide what is fatal. A halt
+# belongs to whatever owns the condition -- the driver that detected it, or
+# Sentinel, the only thing positioned to weigh it against the armed state.
+# Panicking from the sequencer also reaches for whatever error code is nearest
+# instead of one that names a domain, which is how a board ends up halting on
+# a code that says nothing about what broke.
+STATE_MACHINES = (
+    "stm32/Core/states.cpp",
+    "esp32/main/states.cpp",
+)
 
 
 RULES = (
@@ -103,7 +136,27 @@ RULES = (
         r"\b(?:" + "|".join(LIBC_ALLOC_APIS) + r")\s*\(",
         "no heap -- allocate statically",
     ),
+    Rule(
+        "state-panic",
+        r"\bPanic\s*\(",
+        "state machines sequence -- halt where the condition is owned",
+        scope=STATE_MACHINES,
+    ),
 )
+
+
+def check_scopes() -> list[str]:
+    """A scope naming a path that is gone is a rule that quietly stopped.
+
+    Renaming a scoped file would otherwise disable its rule with nothing said,
+    which is the failure mode that makes suppression files rot.
+    """
+    return [
+        f"[{rule.name}] scope names a path that does not exist: {rel}"
+        for rule in RULES
+        for rel in rule.scope
+        if not (REPO / rel).is_file()
+    ]
 
 
 def blank_comments_and_strings(src: str) -> str:
@@ -209,20 +262,25 @@ def iter_sources(targets: list[pathlib.Path]):
 
 def scan(path: pathlib.Path, exceptions: list[str]) -> list[str]:
     try:
-        src = path.read_text(encoding="utf-8", errors="ignore")
-    except OSError as exc:
-        return [f"{path}: unreadable ({exc})"]
-
-    findings: list[str] = []
-    lines = blank_comments_and_strings(src).splitlines()
-    raw_lines = src.splitlines()
-    try:
         shown = path.relative_to(REPO)
     except ValueError:
         shown = path
 
+    rules = [rule for rule in RULES if rule.covers(shown.as_posix())]
+    if not rules:
+        return []
+
+    try:
+        src = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError as exc:
+        return [f"{shown}: unreadable ({exc})"]
+
+    findings: list[str] = []
+    lines = blank_comments_and_strings(src).splitlines()
+    raw_lines = src.splitlines()
+
     for number, line in enumerate(lines, start=1):
-        for rule in RULES:
+        for rule in rules:
             for match in rule.regex.finditer(line):
                 text = (
                     raw_lines[number - 1].strip()
@@ -253,6 +311,13 @@ def main() -> int:
         help="files or directories to scan (default: the whole repo)",
     )
     args = parser.parse_args()
+
+    stale = check_scopes()
+    if stale:
+        print("Forbidden rule table is stale:", file=sys.stderr)
+        for entry in stale:
+            print(f"  {entry}", file=sys.stderr)
+        return 1
 
     targets = args.paths or [REPO]
     exceptions = load_exceptions(args.exceptions)
