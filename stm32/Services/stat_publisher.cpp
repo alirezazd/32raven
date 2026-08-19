@@ -33,6 +33,12 @@ constexpr uint32_t kRcFreshTimeoutUs = 1500000u;
 // and is recovered should not blink the health bit on its way back.
 constexpr uint32_t kImuFreshTimeoutUs = 100000u;
 
+// Ten sample periods, derived so a slower cadence does not read as a dead
+// sensor. The margin is wide because BatteryData stamps when its conversion
+// started, and the publish trails that by up to a whole decimation period.
+constexpr uint32_t kBatteryFreshTimeoutUs =
+    kBatteryConfig.sample_period_us * 10u;
+
 // Flattened in FcLinkTopic order -- the scheduler indexes this by the
 // enumerator, so a row inserted out of order silently reschedules the wrong
 // stream.
@@ -181,7 +187,9 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
 
   if (battery.voltage > 0.0f) {
     sensors_present |= message::kSystemSensorFlagBattery;
-    sensors_health |= message::kSystemSensorFlagBattery;
+    if ((now_us - battery.timestamp_us) <= kBatteryFreshTimeoutUs) {
+      sensors_health |= message::kSystemSensorFlagBattery;
+    }
   }
 
   if (rc.timestamp_us != 0u) {
