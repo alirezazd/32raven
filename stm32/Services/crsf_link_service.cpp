@@ -294,24 +294,6 @@ bool CrsfLinkService::PayloadChanged(TelemetryTopic topic,
          memcmp(memo.bytes.data(), frame.payload.data(), frame.len) != 0;
 }
 
-bool CrsfLinkService::TrySendHeartbeatTelemetry() {
-  uint8_t payload[kHeartbeatPayloadSize];
-  EncodeHeartbeatPayload(payload);
-  return SendBroadcastFrame(kCrsfFrameTypeHeartbeat, payload, sizeof(payload));
-}
-
-bool CrsfLinkService::TrySendGpsTelemetry(const uint8_t *payload,
-                                          uint8_t payload_len) {
-  return SendBroadcastFrame(kCrsfFrameTypeGps, payload, payload_len);
-}
-
-bool CrsfLinkService::TrySendBatteryTelemetry() {
-  const BatteryData &battery = blackboard_->GetBattery();
-  uint8_t payload[kBatteryPayloadSize];
-  EncodeBatteryPayload(battery, payload);
-  return SendBroadcastFrame(kCrsfFrameTypeBattery, payload, sizeof(payload));
-}
-
 bool CrsfLinkService::TrySendPendingCommand() {
   if (pending_command_ == PendingCommand::kNone) {
     return false;

@@ -87,9 +87,6 @@ class CrsfLinkService {
   std::optional<TelemetryFrame> PrepareTelemetryTopic(TelemetryTopic topic,
                                                       uint32_t now_us) const;
   bool PayloadChanged(TelemetryTopic topic, const TelemetryFrame &frame) const;
-  bool TrySendHeartbeatTelemetry();
-  bool TrySendGpsTelemetry(const uint8_t *payload, uint8_t payload_len);
-  bool TrySendBatteryTelemetry();
   // TODO(crsf): track ACK/timeout for bind/cancel-bind; on no-ACK, retry,
   // surface an FcLink error, or Panic().
   bool TrySendPendingCommand();
