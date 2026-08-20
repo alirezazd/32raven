@@ -231,6 +231,10 @@ control back, where a display should be quick to recover and slow to drop.
 A timeout is the only detector available: CRSF carries no receiver-asserted failsafe bit, and
 ExpressLRS signals loss by *stopping* RC frames rather than flagging them.
 
+The battery condition inherits the same rule: `BatteryData` carries its own stamp and its
+current as an optional, and a failsafe that reads the voltage without checking the stamp
+trusts a frozen number — the freshness test lands with the detector, not after it.
+
 #### The action is a real choice
 
 Betaflight offers `DROP_IT`, `AUTO_LANDING` against a tuned `failsafe_throttle`, and GPS
@@ -701,13 +705,13 @@ The Telem UART is the aircraft's MAVLink link: `TelemUartServer` on GPIO20/21 at
 SiK default, brought up by `ServingState` which is where `main.cpp` starts the machine. The
 WiFi and USB MAVLink pages are bench transports reached from the menu, not the vehicle's link.
 
-Five states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them has a reason.
+Four states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them has a reason.
 
 | State | STM32 | FcLink | Telem UART | Wanted |
 | --- | --- | --- | --- | --- |
 | Dfu, waiting for a host | Idle, running | free | free | on |
 | WifiLog, waiting for a host | Idle, running | free | free | on |
-| EscConfig | suspended | MSP relay | free | on, not-ready |
+| EscConfig | suspended | MSP relay | MAVLink, full | not-ready |
 | UsbLog (MSC) | suspended | grant only | free | on, not-ready |
 | LogPull, transferring | Idle, running | saturated | free | narrowed |
 | Program, flashing | ROM bootloader | held by Programmer | free | dark |
@@ -730,22 +734,16 @@ with only Program picking nothing. That also answers the one real contention: `L
 saturates FcLink's 64 B/ms TX budget with chunks, so fresh SystemStatus competes with the
 transfer while the Telem UART itself sits idle.
 
-`SetTransport` has the same shape. The five states never call it, so they inherit whatever the
+`SetTransport` has the same shape. The four states never call it, so they inherit whatever the
 last page left — UDP after MavlinkWifi, CDC after MavlinkUsb. And `Mavlink().Poll()` is called
-only from the three states that stream today, so raising the flag is not sufficient on its own.
+only from the four states that stream today, so raising the flag is not sufficient on its own.
 
 #### boot_state is a readiness state, not a boot phase
 
-`kBooting` cannot mean booting: no SystemStatus frame can exist before `Init` finishes. What
-the ESP32 reads it for is flight-readiness, and `ctx.control_tick_state` is the predicate —
-the bench states are the only things that clear it.
-
-Ordering matters. The readiness value has to be honest *before* those states start streaming,
-or EscConfig and MSC would report `MAV_STATE_STANDBY` — "can be launched any time" — while the
-configurator holds the motor lines, which is worse than silence. `MAV_STATE_CALIBRATING` is
-the honest value for both, and PX4 sends exactly that for `in_esc_calibration_mode`. It needs
-a `kNotReady` enumerator in `libs/message.hpp`, so it costs a dual flash and wants to travel
-with #42's wire additions.
+On the bench pages `boot_state` reads `kBooting` — "starting up" — when the truth is "a
+configurator holds the motor lines". `MAV_STATE_CALIBRATING` is the honest value, and PX4
+sends exactly that for `in_esc_calibration_mode`. It needs a `kNotReady` enumerator in
+`libs/message.hpp`, so it costs a dual flash and wants to travel with #42's wire additions.
 
 Of the nine `MAV_STATE` values, four are ever sent: BOOT, STANDBY, ACTIVE, CRITICAL. UNINIT,
 CALIBRATING, EMERGENCY, POWEROFF and FLIGHT_TERMINATION are unreachable. EMERGENCY is the
@@ -754,7 +752,7 @@ distinction from CRITICAL's "can however still navigate", and #15 is what would 
 
 ### #42 — SystemStatus reports values nothing produces — 🟢 SUPPORTING
 
-Four fields the STM32 fills with constants, and one whose health bits latch. #20 owns
+Two fields the STM32 fills with constants, and one whose health bits latch. #20 owns
 `kSystemStatusFlagLoopAlive`; these are the rest.
 
 | Field | Today | Wanted |
@@ -762,7 +760,6 @@ Four fields the STM32 fills with constants, and one whose health bits latch. #20
 | `sensor_health_flags` | gated on since-boot counters being zero | a windowed delta |
 | `error_code` | `kOk`, always | Sentinel's latched fault code |
 | `errors_count1..4` | four literal zeros in the pack call | four of the ten `ImuHealth` counters |
-| `loop_counter` | 0 on the bench pages | the flight loop's count, or the flag that says why not |
 
 **The health bits latch red and never recover.** `path_faults`, `rx_dma_error_count` and
 `uart_error_count` are cumulative since boot, so one transient fault ever leaves that sensor
@@ -781,12 +778,22 @@ first. A wire change, so it wants #21's reset cause and #41's `kNotReady` in the
 
 Reading any of it needs #41 first.
 
+### #43 — A current reading is trusted as far as it can saturate an int — 🟢 SUPPORTING
+
+Blocked on a real sensor reaching `PC1`. When one does: `STM32_BATTERY_CAPACITY_MAH` and a
+max-current knob inside the current-monitoring menu, a plausibility bound in the driver where
+the negative clamp and deadband already live (a reading above what the pack can deliver is
+provably false), and an over-current condition feeding #15's battery flag. The bound cannot
+detect an absent sensor — a floating pin reads amps that fit any 6S budget — which is what
+the build-time knob is for.
+
 ### #22 — Nothing finds dead code — 🟢 SUPPORTING
 
 `-Wunused` fires only for internal-linkage functions, so an unused public header-inline accessor
 is invisible to every build: no TU odr-uses it, so no TU emits it, so it costs no flash and
-raises no warning. `Ahrs::Current()` survived that way until it was found by reading. Three tools
-each catch part of the gap, and they do not overlap:
+raises no warning. `Ahrs::Current()` survived that way until it was found by reading; so did
+the CRSF direct-send trio, private and unreachable for months after StatPublisher took their
+job. Three tools each catch part of the gap, and they do not overlap:
 
 - `-Wl,--print-gc-sections` — ground truth on the binary. Finds unused data, vtables and
   transitively dead code. Blind to never-emitted inline functions, which is most of what
