@@ -273,6 +273,12 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
     }
     case TelemetryTopic::kBattery: {
       const BatteryData &battery = blackboard_->GetBattery();
+      // CRSF has no health bit to qualify a reading with, and a handset
+      // holding a frozen voltage is one whose low-pack alarm cannot fire.
+      if (battery.timestamp_us == 0 ||
+          (now_us - battery.timestamp_us) > cfg_.battery_fresh_timeout_us) {
+        return std::nullopt;
+      }
       frame.type = kCrsfFrameTypeBattery;
       frame.len = kBatteryPayloadSize;
       EncodeBatteryPayload(battery, frame.payload.data());

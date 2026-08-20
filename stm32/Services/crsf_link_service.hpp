@@ -37,6 +37,7 @@ class CrsfLinkService {
 
   struct Config {
     uint32_t gps_fresh_timeout_us = 2000000u;
+    uint32_t battery_fresh_timeout_us = 1000000u;
     // Indexed by TelemetryTopic. A topic with this clear always sends.
     std::array<bool, kTopicCount> send_on_change{};
   };
