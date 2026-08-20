@@ -31,8 +31,8 @@ static constexpr uint32_t kToolPageBlinkMs = 800;
 static constexpr uint16_t kStm32RequestAttempts =
     FcLink::HandshakeAttempts(kFcLinkConfig.handshake_window_s);
 
-// Mavlink().Poll stays at the call sites: ESC config drains the link but runs
-// with the telemetry link off.
+// Mavlink().Poll stays at the call sites, so a page that wants the radio has
+// to say so.
 static void DrainFcLink(AppContext &ctx) {
   ctx.sys->FcLink().Poll();
   while (auto packet = ctx.sys->FcLink().PopPacket()) {
@@ -292,7 +292,11 @@ static void DropUsbMode(AppContext &ctx) {
 void EscConfigState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering EscConfig");
   ctx.sys->Ui().SetAppState(Ui::AppState::kEscConfig);
-  ctx.sys->Mavlink().SetTelemetryLink(false);
+  // The configurator reaches the STM32 over its USB, so the telem UART is idle
+  // here. Keeping the radio up means the ground is told the vehicle is not
+  // flight-ready rather than being told nothing at all.
+  ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
+  ctx.sys->Mavlink().SetTelemetryLink(true);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
   ctx.sys->StopNetwork();
   ctx.sys->FcLink().ResetRxState();
@@ -311,6 +315,7 @@ void EscConfigState::OnStep(AppContext &ctx) {
   }
 
   DrainFcLink(ctx);
+  ctx.sys->Mavlink().Poll(ctx.now_ms);
 
   // The STM32 publishes kUsbStatus only while it is in ESC config, so the
   // stream arriving at all is the grant -- no flag has to carry it, and its
