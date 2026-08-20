@@ -21,18 +21,19 @@ FcLink &FcLink::GetInstance() {
   return instance;
 }
 
-void FcLink::Init(const AppContext *ctx) {
+void FcLink::Init(const AppContext *ctx, Uart1 &uart) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kFcLinkReinit);
   }
   initialized_ = true;
   ctx_ = ctx;
+  uart_ = &uart;
 }
 
 void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   if (!ctx_) return;
 
-  auto &uart = ctx_->sys->FcUart();
+  auto &uart = *uart_;
 
   // 1. RX Parsing
   uint8_t c;
@@ -277,8 +278,10 @@ void FcLink::SendLog(const char *format, ...) {
 
     // Before Init, Poll -- the only drain -- never runs, so a boot-time log
     // would sit in the ring and vanish entirely if init wedges.
+    // Named directly rather than taken at Init: this branch is what runs
+    // before Init, so there is no reference to have been given one.
     if (ctx_ == nullptr) {
-      auto &uart = System::GetInstance().FcUart();
+      auto &uart = Uart1::GetInstance();
       uint8_t byte = 0;
       uint8_t chunk[64];
       size_t n = 0;

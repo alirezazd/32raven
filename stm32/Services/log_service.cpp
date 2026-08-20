@@ -11,7 +11,6 @@
 #include "fc_link.hpp"
 #include "panic.hpp"
 #include "sdio.hpp"
-#include "system.hpp"
 #include "watchdog.hpp"
 
 namespace {
@@ -24,9 +23,9 @@ constexpr uint32_t kMaxRootScanEntries = 4096;
 // entry forever. Fixed upstream in R0.15a.
 void ClearDirEntry(FILINFO &info) { info.fname[0] = '\0'; }
 
-void LogSdFailure(const char *what, int res) {
+void LogSdFailure(FcLink &fc_link, const char *what, int res) {
   const Sdio::Stats &s = Sdio::GetInstance().GetStats();
-  System::GetInstance().FcLinkSvc().SendLog(
+  fc_link.SendLog(
       "sd: %s failed (%d) cto=%lu ccrc=%lu dto=%lu dcrc=%lu", what, res,
       static_cast<unsigned long>(s.cmd_timeouts),
       static_cast<unsigned long>(s.cmd_crc_errors),
@@ -224,12 +223,14 @@ Record MakeRecord(uint16_t msg_id, uint64_t timestamp) {
 
 }  // namespace
 
-void LogService::Init(const Config &cfg, SharedState &blackboard) {
+void LogService::Init(const Config &cfg, SharedState &blackboard,
+                      FcLink &fc_link) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kLogServiceReinit);
   }
   cfg_ = cfg;
   blackboard_ = &blackboard;
+  fc_link_ = &fc_link;
   // MsgId order: the order AppendSlowTopics walks and the format and
   // subscription tables use. Drift here silently mislabels a topic.
   slow_configs_ = {
@@ -241,13 +242,13 @@ void LogService::Init(const Config &cfg, SharedState &blackboard) {
   initialized_ = true;
 
   if (!Sdio::GetInstance().CardPresent()) {
-    LogSdFailure("probe", 0);
+    LogSdFailure(*fc_link_, "probe", 0);
     Panic(ErrorCode::Stm32::kSdCardMissing);
   }
 
   const FRESULT res = f_mount(&fs_, "", 1);
   if (res != FR_OK) {
-    LogSdFailure("mount", res);
+    LogSdFailure(*fc_link_, "mount", res);
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
   mounted_ = true;
@@ -263,7 +264,7 @@ void LogService::PrepareNextFile() {
   uint32_t max_index = 0;
   const FRESULT dir_res = f_opendir(&dir, "/");
   if (dir_res != FR_OK) {
-    LogSdFailure("root scan", dir_res);
+    LogSdFailure(*fc_link_, "root scan", dir_res);
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
   uint32_t scanned = 0;
@@ -278,7 +279,7 @@ void LogService::PrepareNextFile() {
     // FatFs cannot detect a looped cluster chain, so a corrupted directory
     // scans forever; the cap turns that hang into a diagnosable fault.
     if (++scanned > kMaxRootScanEntries) {
-      System::GetInstance().FcLinkSvc().SendLog(
+      fc_link_->SendLog(
           "sd: root scan runaway at '%s'", info.fname);
       Panic(ErrorCode::Stm32::kSdCardCorrupted);
     }
@@ -290,7 +291,7 @@ void LogService::PrepareNextFile() {
   }
   f_closedir(&dir);
   if (read_res != FR_OK) {
-    LogSdFailure("dir read", read_res);
+    LogSdFailure(*fc_link_, "dir read", read_res);
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
 
@@ -305,7 +306,7 @@ void LogService::PrepareNextFile() {
   const FRESULT open_res =
       f_open(&file_, file_name_, FA_CREATE_ALWAYS | FA_WRITE | FA_READ);
   if (open_res != FR_OK) {
-    LogSdFailure("create", open_res);
+    LogSdFailure(*fc_link_, "create", open_res);
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
 
@@ -315,7 +316,7 @@ void LogService::PrepareNextFile() {
     // FR_DENIED means no contiguous run this large: a full card, not a
     // broken one.
     f_close(&file_);
-    LogSdFailure("prealloc", expand_res);
+    LogSdFailure(*fc_link_, "prealloc", expand_res);
     Panic(expand_res == FR_DENIED ? ErrorCode::Stm32::kSdCardFull
                                   : ErrorCode::Stm32::kSdCardCorrupted);
   }
@@ -325,13 +326,13 @@ void LogService::PrepareNextFile() {
   const FRESULT sync_res = f_sync(&file_);
   if (sync_res != FR_OK) {
     f_close(&file_);
-    LogSdFailure("prealloc sync", sync_res);
+    LogSdFailure(*fc_link_, "prealloc sync", sync_res);
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
 
   AdoptOpenFile(bytes);
 
-  System::GetInstance().FcLinkSvc().SendLog(
+  fc_link_->SendLog(
       "sd: %s ready, card %lu MB", file_name_,
       static_cast<unsigned long>(
           (static_cast<uint64_t>(Sdio::GetInstance().BlockCount()) *
@@ -371,7 +372,7 @@ bool LogService::TryReuseEmptyLog(uint32_t index, FSIZE_t bytes) {
     return false;
   }
   AdoptOpenFile(bytes);
-  System::GetInstance().FcLinkSvc().SendLog("sd: %s reused", file_name_);
+  fc_link_->SendLog("sd: %s reused", file_name_);
   return true;
 }
 
@@ -626,7 +627,7 @@ void LogService::TryStartFlush() {
   }
   if ((flushed_bytes_ + kStagingBytes) > file_capacity_bytes_) {
     FailSink();
-    System::GetInstance().FcLinkSvc().SendLog("sd: %s full", file_name_);
+    fc_link_->SendLog("sd: %s full", file_name_);
     return;
   }
   const uint32_t lba = file_start_lba_ + (flushed_bytes_ / Sdio::kBlockBytes);
@@ -731,13 +732,13 @@ void LogService::StopFlight() {
     fin_res = f_truncate(&file_);
   }
   if (fin_res != FR_OK) {
-    LogSdFailure("finalize", fin_res);
+    LogSdFailure(*fc_link_, "finalize", fin_res);
   }
   const FRESULT close_res = f_close(&file_);
   if (close_res != FR_OK) {
-    LogSdFailure("finalize close", close_res);
+    LogSdFailure(*fc_link_, "finalize close", close_res);
   }
-  System::GetInstance().FcLinkSvc().SendLog(
+  fc_link_->SendLog(
       "sd: %s closed (%lu KB, %lu dropped)", file_name_,
       static_cast<unsigned long>(final_bytes >> 10),
       static_cast<unsigned long>(stats_.dropped_bytes));
@@ -761,11 +762,11 @@ void LogService::RemountAfterMsc() {
   file_ready_ = false;
   mounted_ = false;
   if (!Sdio::GetInstance().Reprobe()) {
-    System::GetInstance().FcLinkSvc().SendLog("sd: no card after msc");
+    fc_link_->SendLog("sd: no card after msc");
     Panic(ErrorCode::Stm32::kSdCardMissing);
   }
   if (f_mount(&fs_, "", 1) != FR_OK) {
-    System::GetInstance().FcLinkSvc().SendLog("sd: remount failed");
+    fc_link_->SendLog("sd: remount failed");
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
   mounted_ = true;
@@ -796,7 +797,7 @@ void LogService::ListLogs(uint8_t first, message::LogListReplyMsg &out) {
     // Same runaway cap as the boot scan, but this request has an error
     // channel, so the puller gets IoError instead of a panic.
     if (++scanned > kMaxRootScanEntries) {
-      LogSdFailure("list runaway", FR_OK);
+      LogSdFailure(*fc_link_, "list runaway", FR_OK);
       f_closedir(&dir);
       out.status = static_cast<uint8_t>(message::LogStatus::kIoError);
       return;

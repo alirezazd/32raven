@@ -247,7 +247,8 @@ void System::InitComponent(Component c) {
       Sdio::GetInstance().Init();
       break;
     case Component::kLogService:
-      log_service_.Init(kLogServiceConfig, blackboard_);
+      log_service_.Init(kLogServiceConfig, blackboard_,
+                        FcLink::GetInstance());
       break;
     case Component::kMscService:
       msc_service_.Init(UsbCdc::GetInstance(), log_service_, blackboard_);

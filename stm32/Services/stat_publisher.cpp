@@ -153,7 +153,7 @@ uint16_t StatPublisher::ComputeControlLoopLoad() {
 }
 
 message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
-    uint32_t now_us, uint16_t load) {
+    uint32_t now_us, uint16_t load) const {
   const SharedState &blackboard = *blackboard_;
   const GpsData &gps = blackboard.GetGps();
   const BatteryData &battery = blackboard.GetBattery();
@@ -221,7 +221,7 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   return msg;
 }
 
-message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() {
+message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() const {
   message::VehicleStatusMsg msg{};
   msg.armed_state = static_cast<uint8_t>(blackboard_->IsArmed()
                                              ? message::ArmedState::kArmed
@@ -231,7 +231,7 @@ message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() {
   return msg;
 }
 
-message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg() {
+message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg() const {
   const UsbStatusData &usb = blackboard_->GetUsbStatus();
 
   uint8_t flags = 0u;

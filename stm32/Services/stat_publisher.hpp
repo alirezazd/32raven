@@ -102,9 +102,9 @@ class StatPublisher {
   static int8_t BatteryRemainingPct(const BatteryData &battery);
   uint16_t ComputeControlLoopLoad();
   message::SystemStatusMsg BuildSystemStatusMsg(uint32_t now_us,
-                                                uint16_t load);
-  message::VehicleStatusMsg BuildVehicleStatusMsg();
-  message::UsbStatusMsg BuildUsbStatusMsg();
+                                                uint16_t load) const;
+  message::VehicleStatusMsg BuildVehicleStatusMsg() const;
+  message::UsbStatusMsg BuildUsbStatusMsg() const;
 
   static Outcome PublishSystemStatus(StatPublisher &self,
                                      uint32_t now_us);

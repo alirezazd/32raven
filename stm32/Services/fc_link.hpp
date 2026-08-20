@@ -6,6 +6,7 @@
 #include "message.hpp"
 #include "ring_buffer.hpp"
 #include "shared_state.hpp"
+#include "uart.hpp"
 
 struct AppContext;
 
@@ -13,7 +14,7 @@ class FcLink {
  public:
   static FcLink &GetInstance();
 
-  void Init(const AppContext *ctx);
+  void Init(const AppContext *ctx, Uart1 &uart);
 
   // Min RX byte budget per Poll to drain one max-sized packet. Smaller
   // budgets stall: frames arriving faster than rx_budget/frame_size per
@@ -53,6 +54,7 @@ class FcLink {
   FcLink &operator=(const FcLink &) = delete;
 
   const AppContext *ctx_ = nullptr;
+  Uart1 *uart_ = nullptr;
 
   // RX Parsing State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };

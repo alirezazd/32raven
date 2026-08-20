@@ -10,6 +10,7 @@
 #include "ff.h"
 #include "message.hpp"
 #include "ring_buffer.hpp"
+#include "fc_link.hpp"
 #include "shared_state.hpp"
 #include "topic_scheduler.hpp"
 
@@ -62,7 +63,8 @@ class LogService {
 
  private:
   friend class System;
-  void Init(const Config &cfg, SharedState &blackboard);
+  void Init(const Config &cfg, SharedState &blackboard,
+            FcLink &fc_link);
 
   // ULog message ids double as topic-scheduler slots for the slow set.
   enum MsgId : uint16_t {
@@ -153,5 +155,6 @@ class LogService {
   bool read_open_ = false;
 
   SharedState *blackboard_ = nullptr;
+  FcLink *fc_link_ = nullptr;
   Stats stats_{};
 };

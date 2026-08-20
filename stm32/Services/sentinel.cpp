@@ -7,7 +7,6 @@
 #include "message.hpp"
 #include "panic.hpp"
 #include "state_machine.hpp"
-#include "system.hpp"
 // IdleState has to be complete to compare against the state machine's
 // current state; ctx.hpp only forward-declares it.
 #include "states.hpp"  // IWYU pragma: keep
