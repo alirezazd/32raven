@@ -172,11 +172,7 @@ void M10Service::Init(Uart2 &uart, SharedState &blackboard) {
   blackboard_ = &blackboard;
 }
 
-bool M10Service::Poll() {
-  if (uart_ == nullptr) {
-    return false;
-  }
-
+void M10Service::Poll() {
   uint8_t byte = 0;
   uint32_t budget = kRxByteBudget;
   while (budget > 0u && uart_->ReadByte(byte)) {
@@ -184,7 +180,7 @@ bool M10Service::Poll() {
     budget--;
   }
 
-  return PublishIfNew();
+  PublishIfNew();
 }
 
 void M10Service::FillGpsData(GpsData &data) const {
@@ -222,14 +218,13 @@ void M10Service::FillGpsData(GpsData &data) const {
   data.posCovDD = cov_data_.posCovDD;
 }
 
-bool M10Service::PublishIfNew() {
-  if (!new_data_ || blackboard_ == nullptr) {
-    return false;
+void M10Service::PublishIfNew() {
+  if (!new_data_) {
+    return;
   }
 
   GpsData data{};
   FillGpsData(data);
   blackboard_->UpdateGps(data);
   new_data_ = false;
-  return true;
 }

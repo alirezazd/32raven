@@ -148,11 +148,10 @@ class M10Service {
   bool NewDataAvailable() const { return new_data_; }
   void ClearNewDataFlag() { new_data_ = false; }
 
-  // Drains the receiver, parses, and publishes a completed epoch. Returns true
-  // when one reached the blackboard -- the FcLink send stays with the caller,
-  // since GPS goes out on PVT arrival rather than on a topic period
-  // (stat_publisher.hpp) and a last-known-value store cannot say "new".
-  bool Poll();
+  // Drains the receiver, parses, and publishes a completed epoch to the
+  // blackboard, where StatPublisher tells a new fix from a re-read one by its
+  // stamp.
+  void Poll();
 
   uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
   uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }
@@ -163,7 +162,7 @@ class M10Service {
 
   void Init(Uart2 &uart, SharedState &blackboard);
   void FillGpsData(GpsData &out) const;
-  bool PublishIfNew();
+  void PublishIfNew();
   void DispatchFrame();
 
   Uart2 *uart_ = nullptr;
