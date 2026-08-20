@@ -75,7 +75,8 @@ void System::InitComponent(Component c) {
       break;
     case Component::kUi:
       if (kSsd1306PanelConfig.enabled) {
-        Ui().Init(kUiConfig, &DisplayPanel());
+        Ui().Init(kUiConfig, &DisplayPanel(), Wifi(), Programmer(),
+                  Mavlink());
         ESP_LOGI(kTag, "UI initialized");
       }
       break;
@@ -88,7 +89,7 @@ void System::InitComponent(Component c) {
       ESP_LOGI(kTag, "TCP Server initialized");
       break;
     case Component::kUdpServer:
-      Udp().Init(kUdpServerConfig);
+      Udp().Init(kUdpServerConfig, Wifi());
       ESP_LOGI(kTag, "UDP Server initialized");
       break;
     case Component::kUsbCdcServer:
@@ -112,7 +113,7 @@ void System::InitComponent(Component c) {
       ESP_LOGI(kTag, "FcLink service initialized");
       break;
     case Component::kMavlink:
-      Mavlink().Init(kMavlinkConfig, &Telem());
+      Mavlink().Init(kMavlinkConfig, &Telem(), FcLink());
       ESP_LOGI(kTag, "Mavlink service initialized");
       break;
     case Component::kCommandHandler:

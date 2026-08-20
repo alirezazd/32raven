@@ -36,7 +36,9 @@ void UdpServer::ClearPeer() {
   peer_port_ = 0;
 }
 
-bool UdpServer::IsReady() const { return Sys().Wifi().HasAssociatedStations(); }
+bool UdpServer::IsReady() const {
+  return wifi_->HasAssociatedStations();
+}
 
 void UdpServer::ResetShaperState() {
   upload_tokens_bytes_ = 0;
@@ -49,8 +51,9 @@ void UdpServer::ResetShaperState() {
   download_shaper_buffer_.Clear();
 }
 
-void UdpServer::Init(const Config &cfg) {
+void UdpServer::Init(const Config &cfg, WifiController &wifi) {
   cfg_ = cfg;
+  wifi_ = &wifi;
   if (cfg_.overflow_threshold == 0) {
     Panic(ErrorCode::Esp32::kUdpServerInvalidOverflowThreshold);
   }

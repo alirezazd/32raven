@@ -12,8 +12,11 @@
 #include "display_renderer.hpp"
 #include "error_code.hpp"
 #include "message.hpp"
+#include "mavlink.hpp"
+#include "programmer.hpp"
 #include "ssd1306_panel.hpp"
 #include "timebase.hpp"
+#include "wifi.hpp"
 
 class Ui;
 class DisplayCanvas;
@@ -193,7 +196,8 @@ class Ui {
   const DisplayCanvas &Canvas() const { return canvas_; }
 
  private:
-  void Init(const Config &cfg, Ssd1306Panel *panel);
+  void Init(const Config &cfg, Ssd1306Panel *panel, WifiController &wifi,
+            Programmer &programmer, Mavlink &mavlink);
   friend class System;
 
   // Written by the state-machine task, read by the UI task. volatile is for
@@ -251,6 +255,9 @@ class Ui {
 
   Config cfg_{};
   Ssd1306Panel *panel_ = nullptr;
+  WifiController *wifi_ = nullptr;
+  Programmer *programmer_ = nullptr;
+  Mavlink *mavlink_ = nullptr;
   DisplayCanvas canvas_{};
   DisplayRenderer renderer_;
   BootWidget *boot_widget_ = nullptr;

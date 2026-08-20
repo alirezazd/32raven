@@ -16,6 +16,7 @@
 
 #include "error_code.hpp"
 #include "mavlink_transport.hpp"
+#include "fc_link.hpp"
 #include "message.hpp"  // for message::GpsData
 #include "panic.hpp"
 #include "ring_buffer.hpp"
@@ -140,7 +141,8 @@ class Mavlink {
 
  private:
   friend class System;
-  void Init(const Config &cfg, IMavlinkTransport *transport);
+  void Init(const Config &cfg, IMavlinkTransport *transport,
+            FcLink &fc_link);
   template <typename T>
   struct CachedValue {
     T value{};
@@ -325,6 +327,7 @@ class Mavlink {
   Mavlink &operator=(const Mavlink &) = delete;
 
   IMavlinkTransport *transport_ = nullptr;
+  FcLink *fc_link_ = nullptr;
   Config cfg_{};
 
   std::array<uint16_t, 64> unhandled_logged_msgids_{};

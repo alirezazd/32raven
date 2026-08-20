@@ -856,7 +856,7 @@ bool Mavlink::EnsureParamDependencyRequested(ParamDependency dependency) {
   req_pkt.header.id = static_cast<uint8_t>(request_id);
   req_pkt.header.len = 0;
   ESP_LOGI(kTag, "Requesting STM32 %s on demand...", description);
-  Sys().FcLink().SendPacket(req_pkt);
+  fc_link_->SendPacket(req_pkt);
   return true;
 }
 
@@ -900,7 +900,7 @@ void Mavlink::ServicePendingParamApplies(uint32_t now_ms) {
     req_pkt.header.id = static_cast<uint8_t>(message::MsgId::kSetRcMapConfig);
     req_pkt.header.len = message::PayloadLength<message::RcMapConfigMsg>();
     std::memcpy(req_pkt.payload, &send->value, sizeof(send->value));
-    Sys().FcLink().SendPacket(req_pkt);
+    fc_link_->SendPacket(req_pkt);
   }
 
   if (const auto *send =
@@ -912,7 +912,7 @@ void Mavlink::ServicePendingParamApplies(uint32_t now_ms) {
     req_pkt.header.len =
         message::PayloadLength<message::RcCalibrationConfigMsg>();
     std::memcpy(req_pkt.payload, &send->value, sizeof(send->value));
-    Sys().FcLink().SendPacket(req_pkt);
+    fc_link_->SendPacket(req_pkt);
   }
 }
 

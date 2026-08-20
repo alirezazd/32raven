@@ -18,7 +18,8 @@ Mavlink &Mavlink::GetInstance() {
   return instance;
 }
 
-void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport) {
+void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport,
+                   FcLink &fc_link) {
   if (transport == nullptr) {
     Panic(ErrorCode::Esp32::kMavlinkInitFailed);
   }
@@ -32,6 +33,7 @@ void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport) {
   // Non-null from here on, which is why the service does not re-check it on
   // every tick.
   transport_ = transport;
+  fc_link_ = &fc_link;
   ResetParamState();
   SetTelemetryLink(false);
   ESP_LOGI(kTag, "Initialized (MAVLink transport service)");

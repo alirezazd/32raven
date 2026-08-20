@@ -9,9 +9,12 @@
 #include "esp32_limits.hpp"
 #include "mavlink_transport.hpp"
 #include "ring_buffer.hpp"
+#include "wifi.hpp"
 
 extern "C" {
 }
+
+#include "wifi.hpp"
 
 class UdpServer : public IMavlinkTransport {
  public:
@@ -34,8 +37,9 @@ class UdpServer : public IMavlinkTransport {
   bool IsReady() const override;
 
  private:
+  WifiController *wifi_ = nullptr;
   friend class System;
-  void Init(const Config &cfg);
+  void Init(const Config &cfg, WifiController &wifi);
   static bool SetNonblock(int fd);
   static void RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
                            uint32_t &tokens_bytes, int64_t &last_refill_us);

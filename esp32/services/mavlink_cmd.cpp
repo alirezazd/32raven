@@ -4,7 +4,6 @@
 #include <cstdio>
 
 #include "mavlink.hpp"
-#include "system.hpp"
 
 void Mavlink::LogUnhandledCommandOnce(uint16_t command, const char *reason) {
   for (uint8_t i = 0; i < unhandled_logged_command_count_; ++i) {
@@ -50,7 +49,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
         req_pkt.header.id =
             static_cast<uint8_t>(message::MsgId::kReqReceiverBind);
         req_pkt.header.len = 0;
-        Sys().FcLink().SendPacket(req_pkt);
+        fc_link_->SendPacket(req_pkt);
         QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
                         source_system, source_component);
       } else {

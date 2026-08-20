@@ -267,7 +267,8 @@ std::optional<Ui::PeerUsbState> Ui::PeerUsb(uint32_t now_ms) const {
   };
 }
 
-void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
+void Ui::Init(const Config &cfg, Ssd1306Panel *panel, WifiController &wifi,
+              Programmer &programmer, Mavlink &mavlink) {
   static StaticTask_t task_buffer;
   static StackType_t task_stack[kTaskStackBytes];
 
@@ -277,6 +278,9 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel) {
   }
 
   panel_ = panel;
+  wifi_ = &wifi;
+  programmer_ = &programmer;
+  mavlink_ = &mavlink;
   SetAppState(AppState::kBooting);
   main_screen_ = MainScreen::kBooting;
   transition_ = {};
@@ -378,11 +382,11 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
     case AppState::kServing:
       return MainScreen::kServing;
     case AppState::kDfu:
-      return Sys().Wifi().HasAssociatedStations()
+      return wifi_->HasAssociatedStations()
                  ? MainScreen::kDfuIdleConnected
                  : MainScreen::kDfuDisconnected;
     case AppState::kMavlinkWifi:
-      return Sys().Wifi().HasAssociatedStations()
+      return wifi_->HasAssociatedStations()
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
     case AppState::kMavlinkUsb:
@@ -391,10 +395,10 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
       // underlying transport differs.
       return MainScreen::kMavlinkWifiDisconnected;
     case AppState::kProgram:
-      if (Sys().Programmer().IsVerifying()) {
+      if (programmer_->IsVerifying()) {
         return MainScreen::kVerifying;
       }
-      if (Sys().Programmer().Done() && main_screen_ == MainScreen::kVerifying) {
+      if (programmer_->Done() && main_screen_ == MainScreen::kVerifying) {
         return MainScreen::kVerifying;
       }
       return MainScreen::kProgramming;
@@ -406,14 +410,14 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
         return MainScreen::kEscConfigDisconnected;
       }
       // Checked after USB: an unreported link is the more useful thing to say.
-      if (Sys().Mavlink().PeerArmed(now_ms).value_or(false)) {
+      if (mavlink_->PeerArmed(now_ms).value_or(false)) {
         return MainScreen::kEscConfigArmed;
       }
       return usb->port_open ? MainScreen::kEscConfigConnected
                             : MainScreen::kEscConfigIdleConnected;
     }
     case AppState::kWifiLog:
-      return Sys().Wifi().HasAssociatedStations()
+      return wifi_->HasAssociatedStations()
                  ? MainScreen::kWifiLogConnected
                  : MainScreen::kWifiLogDisconnected;
     case AppState::kUsbLog: {
