@@ -160,10 +160,12 @@ void EscService::CheckEscFirmware() {
 // before it will act on a command. It also covers a battery arriving long after
 // boot, with no timer to get wrong.
 void EscService::PollEscInfo(uint32_t now_us) {
-  // A live test throttle bars this for the same reason arming does: the command
-  // burst below writes kMotorStop to every motor it is not addressed to, so
-  // asking a spinning motor for its settings stops it for the whole burst.
-  if (blackboard_->IsArmed() || command_.active || TestThrottleActive() ||
+  // A host holding the ESC config grant owns the motors for as long as it holds
+  // it, throttle standing or not: the command burst below writes kMotorStop to
+  // every motor it is not addressed to, and a burst already under way when the
+  // host's slider moves stops that motor just the same.
+  const bool host_owns_motors = blackboard_->GetUsbStatus().esc_config_granted;
+  if (blackboard_->IsArmed() || command_.active || host_owns_motors ||
       telemetry_ == nullptr || !telemetry_->IsInitialized()) {
     return;
   }
