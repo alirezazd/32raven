@@ -145,8 +145,6 @@ class M10Service {
   const M10PVTData &GetData() const { return pvt_data_; }
   const M10DOPData &GetDOP() const { return dop_data_; }
   const M10COVData &GetCOV() const { return cov_data_; }
-  bool NewDataAvailable() const { return new_data_; }
-  void ClearNewDataFlag() { new_data_ = false; }
 
   // Drains the receiver, parses, and publishes a completed epoch to the
   // blackboard, where StatPublisher tells a new fix from a re-read one by its
