@@ -65,8 +65,6 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "GPS Not Responding";
     case ErrorCode::Stm32::kGpsConfigTimepulseFailed:
       return "GPS Timepulse Config Failed";
-    case ErrorCode::Stm32::kGpsConfigTimepulseBufferError:
-      return "GPS TP1 Buffer Mismatch";
     case ErrorCode::Stm32::kGpsVerifyProtocolFailed:
       return "GPS Verify Protocol Failed";
     case ErrorCode::Stm32::kGpsVerifyNavPvtFailed:
@@ -85,6 +83,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "GPS Verify Constellation Failed";
     case ErrorCode::Stm32::kGpsVerifyItfmFailed:
       return "GPS Verify ITFM Failed";
+    case ErrorCode::Stm32::kGpsValsetFrameOverflow:
+      return "GPS: config frame exceeded its buffer";
     case ErrorCode::Stm32::kImuWhoAmIFail:
       return "IMU WhoAmI Failed";
     case ErrorCode::Stm32::kImuOverrun:

@@ -49,7 +49,6 @@ enum class Stm32 : uint32_t {
   // GPS
   kGpsNotResponding,
   kGpsConfigTimepulseFailed,
-  kGpsConfigTimepulseBufferError,
   kGpsVerifyProtocolFailed,
   kGpsVerifyNavPvtFailed,
   kGpsVerifyNavDopFailed,
@@ -59,6 +58,7 @@ enum class Stm32 : uint32_t {
   kGpsVerifyDynModelFailed,
   kGpsVerifyConstellationFailed,
   kGpsVerifyItfmFailed,
+  kGpsValsetFrameOverflow,
   // IMU
   kImuWhoAmIFail,
   kImuOverrun,

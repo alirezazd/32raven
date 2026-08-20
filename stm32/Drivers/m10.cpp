@@ -4,6 +4,7 @@
 #include "m10.hpp"
 
 #include <cstring>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -23,6 +24,71 @@ inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
     ck_b = static_cast<uint8_t>(ck_b + ck_a);
   }
 }
+
+// One CFG-VALSET frame carrying several keys, for a group whose members have
+// to move together: the receiver applies and acknowledges the whole frame
+// once, where per-key writes apply one at a time. Sized for the largest group
+// below rather than for the protocol's 64-key ceiling.
+class ValsetFrame {
+ public:
+  static constexpr size_t kMaxPayload = 4 + (7 * (4 + 4));
+
+  explicit ValsetFrame(uint8_t layer) {
+    buf_[6] = kValsetVersion;
+    buf_[7] = layer;
+  }
+
+  void AddU1(uint32_t key, uint8_t value) {
+    Reserve(4 + 1);
+    AddKey(key);
+    buf_[idx_++] = value;
+  }
+
+  void AddU4(uint32_t key, uint32_t value) {
+    Reserve(4 + 4);
+    AddKey(key);
+    std::memcpy(&buf_[idx_], &value, 4);
+    idx_ += 4;
+  }
+
+  // The frame as bytes, header and checksum filled in. Valid until the next
+  // Add; the caller sends it.
+  std::span<const uint8_t> Finish() {
+    const auto payload_len = static_cast<uint16_t>(idx_ - 6);
+    buf_[0] = UBX::kSync1;
+    buf_[1] = UBX::kSync2;
+    buf_[2] = UBX::kClsCfg;
+    buf_[3] = UBX::kIdCfgValset;
+    buf_[4] = payload_len & 0xFF;
+    buf_[5] = (payload_len >> 8) & 0xFF;
+    uint8_t ck_a = 0;
+    uint8_t ck_b = 0;
+    UbxChecksum(&buf_[2], 4 + payload_len, ck_a, ck_b);
+    buf_[idx_] = ck_a;
+    buf_[idx_ + 1] = ck_b;
+    return {buf_, idx_ + 2};
+  }
+
+ private:
+  // The buffer is sized for the largest group in this file, so overflow means
+  // a group grew without the size following: caught here rather than left to
+  // run past the frame.
+  void Reserve(size_t bytes) {
+    if (idx_ + bytes + 2 > sizeof(buf_)) {
+      Panic(ErrorCode::Stm32::kGpsValsetFrameOverflow);
+    }
+  }
+
+  void AddKey(uint32_t key) {
+    buf_[idx_++] = key & 0xFF;
+    buf_[idx_++] = (key >> 8) & 0xFF;
+    buf_[idx_++] = (key >> 16) & 0xFF;
+    buf_[idx_++] = (key >> 24) & 0xFF;
+  }
+
+  uint8_t buf_[6 + kMaxPayload + 2] = {};
+  size_t idx_ = 10;  // past sync, class, id, length and the valset header
+};
 
 M10 &M10::GetInstance() {
   static M10 instance;
@@ -109,81 +175,66 @@ void M10::ApplyConfig(ValsetLayer layer) {
   set(kKeyCfgDynModel, u8(config_.nav.dyn_model),
       ErrorCode::Stm32::kGpsVerifyDynModelFailed);
 
-  set(kKeyGpsEnable, u8(config_.gnss.gps_enable),
-      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  set(kKeyGloEnable, u8(config_.gnss.glo_enable),
-      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  set(kKeyGalEnable, u8(config_.gnss.gal_enable),
-      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  set(kKeyBdsEnable, u8(config_.gnss.bds_enable),
-      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
-  set(kKeySbasEnable, u8(config_.gnss.sbas_enable),
-      ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+  // One transaction for the whole CFG-SIGNAL group: every change to it resets
+  // the GNSS subsystem, and the interface description wants the ACK plus 0.5 s
+  // of settling before the next command -- per-key writes stacked five resets
+  // with no settling at all. The read-back sits after the wait, where the
+  // subsystem can answer for what it now runs.
+  {
+    const struct {
+      uint32_t key;
+      uint8_t value;
+    } signals[] = {
+        {kKeyGpsEnable, u8(config_.gnss.gps_enable)},
+        {kKeyGloEnable, u8(config_.gnss.glo_enable)},
+        {kKeyGalEnable, u8(config_.gnss.gal_enable)},
+        {kKeyBdsEnable, u8(config_.gnss.bds_enable)},
+        {kKeySbasEnable, u8(config_.gnss.sbas_enable)},
+    };
+
+    ValsetFrame frame(std::to_underlying(layer));
+    for (const auto &signal : signals) {
+      frame.AddU1(signal.key, signal.value);
+    }
+    const std::span<const uint8_t> bytes = frame.Finish();
+    Uart<UartInstance::kUart2>::GetInstance().Send(bytes.data(), bytes.size());
+    if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
+      Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+    }
+
+    System::GetInstance().Time().DelayMicros(MillisToMicros(500));
+
+    for (const auto &signal : signals) {
+      Uart<UartInstance::kUart2>::GetInstance().FlushRx();
+      SendCfgValGet(signal.key, ValgetLayer::kRam);
+      if (!WaitForValget<uint8_t>(signal.key, signal.value)) {
+        Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
+      }
+    }
+  }
+
   set(kKeyItfmEnable, u8(config_.gnss.itfm_enable),
       ErrorCode::Stm32::kGpsVerifyItfmFailed);
 
-  // The leading 4 is CFG-VALSET's own header -- version, layers and two
-  // reserved bytes -- which the length field counts along with the key/value
-  // pairs. SendCfgValSet and its valget counterpart include it too.
-  constexpr uint16_t payload_len =
-      4 + (4 + 1) + (4 + 4) + (4 + 4) + (4 + 1) + (4 + 1) + (4 + 1) + (4 + 1);
-  constexpr size_t packet_len = 6 + payload_len + 2;
-  uint8_t buf[packet_len];
-
-  buf[0] = UBX::kSync1;
-  buf[1] = UBX::kSync2;
-  buf[2] = UBX::kClsCfg;
-  buf[3] = UBX::kIdCfgValset;
-  buf[4] = payload_len & 0xFF;
-  buf[5] = (payload_len >> 8) & 0xFF;
-
-  buf[6] = kValsetVersion;
-  buf[7] = std::to_underlying(layer);
-  buf[8] = 0;
-  buf[9] = 0;
-
-  size_t idx = 10;
-
-  auto write_key_u1 = [&](uint32_t key, uint8_t v) {
-    buf[idx++] = key & 0xFF;
-    buf[idx++] = (key >> 8) & 0xFF;
-    buf[idx++] = (key >> 16) & 0xFF;
-    buf[idx++] = (key >> 24) & 0xFF;
-    buf[idx++] = v;
-  };
-
-  auto write_key_u4 = [&](uint32_t key, uint32_t v) {
-    buf[idx++] = key & 0xFF;
-    buf[idx++] = (key >> 8) & 0xFF;
-    buf[idx++] = (key >> 16) & 0xFF;
-    buf[idx++] = (key >> 24) & 0xFF;
-    std::memcpy(&buf[idx], &v, 4);
-    idx += 4;
-  };
-
-  write_key_u1(kKeyCfgTp1Ena, static_cast<uint8_t>(config_.tp1.ena));
-  write_key_u4(kKeyCfgTp1Period, config_.tp1.period);
-  write_key_u4(kKeyCfgTp1Len, config_.tp1.len);
-  write_key_u1(kKeyCfgTp1TimeGrid, static_cast<uint8_t>(config_.tp1.timegrid));
-  write_key_u1(kKeyCfgTp1SyncGnss, static_cast<uint8_t>(config_.tp1.sync_gnss));
-  write_key_u1(kKeyCfgTp1AlignToTow,
-               static_cast<uint8_t>(config_.tp1.align_to_tow));
-  write_key_u1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
-
-  // payload_len is measured from buf[6], where the CFG-VALSET payload starts.
-  if (idx != 6 + payload_len) {
-    Panic(ErrorCode::Stm32::kGpsConfigTimepulseBufferError);
-  }
-
-  uint8_t ck_a = 0;
-  uint8_t ck_b = 0;
-  UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
-  buf[packet_len - 2] = ck_a;
-  buf[packet_len - 1] = ck_b;
-
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
-  if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
-    Panic(ErrorCode::Stm32::kGpsConfigTimepulseFailed);
+  // One frame for the timepulse group as well: its seven keys describe a
+  // single pulse, and a receiver that took only some of them would emit one
+  // nothing configured.
+  {
+    ValsetFrame frame(std::to_underlying(layer));
+    frame.AddU1(kKeyCfgTp1Ena, static_cast<uint8_t>(config_.tp1.ena));
+    frame.AddU4(kKeyCfgTp1Period, config_.tp1.period);
+    frame.AddU4(kKeyCfgTp1Len, config_.tp1.len);
+    frame.AddU1(kKeyCfgTp1TimeGrid, static_cast<uint8_t>(config_.tp1.timegrid));
+    frame.AddU1(kKeyCfgTp1SyncGnss,
+                static_cast<uint8_t>(config_.tp1.sync_gnss));
+    frame.AddU1(kKeyCfgTp1AlignToTow,
+                static_cast<uint8_t>(config_.tp1.align_to_tow));
+    frame.AddU1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
+    const std::span<const uint8_t> bytes = frame.Finish();
+    Uart<UartInstance::kUart2>::GetInstance().Send(bytes.data(), bytes.size());
+    if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
+      Panic(ErrorCode::Stm32::kGpsConfigTimepulseFailed);
+    }
   }
 
   if (config_.uart1.enabled) {
