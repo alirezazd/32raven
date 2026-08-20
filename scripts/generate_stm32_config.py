@@ -1680,6 +1680,7 @@ def _timebase_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 def _esc_telemetry_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
+        "has_current": sym_bool(kconf, "STM32_ESC_TELEMETRY_HAS_CURRENT"),
         "response_timeout_us": sym_int(
             kconf, "STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US"
         ),

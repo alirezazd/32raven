@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 
 #include "ring_buffer.hpp"
 #include "shared_state.hpp"
@@ -21,6 +22,10 @@ class EscTelemetry {
       ((kKissFrameSize * 10u * 1000000u) + kBaudRate - 1u) / kBaudRate;
 
   struct Config {
+    // An AM32 target that names no current pin still reports one, scaled from
+    // an unrelated ADC input -- so off, both it and the consumption derived
+    // from it are published as absent.
+    bool has_current;
     uint32_t response_timeout_us;
   };
 

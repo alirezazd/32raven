@@ -540,7 +540,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         for (int m = 0; m < 4; ++m) {
           rec.rpm[m] = esc.motors[m].rpm;
           rec.voltage[m] = esc.motors[m].voltage;
-          rec.current[m] = esc.motors[m].current;
+          rec.current[m] = esc.motors[m].current.value_or(kMissingFloat);
           rec.temperature_c[m] = esc.motors[m].temperature_c;
         }
         rec.valid_mask = esc.valid_mask;

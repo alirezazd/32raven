@@ -171,8 +171,13 @@ void EscTelemetry::FillEscTelemetryData(EscTelemetryData &out) const {
     EscTelemetryMotorData &dst = out.motors[i];
     dst.timestamp_us = src.timestamp_us;
     dst.voltage = static_cast<float>(src.voltage_centivolts) * 0.01f;
-    dst.current = static_cast<float>(src.current_centiamps) * 0.01f;
-    dst.consumption_mah = src.consumption_mah;
+    if (cfg_.has_current) {
+      dst.current = static_cast<float>(src.current_centiamps) * 0.01f;
+      dst.consumption_mah = src.consumption_mah;
+    } else {
+      dst.current = std::nullopt;
+      dst.consumption_mah = std::nullopt;
+    }
     dst.electrical_rpm = src.electrical_rpm;
     dst.rpm = src.rpm;
     dst.temperature_c = src.temperature_c;

@@ -301,8 +301,10 @@ struct EscTelemetryMsg {
   uint32_t rpm[kEscTelemetryMotorCount];
   uint32_t electrical_rpm[kEscTelemetryMotorCount];
   uint16_t voltage_centivolts[kEscTelemetryMotorCount];
-  uint16_t current_centiamps[kEscTelemetryMotorCount];
-  uint16_t consumption_mah[kEscTelemetryMotorCount];
+  // -1 where the ESC has no shunt. Signed for that alone -- the readings
+  // themselves are never negative.
+  int16_t current_centiamps[kEscTelemetryMotorCount];
+  int32_t consumption_mah[kEscTelemetryMotorCount];
   int16_t temperature_c[kEscTelemetryMotorCount];
   uint8_t valid_mask;
 } __attribute__((packed));

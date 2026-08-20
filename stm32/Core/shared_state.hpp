@@ -84,8 +84,10 @@ struct BatteryData {
 struct EscTelemetryMotorData {
   uint32_t timestamp_us = 0;
   float voltage = 0.0f;
-  float current = 0.0f;
-  uint16_t consumption_mah = 0;
+  // Absent together: AM32 derives the consumption by integrating the same
+  // reading, so an ESC with no shunt fabricates both or neither.
+  std::optional<float> current;
+  std::optional<uint16_t> consumption_mah;
   uint32_t electrical_rpm = 0;
   uint32_t rpm = 0;
   int16_t temperature_c = 0;

@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <type_traits>
 
 #include "../../third_party/mavlink/standard/mavlink_msg_autopilot_version.h"
@@ -20,6 +21,10 @@
 #include "system.hpp"
 
 namespace {
+
+// MAVLink reads NaN as "not known" in a float field, which zero cannot say --
+// an ESC sitting at rest reports zero amps and means it.
+constexpr float kUnknownFloat = std::numeric_limits<float>::quiet_NaN();
 
 // PX4's main_mode byte, from src/modules/commander/px4_custom_mode.h. That
 // header is not vendored, so these enumerators are the only record here.
@@ -648,10 +653,13 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
 
   const message::EscTelemetryMsg &esc = esc_telemetry_.value;
   int32_t rpm[message::kEscTelemetryMotorCount] = {};
-  float voltage[message::kEscTelemetryMotorCount] = {};
-  float current[message::kEscTelemetryMotorCount] = {};
+  float voltage[message::kEscTelemetryMotorCount];
+  float current[message::kEscTelemetryMotorCount];
 
   for (uint8_t i = 0; i < message::kEscTelemetryMotorCount; ++i) {
+    voltage[i] = kUnknownFloat;
+    current[i] = kUnknownFloat;
+
     const bool valid = (esc.valid_mask & (1u << i)) != 0u;
     if (!valid) {
       continue;
@@ -660,7 +668,10 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
                  ? INT32_MAX
                  : static_cast<int32_t>(esc.rpm[i]);
     voltage[i] = static_cast<float>(esc.voltage_centivolts[i]) * 0.01f;
-    current[i] = static_cast<float>(esc.current_centiamps[i]) * 0.01f;
+    // Negative is the FC saying the ESC has no shunt, not a reading.
+    if (esc.current_centiamps[i] >= 0) {
+      current[i] = static_cast<float>(esc.current_centiamps[i]) * 0.01f;
+    }
   }
 
   mavlink_message_t m{};

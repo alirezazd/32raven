@@ -359,6 +359,7 @@ inline constexpr TimeBaseConfig kTimeBaseConfig = {
 };
 
 inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
+    .has_current = {{ esc_telemetry.has_current | cpp_bool }},
     .response_timeout_us = {{ esc_telemetry.response_timeout_us }},
 };
 

@@ -233,8 +233,12 @@ void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
     msg.voltage_centivolts[i] =
         static_cast<uint16_t>(std::lround(src.voltage * 100.0f));
     msg.current_centiamps[i] =
-        static_cast<uint16_t>(std::lround(src.current * 100.0f));
-    msg.consumption_mah[i] = src.consumption_mah;
+        src.current
+            ? static_cast<int16_t>(std::lround(*src.current * 100.0f))
+            : int16_t{-1};
+    msg.consumption_mah[i] = src.consumption_mah
+                                 ? static_cast<int32_t>(*src.consumption_mah)
+                                 : int32_t{-1};
     msg.temperature_c[i] = src.temperature_c;
   }
 

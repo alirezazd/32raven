@@ -2596,6 +2596,17 @@ menu "ESC Telemetry"
 # timeout stays configurable -- it trades how long a missing reply is waited
 # for, and the build rejects one shorter than a frame takes.
 
+config STM32_ESC_TELEMETRY_HAS_CURRENT
+    bool "ESC current sense"
+    default n
+    help
+      Whether the ESCs have a current shunt feeding the reading they report.
+      An AM32 target that names no current pin still computes and sends one,
+      from whatever the default ADC pin happens to be -- a thermistor, on the
+      Tekko32 F421 -- and integrates it into the consumed mAh it reports as
+      well. Off, both are published as absent rather than as a measurement,
+      which is what stops a GCS drawing a load that was never there.
+
 config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
     int "Response timeout (us)"
     range 100 100000
