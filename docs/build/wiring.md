@@ -143,7 +143,8 @@ it until one is polled.
     the pack. 6S is ~25 V fully charged; the F407 ADC input is 3.3 V tolerant. Verify the
     divider output with a meter before the wire ever reaches `PC0`.
 
-<!-- TODO(build): divider values used on the reference build + measured scale factors. -->
+The reference build measures ×10.762 at `PC0` — `STM32_BATTERY_VOLTAGE_MULTIPLIER_MILLI=10762`,
+calibrated 2026-08-19 against a balance meter at two load points; the nominal 11000 read
 
 ## Onboard flash (SPI1)
 
