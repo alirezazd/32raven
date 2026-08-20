@@ -78,6 +78,7 @@ class System {
   };
 
   void Init();
+  void Poll(uint32_t now_us);
   void SuspendFlightComponents();
   void ResumeFlightComponents();
   LED &Led() { return LED::GetInstance(); }

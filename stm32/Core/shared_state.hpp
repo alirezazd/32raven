@@ -205,11 +205,14 @@ class SharedState {
   void UpdateControlLoopLoad(const ControlLoopLoad &data) {
     control_loop_load_ = data;
   }
+  void UpdateMainTickCount(uint32_t count) { main_tick_count_ = count; }
   void UpdateImuTemperature(const ImuTemperature &data) { imu_temp_ = data; }
 
   void UpdateEstimate(const EstimatorState &data) { estimate_ = data; }
   void UpdateUsbStatus(const UsbStatusData &data) { usb_ = data; }
   void SetFlightMode(FlightMode mode) { mode_ = mode; }
+  // The state machine owns this: it is set wherever the control tick hook is.
+  void SetControlLoopRunning(bool running) { control_loop_running_ = running; }
 
   // READERS (Called by Logic/Consumers)
 
@@ -225,12 +228,14 @@ class SharedState {
   const ControlLoopLoad &GetControlLoopLoad() const {
     return control_loop_load_;
   }
+  uint32_t MainTickCount() const { return main_tick_count_; }
   const ImuTemperature &GetImuTemperature() const { return imu_temp_; }
 
   const EstimatorState &GetEstimate() const { return estimate_; }
   const UsbStatusData &GetUsbStatus() const { return usb_; }
   FlightMode GetFlightMode() const { return mode_; }
   bool IsArmed() const { return armed_; }
+  bool IsControlLoopRunning() const { return control_loop_running_; }
   // message::kVehicleFailsafeFlag*. Readable from the control loop, which is
   // what keeps it here rather than behind a Sentinel accessor.
   uint32_t FailsafeFlags() const { return failsafe_flags_; }
@@ -256,6 +261,7 @@ class SharedState {
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
   ControlLoopLoad control_loop_load_{};
+  uint32_t main_tick_count_ = 0;
   ImuTemperature imu_temp_{};
   alignas(8) ImuSampleSlot imu_slot_{};
   EstimatorState estimate_{};
@@ -263,4 +269,5 @@ class SharedState {
   FlightMode mode_ = FlightMode::kAcro;
   uint32_t failsafe_flags_ = 0;
   bool armed_ = false;
+  bool control_loop_running_ = false;
 };

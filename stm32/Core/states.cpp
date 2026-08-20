@@ -18,12 +18,12 @@ static void MainTick(AppContext &ctx);
 
 static void EnterFlightLoop(AppContext &ctx, IControlTickState *state) {
   ctx.control_tick_state = state;
+  ctx.sys->Blackboard().SetControlLoopRunning(true);
   ctx.sys->ResumeFlightComponents();
 }
 
 static void StepFlightLoop(AppContext &ctx) {
-  const uint32_t ticks = ctx.sys->Time().ConsumeTim5Ticks();
-  if (ticks == 0) {
+  if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
     return;
   }
 
@@ -181,7 +181,7 @@ static void MainTick(AppContext &ctx) {
   ctx.sys->SentinelSvc().Supervise(ctx, micros());
 
   UsbCdc::GetInstance().Poll(micros());
-  ctx.sys->StatPubSvc().Poll(ctx, micros(), g_main_tick_counter);
+  ctx.sys->Poll(micros());
 
   auto &btn = ctx.sys->Btn();
   btn.Poll(micros() / 1000u);
@@ -190,6 +190,7 @@ static void MainTick(AppContext &ctx) {
   }
 
   g_main_tick_counter++;
+  ctx.sys->Blackboard().UpdateMainTickCount(g_main_tick_counter);
 
   if (ctx.sys->Blackboard().GetImuHealth().path_faults != 0) {
     const uint32_t current_us = micros();
@@ -202,11 +203,8 @@ static void MainTick(AppContext &ctx) {
     }
   }
 
-  ctx.sys->FcLinkSvc().Poll();
   ctx.sys->CrsfLinkSvc().PollRx(micros());
   ctx.sys->EscSvc().Poll(micros());
-
-  ctx.sys->Batt().Poll(micros());
 
   ctx.sys->LogSvc().Poll(micros());
 
@@ -269,6 +267,7 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   // ImuTick returns immediately -- and masking the interrupt stops the
   // thing that would otherwise tear a bit-banged byte apart 520 us at a time.
   ctx.control_tick_state = nullptr;
+  ctx.sys->Blackboard().SetControlLoopRunning(false);
   ctx.sys->SuspendFlightComponents();
   ctx.sys->Led().Set(true);
 }
@@ -282,16 +281,12 @@ void EscConfigState::OnStep(AppContext &ctx) {
 
   UsbCdc::GetInstance().Poll(current_time);
   ctx.sys->MspSvc().Poll(current_time);
-  // The loop counter is meaningless here -- the flight loop is suspended, so
-  // there is no count to report.
-  ctx.sys->StatPubSvc().Poll(ctx, current_time, 0u);
+  ctx.sys->Poll(current_time);
 
   // Gated because passthrough hands the pins to the bit-bang.
   if (!ctx.sys->FourWaySvc().IsActive()) {
     ctx.sys->EscSvc().Poll(current_time);
   }
-
-  ctx.sys->FcLinkSvc().Poll();
 
   if (!ctx.sys->MspSvc().EscConfigGranted()) {
     ctx.sm->ReqTransition(*ctx.idle_state);
@@ -301,6 +296,7 @@ void EscConfigState::OnStep(AppContext &ctx) {
 void MscState::OnEnter(AppContext &ctx) {
   // The card changed hands in SetMscMode, before attach.
   ctx.control_tick_state = nullptr;
+  ctx.sys->Blackboard().SetControlLoopRunning(false);
   ctx.sys->SuspendFlightComponents();
   ctx.sys->Led().Set(true);
 }
@@ -314,8 +310,7 @@ void MscState::OnStep(AppContext &ctx) {
 
   UsbCdc::GetInstance().Poll(current_time);
   ctx.sys->MscSvc().Poll(current_time);
-  ctx.sys->StatPubSvc().Poll(ctx, current_time, 0u);
-  ctx.sys->FcLinkSvc().Poll();
+  ctx.sys->Poll(current_time);
 
   if (!ctx.sys->MscSvc().MscGranted()) {
     ctx.sm->ReqTransition(*ctx.idle_state);

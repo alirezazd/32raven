@@ -10,7 +10,8 @@
 #include "crsf_link_service.hpp"
 #include "topic_scheduler.hpp"
 
-struct AppContext;
+class FcLink;
+class SharedState;
 struct BatteryData;
 
 namespace message {
@@ -49,14 +50,13 @@ class StatPublisher {
 
   static StatPublisher &GetInstance();
 
-  // `loop_counter` reaches SystemStatus verbatim. An argument rather than a
-  // member because it describes the caller's loop, not this publisher.
-  void Poll(const AppContext &ctx, uint32_t now_us, uint32_t loop_counter);
+  void Poll(uint32_t now_us);
 
  private:
   friend class System;
 
-  void Init(const Config &cfg, uint32_t now_us);
+  void Init(const Config &cfg, SharedState &blackboard,
+            FcLink &fclink, CrsfLinkService &crsf, uint32_t now_us);
 
   // The .cpp's config array is built in this order and indexed by it.
   enum class FcLinkTopic : uint8_t {
@@ -80,7 +80,7 @@ class StatPublisher {
     kBlocked,
   };
 
-  using Publish = Outcome (*)(StatPublisher &self, const AppContext &ctx,
+  using Publish = Outcome (*)(StatPublisher &self,
                               uint32_t now_us);
 
   // A scheduler and the deadlines it owns. Groups are independent by
@@ -100,48 +100,48 @@ class StatPublisher {
   static uint16_t BatteryVoltageMv(const BatteryData &battery);
   static int16_t BatteryCurrentCa(const BatteryData &battery);
   static int8_t BatteryRemainingPct(const BatteryData &battery);
-  uint16_t ComputeControlLoopLoad(const AppContext &ctx);
-  static message::SystemStatusMsg BuildSystemStatusMsg(const AppContext &ctx,
-                                                       uint32_t now_us,
-                                                       uint32_t loop_counter,
-                                                       uint16_t load);
-  static message::VehicleStatusMsg BuildVehicleStatusMsg(const AppContext &ctx);
-  static message::UsbStatusMsg BuildUsbStatusMsg(const AppContext &ctx);
+  uint16_t ComputeControlLoopLoad();
+  message::SystemStatusMsg BuildSystemStatusMsg(uint32_t now_us,
+                                                uint16_t load);
+  message::VehicleStatusMsg BuildVehicleStatusMsg();
+  message::UsbStatusMsg BuildUsbStatusMsg();
 
-  static Outcome PublishSystemStatus(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishSystemStatus(StatPublisher &self,
                                      uint32_t now_us);
-  static Outcome PublishVehicleStatus(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishVehicleStatus(StatPublisher &self,
                                       uint32_t now_us);
-  static Outcome PublishEscTelemetry(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishEscTelemetry(StatPublisher &self,
                                      uint32_t now_us);
-  static Outcome PublishRcChannels(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishRcChannels(StatPublisher &self,
                                    uint32_t now_us);
-  static Outcome PublishUsbStatus(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishUsbStatus(StatPublisher &self,
                                   uint32_t now_us);
 
   // CrsfLinkService owns the payloads and the change detection; the silence
   // bound is the scheduler's, so it is passed in rather than duplicated there.
-  static Outcome PublishCrsfTopic(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishCrsfTopic(StatPublisher &self,
                                   uint32_t now_us,
                                   CrsfLinkService::TelemetryTopic topic);
-  static Outcome PublishCrsfHeartbeat(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishCrsfHeartbeat(StatPublisher &self,
                                       uint32_t now_us);
-  static Outcome PublishCrsfGps(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishCrsfGps(StatPublisher &self,
                                 uint32_t now_us);
-  static Outcome PublishCrsfBattery(StatPublisher &self, const AppContext &ctx,
+  static Outcome PublishCrsfBattery(StatPublisher &self,
                                     uint32_t now_us);
 
   // Emit whichever topics of one group are due, up to `budget` frames.
   template <size_t N>
   void PollGroup(Group<N> &group, const std::array<Publish, N> &publishers,
-                 uint8_t budget, const AppContext &ctx, uint32_t now_us);
+                 uint8_t budget, uint32_t now_us);
 
   Config cfg_{};
+  SharedState *blackboard_ = nullptr;
+  FcLink *fclink_svc_ = nullptr;
+  CrsfLinkService *crsf_svc_ = nullptr;
   Group<kFcLinkTopicCount> fclink_{};  // -> UART1, the ESP32
   Group<kCrsfTopicCount> crsf_{};      // -> UART6, the receiver
   bool initialized_ = false;
 
-  uint32_t loop_counter_ = 0;
   uint32_t load_last_busy_cycles_ = 0;
   uint32_t load_window_start_cycles_ = 0;
 

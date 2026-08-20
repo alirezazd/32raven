@@ -109,6 +109,13 @@ void System::Init() {
   Wdg().Init();
 }
 
+void System::Poll(uint32_t now_us) {
+  Batt().Poll(now_us);
+  StatPubSvc().Poll(now_us);
+  // Last, so what the publisher just queued goes out on this pass.
+  FcLinkSvc().Poll();
+}
+
 void System::SuspendFlightComponents() {
   // Order matters only in that the sample interrupt goes first: it is the one
   // that drives the cascade, and the two receive paths merely feed it.
@@ -167,8 +174,9 @@ void System::InitComponent(Component c) {
                      rate_controller_);
       break;
     case Component::kStatPublisher:
-      StatPublisher::GetInstance().Init(kStatPublisherConfig,
-                                        TimeBase::GetInstance().Micros());
+      StatPublisher::GetInstance().Init(
+          kStatPublisherConfig, blackboard_, FcLink::GetInstance(),
+          crsf_link_service_, TimeBase::GetInstance().Micros());
       break;
     case Component::kLed:
       LED::GetInstance().Init(GPIO::GetInstance(), kLedConfig);
@@ -184,8 +192,7 @@ void System::InitComponent(Component c) {
       DShotTim1::GetInstance().Init(kDshotTim1Config);
       break;
     case Component::kEscTelemetry:
-      EscTelemetry::GetInstance().Init(kEscTelemetryConfig,
-                                       blackboard_);
+      EscTelemetry::GetInstance().Init(kEscTelemetryConfig, blackboard_);
       break;
     case Component::kEscService:
       esc_service_.Init(kEscServiceConfig, EscTelemetry::GetInstance(),
@@ -204,8 +211,8 @@ void System::InitComponent(Component c) {
       four_way_service_.Init(UsbCdc::GetInstance(), esc_bootloader_);
       break;
     case Component::kMspService:
-      msp_service_.Init(kMspServiceConfig, UsbCdc::GetInstance(),
-                        blackboard_, four_way_service_, esc_service_);
+      msp_service_.Init(kMspServiceConfig, UsbCdc::GetInstance(), blackboard_,
+                        four_way_service_, esc_service_);
       break;
     case Component::kButton:
       Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);

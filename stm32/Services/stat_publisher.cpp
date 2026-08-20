@@ -9,17 +9,12 @@
 #include <cstdint>
 
 #include "crsf_link_service.hpp"
-#include "ctx.hpp"
 #include "error_code.hpp"
 #include "message.hpp"
 #include "shared_state.hpp"
 #include "slot_stagger.hpp"
-#include "state_machine.hpp"
-// EscConfigState has to be complete to convert to IState<AppContext>* for the
-// state compare below; ctx.hpp only forward-declares it.
-#include "states.hpp"  // IWYU pragma: keep
 #include "stm32_config.hpp"
-#include "system.hpp"
+#include "fc_link.hpp"
 
 namespace {
 
@@ -142,8 +137,8 @@ int8_t StatPublisher::BatteryRemainingPct(const BatteryData &battery) {
 // the reader owns the window, so a missed publish widens it rather than
 // corrupting it. The counter only grows, so this never writes what the control
 // tick is concurrently adding to.
-uint16_t StatPublisher::ComputeControlLoopLoad(const AppContext &ctx) {
-  const uint32_t busy = ctx.sys->Blackboard().GetControlLoopLoad().busy_cycles;
+uint16_t StatPublisher::ComputeControlLoopLoad() {
+  const uint32_t busy = blackboard_->GetControlLoopLoad().busy_cycles;
   const uint32_t now = TimeBase::Cycles();
   const uint32_t window = now - load_window_start_cycles_;
   const uint32_t spent = busy - load_last_busy_cycles_;
@@ -158,9 +153,8 @@ uint16_t StatPublisher::ComputeControlLoopLoad(const AppContext &ctx) {
 }
 
 message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
-    const AppContext &ctx, uint32_t now_us, uint32_t loop_counter,
-    uint16_t load) {
-  const SharedState &blackboard = ctx.sys->Blackboard();
+    uint32_t now_us, uint16_t load) {
+  const SharedState &blackboard = *blackboard_;
   const GpsData &gps = blackboard.GetGps();
   const BatteryData &battery = blackboard.GetBattery();
   const RcData &rc = blackboard.GetRc();
@@ -208,8 +202,11 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   }
 
   message::SystemStatusMsg msg{};
-  msg.uptime_ms = ctx.sys->Blackboard().UptimeMs();
-  msg.loop_counter = loop_counter;
+  msg.uptime_ms = blackboard_->UptimeMs();
+  // Zeroed with the loop suspended: the last flight's count would otherwise
+  // read as this bench session's.
+  const bool loop_running = blackboard.IsControlLoopRunning();
+  msg.loop_counter = loop_running ? blackboard.MainTickCount() : 0u;
   msg.control_loop_load = load;
   msg.error_code = static_cast<uint32_t>(ErrorCode::Common::kOk);
   msg.sensor_present_flags = sensors_present;
@@ -217,26 +214,25 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   msg.batt_voltage = BatteryVoltageMv(battery);
   msg.batt_current = BatteryCurrentCa(battery);
   msg.batt_remaining = BatteryRemainingPct(battery);
-  msg.boot_state = static_cast<uint8_t>(ctx.control_tick_state != nullptr
+  msg.boot_state = static_cast<uint8_t>(loop_running
                                             ? message::BootState::kReady
                                             : message::BootState::kBooting);
   msg.flags = message::kSystemStatusFlagLoopAlive;
   return msg;
 }
 
-message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg(
-    const AppContext &ctx) {
+message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() {
   message::VehicleStatusMsg msg{};
-  msg.armed_state = static_cast<uint8_t>(ctx.sys->Blackboard().IsArmed()
+  msg.armed_state = static_cast<uint8_t>(blackboard_->IsArmed()
                                              ? message::ArmedState::kArmed
                                              : message::ArmedState::kDisarmed);
-  msg.failsafe_flags = ctx.sys->Blackboard().FailsafeFlags();
-  msg.flight_mode = static_cast<uint8_t>(ctx.sys->Blackboard().GetFlightMode());
+  msg.failsafe_flags = blackboard_->FailsafeFlags();
+  msg.flight_mode = static_cast<uint8_t>(blackboard_->GetFlightMode());
   return msg;
 }
 
-message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(const AppContext &ctx) {
-  const UsbStatusData &usb = ctx.sys->Blackboard().GetUsbStatus();
+message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg() {
+  const UsbStatusData &usb = blackboard_->GetUsbStatus();
 
   uint8_t flags = 0u;
   if (usb.attached) flags |= message::kUsbStatusAttached;
@@ -263,45 +259,42 @@ message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg(const AppContext &ctx) {
 }
 
 StatPublisher::Outcome StatPublisher::PublishSystemStatus(StatPublisher &self,
-                                                          const AppContext &ctx,
                                                           uint32_t now_us) {
-  ctx.sys->FcLinkSvc().SendSystemStatus(BuildSystemStatusMsg(
-      ctx, now_us, self.loop_counter_, self.ComputeControlLoopLoad(ctx)));
+  self.fclink_svc_->SendSystemStatus(self.BuildSystemStatusMsg(
+      now_us, self.ComputeControlLoopLoad()));
   return Outcome::kSent;
 }
 
 StatPublisher::Outcome StatPublisher::PublishVehicleStatus(
-    StatPublisher &self, const AppContext &ctx, uint32_t now_us) {
+    StatPublisher &self, uint32_t now_us) {
   (void)self;
   (void)now_us;
-  ctx.sys->FcLinkSvc().SendVehicleStatus(BuildVehicleStatusMsg(ctx));
+  self.fclink_svc_->SendVehicleStatus(self.BuildVehicleStatusMsg());
   return Outcome::kSent;
 }
 
 StatPublisher::Outcome StatPublisher::PublishEscTelemetry(StatPublisher &self,
-                                                          const AppContext &ctx,
                                                           uint32_t now_us) {
   (void)self;
   (void)now_us;
-  const EscTelemetryData &esc = ctx.sys->Blackboard().GetEscTelemetry();
+  const EscTelemetryData &esc = self.blackboard_->GetEscTelemetry();
   if (esc.valid_mask == 0u) {
     return Outcome::kSkipped;
   }
-  ctx.sys->FcLinkSvc().SendEscTelemetry(esc);
+  self.fclink_svc_->SendEscTelemetry(esc);
   return Outcome::kSent;
 }
 
 StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
-                                                        const AppContext &ctx,
                                                         uint32_t now_us) {
-  const RcData &rc = ctx.sys->Blackboard().GetRc();
+  const RcData &rc = self.blackboard_->GetRc();
   if (rc.timestamp_us == 0u) {
     return Outcome::kSkipped;
   }
 
   // The two frames age independently, so each is judged against its own
   // stamp -- channels can be current while the link report has gone quiet.
-  const CrsfLinkData &link = ctx.sys->Blackboard().GetCrsfLink();
+  const CrsfLinkData &link = self.blackboard_->GetCrsfLink();
   const bool rc_fresh = (now_us - rc.timestamp_us) <= kRcFreshTimeoutUs;
   const bool link_fresh = link.timestamp_us != 0u &&
                           (now_us - link.timestamp_us) <= kRcFreshTimeoutUs;
@@ -331,7 +324,7 @@ StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
   }
   msg.link_quality = link_fresh ? link.uplink_link_quality : 0u;
   msg.flags = flags;
-  ctx.sys->FcLinkSvc().SendRcChannels(msg);
+  self.fclink_svc_->SendRcChannels(msg);
 
   self.rc_sent_timestamp_us_ = rc.timestamp_us;
   self.rc_sent_flags_ = flags;
@@ -340,14 +333,13 @@ StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
 }
 
 StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
-                                                       const AppContext &ctx,
                                                        uint32_t now_us) {
   // Only a USB bench session has anything to report -- outside one the
   // port is detached and every field reads zero. The silence is load bearing:
   // it is what the ESP32 times out on to learn the session never opened, so
   // the stream's presence is the grant and no flag has to carry it.
-  if (ctx.sm->CurrentState() != ctx.esc_config_state &&
-      ctx.sm->CurrentState() != ctx.msc_state) {
+  const UsbStatusData &granted = self.blackboard_->GetUsbStatus();
+  if (!granted.esc_config_granted && !granted.msc_active) {
     // Drop the snapshot with it, or a session that reopens onto identical
     // values would have its first report suppressed as unchanged.
     self.have_usb_status_ = false;
@@ -355,7 +347,7 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
   }
 
   // One compare: MspService stamps the Blackboard only when something moved.
-  const UsbStatusData &usb = ctx.sys->Blackboard().GetUsbStatus();
+  const UsbStatusData &usb = self.blackboard_->GetUsbStatus();
   const bool unchanged =
       self.have_usb_status_ && usb.timestamp_us == self.usb_sent_timestamp_us_;
   if (unchanged && !self.fclink_.scheduler.SilenceExpired(
@@ -363,20 +355,20 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
     return Outcome::kSkipped;
   }
 
-  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kUsbStatus,
-                                  BuildUsbStatusMsg(ctx));
+  self.fclink_svc_->SendPacket(message::MsgId::kUsbStatus,
+                                  self.BuildUsbStatusMsg());
   self.usb_sent_timestamp_us_ = usb.timestamp_us;
   self.have_usb_status_ = true;
   return Outcome::kSent;
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
-    StatPublisher &self, const AppContext &ctx, uint32_t now_us,
+    StatPublisher &self, uint32_t now_us,
     CrsfLinkService::TelemetryTopic topic) {
   const bool silence_expired =
       self.crsf_.scheduler.SilenceExpired(static_cast<size_t>(topic), now_us);
   switch (
-      ctx.sys->CrsfLinkSvc().SendTelemetry(topic, silence_expired, now_us)) {
+      self.crsf_svc_->SendTelemetry(topic, silence_expired, now_us)) {
     case CrsfLinkService::TelemetryResult::kSent:
       return Outcome::kSent;
     case CrsfLinkService::TelemetryResult::kSkipped:
@@ -388,27 +380,30 @@ StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfHeartbeat(
-    StatPublisher &self, const AppContext &ctx, uint32_t now_us) {
-  return PublishCrsfTopic(self, ctx, now_us,
+    StatPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
                           CrsfLinkService::TelemetryTopic::kHeartbeat);
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfGps(StatPublisher &self,
-                                                     const AppContext &ctx,
                                                      uint32_t now_us) {
-  return PublishCrsfTopic(self, ctx, now_us,
+  return PublishCrsfTopic(self, now_us,
                           CrsfLinkService::TelemetryTopic::kGps);
 }
 
 StatPublisher::Outcome StatPublisher::PublishCrsfBattery(StatPublisher &self,
-                                                         const AppContext &ctx,
                                                          uint32_t now_us) {
-  return PublishCrsfTopic(self, ctx, now_us,
+  return PublishCrsfTopic(self, now_us,
                           CrsfLinkService::TelemetryTopic::kBattery);
 }
 
-void StatPublisher::Init(const Config &cfg, uint32_t now_us) {
+void StatPublisher::Init(const Config &cfg, SharedState &blackboard,
+                         FcLink &fclink, CrsfLinkService &crsf,
+                         uint32_t now_us) {
   cfg_ = cfg;
+  blackboard_ = &blackboard;
+  fclink_svc_ = &fclink;
+  crsf_svc_ = &crsf;
   fclink_.scheduler.Init(kFcLinkTopicConfigs, fclink_.states, kFcLinkStaggerUs,
                          now_us);
   crsf_.scheduler.Init(kCrsfTopicConfigs, crsf_.states, kCrsfStaggerUs, now_us);
@@ -418,8 +413,7 @@ void StatPublisher::Init(const Config &cfg, uint32_t now_us) {
 template <size_t N>
 void StatPublisher::PollGroup(Group<N> &group,
                               const std::array<Publish, N> &publishers,
-                              uint8_t budget, const AppContext &ctx,
-                              uint32_t now_us) {
+                              uint8_t budget, uint32_t now_us) {
   size_t sent = 0;
   while (sent < budget) {
     const std::optional<size_t> due = group.scheduler.NextDue(now_us);
@@ -427,7 +421,7 @@ void StatPublisher::PollGroup(Group<N> &group,
       return;
     }
 
-    switch (publishers[*due](*this, ctx, now_us)) {
+    switch (publishers[*due](*this, now_us)) {
       case Outcome::kSent:
         group.scheduler.MarkSent(*due, now_us);
         ++sent;
@@ -441,8 +435,7 @@ void StatPublisher::PollGroup(Group<N> &group,
   }
 }
 
-void StatPublisher::Poll(const AppContext &ctx, uint32_t now_us,
-                         uint32_t loop_counter) {
+void StatPublisher::Poll(uint32_t now_us) {
   if (!initialized_) {
     return;
   }
@@ -457,9 +450,8 @@ void StatPublisher::Poll(const AppContext &ctx, uint32_t now_us,
       PublishCrsfBattery,
   };
 
-  loop_counter_ = loop_counter;
 
-  PollGroup(fclink_, kFcLinkPublishers, cfg_.fclink_max_frames_per_poll, ctx,
+  PollGroup(fclink_, kFcLinkPublishers, cfg_.fclink_max_frames_per_poll,
             now_us);
-  PollGroup(crsf_, kCrsfPublishers, cfg_.crsf_max_frames_per_poll, ctx, now_us);
+  PollGroup(crsf_, kCrsfPublishers, cfg_.crsf_max_frames_per_poll, now_us);
 }
