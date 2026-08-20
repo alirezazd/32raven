@@ -3276,6 +3276,17 @@ config STM32_SENTINEL_IMU_STALL_TIMEOUT_MS
       stamps its health every burst, so this is roughly twenty missed bursts at
       the default -- far outside jitter, and nothing else produces it.
 
+config STM32_SENTINEL_TEST_THROTTLE_SILENCE_MS
+    int "Bench test throttle silence before cut (ms)"
+    range 50 5000
+    default 500
+    help
+      A test throttle set over MSP is honoured for this long after the host
+      last spoke. Any request refreshes it, so this measures the host being
+      gone rather than the slider standing still. Short enough that a host
+      that dies mid-spin does not leave motors running, long enough to survive
+      a configurator that pauses between polls.
+
 endmenu
 
 endmenu

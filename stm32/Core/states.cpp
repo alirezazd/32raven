@@ -178,8 +178,6 @@ static void ControlTickFlightLoop(AppContext &ctx) {
 
 static void MainTick(AppContext &ctx) {
   auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
-  ctx.sys->SentinelSvc().Supervise(ctx, micros());
-
   UsbCdc::GetInstance().Poll(micros());
   ctx.sys->Poll(micros());
 

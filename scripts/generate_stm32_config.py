@@ -1739,6 +1739,9 @@ def _sentinel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "stall_timeout_ms": sym_int(
             kconf, "STM32_SENTINEL_IMU_STALL_TIMEOUT_MS"
         ),
+        "test_throttle_silence_ms": sym_int(
+            kconf, "STM32_SENTINEL_TEST_THROTTLE_SILENCE_MS"
+        ),
     }
 
 

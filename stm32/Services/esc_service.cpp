@@ -12,8 +12,6 @@
 // A configurator that vanishes mid-test must not leave a motor turning, so the
 // commanded values carry their own expiry rather than trusting anyone to clear
 // them.
-static constexpr uint32_t kTestThrottleTimeoutUs = 500000u;
-
 // AM32's inputType enum, of which these three end up driving DShot.
 static constexpr uint8_t kInputTypeAuto = 0;
 static constexpr uint8_t kInputTypeDshot = 1;
@@ -162,8 +160,11 @@ void EscService::CheckEscFirmware() {
 // before it will act on a command. It also covers a battery arriving long after
 // boot, with no timer to get wrong.
 void EscService::PollEscInfo(uint32_t now_us) {
-  if (blackboard_->IsArmed() || command_.active || telemetry_ == nullptr ||
-      !telemetry_->IsInitialized()) {
+  // A live test throttle bars this for the same reason arming does: the command
+  // burst below writes kMotorStop to every motor it is not addressed to, so
+  // asking a spinning motor for its settings stops it for the whole burst.
+  if (blackboard_->IsArmed() || command_.active || TestThrottleActive() ||
+      telemetry_ == nullptr || !telemetry_->IsInitialized()) {
     return;
   }
   if (info_last_attempt_us_ != 0u &&
@@ -199,11 +200,9 @@ void EscService::PollEscInfo(uint32_t now_us) {
 // Test values ride the idle path rather than being written straight out: they
 // inherit its rate, and going stale is what stops the motors.
 bool EscService::SendIdleFrame(uint32_t now_us) {
-  if (test_set_us_ != 0u &&
-      static_cast<uint32_t>(now_us - test_set_us_) < kTestThrottleTimeoutUs) {
+  if (TestThrottleActive()) {
     return WriteRaw(test_values_, now_us, false);
   }
-  test_set_us_ = 0;
   return StopAll(now_us);
 }
 
@@ -218,8 +217,19 @@ void EscService::SetTestThrottle(const std::array<float, 4> &thrust) {
   for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
     test_values_[i] = ThrustToDshot(thrust[i]);
   }
-  const uint32_t now_us = System::GetInstance().Time().Micros();
-  test_set_us_ = (now_us == 0u) ? 1u : now_us;
+}
+
+bool EscService::TestThrottleActive() const {
+  for (const uint16_t value : test_values_) {
+    if (value != DShotCodec::kMotorStop) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void EscService::ClearTestThrottle() {
+  test_values_.fill(DShotCodec::kMotorStop);
 }
 
 uint8_t EscService::MotorPoles() const {
@@ -244,7 +254,7 @@ void EscService::OnArmedChanged(bool armed) {
   }
 
   command_ = PendingCommand{};
-  test_set_us_ = 0;
+  test_values_.fill(DShotCodec::kMotorStop);
   if (!armed) {
     (void)StopAll();
   }

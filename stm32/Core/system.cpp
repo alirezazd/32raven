@@ -110,6 +110,7 @@ void System::Init() {
 }
 
 void System::Poll(uint32_t now_us) {
+  SentinelSvc().Supervise(now_us);
   Batt().Poll(now_us);
   StatPubSvc().Poll(now_us);
   // Last, so what the publisher just queued goes out on this pass.
@@ -171,7 +172,8 @@ void System::InitComponent(Component c) {
       break;
     case Component::kSentinel:
       sentinel_.Init(kSentinelConfig, blackboard_, esc_service_,
-                     rate_controller_);
+                     rate_controller_, Icm42688p::GetInstance(),
+                     FcLink::GetInstance());
       break;
     case Component::kStatPublisher:
       StatPublisher::GetInstance().Init(

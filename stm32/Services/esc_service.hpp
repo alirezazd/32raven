@@ -65,10 +65,14 @@ class EscService {
                                   uint8_t motor_index = kAllMotors,
                                   bool telemetry = false);
   void SetTestThrottle(const std::array<float, 4> &thrust);
+  void ClearTestThrottle();
+  // Whether a test throttle is standing, read off the values themselves: an
+  // all-stopped one is indistinguishable from none, and correctly so -- there
+  // is nothing for Sentinel to cut either way.
+  [[nodiscard]] bool TestThrottleActive() const;
 
   // What actually went out on the wire, not what was asked for: a dropped
-  // write leaves this at the previous frame, and the test deadman shows up
-  // here as a return to stop without anyone clearing it.
+  // write leaves this at the previous frame.
   const DShotCodec::MotorValues &Outputs() const { return outputs_; }
 
   // Zero until an ESC has answered. The motors are identical in practice, so
@@ -109,7 +113,6 @@ class EscService {
   bool initialized_ = false;
   DShotCodec::MotorValues test_values_{};
   DShotCodec::MotorValues outputs_{};
-  uint32_t test_set_us_ = 0;
   uint32_t last_idle_send_us_ = 0;
   uint32_t last_telemetry_request_us_ = 0;
   uint32_t dropped_write_count_ = 0;

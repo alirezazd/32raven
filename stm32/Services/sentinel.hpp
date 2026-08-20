@@ -8,6 +8,8 @@
 #include "ctx.hpp"
 #include "error_code.hpp"
 #include "esc_service.hpp"
+#include "fc_link.hpp"
+#include "icm42688p.hpp"
 #include "rate_controller.hpp"
 #include "shared_state.hpp"
 
@@ -36,6 +38,8 @@ class Sentinel {
     uint32_t imu_fault_threshold;
     uint32_t imu_fault_window_us;
     uint32_t imu_stall_timeout_us;
+    // Silence from the bench host before the deadman cuts the throttle.
+    uint32_t test_throttle_silence_us;
   };
 
   // Every arm request on the board lands here -- the privileged command today,
@@ -46,18 +50,20 @@ class Sentinel {
   // Called from the main tick, never the control loop: PendSV is pended by the
   // sample interrupt, so a watchdog living there would fall silent in exactly
   // the failure it exists to catch.
-  void Supervise(const AppContext &ctx, uint32_t now_us);
+  void Supervise(uint32_t now_us);
 
  private:
   friend class System;
 
   void Init(const Config &cfg, SharedState &blackboard, EscService &esc,
-            RateController &rate_controller);
+            RateController &rate_controller, Icm42688p &imu,
+            FcLink &fc_link);
 
   // Weighs the driver's counters against the thresholds it deliberately does
   // not know, and answers per the arm state.
   void SuperviseImu(uint32_t now_us);
-  void RecoverStalledImu(const AppContext &ctx, uint32_t now_us);
+  void SuperviseTestThrottle(uint32_t now_us);
+  void RecoverStalledImu(uint32_t now_us);
   // Halts when disarmed; armed, raises the failsafe flag and remembers the
   // code so the halt still happens once the aircraft is down.
   void RaiseImuFault(ErrorCode::Stm32 code);
@@ -66,6 +72,8 @@ class Sentinel {
   SharedState *blackboard_ = nullptr;
   EscService *esc_ = nullptr;
   RateController *rate_controller_ = nullptr;
+  Icm42688p *imu_ = nullptr;
+  FcLink *fc_link_ = nullptr;
   // Rate-limits recovery to one attempt per stall window, rather than every
   // main tick while the heartbeat stays frozen.
   uint32_t last_imu_recovery_us_ = 0;
@@ -74,6 +82,10 @@ class Sentinel {
   uint32_t last_fault_window_us_ = 0;
   uint32_t last_path_faults_ = 0;
   uint32_t high_loss_consec_ = 0;
+  // 0 means no throttle is standing, so a stale stamp from a previous
+  // session can never cut the next one on its first pass.
+  uint32_t last_host_us_ = 0;
+  uint32_t last_msp_requests_ = 0;
   bool imu_fault_latched_ = false;
   // Only read while latched, so its initial value never reaches a Panic.
   ErrorCode::Stm32 imu_fault_code_{};

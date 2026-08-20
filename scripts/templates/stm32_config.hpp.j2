@@ -386,6 +386,7 @@ inline constexpr Sentinel::Config kSentinelConfig = {
     .imu_fault_threshold = {{ sentinel.fault_threshold }}u,
     .imu_fault_window_us = {{ sentinel.fault_window_ms }}u * 1000u,
     .imu_stall_timeout_us = {{ sentinel.stall_timeout_ms }}u * 1000u,
+    .test_throttle_silence_us = {{ sentinel.test_throttle_silence_ms }}u * 1000u,
 };
 
 inline constexpr UsbCdcConfig kUsbCdcConfig = {

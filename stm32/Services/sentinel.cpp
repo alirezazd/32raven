@@ -13,7 +13,8 @@
 #include "states.hpp"  // IWYU pragma: keep
 
 void Sentinel::Init(const Config &cfg, SharedState &blackboard,
-                    EscService &esc, RateController &rate_controller) {
+                    EscService &esc, RateController &rate_controller,
+                    Icm42688p &imu, FcLink &fc_link) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kSentinelReinit);
   }
@@ -23,7 +24,8 @@ void Sentinel::Init(const Config &cfg, SharedState &blackboard,
   // board another way.
   if (cfg.imu_loss_threshold_samples == 0u || cfg.imu_loss_consecutive == 0u ||
       cfg.imu_fault_threshold == 0u || cfg.imu_loss_window_us == 0u ||
-      cfg.imu_fault_window_us == 0u || cfg.imu_stall_timeout_us == 0u) {
+      cfg.imu_fault_window_us == 0u || cfg.imu_stall_timeout_us == 0u ||
+      cfg.test_throttle_silence_us == 0u) {
     Panic(ErrorCode::Stm32::kSentinelInvalidConfig);
   }
 
@@ -31,6 +33,8 @@ void Sentinel::Init(const Config &cfg, SharedState &blackboard,
   blackboard_ = &blackboard;
   esc_ = &esc;
   rate_controller_ = &rate_controller;
+  imu_ = &imu;
+  fc_link_ = &fc_link;
   initialized_ = true;
 }
 
@@ -72,7 +76,7 @@ bool Sentinel::RequestArm(const AppContext &ctx, bool armed) {
   return true;
 }
 
-void Sentinel::Supervise(const AppContext &ctx, uint32_t now_us) {
+void Sentinel::Supervise(uint32_t now_us) {
   if (!initialized_) {
     Panic(ErrorCode::Stm32::kSentinelReinit);
   }
@@ -81,8 +85,51 @@ void Sentinel::Supervise(const AppContext &ctx, uint32_t now_us) {
   // them through SetFailsafeFlags. Roadmap #15 owns which conditions count and
   // what each one does.
 
+  // Above the branch below: a throttle set on the bench survives the exit to
+  // Idle, and the exit that matters is an arm request.
+  SuperviseTestThrottle(now_us);
+
+  // The bench states suspend the sample interrupt on purpose, so a frozen
+  // heartbeat there is the state machine's doing rather than a stall -- and
+  // the recovery would restart a sensor that was switched off, possibly while
+  // a bit-banged four-way transfer holds the board.
+  if (!blackboard_->IsControlLoopRunning()) {
+    return;
+  }
+
   SuperviseImu(now_us);
-  RecoverStalledImu(ctx, now_us);
+  RecoverStalledImu(now_us);
+}
+
+// The whole bench deadman. EscService only holds the values a host asked for;
+// how long that host may go quiet before they are cut is a policy question,
+// and this owns it.
+//
+// MSP request count rather than a stamp from the parser: a configurator polls
+// telemetry continuously while it sits on the motor page, so any request is
+// proof the host is there -- not just the ones that move the slider.
+void Sentinel::SuperviseTestThrottle(uint32_t now_us) {
+  if (!esc_->TestThrottleActive()) {
+    last_host_us_ = 0;
+    return;
+  }
+
+  const uint32_t requests = blackboard_->GetUsbStatus().msp_requests;
+  if (requests != last_msp_requests_ || last_host_us_ == 0u) {
+    last_msp_requests_ = requests;
+    last_host_us_ = (now_us == 0u) ? 1u : now_us;
+    return;
+  }
+
+  if ((now_us - last_host_us_) >= cfg_.test_throttle_silence_us) {
+    esc_->ClearTestThrottle();
+    // Motors stopping on their own is indistinguishable from a wiring fault at
+    // the bench, so the board says which it was. One tone, not a stream: the
+    // clear above is what makes the next pass return at the top.
+    fc_link_->SendPacket(message::MsgId::kTone,
+                         message::ToneMsg{.tone = static_cast<uint8_t>(
+                                              message::Tone::kWarning)});
+  }
 }
 
 void Sentinel::SuperviseImu(uint32_t now_us) {
@@ -154,7 +201,7 @@ void Sentinel::RaiseImuFault(ErrorCode::Stm32 code) {
 // else can produce it: the interrupt runs independently of the loop checking
 // it. ESC configuration silences the sensor deliberately, but that state runs
 // its own step body and never reaches Supervise, so it needs no exemption.
-void Sentinel::RecoverStalledImu(const AppContext &ctx, uint32_t now_us) {
+void Sentinel::RecoverStalledImu(uint32_t now_us) {
   const auto &imu_health_us = blackboard_->GetImuHealth().timestamp_us;
   // No burst yet, so a cold start would otherwise read as a stall.
   if (imu_health_us == 0u) {
@@ -170,5 +217,5 @@ void Sentinel::RecoverStalledImu(const AppContext &ctx, uint32_t now_us) {
     return;
   }
   last_imu_recovery_us_ = now_us;
-  ctx.sys->Imu().RestartSampling();
+  imu_->RestartSampling();
 }
