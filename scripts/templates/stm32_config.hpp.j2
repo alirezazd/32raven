@@ -251,15 +251,22 @@ inline constexpr Battery::Config kBatteryConfig = {
     .adc_reference_mv = {{ battery.adc_reference_mv }},
     .adc_prescaler_bits = {{ battery.adc_prescaler_bits }},
     .voltage_adc_channel = board::kEscVbaAdcChannel,
-    .current_adc_channel = board::kEscCurAdcChannel,
     .oversample_count = {{ battery.oversample_count }},
     .filter_alpha = {{ '%.6f' | format(battery.filter_alpha) }}f,
     .adc_timeout_us = {{ battery.adc_timeout_us }},
     .voltage_multiplier_milli = {{ battery.voltage_multiplier_milli }},
     .voltage_offset_mv = {{ battery.voltage_offset_mv }},
-    .current_scale_ma_per_v = {{ battery.current_scale_ma_per_v }},
-    .current_offset_mv = {{ battery.current_offset_mv }},
-    .current_deadband_ma = {{ battery.current_deadband_ma }},
+{%- if battery.current_monitoring %}
+    .current_sense =
+        Battery::CurrentSense{
+            .adc_channel = board::kEscCurAdcChannel,
+            .scale_ma_per_v = {{ battery.current_scale_ma_per_v }},
+            .offset_mv = {{ battery.current_offset_mv }},
+            .deadband_ma = {{ battery.current_deadband_ma }},
+        },
+{%- else %}
+    .current_sense = std::nullopt,
+{%- endif %}
     .cell_count = {{ battery.cell_count }},
     .cell_empty_mv = {{ battery.cell_empty_mv }},
     .cell_full_mv = {{ battery.cell_full_mv }},

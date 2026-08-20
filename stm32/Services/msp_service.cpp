@@ -581,9 +581,13 @@ bool MspService::BuildReply(uint16_t command) {
     case kMspBatteryState: {
       const uint8_t decivolts = SaturateU8(bat.voltage * 10.0f);
       const uint16_t centivolts = SaturateU16(bat.voltage * 100.0f);
+      // Neither message has an unsensed encoding, so an absent reading is
+      // reported as zero rather than withheld.
       const uint16_t centiamps =
-          static_cast<uint16_t>(SaturateI16(bat.current * 100.0f));
-      const uint16_t mah = SaturateU16(bat.mah_drawn);
+          bat.current ? static_cast<uint16_t>(SaturateI16(*bat.current * 100.0f))
+                      : uint16_t{0};
+      const uint16_t mah = bat.mah_drawn ? SaturateU16(*bat.mah_drawn)
+                                         : uint16_t{0};
 
       if (command == kMspAnalog) {
         Push8(decivolts);

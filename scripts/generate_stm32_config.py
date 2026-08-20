@@ -420,6 +420,8 @@ class _AnalogPin:
     adc_const: str
     port_options: dict[str, str]
     pin_int_symbol: str
+    # A bool symbol that has to be on for the pin to be claimed at all.
+    enable_symbol: str | None = None
 
 
 # F407V ADC1 input-channel mapping. ADC2 shares the same pinout; ADC3 has a
@@ -778,6 +780,7 @@ PINMAP_ENTRIES: tuple = (
             "STM32_BATTERY_CURRENT_PORT_C": "C",
         },
         pin_int_symbol="STM32_BATTERY_CURRENT_PIN",
+        enable_symbol="STM32_BATTERY_CURRENT_MONITORING",
     ),
 )
 
@@ -1030,6 +1033,16 @@ def _legal_signal_pins(
                 )
 
 
+def _entry_enabled(kconf: kconfiglib.Kconfig, entry: object) -> bool:
+    """Whether an optional pin is claimed on this build.
+
+    A gated-off entry leaves every table: nothing validates it, nothing
+    programs its GPIO, and its pin is free for something else to take.
+    """
+    symbol = getattr(entry, "enable_symbol", None)
+    return symbol is None or sym_bool(kconf, symbol)
+
+
 def _validate_pinmap(kconf: kconfiglib.Kconfig) -> None:
     db = PinConstraints.load_default()
     reserved = _board_reserved_pins()
@@ -1046,6 +1059,8 @@ def _validate_pinmap(kconf: kconfiglib.Kconfig) -> None:
     legal = _legal_signal_pins(db, set(reserved))
 
     for entry in PINMAP_ENTRIES:
+        if not _entry_enabled(kconf, entry):
+            continue
         _validate_pinmap_entry(db, kconf, entry)
 
         pin_name, _, _ = _resolve_pin(kconf, entry)
@@ -1095,6 +1110,8 @@ def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:
     db = PinConstraints.load_default()
     rendered: list[dict[str, object]] = []
     for entry in PINMAP_ENTRIES:
+        if not _entry_enabled(kconf, entry):
+            continue
         pin_name, port_letter, pin_num = _resolve_pin(kconf, entry)
 
         af = "0"
@@ -1271,9 +1288,10 @@ def _validate_battery_sample_budget(kconf: kconfiglib.Kconfig) -> None:
     """The span of one sample against the period it has to fit in.
 
     Battery::Poll starts one conversion per main tick and collects it on
-    the next, so a sample spans two passes per oversample. Overrunning the
-    period would stretch the publish interval that filter_alpha was solved
-    against, which the smoothing then no longer matches.
+    the next, so a sample spans one pass per channel per oversample.
+    Overrunning the period would stretch the publish interval that
+    filter_alpha was solved against, which the smoothing then no longer
+    matches.
     """
     oversample = sym_int(kconf, "STM32_BATTERY_ADC_OVERSAMPLE_COUNT")
     tick_hz = sym_int(kconf, "STM32_TIMEBASE_TIM5_TICK_HZ")
@@ -1281,12 +1299,15 @@ def _validate_battery_sample_budget(kconf: kconfiglib.Kconfig) -> None:
         sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS") * MICROS_PER_MILLI
     )
     pass_us = MICROS_PER_SECOND // tick_hz
-    span_us = oversample * 2 * pass_us
+    channels = (
+        2 if sym_bool(kconf, "STM32_BATTERY_CURRENT_MONITORING") else 1
+    )
+    span_us = oversample * channels * pass_us
     if span_us >= period_us:
         raise ValueError(
             f"one battery sample spans {span_us} us "
-            f"(CONFIG_STM32_BATTERY_ADC_OVERSAMPLE_COUNT {oversample} x 2 "
-            f"conversions, one per {pass_us} us "
+            f"(CONFIG_STM32_BATTERY_ADC_OVERSAMPLE_COUNT {oversample} x "
+            f"{channels} conversions, one per {pass_us} us "
             f"CONFIG_STM32_TIMEBASE_TIM5_TICK_HZ pass), which does not fit "
             f"the {period_us} us "
             "CONFIG_STM32_BATTERY_SAMPLE_PERIOD_MS gives it"
@@ -2111,7 +2132,9 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     # ADC1 hangs off APB2. Deriving the divider here rather than in the driver
     # is what turns an APB2 no ADCPRE can bring into range into a build error
     # instead of a board that panics on its first boot.
-    return {
+    current_monitoring = sym_bool(kconf, "STM32_BATTERY_CURRENT_MONITORING")
+    context: dict[str, object] = {
+        "current_monitoring": current_monitoring,
         "sample_period_ms": sym_int(kconf, "STM32_BATTERY_SAMPLE_PERIOD_MS"),
         "adc_reference_mv": sym_int(kconf, "STM32_BATTERY_ADC_REFERENCE_MV"),
         "adc_prescaler_bits": _adc_prescaler(
@@ -2132,19 +2155,30 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "cell_count": sym_int(kconf, "STM32_BATTERY_CELL_COUNT"),
         "cell_empty_mv": sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV"),
         "cell_full_mv": sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV"),
-        "current_scale_ma_per_v": sym_int(
-            kconf, "STM32_BATTERY_CURRENT_SCALE_MA_PER_V"
-        ),
-        "current_offset_mv": sym_int(kconf, "STM32_BATTERY_CURRENT_OFFSET_MV"),
-        "current_deadband_ma": sym_int(
-            kconf, "STM32_BATTERY_CURRENT_DEADBAND_MA"
-        ),
         # Charge already drawn from the pack on the bench is runtime state, not
         # a property of the build: honouring a non-zero value would mean a
         # regenerate, rebuild and reflash between packs. The field stays for
         # callers that set Config directly; the firmware always boots at zero.
         "initial_mah_drawn": 0,
     }
+
+    # Absent rather than zero when the sense path is off, so the template has
+    # nothing to render and the driver nothing to read.
+    if current_monitoring:
+        context.update(
+            {
+                "current_scale_ma_per_v": sym_int(
+                    kconf, "STM32_BATTERY_CURRENT_SCALE_MA_PER_V"
+                ),
+                "current_offset_mv": sym_int(
+                    kconf, "STM32_BATTERY_CURRENT_OFFSET_MV"
+                ),
+                "current_deadband_ma": sym_int(
+                    kconf, "STM32_BATTERY_CURRENT_DEADBAND_MA"
+                ),
+            }
+        )
+    return context
 
 
 def _crsf_periodic_msg_context(

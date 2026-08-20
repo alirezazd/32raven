@@ -82,18 +82,19 @@ uint32_t EncodeBatteryVoltageTenths(float voltage_v) {
   return static_cast<uint32_t>(std::lround(voltage_v * 10.0f));
 }
 
-uint32_t EncodeBatteryCurrentTenths(float current_a) {
-  if (current_a <= 0.0f) {
+// CRSF has no encoding for an unsensed pack, so both of these report zero.
+uint32_t EncodeBatteryCurrentTenths(std::optional<float> current_a) {
+  if (!current_a.has_value() || *current_a <= 0.0f) {
     return 0;
   }
-  return static_cast<uint32_t>(std::lround(current_a * 10.0f));
+  return static_cast<uint32_t>(std::lround(*current_a * 10.0f));
 }
 
-uint32_t EncodeMah(float mah_drawn) {
-  if (mah_drawn <= 0.0f) {
+uint32_t EncodeMah(std::optional<float> mah_drawn) {
+  if (!mah_drawn.has_value() || *mah_drawn <= 0.0f) {
     return 0;
   }
-  return static_cast<uint32_t>(std::lround(mah_drawn));
+  return static_cast<uint32_t>(std::lround(*mah_drawn));
 }
 
 void StoreBe16(uint8_t *dst, uint16_t value) {

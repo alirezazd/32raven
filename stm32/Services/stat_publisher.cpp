@@ -111,11 +111,13 @@ uint16_t StatPublisher::BatteryVoltageMv(const BatteryData &battery) {
 }
 
 int16_t StatPublisher::BatteryCurrentCa(const BatteryData &battery) {
-  if (battery.voltage <= 0.0f) {
+  // -1 already means "no pack" here and is also MAVLink's unknown, which the
+  // ESP32 forwards into SYS_STATUS and BATTERY_STATUS unchanged.
+  if (battery.voltage <= 0.0f || !battery.current.has_value()) {
     return -1;
   }
 
-  const int32_t current_ca = static_cast<int32_t>(battery.current * 100.0f);
+  const int32_t current_ca = static_cast<int32_t>(*battery.current * 100.0f);
   if (current_ca > INT16_MAX) {
     return INT16_MAX;
   }

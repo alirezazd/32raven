@@ -102,12 +102,13 @@ def check_defaults_build_a_legal_board(problems: list[str]) -> None:
 
 
 # PINMAP_ENTRIES fields that name where a pin sits: the port or signal choice
-# arms, and the pin-number int. active_low_sym rides in the same table but sets
-# polarity, not position, so it belongs with the ordinary tunables.
+# arms, and the pin-number int. active_low_sym sets polarity and enable_symbol
+# decides whether the pin is claimed at all -- neither is a position, so both
+# belong with the ordinary tunables.
 _PLACEMENT_FIELDS = frozenset(
     {"port_options", "choice_options", "pin_int_symbol"}
 )
-_TUNABLE_FIELDS = frozenset({"active_low_sym"})
+_TUNABLE_FIELDS = frozenset({"active_low_sym", "enable_symbol"})
 
 
 def _pin_entries() -> tuple:

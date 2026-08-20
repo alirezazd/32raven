@@ -46,6 +46,12 @@ SEARCH_DIRS = [
     REPO_ROOT / "stm32" / "Core",
     REPO_ROOT / "stm32" / "Drivers",
     REPO_ROOT / "stm32" / "Services",
+]
+# A template may name a pin behind a `{% if %}`, so it says the pin is wanted by
+# some build without saying the name exists on this one -- evidence for the
+# unused-entry warning, but not for the unknown-name error. The rendered header
+# scanned above is what carries the reference on the builds that emit it.
+TEMPLATE_DIRS = [
     REPO_ROOT / "scripts" / "templates",
 ]
 SEARCH_GLOBS = ("*.cpp", "*.hpp", "*.h", "*.c", "*.j2")
@@ -110,10 +116,10 @@ def parse_board_pin_decls(
 # ---- consumer scan --------------------------------------------------------
 
 
-def find_referenced_names() -> set[str]:
+def find_referenced_names(dirs: list[pathlib.Path]) -> set[str]:
     pat = re.compile(r"board::(k\w+)")
     seen: set[str] = set()
-    for d in SEARCH_DIRS:
+    for d in dirs:
         for ext in SEARCH_GLOBS:
             for p in d.rglob(ext):
                 try:
@@ -162,7 +168,8 @@ def main() -> int:
     db = PinConstraints.load_default()
     decls = parse_board_pin_decls(DECL_SOURCES)
     declared = {d.name for d in decls} | parse_companion_consts(DECL_SOURCES)
-    referenced = find_referenced_names()
+    rendered = find_referenced_names(SEARCH_DIRS)
+    referenced = rendered | find_referenced_names(TEMPLATE_DIRS)
 
     errors = 0
     warnings = 0
@@ -212,7 +219,7 @@ def main() -> int:
             errors += 1
 
     # 3. Unknown references — board::kFoo where kFoo isn't declared.
-    for name in sorted(referenced - declared):
+    for name in sorted(rendered - declared):
         _emit(
             "ERROR",
             f"board::{name} is referenced but not defined in the pin map",

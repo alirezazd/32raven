@@ -1431,6 +1431,8 @@ config STM32_BATTERY_VOLTAGE_PIN
 
 endmenu
 
+if STM32_BATTERY_CURRENT_MONITORING
+
 menu "Current"
 
 choice
@@ -1452,6 +1454,8 @@ config STM32_BATTERY_CURRENT_PIN
     default 1
 
 endmenu
+
+endif
 
 endmenu
 
@@ -2407,6 +2411,16 @@ endmenu
 
 menu "Battery Monitor"
 
+config STM32_BATTERY_CURRENT_MONITORING
+    bool "Pack current monitoring"
+    default n
+    help
+      Whether a current sensor feeds the ADC. Off, the driver samples voltage
+      alone and reports current and consumed mAh as absent rather than zero,
+      which is what tells a reader "no sensor" apart from "no draw". Every
+      setting the sense path needs -- its pin, scale, zero offset and deadband
+      -- appears only when this is on, and its ADC input stays free.
+
 config STM32_BATTERY_SAMPLE_PERIOD_MS
     int "Sample period (ms)"
     range 1 1000
@@ -2430,10 +2444,11 @@ config STM32_BATTERY_ADC_OVERSAMPLE_COUNT
     range 1 64
     default 4
     help
-      Number of ADC conversion pairs averaged each battery sample period.
+      Number of readings averaged per channel each battery sample period.
       Increase to reduce analog noise, by the square root of this count. The
       driver converts one channel per slow loop pass, so this also sets how
       many passes a sample spans, and that span has to fit the period above.
+      Current monitoring adds a second channel, doubling that span.
 
 config STM32_BATTERY_FILTER_TIME_CONSTANT_MS
     int "Filter time constant (ms)"
@@ -2502,6 +2517,8 @@ config STM32_BATTERY_CELL_FULL_MV
 
 endmenu
 
+if STM32_BATTERY_CURRENT_MONITORING
+
 menu "Current"
 
 config STM32_BATTERY_CURRENT_SCALE_MA_PER_V
@@ -2531,6 +2548,8 @@ config STM32_BATTERY_CURRENT_DEADBAND_MA
       into consumed mAh. This suppresses idle ADC noise.
 
 endmenu
+
+endif
 
 endmenu
 

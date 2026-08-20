@@ -7,6 +7,7 @@
 #include <Eigen/Geometry>
 #include <array>
 #include <cstdint>
+#include <optional>
 
 #include "flight_mode.hpp"
 #include "message.hpp"
@@ -73,8 +74,10 @@ struct BatteryData {
   // decimation period.
   uint32_t timestamp_us = 0;
   float voltage;
-  float current;
-  float mah_drawn;
+  // Absent when the board has no current sense. A bare float could only have
+  // said zero, which is also what a pack at rest reads.
+  std::optional<float> current;
+  std::optional<float> mah_drawn;
   uint8_t percentage;  // 0-100
 };
 

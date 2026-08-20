@@ -49,9 +49,14 @@ void Battery::Init(const Config &cfg, SharedState &blackboard) {
   if (cfg.sample_period_us == 0u || cfg.adc_reference_mv == 0u ||
       cfg.oversample_count == 0u || cfg.filter_alpha <= 0.0f ||
       cfg.filter_alpha > 1.0f || cfg.adc_timeout_us == 0u ||
-      cfg.voltage_multiplier_milli == 0u || cfg.current_scale_ma_per_v == 0u ||
-      cfg.cell_count == 0u || cfg.cell_empty_mv >= cfg.cell_full_mv ||
-      cfg.voltage_adc_channel == cfg.current_adc_channel) {
+      cfg.voltage_multiplier_milli == 0u || cfg.cell_count == 0u ||
+      cfg.cell_empty_mv >= cfg.cell_full_mv) {
+    Panic(ErrorCode::Stm32::kAdcInitFailed);
+  }
+
+  if (cfg.current_sense &&
+      (cfg.current_sense->scale_ma_per_v == 0u ||
+       cfg.voltage_adc_channel == cfg.current_sense->adc_channel)) {
     Panic(ErrorCode::Stm32::kAdcInitFailed);
   }
 
@@ -62,8 +67,8 @@ void Battery::Init(const Config &cfg, SharedState &blackboard) {
   // Seeded before the first conversion lands so a reader between here and then
   // sees the mAh carried over rather than zero.
   blackboard_->UpdateBattery(BatteryData{.voltage = 0.0f,
-                                         .current = 0.0f,
-                                         .mah_drawn = mah_drawn_,
+                                         .current = Sensed(0.0f),
+                                         .mah_drawn = Sensed(mah_drawn_),
                                          .percentage = 0u});
 
   InitAdc();
@@ -119,16 +124,28 @@ void Battery::InitAdc() {
   ADC1->SQR3 = static_cast<uint32_t>(cfg_.voltage_adc_channel);
 
   SetAdcSampleTime(cfg_.voltage_adc_channel, kAdcSampleTime84Cycles);
-  SetAdcSampleTime(cfg_.current_adc_channel, kAdcSampleTime84Cycles);
+  if (cfg_.current_sense) {
+    SetAdcSampleTime(cfg_.current_sense->adc_channel, kAdcSampleTime84Cycles);
+  }
 
   ADC1->SR = 0;
   ADC1->CR2 |= ADC_CR2_ADON;
 }
 
+bool Battery::IsVoltageConversion() const {
+  return !cfg_.current_sense || (conversion_index_ % 2u) == 0u;
+}
+
+uint8_t Battery::ConversionsPerSample() const {
+  return static_cast<uint8_t>(cfg_.oversample_count *
+                              (cfg_.current_sense ? 2u : 1u));
+}
+
 void Battery::StartConversion(uint32_t now_us) {
-  const uint8_t channel = ((conversion_index_ % 2u) == 0u)
-                              ? cfg_.voltage_adc_channel
-                              : cfg_.current_adc_channel;
+  uint8_t channel = cfg_.voltage_adc_channel;
+  if (cfg_.current_sense && !IsVoltageConversion()) {
+    channel = cfg_.current_sense->adc_channel;
+  }
 
   ADC1->SQR3 = static_cast<uint32_t>(channel);
   // Clears EOC and OVR together, so a conversion abandoned by a previous
@@ -154,14 +171,14 @@ bool Battery::CollectConversion(uint32_t now_us) {
 
   const auto raw = static_cast<uint16_t>(ADC1->DR & ADC_DR_DATA);
   conversion_in_flight_ = false;
-  if ((conversion_index_ % 2u) == 0u) {
+  if (IsVoltageConversion()) {
     voltage_acc_ += raw;
   } else {
     current_acc_ += raw;
   }
   conversion_index_++;
 
-  if (conversion_index_ < 2u * cfg_.oversample_count) {
+  if (conversion_index_ < ConversionsPerSample()) {
     return true;
   }
 
@@ -181,9 +198,6 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
   const float voltage_adc_mv =
       (static_cast<float>(voltage_raw) * cfg_.adc_reference_mv) /
       Battery::kAdcMaxRaw;
-  const float current_adc_mv =
-      (static_cast<float>(current_raw) * cfg_.adc_reference_mv) /
-      Battery::kAdcMaxRaw;
 
   float measured_voltage_v =
       (((voltage_adc_mv * cfg_.voltage_multiplier_milli) / kMilli) +
@@ -193,17 +207,26 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
     measured_voltage_v = 0.0f;
   }
 
-  float measured_current_a =
-      ((current_adc_mv - static_cast<float>(cfg_.current_offset_mv)) *
-       cfg_.current_scale_ma_per_v) /
-      (kMilli * kMilli);
+  // Stays zero with no sense path, which keeps the filter and the integrator
+  // below at rest rather than needing a branch of their own.
+  float measured_current_a = 0.0f;
+  if (cfg_.current_sense) {
+    const CurrentSense &sense = *cfg_.current_sense;
+    const float current_adc_mv =
+        (static_cast<float>(current_raw) * cfg_.adc_reference_mv) /
+        Battery::kAdcMaxRaw;
 
-  if (measured_current_a < 0.0f) {
-    measured_current_a = 0.0f;
-  }
-  if (measured_current_a <
-      static_cast<float>(cfg_.current_deadband_ma) / kMilli) {
-    measured_current_a = 0.0f;
+    measured_current_a =
+        ((current_adc_mv - static_cast<float>(sense.offset_mv)) *
+         sense.scale_ma_per_v) /
+        (kMilli * kMilli);
+
+    if (measured_current_a < 0.0f) {
+      measured_current_a = 0.0f;
+    }
+    if (measured_current_a < static_cast<float>(sense.deadband_ma) / kMilli) {
+      measured_current_a = 0.0f;
+    }
   }
 
   if (!filter_valid_) {
@@ -226,8 +249,8 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
   blackboard_->UpdateBattery(
       BatteryData{.timestamp_us = last_sample_us_,
                   .voltage = filtered_voltage_v_,
-                  .current = filtered_current_a_,
-                  .mah_drawn = mah_drawn_,
+                  .current = Sensed(filtered_current_a_),
+                  .mah_drawn = Sensed(mah_drawn_),
                   .percentage = EstimatePercentage(filtered_voltage_v_)});
 }
 

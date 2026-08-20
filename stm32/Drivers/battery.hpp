@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 
 #include "shared_state.hpp"
 
@@ -15,21 +16,29 @@ class Battery {
   static constexpr uint16_t kAdcMaxRaw =
       (uint16_t{1} << kAdcResolutionBits) - uint16_t{1};
 
+  // A scale for a pin nobody reads calibrates nothing, so these travel
+  // together or not at all.
+  struct CurrentSense {
+    uint8_t adc_channel;
+    uint32_t scale_ma_per_v;
+    int32_t offset_mv;
+    uint16_t deadband_ma;
+  };
+
   struct Config {
     uint32_t sample_period_us;
     uint16_t adc_reference_mv;
     // ADC_CCR.ADCPRE field value, derived from PCLK2 by the config generator.
     uint8_t adc_prescaler_bits;
     uint8_t voltage_adc_channel;
-    uint8_t current_adc_channel;
     uint8_t oversample_count;
     float filter_alpha;
     uint16_t adc_timeout_us;
     uint32_t voltage_multiplier_milli;
     int32_t voltage_offset_mv;
-    uint32_t current_scale_ma_per_v;
-    int32_t current_offset_mv;
-    uint16_t current_deadband_ma;
+    // Absent on a board with no sensor, which is what makes the driver sample
+    // the voltage channel alone and publish no current at all.
+    std::optional<CurrentSense> current_sense;
     uint8_t cell_count;
     uint16_t cell_empty_mv;
     uint16_t cell_full_mv;
@@ -58,6 +67,12 @@ class Battery {
   void PublishSample(uint32_t now_us, uint16_t voltage_raw,
                      uint16_t current_raw);
   uint8_t EstimatePercentage(float voltage_v) const;
+  bool IsVoltageConversion() const;
+  uint8_t ConversionsPerSample() const;
+
+  std::optional<float> Sensed(float value) const {
+    return cfg_.current_sense ? std::optional<float>{value} : std::nullopt;
+  }
 
   Config cfg_{};
   SharedState *blackboard_ = nullptr;
@@ -70,7 +85,8 @@ class Battery {
   float filtered_current_a_ = 0.0f;
   float mah_drawn_ = 0.0f;
   // Counts conversions within a sample, not oversample iterations: even is the
-  // voltage channel, odd is current.
+  // voltage channel, odd is current. With no current sense every one is
+  // voltage, so a sample is half as many.
   uint8_t conversion_index_ = 0;
   bool conversion_in_flight_ = false;
   bool sample_active_ = false;

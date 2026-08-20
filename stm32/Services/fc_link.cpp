@@ -165,8 +165,10 @@ void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
   t.yaw = data.hdg;
 
   t.batt_voltage = (uint16_t)(bat.voltage * 1000.0f);  // V -> mV
-  t.batt_current = (int16_t)(bat.current * 100.0f);    // A -> cA
-  t.batt_remaining = (int8_t)bat.percentage;           // %
+  // -1 is MAVLink's unknown, which the ESP32 passes through untouched.
+  t.batt_current =
+      bat.current ? (int16_t)(*bat.current * 100.0f) : (int16_t)-1;  // A -> cA
+  t.batt_remaining = (int8_t)bat.percentage;                         // %
 
   message::Packet pkt;
   pkt.header.id = (uint8_t)message::MsgId::kGpsData;

@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <span>
 
 #include "error_code.hpp"
@@ -17,6 +18,9 @@ namespace {
 
 // Far above any real root directory, far below forever.
 constexpr uint32_t kMaxRootScanEntries = 4096;
+
+// What a ULog reader takes for "no sample", as opposed to a sample of zero.
+constexpr float kMissingFloat = std::numeric_limits<float>::quiet_NaN();
 
 // FatFs R0.15 ends a directory with FR_OK and an empty name it never writes,
 // so the name must be cleared before every read or the walk repeats its last
@@ -520,8 +524,8 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         BatteryRecord rec = MakeRecord<BatteryRecord>(
             kMsgBattery, Stamp64(bat.timestamp_us));
         rec.voltage = bat.voltage;
-        rec.current = bat.current;
-        rec.mah_drawn = bat.mah_drawn;
+        rec.current = bat.current.value_or(kMissingFloat);
+        rec.mah_drawn = bat.mah_drawn.value_or(kMissingFloat);
         rec.remaining = bat.percentage;
         AppendToStaging(&rec, sizeof(rec));
         break;
