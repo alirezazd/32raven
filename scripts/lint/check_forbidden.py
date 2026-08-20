@@ -81,7 +81,10 @@ LIBC_ALLOC_APIS = (
 class Rule:
     """One forbidden construct, optionally narrowed to the files it governs.
 
-    `scope` holds repo-relative paths; empty means the whole tree.
+    `scope` holds repo-relative paths; a trailing slash makes an entry a
+    directory, so a rule covering a layer keeps covering it as the layer
+    grows. Empty means the whole tree. `exempt` names files inside the scope
+    the rule does not reach, and is checked first.
     """
 
     def __init__(
@@ -90,14 +93,23 @@ class Rule:
         pattern: str,
         reason: str,
         scope: tuple[str, ...] = (),
+        exempt: tuple[str, ...] = (),
     ) -> None:
         self.name = name
         self.regex = re.compile(pattern)
         self.reason = reason
         self.scope = scope
+        self.exempt = exempt
 
     def covers(self, rel: str) -> bool:
-        return not self.scope or rel in self.scope
+        if rel in self.exempt:
+            return False
+        if not self.scope:
+            return True
+        return any(
+            rel.startswith(entry) if entry.endswith("/") else rel == entry
+            for entry in self.scope
+        )
 
 
 # The two state machines sequence; they do not decide what is fatal. A halt
@@ -109,6 +121,36 @@ class Rule:
 STATE_MACHINES = (
     "stm32/Core/states.cpp",
     "esp32/main/states.cpp",
+)
+
+
+# A driver or service names what it needs in Init and holds the reference.
+# Reaching the System singleton instead hides the dependency from the
+# signature, gives every one of them the whole board's surface, and leaves
+# nothing for the SIL to substitute. The state machines are outside this --
+# sequencing is what they do, and AppContext is how they do it.
+COMPONENT_OWNERS = (
+    "stm32/Drivers/",
+    "stm32/Services/",
+    "esp32/drivers/",
+    "esp32/services/",
+)
+
+# Leaf outputs with no state to couple to: a clock, and the two ways the board
+# tells a human something happened. Injecting them buys nothing and every
+# driver that hits an error path would need them threaded in.
+REACH_EXEMPT = ("Time", "Timebase", "TonePlayer", "Led")
+
+# The panic path runs when the System's own invariants may already be broken,
+# and Halt() is System's own method rather than a component it hands out.
+# Requiring injection here would have the handler depend on the wiring done by
+# whatever just failed.
+# A dispatcher reaches whatever handles the packet it just parsed; that is the
+# job, and AppContext is how it is done -- the same carve-out the state
+# machines get above.
+REACH_EXEMPT_FILES = (
+    "esp32/services/panic.cpp",
+    "stm32/Services/command_handler.cpp",
 )
 
 
@@ -142,6 +184,14 @@ RULES = (
         "state machines sequence -- halt where the condition is owned",
         scope=STATE_MACHINES,
     ),
+    Rule(
+        "system-reach",
+        r"(?:System::GetInstance\(\)\s*\.|\bSys\(\)\s*\.|\bsys\s*->)\s*"
+        r"(?!(?:" + "|".join(REACH_EXEMPT) + r")\b)",
+        "take it at Init -- name the dependency instead of the System",
+        scope=COMPONENT_OWNERS,
+        exempt=REACH_EXEMPT_FILES,
+    ),
 )
 
 
@@ -154,8 +204,12 @@ def check_scopes() -> list[str]:
     return [
         f"[{rule.name}] scope names a path that does not exist: {rel}"
         for rule in RULES
-        for rel in rule.scope
-        if not (REPO / rel).is_file()
+        for rel in rule.scope + rule.exempt
+        if not (
+            (REPO / rel).is_dir()
+            if rel.endswith("/")
+            else (REPO / rel).is_file()
+        )
     ]
 
 
