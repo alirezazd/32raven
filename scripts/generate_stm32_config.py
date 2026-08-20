@@ -1962,6 +1962,10 @@ def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "system_status": _fclink_topic_context(kconf, "system_status"),
             "vehicle_status": _fclink_topic_context(kconf, "vehicle_status"),
             "esc_telemetry": _fclink_topic_context(kconf, "esc_telemetry"),
+            "gps": _fclink_topic_context(kconf, "gps", max_silence=True),
+            "attitude": _fclink_topic_context(
+                kconf, "attitude", max_silence=True
+            ),
             "rc_channels": _fclink_topic_context(
                 kconf, "rc_channels", max_silence=True
             ),

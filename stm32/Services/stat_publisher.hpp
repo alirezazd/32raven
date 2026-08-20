@@ -15,6 +15,8 @@ class SharedState;
 struct BatteryData;
 
 namespace message {
+struct AttitudeMsg;
+struct GpsData;
 struct SystemStatusMsg;
 struct UsbStatusMsg;
 struct VehicleStatusMsg;
@@ -39,13 +41,15 @@ class StatPublisher {
     TopicConfig esc_telemetry{};
     TopicConfig rc_channels{};
     TopicConfig usb_status{};
+    TopicConfig gps{};
+    TopicConfig attitude{};
     TopicConfig crsf_heartbeat{};
     TopicConfig crsf_gps{};
     TopicConfig crsf_battery{};
   };
 
   // Public only so the .cpp's config tables can be sized by them.
-  static constexpr size_t kFcLinkTopicCount = 5u;
+  static constexpr size_t kFcLinkTopicCount = 7u;
   static constexpr size_t kCrsfTopicCount = CrsfLinkService::kTopicCount;
 
   static StatPublisher &GetInstance();
@@ -65,6 +69,8 @@ class StatPublisher {
     kEscTelemetry,
     kRcChannels,
     kUsbStatus,
+    kGps,
+    kAttitude,
     kCount,
   };
 
@@ -105,6 +111,8 @@ class StatPublisher {
                                                 uint16_t load) const;
   message::VehicleStatusMsg BuildVehicleStatusMsg() const;
   message::UsbStatusMsg BuildUsbStatusMsg() const;
+  message::GpsData BuildGpsMsg() const;
+  message::AttitudeMsg BuildAttitudeMsg() const;
 
   static Outcome PublishSystemStatus(StatPublisher &self,
                                      uint32_t now_us);
@@ -116,6 +124,8 @@ class StatPublisher {
                                    uint32_t now_us);
   static Outcome PublishUsbStatus(StatPublisher &self,
                                   uint32_t now_us);
+  static Outcome PublishGps(StatPublisher &self, uint32_t now_us);
+  static Outcome PublishAttitude(StatPublisher &self, uint32_t now_us);
 
   // CrsfLinkService owns the payloads and the change detection; the silence
   // bound is the scheduler's, so it is passed in rather than duplicated there.
@@ -153,4 +163,8 @@ class StatPublisher {
   uint32_t rc_sent_timestamp_us_ = 0;
   uint8_t rc_sent_flags_ = 0;
   bool have_rc_channels_ = false;
+  uint32_t gps_sent_timestamp_us_ = 0;
+  bool have_gps_ = false;
+  uint64_t attitude_sent_timestamp_us_ = 0;
+  bool have_attitude_ = false;
 };

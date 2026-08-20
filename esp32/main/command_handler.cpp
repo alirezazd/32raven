@@ -148,6 +148,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kUsbStatus, OnUsbStatus},
     {message::MsgId::kPanic, OnPanic},
     {message::MsgId::kGpsData, OnTelemetry<message::GpsData>},
+    {message::MsgId::kAttitude, OnTelemetry<message::AttitudeMsg>},
     {message::MsgId::kRcChannels, OnTelemetry<message::RcChannelsMsg>},
     {message::MsgId::kSystemStatus, OnTelemetry<message::SystemStatusMsg>},
     {message::MsgId::kVehicleStatus, OnTelemetry<message::VehicleStatusMsg>},

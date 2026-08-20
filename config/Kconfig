@@ -2671,6 +2671,58 @@ config STM32_FCLINK_TOPIC_VEHICLE_STATUS_PRIORITY
       the defaults: armed state is the one field a ground station must not
       learn late.
 
+config STM32_FCLINK_TOPIC_GPS_PERIOD_MS
+    int "GPS period (ms)"
+    range 0 60000
+    default 100
+    help
+      Shortest interval between GpsData frames. A frame is sent only when the
+      receiver has parsed a new fix, so this bounds the rate rather than
+      setting one -- leave it at or below the M10's measurement rate or fixes
+      are dropped. Set to 0 to disable.
+
+config STM32_FCLINK_TOPIC_GPS_MAX_SILENCE_MS
+    int "GPS max silence (ms)"
+    range 0 60000
+    default 5000
+    help
+      How long an unchanged fix may go unsent before one is resent anyway, so
+      a receiver that has stopped producing still refreshes what the peer
+      holds. 0 never times out.
+
+config STM32_FCLINK_TOPIC_GPS_PRIORITY
+    int "GPS priority"
+    range 0 15
+    default 8
+    help
+      Relative priority when several FcLink topics are due at once.
+
+config STM32_FCLINK_TOPIC_ATTITUDE_PERIOD_MS
+    int "Attitude period (ms)"
+    range 0 60000
+    default 100
+    help
+      Shortest interval between Attitude frames. The estimator produces one
+      per control tick, far faster than this link can carry them, so this is
+      the decimation that picks which ones travel. Set to 0 to disable.
+
+config STM32_FCLINK_TOPIC_ATTITUDE_MAX_SILENCE_MS
+    int "Attitude max silence (ms)"
+    range 0 60000
+    default 1000
+    help
+      How long an unchanged estimate may go unsent before one is resent
+      anyway. Only reached with the control loop suspended, which is when a
+      ground station most needs telling the attitude is stale. 0 never times
+      out.
+
+config STM32_FCLINK_TOPIC_ATTITUDE_PRIORITY
+    int "Attitude priority"
+    range 0 15
+    default 7
+    help
+      Relative priority when several FcLink topics are due at once.
+
 config STM32_FCLINK_TOPIC_ESC_TELEMETRY_PERIOD_MS
     int "ESC telemetry period (ms)"
     range 0 60000

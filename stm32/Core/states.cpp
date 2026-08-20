@@ -179,6 +179,11 @@ static void ControlTickFlightLoop(AppContext &ctx) {
 static void MainTick(AppContext &ctx) {
   auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
   UsbCdc::GetInstance().Poll(micros());
+
+  // Ahead of System::Poll so a fix parsed here reaches the blackboard before
+  // StatPublisher reads it, rather than a pass later.
+  ctx.sys->GpsSvc().Poll();
+
   ctx.sys->Poll(micros());
 
   auto &btn = ctx.sys->Btn();
@@ -207,11 +212,6 @@ static void MainTick(AppContext &ctx) {
   ctx.sys->LogSvc().Poll(micros());
 
   ctx.sys->MspSvc().Poll(micros());
-
-  if (ctx.sys->GpsSvc().Poll()) {
-    const SharedState &vehicle = ctx.sys->Blackboard();
-    ctx.sys->FcLinkSvc().SendGps(vehicle.GetGps(), vehicle.GetBattery());
-  }
 
   ctx.sys->CrsfLinkSvc().PollCommands();
 }

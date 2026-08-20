@@ -28,12 +28,6 @@ constexpr uint32_t kRcFreshTimeoutUs = 1500000u;
 // and is recovered should not blink the health bit on its way back.
 constexpr uint32_t kImuFreshTimeoutUs = 100000u;
 
-// Ten sample periods, derived so a slower cadence does not read as a dead
-// sensor. The margin is wide because BatteryData stamps when its conversion
-// started, and the publish trails that by up to a whole decimation period.
-constexpr uint32_t kBatteryFreshTimeoutUs =
-    kBatteryConfig.sample_period_us * 10u;
-
 // Flattened in FcLinkTopic order -- the scheduler indexes this by the
 // enumerator, so a row inserted out of order silently reschedules the wrong
 // stream.
@@ -44,6 +38,8 @@ constexpr std::array<TopicConfig, StatPublisher::kFcLinkTopicCount>
         kStatPublisherConfig.esc_telemetry,
         kStatPublisherConfig.rc_channels,
         kStatPublisherConfig.usb_status,
+        kStatPublisherConfig.gps,
+        kStatPublisherConfig.attitude,
     }};
 
 // In CrsfLinkService::TelemetryTopic order, on the same terms.
@@ -60,6 +56,8 @@ constexpr uint32_t kFcLinkPeriodsUs[] = {
     kStatPublisherConfig.esc_telemetry.period,
     kStatPublisherConfig.rc_channels.period,
     kStatPublisherConfig.usb_status.period,
+    kStatPublisherConfig.gps.period,
+    kStatPublisherConfig.attitude.period,
 };
 
 constexpr uint32_t kCrsfPeriodsUs[] = {
@@ -364,6 +362,95 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
   return Outcome::kSent;
 }
 
+message::GpsData StatPublisher::BuildGpsMsg() const {
+  const GpsData &gps = blackboard_->GetGps();
+  message::GpsData msg{};
+  msg.year = gps.year;
+  msg.month = gps.month;
+  msg.day = gps.day;
+  msg.hour = gps.hour;
+  msg.min = gps.min;
+  msg.sec = gps.sec;
+  msg.fixType = gps.fix_type;
+  msg.numSV = gps.num_sats;
+  msg.lon = gps.lon;
+  msg.lat = gps.lat;
+  msg.hMSL = gps.alt;
+  msg.vel = gps.vel;
+  msg.hdg = gps.hdg;
+  msg.hAcc = gps.hAcc;
+  msg.vAcc = gps.vAcc;
+  msg.gDOP = gps.gDOP;
+  msg.pDOP = gps.pDOP;
+  msg.hDOP = gps.hDOP;
+  msg.vDOP = gps.vDOP;
+  msg.posCovValid = gps.posCovValid;
+  msg.velCovValid = gps.velCovValid;
+  msg.posCovNN = gps.posCovNN;
+  msg.posCovEE = gps.posCovEE;
+  msg.posCovDD = gps.posCovDD;
+  return msg;
+}
+
+message::AttitudeMsg StatPublisher::BuildAttitudeMsg() const {
+  const EstimatorState &estimate = blackboard_->GetEstimate();
+  const Eigen::Quaternionf &q = estimate.attitude_world_to_body;
+  return message::AttitudeMsg{
+      .timestamp_us = estimate.timestamp_us,
+      .qw = q.w(),
+      .qx = q.x(),
+      .qy = q.y(),
+      .qz = q.z(),
+  };
+}
+
+StatPublisher::Outcome StatPublisher::PublishGps(StatPublisher &self,
+                                                 uint32_t now_us) {
+  const GpsData &gps = self.blackboard_->GetGps();
+  if (gps.timestamp_us == 0u) {
+    return Outcome::kSkipped;
+  }
+
+  // The receiver stamps only on a new PVT, so a resent fix would read as a
+  // position re-observed rather than re-read.
+  const bool unchanged = self.have_gps_ &&
+                         gps.timestamp_us == self.gps_sent_timestamp_us_;
+  if (unchanged && !self.fclink_.scheduler.SilenceExpired(
+                       static_cast<size_t>(FcLinkTopic::kGps), now_us)) {
+    return Outcome::kSkipped;
+  }
+
+  self.fclink_svc_->SendPacket(message::MsgId::kGpsData, self.BuildGpsMsg());
+  self.gps_sent_timestamp_us_ = gps.timestamp_us;
+  self.have_gps_ = true;
+  return Outcome::kSent;
+}
+
+StatPublisher::Outcome StatPublisher::PublishAttitude(StatPublisher &self,
+                                                      uint32_t now_us) {
+  const EstimatorState &estimate = self.blackboard_->GetEstimate();
+  if (estimate.timestamp_us == 0u) {
+    return Outcome::kSkipped;
+  }
+
+  // The control tick writes this faster than the link can carry it, so the
+  // period is a decimation rather than a rate. A suspended loop freezes the
+  // stamp, which the silence window then reports.
+  const bool unchanged =
+      self.have_attitude_ &&
+      estimate.timestamp_us == self.attitude_sent_timestamp_us_;
+  if (unchanged && !self.fclink_.scheduler.SilenceExpired(
+                       static_cast<size_t>(FcLinkTopic::kAttitude), now_us)) {
+    return Outcome::kSkipped;
+  }
+
+  self.fclink_svc_->SendPacket(message::MsgId::kAttitude,
+                               self.BuildAttitudeMsg());
+  self.attitude_sent_timestamp_us_ = estimate.timestamp_us;
+  self.have_attitude_ = true;
+  return Outcome::kSent;
+}
+
 StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
     StatPublisher &self, uint32_t now_us,
     CrsfLinkService::TelemetryTopic topic) {
@@ -445,6 +532,7 @@ void StatPublisher::Poll(uint32_t now_us) {
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {
       PublishSystemStatus, PublishVehicleStatus, PublishEscTelemetry,
       PublishRcChannels,   PublishUsbStatus,
+      PublishGps,          PublishAttitude,
   };
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
       PublishCrsfHeartbeat,

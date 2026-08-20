@@ -134,50 +134,6 @@ bool FcLink::Send(const message::Packet &pkt) {
   return tx_rb_.PushBlock(buf, len) == len;
 }
 
-void FcLink::SendGps(const GpsData &data, const BatteryData &bat) {
-  message::GpsData t = {};
-  // Map blackboard GpsData onto wire message::GpsData.
-  t.fixType = data.fix_type;
-  t.numSV = data.num_sats;
-  t.hMSL = data.alt;  // data.alt is in mm MSL
-  t.vel = data.vel;   // cm/s
-  t.hdg = data.hdg;   // cdeg
-  t.lat = data.lat;
-  t.lon = data.lon;
-
-  t.year = data.year;
-  t.month = data.month;
-  t.day = data.day;
-  t.hour = data.hour;
-  t.min = data.min;
-  t.sec = data.sec;
-
-  t.hAcc = data.hAcc;  // mm
-  t.vAcc = data.vAcc;  // mm
-  t.gDOP = data.gDOP;
-  t.pDOP = data.pDOP;
-  t.hDOP = data.hDOP;
-  t.vDOP = data.vDOP;
-
-  // No attitude estimate plumbed here yet; yaw falls back to GPS heading.
-  t.roll = 0;
-  t.pitch = 0;
-  t.yaw = data.hdg;
-
-  t.batt_voltage = (uint16_t)(bat.voltage * 1000.0f);  // V -> mV
-  // -1 is MAVLink's unknown, which the ESP32 passes through untouched.
-  t.batt_current =
-      bat.current ? (int16_t)(*bat.current * 100.0f) : (int16_t)-1;  // A -> cA
-  t.batt_remaining = (int8_t)bat.percentage;                         // %
-
-  message::Packet pkt;
-  pkt.header.id = (uint8_t)message::MsgId::kGpsData;
-  pkt.header.len = message::PayloadLength<message::GpsData>();
-  memcpy(pkt.payload, &t, sizeof(t));
-
-  Send(pkt);
-}
-
 void FcLink::SendRcChannels(const message::RcChannelsMsg &msg) {
   message::Packet pkt{};
   pkt.header.id = (uint8_t)message::MsgId::kRcChannels;

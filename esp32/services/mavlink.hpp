@@ -94,6 +94,8 @@ class Mavlink {
       UpdateCache(vehicle_status_, value, now_ms);
     } else if constexpr (std::is_same_v<T, message::EscTelemetryMsg>) {
       UpdateCache(esc_telemetry_, value, now_ms);
+    } else if constexpr (std::is_same_v<T, message::AttitudeMsg>) {
+      UpdateCache(attitude_, value, now_ms);
     } else {
       static_assert(sizeof(T) == 0, "unsupported MAVLink telemetry cache type");
     }
@@ -342,6 +344,7 @@ class Mavlink {
   uint8_t unhandled_logged_command_count_ = 0;
   bool link_enabled_ = false;
   CachedValue<message::GpsData> gps_{};
+  CachedValue<message::AttitudeMsg> attitude_{};
   CachedValue<message::RcChannelsMsg> rc_channels_{};
   CachedValue<message::SystemStatusMsg> system_status_{};
   CachedValue<message::VehicleStatusMsg> vehicle_status_{};
@@ -452,12 +455,18 @@ class Mavlink {
   void InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due = false);
 
   TxFrameState StartHeartbeatFrame(const Config::Tx &cfg_tx, uint32_t now_ms);
-  TxFrameState StartSysStatusFrame();
+  // The ESP32 emits every one of these whether or not the FC is talking, so
+  // a frame arriving says nothing about the peer's health. Each of the three
+  // built from this cache has to ask its age itself.
+  bool SystemStatusFresh(uint32_t now_ms) const;
+
+  TxFrameState StartSysStatusFrame(uint32_t now_ms);
   std::optional<TxFrameState> StartGpsRawIntFrame(const Config::Tx &cfg_tx);
   std::optional<TxFrameState> StartAttitudeFrame(const Config::Tx &cfg_tx);
   std::optional<TxFrameState> StartGlobalPositionIntFrame(
       const Config::Tx &cfg_tx);
-  std::optional<TxFrameState> StartBatteryStatusFrame(const Config::Tx &cfg_tx);
+  std::optional<TxFrameState> StartBatteryStatusFrame(const Config::Tx &cfg_tx,
+                                                      uint32_t now_ms);
   std::optional<TxFrameState> StartEscStatusFrame(const Config::Tx &cfg_tx);
 
   std::optional<TxFrameState> StartNextScheduledFrame(const Config::Tx &cfg_tx,

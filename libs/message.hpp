@@ -36,6 +36,7 @@ enum class MsgId : uint8_t {
   kReqReceiverBind = 0x0C,
   kRcChannels = 0x65,
   kGpsData = 0x10,
+  kAttitude = 0x11,
   kSystemStatus = 0x12,
   kVehicleStatus = 0x13,
   kPanic = 0x14,
@@ -130,14 +131,15 @@ struct GpsData {
   float posCovNN;  // [m²]
   float posCovEE;  // [m²]
   float posCovDD;  // [m²]
+} __attribute__((packed));
 
-  int16_t roll;   // cdeg
-  int16_t pitch;  // cdeg
-  int16_t yaw;    // cdeg
-
-  uint16_t batt_voltage;  // mV
-  int16_t batt_current;   // cA
-  int8_t batt_remaining;  // %
+// World-to-body, the convention Ahrs documents and propagates.
+struct AttitudeMsg {
+  uint64_t timestamp_us;
+  float qw;
+  float qx;
+  float qy;
+  float qz;
 } __attribute__((packed));
 
 // Wire vocabularies: the enumerator is the transmitted byte -- append only,
@@ -389,6 +391,8 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<RcChannelsMsg>();
     case MsgId::kGpsData:
       return len == PayloadLength<GpsData>();
+    case MsgId::kAttitude:
+      return len == PayloadLength<AttitudeMsg>();
     case MsgId::kSystemStatus:
       return len == PayloadLength<SystemStatusMsg>();
     case MsgId::kVehicleStatus:

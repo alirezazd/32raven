@@ -403,8 +403,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   uint8_t system_status = MAV_STATE_BOOT;
   if (system_status_.have_data) {
     const message::SystemStatusMsg &status = system_status_.value;
-    const bool fresh = (uint32_t)(now_ms - system_status_.update_ms) <=
-                       kMavlinkSystemStatusFreshMs;
+    const bool fresh = SystemStatusFresh(now_ms);
     const bool loop_alive =
         (status.flags & message::kSystemStatusFlagLoopAlive) != 0u;
     const bool system_error =
@@ -453,7 +452,13 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   return TxFrameState{m, /*is_heartbeat=*/true};
 }
 
-Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
+bool Mavlink::SystemStatusFresh(uint32_t now_ms) const {
+  return system_status_.have_data &&
+         static_cast<uint32_t>(now_ms - system_status_.update_ms) <=
+             kMavlinkSystemStatusFreshMs;
+}
+
+Mavlink::TxFrameState Mavlink::StartSysStatusFrame(uint32_t now_ms) {
   uint32_t sensors_present = 0;
   uint32_t sensors_enabled = 0;
   uint32_t sensors_health = 0;
@@ -466,27 +471,28 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame() {
     sensors_present =
         MapSystemSensorFlagsToMavlink(status.sensor_present_flags);
     sensors_enabled = sensors_present;
-    sensors_health = MapSystemSensorFlagsToMavlink(status.sensor_health_flags &
-                                                   status.sensor_present_flags);
-    voltage_battery = status.batt_voltage;
-    current_battery = status.batt_current;
-    battery_remaining = NormalizeBatteryRemaining(status.batt_remaining);
-    load = status.control_loop_load;
+
+    // A stale cache still names which sensors exist, which does not go out of
+    // date. What they were last doing does: health clears and the readings go
+    // to their unknowns, rather than a link that died being reported as a
+    // vehicle whose every sensor is well.
+    if (SystemStatusFresh(now_ms)) {
+      sensors_health = MapSystemSensorFlagsToMavlink(
+          status.sensor_health_flags & status.sensor_present_flags);
+      voltage_battery = status.batt_voltage;
+      current_battery = status.batt_current;
+      battery_remaining = NormalizeBatteryRemaining(status.batt_remaining);
+      load = status.control_loop_load;
+    } else {
+      voltage_battery = UINT16_MAX;
+    }
   } else if (const std::optional<message::GpsData> latest =
                  GetCachedValue(gps_)) {
+    // Without SystemStatusMsg a fix is all there is to report.
     sensors_present |= MAV_SYS_STATUS_SENSOR_GPS;
     sensors_enabled |= MAV_SYS_STATUS_SENSOR_GPS;
     if (latest->fixType >= 2) {
       sensors_health |= MAV_SYS_STATUS_SENSOR_GPS;
-    }
-
-    if (latest->batt_voltage > 0) {
-      sensors_present |= MAV_SYS_STATUS_SENSOR_BATTERY;
-      sensors_enabled |= MAV_SYS_STATUS_SENSOR_BATTERY;
-      sensors_health |= MAV_SYS_STATUS_SENSOR_BATTERY;
-      voltage_battery = latest->batt_voltage;
-      current_battery = latest->batt_current;
-      battery_remaining = latest->batt_remaining;
     }
   }
 
@@ -529,18 +535,26 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
     const Config::Tx &cfg_tx) {
-  const std::optional<message::GpsData> latest = GetCachedValue(gps_);
+  const std::optional<message::AttitudeMsg> latest = GetCachedValue(attitude_);
   if (!latest.has_value()) {
     return std::nullopt;
   }
 
+  // ZYX Tait-Bryan, the order MAVLink ATTITUDE names its fields in.
+  const float qw = latest->qw;
+  const float qx = latest->qx;
+  const float qy = latest->qy;
+  const float qz = latest->qz;
+
+  const float roll = std::atan2(2.0f * ((qw * qx) + (qy * qz)),
+                                1.0f - (2.0f * ((qx * qx) + (qy * qy))));
+  float sin_pitch = 2.0f * ((qw * qy) - (qz * qx));
+  sin_pitch = sin_pitch > 1.0f ? 1.0f : (sin_pitch < -1.0f ? -1.0f : sin_pitch);
+  const float pitch = std::asin(sin_pitch);
+  const float yaw = std::atan2(2.0f * ((qw * qz) + (qx * qy)),
+                               1.0f - (2.0f * ((qy * qy) + (qz * qz))));
+
   mavlink_message_t m{};
-  const float roll =
-      (static_cast<float>(latest->roll) * 0.01f) * 0.017453292519943295f;
-  const float pitch =
-      (static_cast<float>(latest->pitch) * 0.01f) * 0.017453292519943295f;
-  const float yaw =
-      (static_cast<float>(latest->yaw) * 0.01f) * 0.017453292519943295f;
 
   mavlink_msg_attitude_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
                             roll, pitch, yaw, 0.0f, 0.0f, 0.0f);
@@ -564,24 +578,27 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame(
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
-    const Config::Tx &cfg_tx) {
-  const std::optional<message::GpsData> latest = GetCachedValue(gps_);
-  if (!latest.has_value()) {
+    const Config::Tx &cfg_tx, uint32_t now_ms) {
+  // Nothing in BATTERY_STATUS can qualify a reading the way SYS_STATUS's
+  // health bit does, so a stale one is withheld instead of dressed up.
+  if (!SystemStatusFresh(now_ms)) {
     return std::nullopt;
   }
+  const message::SystemStatusMsg &status = system_status_.value;
+  const uint16_t voltage_mv = status.batt_voltage;
+  const int16_t current_ca = status.batt_current;
+  const int8_t remaining_pct = status.batt_remaining;
 
-  const bool have_battery = latest->batt_voltage > 0;
-  int8_t battery_remaining = -1;
-  if (have_battery && latest->batt_remaining >= 0) {
-    battery_remaining =
-        (latest->batt_remaining > 100) ? 100 : latest->batt_remaining;
-  }
+  const bool have_battery = voltage_mv > 0;
+  const int8_t battery_remaining =
+      have_battery ? NormalizeBatteryRemaining(remaining_pct)
+                   : static_cast<int8_t>(-1);
 
   uint16_t voltages[10];
   for (uint16_t &voltage : voltages) {
     voltage = UINT16_MAX;
   }
-  voltages[0] = have_battery ? latest->batt_voltage : UINT16_MAX;
+  voltages[0] = have_battery ? voltage_mv : UINT16_MAX;
 
   uint16_t voltages_ext[4] = {};
 
@@ -589,7 +606,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
   mavlink_msg_battery_status_pack(
       cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
       MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO, INT16_MAX, voltages,
-      have_battery ? latest->batt_current : static_cast<int16_t>(-1), -1, -1,
+      have_battery ? current_ca : static_cast<int16_t>(-1), -1, -1,
       battery_remaining, 0,
       static_cast<uint8_t>(MAV_BATTERY_CHARGE_STATE_UNDEFINED), voltages_ext, 0,
       0);
@@ -696,7 +713,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
     std::optional<TxFrameState> frame;
     switch (slot) {
       case TxSlot::kSys:
-        frame = StartSysStatusFrame();
+        frame = StartSysStatusFrame(now_ms);
         break;
       case TxSlot::kGps:
         frame = StartGpsRawIntFrame(cfg_tx);
@@ -708,7 +725,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
         frame = StartGlobalPositionIntFrame(cfg_tx);
         break;
       case TxSlot::kBatt:
-        frame = StartBatteryStatusFrame(cfg_tx);
+        frame = StartBatteryStatusFrame(cfg_tx, now_ms);
         break;
       case TxSlot::kRc:
         frame = StartRcChannelsFrame(cfg_tx);

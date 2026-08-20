@@ -96,7 +96,7 @@ inline constexpr StatPublisher::Config kStatPublisherConfig = {
     .fclink_max_frames_per_poll = {{ fclink.topics.max_frames_per_poll }}u,
     .crsf_max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
 {% for name in ["system_status", "vehicle_status", "esc_telemetry",
-                "rc_channels", "usb_status"] %}
+                "rc_channels", "usb_status", "gps", "attitude"] %}
 {% set topic = fclink.topics[name] %}
     .{{ name }} = {
         .period = {{ topic.period_ms }}u * 1000u,
@@ -280,11 +280,18 @@ inline constexpr RcReceiver::Config kRcReceiverConfig = {
     .throttle_channel = {{ rc_receiver.rc_map.throttle }},
 };
 
+// Ten sample periods, derived so a slower cadence does not read as a dead
+// sensor. The margin is wide because BatteryData stamps when its conversion
+// started, and the publish trails that by up to a whole decimation period.
+inline constexpr uint32_t kBatteryFreshTimeoutUs =
+    kBatteryConfig.sample_period_us * 10u;
+
 inline constexpr uint32_t kGpsFreshTimeoutUs =
     {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u;
 
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
+    .battery_fresh_timeout_us = kBatteryFreshTimeoutUs,
     {# In TelemetryTopic order. The heartbeat payload is a constant, so
        suppressing it on change would silence the link entirely. #}
     .send_on_change = {

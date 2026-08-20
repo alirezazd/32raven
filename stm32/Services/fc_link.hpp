@@ -27,8 +27,6 @@ class FcLink {
   // Sending Logic
   bool Send(const message::Packet &pkt);
 
-  void SendGps(const GpsData &data, const BatteryData &bat);
-
   // Send one-shot RC channel mapping config.
   void SendRcChannels(const message::RcChannelsMsg &msg);
   void SendRcMapConfig(const message::RcMapConfigMsg &cfg);
