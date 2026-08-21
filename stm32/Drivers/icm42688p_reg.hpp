@@ -347,12 +347,19 @@ constexpr int32_t kFifo20InvalidSentinel = -524288;
 // 20-bit HiRes (Packet4) constants
 // FIFO_HIRES_EN=1 forces ±2000 dps + ±16g; other FSR settings ignored
 // (datasheet §6.1). Effective widths 19-bit gyro / 18-bit accel, emitted
-// as 20-bit signed with low LSBs forced 0. Sensitivity is fixed per
-// datasheet §6.1: 131 LSB/dps gyro, 8192 LSB/g accel.
+// as 20-bit signed with the low LSBs forced 0 -- which costs resolution but
+// not range, so the full scale still spans the whole 20-bit code.
 // AAF + Notch require LN power mode (datasheet §12.4); do not drop to LP
 // while they are enabled.
-constexpr float kHiResGyroLsbPerDps = 131.0f;
-constexpr float kHiResAccelLsbPerG = 8192.0f;
+//
+// Divided out of the full scale rather than copied from the datasheet's
+// sensitivity table: the 131 LSB/dps and 8192 LSB/g quoted there belong to the
+// 16-bit path, and the same physical range spans 16x as many counts here.
+constexpr float kHiRes20BitHalfScale = 524288.0f;
+constexpr float kHiResGyroFsDps = 2000.0f;
+constexpr float kHiResAccelFsG = 16.0f;
+constexpr float kHiResGyroLsbPerDps = kHiRes20BitHalfScale / kHiResGyroFsDps;
+constexpr float kHiResAccelLsbPerG = kHiRes20BitHalfScale / kHiResAccelFsG;
 
 // HiRes 20-bit LSB → SI conversions. No FS enum: HiRes locks the chip to
 // ±2000 dps + ±16g.
