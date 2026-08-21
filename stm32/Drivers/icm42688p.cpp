@@ -41,8 +41,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
     Panic(ErrorCode::Stm32::kImuReinit);
   }
 
-  ValidateConfig(cfg);
-
   gpio_ = &gpio;
 
   blackboard_ = &blackboard;
@@ -63,7 +61,8 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
                                   : Icm42688pReg::AccelLsbToMps2(cfg.fs.accel),
       .gyro_lsb_to_rad_s = hires_ ? Icm42688pReg::GyroLsbToRadS_HiRes()
                                   : Icm42688pReg::GyroLsbToRadS(cfg.fs.gyro),
-      .axis_map = cfg.axis_map,
+      .src = {cfg.axis_map.x_from, cfg.axis_map.y_from, cfg.axis_map.z_from},
+      .neg = {cfg.axis_map.x_neg, cfg.axis_map.y_neg, cfg.axis_map.z_neg},
   };
   gyro_odr_hz_ = EffectiveOdrHz(cfg.rates.gyro, cfg.external_clock);
   timestamp_tick_scale_q16_ = TimestampTickScaleQ16(cfg.external_clock);
@@ -125,53 +124,6 @@ uint32_t Icm42688p::GetDeviceId() const {
   return device_id_;
 }
 
-void Icm42688p::ValidateConfig(const Config &cfg) {
-  if (cfg.fifo.watermark_records == 0 ||
-      cfg.fifo.watermark_records > kImuMaxSamples) {
-    Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
-  }
-
-  // A watermark past what the FIFO can hold still fits the 12-bit field and is
-  // written without complaint; the level is simply never reached, so the
-  // interrupt that drives the control loop never fires. Capacity is in records
-  // because that is the unit the watermark is compared in.
-  const uint32_t capacity_records =
-      Icm42688pReg::kFifoBytes / (cfg.fifo.hires ? Icm42688pReg::kPacket4Bytes
-                                                 : Icm42688pReg::kPacket3Bytes);
-  if (cfg.fifo.watermark_records > capacity_records) {
-    Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
-  }
-
-  if (cfg.rates.gyro != cfg.rates.accel) {
-    Panic(ErrorCode::Stm32::kImuOdrMismatch);
-  }
-
-  if (cfg.external_clock.enabled &&
-      (cfg.external_clock.frequency_hz < kExternalClockMinHz ||
-       cfg.external_clock.frequency_hz > kExternalClockMaxHz)) {
-    Panic(ErrorCode::Stm32::kImuInvalidOdr);
-  }
-
-  if (Icm42688pReg::OdrHz(cfg.rates.gyro) == 0 ||
-      Icm42688pReg::OdrHz(cfg.rates.accel) == 0) {
-    Panic(ErrorCode::Stm32::kImuInvalidOdr);
-  }
-
-  if (cfg.calibration.gyro_duration_s == 0 ||
-      cfg.calibration.gyro_timeout_s == 0) {
-    Panic(ErrorCode::Stm32::kImuCalibrationInvalidConfig);
-  }
-
-  // axis_map must be a permutation of {0,1,2}: aliasing/dropping an axis
-  // silently misconfigures the estimator with no obvious flight symptom.
-  const uint8_t a = cfg.axis_map.x_from;
-  const uint8_t b = cfg.axis_map.y_from;
-  const uint8_t c = cfg.axis_map.z_from;
-  if (a > 2u || b > 2u || c > 2u || a == b || a == c || b == c) {
-    Panic(ErrorCode::Stm32::kImuAxisMapInvalid);
-  }
-}
-
 // Filter configuration
 
 void Icm42688p::ConfigureFilters(const Config &cfg) {
@@ -221,7 +173,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
         s2 &= ~GYRO_CONFIG_STATIC2_NF_DIS;
         WriteReg(Reg::kGyroConfigStatic2, s2);
 
-        // Same notch coefficient for all three axes.
         WriteReg(Reg::kGyroConfigStatic6, (uint8_t)(val & 0xFF));
         WriteReg(Reg::kGyroConfigStatic7, (uint8_t)(val & 0xFF));
         WriteReg(Reg::kGyroConfigStatic8, (uint8_t)(val & 0xFF));
@@ -313,7 +264,6 @@ void Icm42688p::OnIrq() {
     // to the burst in flight, so defer it.
     resync_pending_.store(true, std::memory_order_release);
     true_overrun_cnt_.fetch_add(1, std::memory_order_relaxed);
-    HandleOverrunFault();
     return;
   }
   const uint16_t transfer_len =
@@ -322,19 +272,16 @@ void Icm42688p::OnIrq() {
   auto &spi = *spi_;
   CsLow();
   if (!spi.StartTxRxDma(fifo_tx_, fifo_rx_, transfer_len,
-                        &Icm42688p::SpiDoneThunk, this)) {
+                        &Icm42688p::SpiDoneThunk)) {
     CsHigh();
     inflight_.store(false, std::memory_order_release);
     dma_start_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
-    HandleOverrunFault();
   }
 }
 
 extern "C" void Icm42688pOnIrq() { Icm42688p::GetInstance().OnIrq(); }
 
-void Icm42688p::SpiDoneThunk(void *user, bool ok) {
-  static_cast<Icm42688p *>(user)->OnSpiDone(ok);
-}
+void Icm42688p::SpiDoneThunk(bool ok) { GetInstance().OnSpiDone(ok); }
 
 void Icm42688p::OnSpiDone(bool ok) {
   CsHigh();
@@ -349,7 +296,6 @@ void Icm42688p::OnSpiDone(bool ok) {
   if (!ok) {
     spi_error_cnt_.fetch_add(1, std::memory_order_relaxed);
     FlushAndResync();
-    HandleOverrunFault();
     finish();
     return;
   }
@@ -376,13 +322,11 @@ void Icm42688p::OnSpiDone(bool ok) {
       parse_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
       dropped_records_.fetch_add(fifo_wm_records_, std::memory_order_relaxed);
       FlushAndResync();
-      HandleOverrunFault();
       finish();
       return;
     }
 
-    // Overwritten each record, so the newest survives the loop. Kept raw: the
-    // scaling happens once per publication, not once per sample.
+    // Kept raw: the decode happens once per publication, not once per sample.
     last_temp_raw_ = s.temp_raw;
     have_temp_ = true;
 
@@ -427,10 +371,6 @@ void Icm42688p::FlushAndResync() {
   host_offset_us_ = 0;
 }
 
-void Icm42688p::HandleOverrunFault() {
-  overrun_.fetch_add(1, std::memory_order_relaxed);
-}
-
 float Icm42688p::ScaleTemperature(int16_t temp_raw) const {
   // Packet4 carries 16 bits, Packet3 only the low 8 -- and temp_raw is int16_t
   // for both, so the narrow form has to be re-signed before it is converted.
@@ -439,21 +379,15 @@ float Icm42688p::ScaleTemperature(int16_t temp_raw) const {
                       static_cast<int8_t>(temp_raw & 0xFF));
 }
 
-// Chip-frame -> body-NED via the per-board axis map (pick + optional sign).
-// Default = identity (chip XYZ = body NED). The only frame boundary there is:
-// nothing downstream re-flips axes, and nothing downstream reads the full-scale
-// knobs -- HiRes locks the chip to a fixed sensitivity and ignores them, so
-// deriving the scales anywhere else is wrong the moment that knob and the
-// hardware disagree.
+// A signed permutation, so it applies losslessly to the counts and the burst
+// leaves this file in body-NED without ever having been scaled.
 void Icm42688p::MapAxes(const Sample &sample, uint16_t slot,
                         ImuBurst &out) const {
-  const auto &map = scale_config_.axis_map;
-  const uint8_t src[3] = {map.x_from, map.y_from, map.z_from};
-  const bool neg[3] = {map.x_neg, map.y_neg, map.z_neg};
+  const ScaleConfig &map = scale_config_;
   for (uint8_t body = 0; body < 3u; ++body) {
-    const int32_t sign = neg[body] ? -1 : 1;
-    out.gyro[body][slot] = sign * sample.gyro[src[body]];
-    out.accel[body][slot] = sign * sample.accel[src[body]];
+    const int32_t sign = map.neg[body] ? -1 : 1;
+    out.gyro[body][slot] = sign * sample.gyro[map.src[body]];
+    out.accel[body][slot] = sign * sample.accel[map.src[body]];
   }
 }
 
@@ -461,11 +395,9 @@ void Icm42688p::ChipFromBody(const float body[3], float chip[3]) const {
   // body[b] = sign[b] * chip[src[b]], so chip[src[b]] = sign[b] * body[b].
   // Exact only because the map is a signed permutation -- one chip axis per
   // body axis. A general rotation would need a transpose instead.
-  const auto &map = scale_config_.axis_map;
-  const uint8_t src[3] = {map.x_from, map.y_from, map.z_from};
-  const bool neg[3] = {map.x_neg, map.y_neg, map.z_neg};
+  const ScaleConfig &map = scale_config_;
   for (uint8_t b = 0; b < 3u; ++b) {
-    chip[src[b]] = (neg[b] ? -1.0f : 1.0f) * body[b];
+    chip[map.src[b]] = (map.neg[b] ? -1.0f : 1.0f) * body[b];
   }
 }
 
@@ -502,10 +434,10 @@ void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
   out_host_us = static_cast<uint64_t>(imu_us + host_offset_us_);
 }
 
-// One correction per burst, not per record. last_irq_us_ moves once per burst,
-// so running this per sample fed the servo eight times from one measurement --
-// seven of them against samples older than the interrupt, biasing the offset by
-// half a burst and multiplying the >> 7 gain by the watermark.
+// One correction per burst, not per record: last_irq_us_ moves once per burst,
+// so a per-record call would feed the servo the same measurement once per
+// sample -- all but one against a sample older than the interrupt, biasing the
+// offset by half a burst and scaling the >> 7 gain by the watermark.
 void Icm42688p::SyncHostOffset() {
   if (!host_sync_inited_) {
     return;
@@ -660,15 +592,26 @@ void Icm42688p::PublishTemperature(uint32_t now_us) {
   });
 }
 
+// Every burst, unconditionally: `timestamp_us` is the stall window Sentinel
+// measures, and stm32_config.hpp asserts that window against this rate.
 void Icm42688p::PublishHealth(uint32_t now_us) {
+  // Summed rather than counted separately: a fifth counter read before these
+  // four can report a total smaller than the parts printed beside it.
+  const uint32_t true_overruns =
+      true_overrun_cnt_.load(std::memory_order_relaxed);
+  const uint32_t dma_start_fails =
+      dma_start_fail_cnt_.load(std::memory_order_relaxed);
+  const uint32_t spi_errors = spi_error_cnt_.load(std::memory_order_relaxed);
+  const uint32_t parse_fails = parse_fail_cnt_.load(std::memory_order_relaxed);
   blackboard_->UpdateImuHealth(ImuHealth{
       .timestamp_us = now_us,
       .publish_count = publish_cnt_.load(std::memory_order_relaxed),
-      .path_faults = overrun_.load(std::memory_order_relaxed),
-      .true_overruns = true_overrun_cnt_.load(std::memory_order_relaxed),
-      .dma_start_fails = dma_start_fail_cnt_.load(std::memory_order_relaxed),
-      .spi_errors = spi_error_cnt_.load(std::memory_order_relaxed),
-      .parse_fails = parse_fail_cnt_.load(std::memory_order_relaxed),
+      .path_faults =
+          true_overruns + dma_start_fails + spi_errors + parse_fails,
+      .true_overruns = true_overruns,
+      .dma_start_fails = dma_start_fails,
+      .spi_errors = spi_errors,
+      .parse_fails = parse_fails,
       .invalid_samples = invalid_sample_cnt_.load(std::memory_order_relaxed),
       .dropped_records = dropped_records_.load(std::memory_order_relaxed),
       .missed_samples = missed_samples_.load(std::memory_order_relaxed),
@@ -1057,7 +1000,8 @@ void Icm42688p::ConfigureFifo() {
 }
 
 void Icm42688p::SetupDmaBuffer() {
-  // Fixed-burst FIFO reads: read exactly watermark_records packets per IRQ.
+  // MOSI is don't-care for the payload but still clocked out, so the buffer is
+  // filled once here rather than per burst; only the leading byte matters.
   for (size_t i = 0; i < sizeof(fifo_tx_); i++) {
     fifo_tx_[i] = 0xFFu;
   }
@@ -1094,7 +1038,6 @@ void Icm42688p::CsHigh() {
   gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 }
 
-// Explicit instantiation
 void Icm42688p::SuspendSampling() { NVIC_DisableIRQ(board::kImuInt.exti_irqn); }
 
 void Icm42688p::RestartSampling() {

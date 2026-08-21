@@ -84,6 +84,25 @@ class Icm42688p {
     } axis_map{};
   };
 
+  // Checked where the config is defined rather than at Init: every field is a
+  // build-time constant, so a bad one fails the build instead of the aircraft.
+  static consteval bool WatermarkFitsFifo(const Config &cfg) {
+    const uint32_t capacity =
+        Icm42688pReg::kFifoBytes / (cfg.fifo.hires
+                                        ? Icm42688pReg::kPacket4Bytes
+                                        : Icm42688pReg::kPacket3Bytes);
+    return cfg.fifo.watermark_records != 0u &&
+           cfg.fifo.watermark_records <= capacity;
+  }
+
+  // Aliasing or dropping an axis misconfigures the estimator with no obvious
+  // flight symptom, and a non-permutation is not invertible by ChipFromBody.
+  static consteval bool AxisMapIsPermutation(const Config::AxisMap &map) {
+    return map.x_from <= 2u && map.y_from <= 2u && map.z_from <= 2u &&
+           map.x_from != map.y_from && map.x_from != map.z_from &&
+           map.y_from != map.z_from;
+  }
+
   static Icm42688p &GetInstance();
 
   void OnIrq();
@@ -118,7 +137,6 @@ class Icm42688p {
   void CsHigh();
 
   void CheckWhoAmI();
-  void ValidateConfig(const Config &cfg);
   void SoftReset();
   void SetClockSource(const Config &cfg);
   void SetInterfaceConfig(const Config &cfg);
@@ -135,9 +153,8 @@ class Icm42688p {
   void ConfigureFifo();
   void SetupDmaBuffer();
   void FlushAndResync();
-  void HandleOverrunFault();
 
-  static void SpiDoneThunk(void *user, bool ok);
+  static void SpiDoneThunk(bool ok);
   void OnSpiDone(bool ok);
   void PublishBurst(const ImuBurst &burst);
   void PublishHealth(uint32_t now_us);
@@ -197,7 +214,7 @@ class Icm42688p {
 
   // Set from Config::Fifo::hires at Init, alongside the FS selections.
   bool hires_{false};
-  uint16_t packet_bytes_{Icm42688pReg::kPacket3Bytes};
+  uint16_t packet_bytes_{0};
 
   uint16_t fifo_wm_records_{0};
   uint8_t fifo_tx_[1 + kMaxReadBytes]{};
@@ -207,7 +224,6 @@ class Icm42688p {
   // Set when an interrupt arrived mid-burst and its records went undrained.
   // Consumed by OnSpiDone, which is where the bus is free again.
   std::atomic<bool> resync_pending_{false};
-  std::atomic<uint32_t> overrun_{0};
   std::atomic<uint32_t> true_overrun_cnt_{0};
   std::atomic<uint32_t> spi_error_cnt_{0};
   // Records the chip held that a flush threw away, read from FIFO_COUNT at the
@@ -227,7 +243,7 @@ class Icm42688p {
   uint16_t last_tmst16_{0};
   uint64_t tmst64_us_{0};
   uint32_t last_sample_dt_q16_{0};
-  uint32_t timestamp_tick_scale_q16_{kTimestampScaleQ16};
+  uint32_t timestamp_tick_scale_q16_{0};
   uint32_t timestamp_tick_remainder_q16_{0};
   bool tmst_inited_{false};
 
@@ -238,7 +254,11 @@ class Icm42688p {
   struct ScaleConfig {
     float accel_lsb_to_mps2;
     float gyro_lsb_to_rad_s;
-    typename Config::AxisMap axis_map;
+    // The axis map unpacked, so the two users index it directly instead of
+    // rebuilding these arrays per call. Also keeps this whole object
+    // zero-valued until Init, which is what holds it out of .data.
+    uint8_t src[3];
+    bool neg[3];
   };
   ScaleConfig scale_config_{};
   uint32_t gyro_odr_hz_{0};

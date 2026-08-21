@@ -55,10 +55,11 @@ class Spi {
   bool Busy() const
     requires(Inst == SpiInstance::kSpi2);
 
-  using SpiDoneCb = void (*)(void *user, bool ok);
+  // No user pointer: the one owner of this bus is a singleton, so the callee
+  // finds itself.
+  using SpiDoneCb = void (*)(bool ok);
 
-  bool StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len, SpiDoneCb cb,
-                    void *user)
+  bool StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len, SpiDoneCb cb)
     requires(Inst == SpiInstance::kSpi2);
 
   void OnRxDmaTcIrq()
@@ -93,7 +94,6 @@ class Spi {
   uint8_t *rx_ = nullptr;
   uint16_t len_ = 0;
   SpiDoneCb cb_ = nullptr;
-  void *user_ = nullptr;
   uint8_t dummy_tx_ = 0xFF;
   uint8_t dummy_rx_ = 0x00;
 

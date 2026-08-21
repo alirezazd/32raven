@@ -34,12 +34,6 @@ from kconfig_gen import (
 from kconfig_gen import run as run_generator
 from pin_constraints import PinConstraints
 
-ICM42688P_FIFO_BYTES = 2048
-# Twins of Icm42688pReg::kPacket3Bytes / kPacket4Bytes. HiRes selects Packet4,
-# so the record size -- and with it how many records the FIFO holds -- follows
-# STM32_IMU_FIFO_HIRES_EN rather than being fixed.
-ICM42688P_PACKET3_BYTES = 16
-ICM42688P_PACKET4_BYTES = 20
 # Twin of Icm42688p::kNominalOdrReferenceHz. A property of the part, not of the
 # board: the datasheet ODRs are quoted against the part's own 32 kHz oscillator,
 # so driving CLKIN instead scales every one of them by CLKIN/32000.
@@ -803,25 +797,6 @@ def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
     return "M10::UartDataBits::k7"
 
 
-def _imu_packet_bytes(kconf: kconfiglib.Kconfig) -> int:
-    return (
-        ICM42688P_PACKET4_BYTES
-        if sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN")
-        else ICM42688P_PACKET3_BYTES
-    )
-
-
-def _imu_fifo_capacity_records(kconf: kconfiglib.Kconfig) -> int:
-    """Records the FIFO holds, which depends on how wide a record is.
-
-    The watermark is programmed in bytes, so measuring capacity in Packet3
-    records while the chip is writing Packet4 ones overstates it by a quarter.
-    A watermark past the real ceiling is written cleanly, fits the 12-bit
-    field, and simply never fires -- taking the control loop with it.
-    """
-    return ICM42688P_FIFO_BYTES // _imu_packet_bytes(kconf)
-
-
 def _aaf_fields(cutoff_hz: str) -> dict[str, int]:
     """The register row for an AAF corner, as three named fields."""
     delt, delt_sqr, bitshift = AAF_TRIPLES[cutoff_hz]
@@ -1184,23 +1159,6 @@ def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:
 
 def _validate(kconf: kconfiglib.Kconfig) -> None:
     _validate_pinmap(kconf)
-
-    watermark_records = _imu_watermark_records(kconf)
-    hardware_max_records = _imu_fifo_capacity_records(kconf)
-    if watermark_records > hardware_max_records:
-        packet_bytes = _imu_packet_bytes(kconf)
-        packet_name = (
-            "Packet4" if packet_bytes == ICM42688P_PACKET4_BYTES else "Packet3"
-        )
-        raise ValueError(
-            f"a {sym_int(kconf, 'STM32_CONTROL_LOOP_HZ')} Hz control loop "
-            "at this gyro "
-            f"ODR needs {watermark_records} FIFO records, over the ICM42688P "
-            f"capacity of {hardware_max_records} "
-            f"({ICM42688P_FIFO_BYTES} bytes / {packet_bytes}-byte "
-            f"{packet_name} "
-            "records)"
-        )
 
     rc_map = _rc_map(kconf)
     if sorted(rc_map.values()) != [1, 2, 3, 4]:

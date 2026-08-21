@@ -231,6 +231,11 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .z_neg = false,
     },
 };
+static_assert(Icm42688p::WatermarkFitsFifo(kIcm42688pConfig),
+              "IMU FIFO watermark exceeds what the chip holds at this packet "
+              "size -- lower STM32_CONTROL_LOOP_HZ or the gyro ODR");
+static_assert(Icm42688p::AxisMapIsPermutation(kIcm42688pConfig.axis_map),
+              "IMU axis map is not a permutation of {0,1,2}");
 
 inline constexpr SpiConfig kSpi2Config = {
     .polarity = SpiPolarity::kHigh,
@@ -404,6 +409,17 @@ inline constexpr Sentinel::Config kSentinelConfig = {
     .imu_stall_timeout_us = {{ sentinel.stall_timeout_ms }}u * 1000u,
     .test_throttle_silence_us = {{ sentinel.test_throttle_silence_ms }}u * 1000u,
 };
+{# The stall window is bounded at both ends and only one end is checkable.
+   Below: PublishHealth stamps ImuHealth on every burst, unconditionally, so
+   the window has to span many of them or ordinary jitter reads as a stalled
+   sensor and restarts a healthy one mid-flight. Above: it has to stay under
+   the time the motors and props need to respond, or the airframe has already
+   diverged by the time the stall is noticed -- that bound is a property of
+   the airframe, not a constant here, so it lives in this comment. #}
+static_assert(kSentinelConfig.imu_stall_timeout_us >=
+                  (8u * 1000000u) / kControlLoopHz,
+              "STM32_SENTINEL_IMU_STALL_TIMEOUT_MS must span at least 8 IMU "
+              "bursts, or loop jitter reads as a stalled sample path");
 
 inline constexpr UsbCdcConfig kUsbCdcConfig = {
     .vendor_id = {{ usb_cdc.vendor_id }},

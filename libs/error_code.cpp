@@ -91,24 +91,14 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "IMU Path Overrun";
     case ErrorCode::Stm32::kImuDroppedFrame:
       return "IMU dropped frame";
-    case ErrorCode::Stm32::kImuInvalidOdr:
-      return "IMU invalid ODR";
-    case ErrorCode::Stm32::kImuOdrMismatch:
-      return "IMU ODR mismatch";
     case ErrorCode::Stm32::kImuNotInitialized:
       return "IMU Not Initialized";
     case ErrorCode::Stm32::kImuReinit:
       return "IMU re-init";
-    case ErrorCode::Stm32::kImuAxisMapInvalid:
-      return "IMU axis_map invalid (duplicate or out-of-range axis index)";
     case ErrorCode::Stm32::kImuInvalidSampleDetected:
       return "IMU invalid sample detected";
-    case ErrorCode::Stm32::kImuCalibrationInvalidConfig:
-      return "IMU calibration invalid config";
     case ErrorCode::Stm32::kImuCalibrationMotionDetected:
       return "Motion detected during IMU calibration";
-    case ErrorCode::Stm32::kInvalidFifoWatermarkRecords:
-      return "Invalid FIFO watermark records";
     case ErrorCode::Stm32::kEepromNotInitialized:
       return "EEPROM emulation not initialized";
     case ErrorCode::Stm32::kEepromReinit:

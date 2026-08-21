@@ -194,7 +194,7 @@ bool Spi<Inst>::Busy() const
 
 template <SpiInstance Inst>
 bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
-                             SpiDoneCb cb, void *user)
+                             SpiDoneCb cb)
   requires(Inst == SpiInstance::kSpi2)
 {
   if (busy_ || len == 0 || len > 0xFFFF) {
@@ -202,7 +202,6 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
   }
   busy_ = true;
   cb_ = cb;
-  user_ = user;
   tx_ = tx;
   rx_ = rx;
   len_ = static_cast<uint16_t>(len);
@@ -349,14 +348,12 @@ void Spi<Inst>::OnRxDmaTcIrq()
   }
 
   SpiDoneCb cb = nullptr;
-  void *user = nullptr;
 
   busy_ = false;
   cb = cb_;
-  user = user_;
 
   if (cb) {
-    cb(user, true);
+    cb(true);
   }
 }
 
@@ -403,14 +400,12 @@ void Spi<Inst>::HandleDmaError(uint32_t isr_flags)
   }
 
   SpiDoneCb cb = nullptr;
-  void *user = nullptr;
 
   busy_ = false;
   cb = cb_;
-  user = user_;
 
   if (cb) {
-    cb(user, false);
+    cb(false);
   }
 }
 

@@ -24,8 +24,8 @@ inline constexpr uint16_t kImuMaxSamples =
 // reads would have to average `dt` and coarsen the scale.
 //
 // int32 because HiRes samples are 20 bits. Narrowing to 16 would fit only
-// +/-250 dps and +/-4 g, so every burst past either would have to fall back to
-// a 16x coarser scale -- on exactly the transients worth having.
+// +/-125 dps and +/-1 g, so even a board at rest would spend most bursts on a
+// 16x coarser fallback scale.
 //
 // Per-sample stamps are not carried: sample i sat at
 // `timestamp_us - (count-1-i) * dt_us`, which is also how a ULog reader expands
@@ -124,8 +124,9 @@ struct EscTelemetryData {
 struct ImuHealth {
   uint32_t timestamp_us = 0;
   uint32_t publish_count = 0;  // bursts handed to the control loop
-  // Any exit from a sample interrupt that did not publish. The sum of the four
-  // below, kept because it is what the driver's recovery window counts.
+  // Any exit from a sample interrupt that did not publish, which is what the
+  // driver's recovery window counts. Summed from the four below, so it always
+  // agrees with them.
   uint32_t path_faults = 0;
   uint32_t true_overruns = 0;  // interrupt arrived with a transfer in flight
   uint32_t dma_start_fails = 0;
@@ -141,19 +142,19 @@ struct ImuHealth {
   uint8_t last_bad_header = 0;
 };
 
+// Die temperature, ~1 Hz: a ~90 s thermal constant does not belong on the fast
+// path. Unguarded on purpose -- a torn read is off by millikelvin.
+struct ImuTemperature {
+  uint32_t timestamp_us = 0;
+  float celsius = 0.0f;
+};
+
 // Accumulated by the control tick and published whole, so the blackboard
 // only ever receives a finished value. It only grows: the reader deltas
 // against its own snapshot rather than clearing it, which would race the
 // tick still adding to it.
 struct ControlLoopLoad {
   uint32_t busy_cycles = 0;
-};
-
-// Die temperature, ~1 Hz: a ~90 s thermal constant does not belong on the fast
-// path. Unguarded on purpose -- a torn read is off by millikelvin.
-struct ImuTemperature {
-  uint32_t timestamp_us = 0;
-  float celsius = 0.0f;
 };
 
 struct EstimatorState {
