@@ -956,7 +956,7 @@ whether or not bidir ever lands.
 It pays for itself twice. Besides #23, per-motor eRPM every loop is the desync detector #12 is
 looking for.
 
-### #25 — Calibration is stored, never applied, and would reset the board — 🎯 CRITICAL
+### #25 — Calibration is stored and never applied — 🎯 CRITICAL
 
 Two unrelated halves, both armed the moment a MAVLink trigger is wired.
 
@@ -968,10 +968,9 @@ to fold it into: the burst leaves in counts, so applying it means either an inte
 `MapAxes` or a correction in the estimator, and the two differ in whether the log carries a
 corrected signal.
 
-**Gyro calibration would trip the watchdog.** `CalibrateGyro` collects for `gyro_duration_s` of
-2 with a `gyro_timeout_s` ceiling of 5, and there is no `Watchdog::Kick` anywhere in that
-driver. The IWDG's worst-case period is ~681 ms, so the call resets the board three times over
-— seven at the timeout. It has no caller today, which is the only reason it has never fired.
+**Gyro calibration has no caller.** `CalibrateGyro` runs, feeds the watchdog and returns a
+mean, and nothing invokes it — so the chip flies on whatever `ClearUserOffsets()` left, which
+is nothing.
 
 The gyro half is incomplete beyond that: `ClearUserOffsets()` wipes the chip's offsets every
 boot, there is no EE record for them the way there is for accel, and #21 explains why the

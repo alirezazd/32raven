@@ -15,6 +15,7 @@
 #include "stm32_config.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
+#include "watchdog.hpp"
 
 using namespace Icm42688pReg;
 
@@ -674,6 +675,12 @@ void Icm42688p::CalibrateGyro() {
   uint32_t collected = 0;
 
   while (collected < sample_count) {
+    // Fed per iteration: collection runs for gyro_duration_s, several times the
+    // watchdog's worst-case 681 ms window. The loop is bounded twice over --
+    // by sample_count while bursts arrive, by timeout_us when they stop -- and
+    // runs from the main loop, so a genuinely wedged one is still caught.
+    Watchdog::GetInstance().Kick();
+
     // A peek, not a consume: `fresh` belongs to the control loop, and clearing
     // it here would hand the interrupt a slot the loop is still reading.
     // Masking instead, which is safe because calibration is a bench operation
