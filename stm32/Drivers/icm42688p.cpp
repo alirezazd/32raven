@@ -824,10 +824,14 @@ void Icm42688p::CalibrateGyro() {
   time.DelayMicros(MillisToMicros(50));
   WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadReg(Reg::kIntStatus);
-  // No interrupt ran while the offsets were written, so the delta base is
-  // stale by that window; carrying it would charge the whole gap to the next
-  // burst.
-  last_irq_cnt_ = System::GetInstance().Time().Micros();
+  // No interrupt ran while the offsets were written, and last_irq_us_ is the
+  // unwrapped host clock the log stamps against, so that window has to be added
+  // rather than dropped. Safe to advance in one step: FlushAndResync above
+  // cleared the sync flag, so the next record reseeds the offset instead of
+  // servoing across the jump.
+  const uint32_t now_cnt = System::GetInstance().Time().Micros();
+  last_irq_us_ += static_cast<uint32_t>(now_cnt - last_irq_cnt_);
+  last_irq_cnt_ = now_cnt;
   if (was_sampling) {
     NVIC_EnableIRQ(board::kImuInt.exti_irqn);
   }
