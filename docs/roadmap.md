@@ -1001,8 +1001,7 @@ it -- has never been measured against a still board.
 
 What the bench pass never reached is the two retrieval paths: the `SdCard` menu entry mounting
 on a PC over MSC, and `tools/pull_logs.py` returning a byte-identical copy over WiFi. Both are
-still unexercised. PlotJuggler has also never opened one of these files — pyulog and Flight
-Review have.
+still unexercised.
 
 Content gaps are #31 and #33; a card that fills is #37; formatting is #32.
 
@@ -1096,7 +1095,6 @@ a stream the raw IMU pair dominates at ~328 KB/s whenever it is enabled.
 
 | Source | Not recorded |
 | --- | --- |
-| `ImuTemperature` | the whole struct |
 | `GpsData` | `hAcc`, `vAcc`, `gDOP`, `pDOP`, `vDOP`, UTC date/time, `valid`, `tAcc`, `posCov*`, `velCovValid` — 18 of 27 fields |
 | `EscTelemetryData` | the whole topic — recording is off, see below |
 | SharedState | `flight_mode`, `IsArmed()` |
@@ -1141,9 +1139,37 @@ viewer renders rather than something a reader has to infer:
 
 **Topic naming is settled for the raw pair and open for everything else.** Flight Review is
 hardcoded to PX4 topic names, so `sensor_gyro_fifo` / `sensor_accel_fifo` inherit its whole
-analysis suite — virtual FIFO expansion, FFT, spectral density — for free. Every topic above
-still carries a name of our own, which buys nothing from any viewer; each one is worth checking
-against a PX4 topic before its record shape is fixed.
+analysis suite for free. Every topic above still carries a name of our own, which buys nothing
+from any viewer. #44 works that check through for one of them, and the rule it argues for: take
+PX4's name only where PX4's record is not the poorer of the two.
+
+### #44 — `imu_health` is our name for `vehicle_imu_status` — 🟢 SUPPORTING
+
+The die temperature is measured, scaled and published to the blackboard every second, and no
+consumer reads it. PX4 carries the same value as `float32 temperature` in degrees Celsius on
+`sensor_gyro` / `sensor_accel`, and as `temperature_accel` / `temperature_gyro` on
+`vehicle_imu_status`, logged at 1000 ms — the rate `PublishTemperature` already limits itself
+to. Adding it to the `imu_health` record is four bytes at 5 Hz.
+
+The larger question is whether that record should be `vehicle_imu_status`. It is unversioned,
+so it is the same stability class as the FIFO pair already matched field-for-field, and it is
+what Flight Review reads its vibration metrics from. Eleven of its twenty fields we already
+hold: both device ids, both error counts, both rates, both raw rates, both temperatures.
+
+Against the rename, and the reason not to do it reflexively:
+
+- **The nine missing fields summarise what we already log in full.** `add_raw_imu_gyro_fifo()`
+  is opt-in in PX4, so `vehicle_imu_status` exists to stand in for a raw stream that is usually
+  absent. `gyro_vibration_metric` is an EWMA of consecutive-sample difference magnitude — one
+  number where we record the spectrum. `var_gyro` is recoverable offline from the same samples.
+- **PX4's fault taxonomy is coarser than ours.** `true_overruns`, `dma_start_fails`,
+  `spi_errors` and `parse_fails` all collapse into one `gyro_error_count`.
+
+**Clipping is the exception, and wants doing whatever the topic ends up called.** A sample
+pinned at the 20-bit rail is indistinguishable from a real reading once it is in the log, and
++/-16 g is reachable on a quad. `accel_clipping[3]` / `gyro_clipping[3]` are per-axis counts of
+exactly that, and nothing here detects it -- `invalid_samples` counts the chip's no-fresh-data
+sentinel, which is a different thing.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
