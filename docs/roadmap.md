@@ -977,6 +977,26 @@ The gyro half is incomplete beyond that: `ClearUserOffsets()` wipes the chip's o
 boot, there is no EE record for them the way there is for accel, and #21 explains why the
 trigger has to check the reset cause as well.
 
+**The trigger is a decision, not just missing plumbing.** Operator-triggered over MAVLink is one
+shape, automatic at boot is the other, and they need different things underneath:
+
+- *Recalibrate every boot, persist nothing.* Consistent with the `ClearUserOffsets()` that
+  already runs unconditionally, needs no EE record, and requires the craft still at power-on.
+- *Calibrate on command, persist, restore at boot.* Needs a gyro record beside
+  `ImuAccelCalibration`, and a reason for `ClearUserOffsets()` to stop wiping.
+
+Today's code is neither — it wipes at boot and stores nothing.
+
+Two things gate that choice rather than follow from it. The AHRS already carries a Mahony PI
+bias term (`ki_bias`), and it has never executed: the accel-trust band is +/-0.020 g full and
++/-0.050 g zero, so a 4 g reading held the gate shut for the life of the board. With the
+sensitivities corrected it runs, and what `bias_` converges to decides whether a hardware offset
+is needed at all -- the residual to beat is 0.910 dps. Second, automation changes what motion
+should do: `Panic(kImuCalibrationMotionDetected)` is defensible for an operator-triggered bench
+step and hostile as a boot step that bricks the aircraft because someone leaned on the bench.
+The stillness gate itself -- 64 raw counts, scale-invariant, so the sensitivity fix did not move
+it -- has never been measured against a still board.
+
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
 What the bench pass never reached is the two retrieval paths: the `SdCard` menu entry mounting
@@ -1076,10 +1096,10 @@ a stream the raw IMU pair dominates at ~328 KB/s whenever it is enabled.
 
 | Source | Not recorded |
 | --- | --- |
+| `ImuTemperature` | the whole struct |
 | `GpsData` | `hAcc`, `vAcc`, `gDOP`, `pDOP`, `vDOP`, UTC date/time, `valid`, `tAcc`, `posCov*`, `velCovValid` — 18 of 27 fields |
 | `EscTelemetryData` | the whole topic — recording is off, see below |
 | SharedState | `flight_mode`, `IsArmed()` |
-| `ImuTemperature` | the whole struct |
 | SharedState | `uptime_ms`, `loop_counter` |
 | `CrsfLinkData` | `active_antenna` |
 | `ImuHealth` | `last_bad_header` |
@@ -1188,9 +1208,9 @@ permutation the struct stores.
 
 A signed permutation has 6 orderings × 8 sign combinations = 48 settings, and only 24 are
 rotations. The other 24 have determinant −1: reflections no rigid mount can produce.
-`ValidateConfig` does not catch them — it checks the ordering is a permutation of {0,1,2} and
-never looks at the signs — so `x_from=1, y_from=0, z_from=2` all-positive passes, swaps X and
-Y, and hands the AHRS a left-handed frame.
+`AxisMapIsPermutation` does not catch them — it asserts the ordering is a permutation of
+{0,1,2} and never looks at the signs — so `x_from=1, y_from=0, z_from=2` all-positive passes,
+swaps X and Y, and hands the AHRS a left-handed frame.
 
 Betaflight's set is the right size: 8 orientations, 4 yaw × {upright, flipped}
 (`common/sensor_alignment.h`), plus a sentinel for the driver default and one custom escape.
