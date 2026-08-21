@@ -35,10 +35,14 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   // AHRS: aggregate IMU burst → averaged ω + integrated quaternion →
   // EstimatorState → Blackboard. Acro reads gyro_body_rad_s; Stabilize also
   // reads attitude_world_to_body.
+  // Before the AHRS, which clears the mailbox's fresh flag: that flag is what
+  // holds the interrupt off the slot, so the raw burst has to be taken while
+  // it still stands.
+  ctx.sys->LogSvc().PushRawImu();
+
   const EstimatorState estimate =
       ctx.sys->AhrsSvc().Process(ctx.sys->Blackboard());
   ctx.sys->Blackboard().UpdateEstimate(estimate);
-  ctx.sys->LogSvc().PushEstimate(estimate);
 
   // Cascade: sticks → rate_sp → rate PID → torque → mixer → DShot.
   // Mixer and ESC both read the blackboard's armed flag, which Sentinel is

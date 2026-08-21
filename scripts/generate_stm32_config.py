@@ -1378,6 +1378,7 @@ def _limits_context(
     return {
         "autogen_warning": autogen_warning(source),
         "max_watermark_records": _imu_watermark_records(kconf),
+        "log_raw_imu": sym_bool(kconf, "STM32_LOG_TOPIC_RAW_IMU"),
         "dshot_min_period_ticks": DSHOT_MIN_PERIOD_TICKS,
         "dshot_max_period_ticks": DSHOT_MAX_PERIOD_TICKS,
         "usb_cdc_string_descriptor_bytes": _usb_string_descriptor_bytes(kconf),
@@ -1718,6 +1719,7 @@ def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
     return {
         "prealloc_mb": sym_int(kconf, "STM32_LOG_PREALLOC_MB"),
+        "bench_seconds": sym_int(kconf, "STM32_LOG_BENCH_SECONDS"),
         "topics": topics,
     }
 

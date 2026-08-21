@@ -3,15 +3,18 @@
 
 #include "log_service.hpp"
 
+#include <charconv>
 #include <cstdio>
 #include <cstring>
 #include <limits>
 #include <span>
+#include <string_view>
 
 #include "error_code.hpp"
 #include "fc_link.hpp"
 #include "panic.hpp"
 #include "sdio.hpp"
+#include "system.hpp"
 #include "watchdog.hpp"
 
 namespace {
@@ -59,18 +62,84 @@ struct __attribute__((packed)) FlagBits {
 // Each layout must match its format string byte for byte; the static_asserts
 // are the only thing tying the two together.
 
-struct __attribute__((packed)) EstimatorRecord {
+// PX4's sensor_gyro_fifo / sensor_accel_fifo, field for field: one record per
+// FIFO read, `scale` turning a count into SI. Gyro and accel are separate
+// topics rather than one packed record because PlotJuggler and Flight Review
+// find the FIFO expansion by topic name, and a record can only carry one.
+struct __attribute__((packed)) SensorFifoRecord {
   MsgHeader hdr;
   uint16_t msg_id;
   uint64_t timestamp;
-  float gyro[3];
-  float accel[3];
-  float q[4];
+  uint64_t timestamp_sample;
+  uint32_t device_id;
+  float dt;
+  float scale;
+  uint8_t samples;
+  int32_t x[kImuMaxSamples];
+  int32_t y[kImuMaxSamples];
+  int32_t z[kImuMaxSamples];
 };
-static_assert(sizeof(EstimatorRecord) == 53);
-constexpr char kFmtEstimator[] =
-    "estimator_state:uint64_t timestamp;float[3] gyro;float[3] accel;"
-    "float[4] q;";
+// The format message declares these widths by hand, and a reader trusts it
+// over the bytes: padding here would shift every field after it.
+static_assert(sizeof(SensorFifoRecord) ==
+              sizeof(MsgHeader) + 2u + 8u + 8u + 4u + 4u + 4u + 1u +
+                  (3u * kImuMaxSamples * 4u));
+constexpr size_t DecimalDigits(uint32_t value) {
+  size_t digits = 1;
+  for (; value >= 10u; value /= 10u) {
+    ++digits;
+  }
+  return digits;
+}
+
+// The only formats with a build-time array width in them. Built rather than
+// written out, and built at compile time: a runtime formatter would need a
+// buffer sized by hand.
+constexpr std::string_view kFifoTail =
+    ":uint64_t timestamp;uint64_t timestamp_sample;uint32_t device_id;"
+    "float dt;float scale;uint8_t samples;";
+constexpr std::string_view kFifoOpen = "int32_t[";
+constexpr std::string_view kFifoClose = "] ";
+constexpr std::string_view kFifoAxes[] = {"x", "y", "z"};
+
+constexpr size_t kFifoAxesLen = [] {
+  size_t len = 0;
+  for (std::string_view axis : kFifoAxes) {
+    len += kFifoOpen.size() + DecimalDigits(kImuMaxSamples) + kFifoClose.size() +
+           axis.size() + 1u;
+  }
+  return len;
+}();
+
+// N carries the literal's length, so each topic name sizes its own storage.
+template <size_t N>
+constexpr auto MakeFifoFmt(const char (&name)[N]) {
+  std::array<char, (N - 1u) + kFifoTail.size() + kFifoAxesLen + 1u> out{};
+  size_t at = 0;
+  const auto put = [&out, &at](std::string_view text) {
+    for (char c : text) {
+      out[at++] = c;
+    }
+  };
+  put(std::string_view(name, N - 1u));
+  put(kFifoTail);
+  for (std::string_view axis : kFifoAxes) {
+    put(kFifoOpen);
+    at = static_cast<size_t>(
+        std::to_chars(out.data() + at, out.data() + out.size(), kImuMaxSamples)
+            .ptr -
+        out.data());
+    put(kFifoClose);
+    put(axis);
+    put(";");
+  }
+  return out;
+}
+
+constexpr auto kGyroFifoFmt = MakeFifoFmt("sensor_gyro_fifo");
+constexpr auto kAccelFifoFmt = MakeFifoFmt("sensor_accel_fifo");
+constexpr const char *kFmtSensorGyroFifo = kGyroFifoFmt.data();
+constexpr const char *kFmtSensorAccelFifo = kAccelFifoFmt.data();
 
 struct __attribute__((packed)) RcRecord {
   MsgHeader hdr;
@@ -189,16 +258,34 @@ constexpr char kFmtLogger[] =
     "logger_status:uint64_t timestamp;uint32_t dropped_bytes;"
     "uint32_t write_errors;";
 
-// One entry per MsgId, estimator first.
-constexpr std::array<const char *, LogService::kSlowTopicCount + 1> kFormats = {
-    kFmtEstimator, kFmtRc,        kFmtBattery,  kFmtEscTelemetry,
-    kFmtGps,       kFmtImuHealth, kFmtCrsfLink, kFmtLogger,
-};
-constexpr std::array<const char *, LogService::kSlowTopicCount + 1>
-    kTopicNames = {
-        "estimator_state", "rc_input",  "battery",       "esc_telemetry", "gps",
-        "imu_health",      "crsf_link", "logger_status",
-};
+// One entry per MsgId, the pushed topics first.
+// Both tables are indexed by MsgId, so the raw IMU pair leads them only when it
+// is in the file at all. Built rather than listed for that reason.
+template <typename T>
+constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery,
+                              T esc, T gps, T imu_health, T crsf, T logger) {
+  std::array<T, LogService::kTopicCount> out{};
+  size_t at = 0;
+  if constexpr (LogService::kRawImuLogEnabled) {
+    out[at++] = gyro_fifo;
+    out[at++] = accel_fifo;
+  }
+  out[at++] = rc;
+  out[at++] = battery;
+  out[at++] = esc;
+  out[at++] = gps;
+  out[at++] = imu_health;
+  out[at++] = crsf;
+  out[at++] = logger;
+  return out;
+}
+
+constexpr auto kFormats = MakeTopicTable<const char *>(
+    kFmtSensorGyroFifo, kFmtSensorAccelFifo, kFmtRc, kFmtBattery,
+    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtCrsfLink, kFmtLogger);
+constexpr auto kTopicNames = MakeTopicTable<const char *>(
+    "sensor_gyro_fifo", "sensor_accel_fifo", "rc_input", "battery",
+    "esc_telemetry", "gps", "imu_health", "crsf_link", "logger_status");
 
 // Returns the index from "LOGnnnnn.ULG", or 0 for any other name.
 uint32_t LogFileIndex(const char *name) {
@@ -387,7 +474,14 @@ uint64_t LogService::Stamp64(uint32_t src_us) const {
   if (src_us == 0u) {
     return total_us_;
   }
-  return total_us_ - static_cast<uint32_t>(last_now_us_ - src_us);
+  // Signed: an interrupt can write a source between this tick's Now64 and the
+  // read below, leaving it newer than the poll. Unsigned, that few-microsecond
+  // lead wraps to ~2^32 and drives the stamp below zero.
+  const int32_t age_us = static_cast<int32_t>(last_now_us_ - src_us);
+  if (age_us <= 0) {
+    return total_us_;
+  }
+  return total_us_ - static_cast<uint32_t>(age_us);
 }
 
 uint64_t LogService::Now64(uint32_t now_us) {
@@ -401,26 +495,68 @@ uint64_t LogService::Now64(uint32_t now_us) {
   return total_us_;
 }
 
-void LogService::PushEstimate(const EstimatorState &estimate) {
+namespace {
+
+SensorFifoRecord MakeFifoRecord(uint16_t msg_id, const ImuBurst &burst,
+                                uint32_t latency_us, float scale,
+                                const int32_t (&axes)[3][kImuMaxSamples]) {
+  SensorFifoRecord rec =
+      MakeRecord<SensorFifoRecord>(msg_id, burst.timestamp_us + latency_us);
+  rec.timestamp_sample = burst.timestamp_us;
+  rec.device_id = burst.device_id;
+  rec.dt = burst.dt_us;
+  rec.scale = scale;
+  rec.samples = burst.count;
+  std::memcpy(rec.x, axes[0], sizeof(rec.x));
+  std::memcpy(rec.y, axes[1], sizeof(rec.y));
+  std::memcpy(rec.z, axes[2], sizeof(rec.z));
+  return rec;
+}
+
+}  // namespace
+
+// Called from the control tick while the mailbox still reads fresh, so the
+// interrupt cannot be writing the slot underneath. Sole producer into the ring.
+void LogService::PushRawImu() {
+  if constexpr (!kRawImuLogEnabled) {
+    return;
+  }
   if (!logging_) {
     return;
   }
-  EstimatorRecord rec = MakeRecord<EstimatorRecord>(
-      kMsgEstimator, estimate.timestamp_us);
-  for (int i = 0; i < 3; ++i) {
-    rec.gyro[i] = estimate.gyro_body_rad_s[i];
-    rec.accel[i] = estimate.accel_body_mps2[i];
-  }
-  rec.q[0] = estimate.attitude_world_to_body.w();
-  rec.q[1] = estimate.attitude_world_to_body.x();
-  rec.q[2] = estimate.attitude_world_to_body.y();
-  rec.q[3] = estimate.attitude_world_to_body.z();
-
-  if ((ring_.Capacity() - ring_.Available()) < sizeof(rec)) {
-    stats_.dropped_bytes += sizeof(rec);
+  const ImuBurstSlot &slot = blackboard_->GetImuBurstSlot();
+  if (!slot.fresh || slot.burst.count == 0u) {
     return;
   }
-  ring_.PushBlock(reinterpret_cast<const uint8_t *>(&rec), sizeof(rec));
+  const ImuBurst &burst = slot.burst;
+  // `timestamp` is when the record was produced, `timestamp_sample` when the
+  // chip took the reading -- PX4's pair, and the gap between them is the FIFO
+  // read plus the wait for this tick. Taken as a 32-bit delta so it stays
+  // wrap-safe without reading the log's 64-bit clock, which the main tick owns
+  // and this runs in PendSV.
+  //
+  // Signed, and floored at zero: the sample stamp is servo-tracked against the
+  // chip's clock and can lead TIM2 by a few hundred microseconds, which as an
+  // unsigned delta would be a 4295-second jump instead of a small negative.
+  const int32_t elapsed_us =
+      static_cast<int32_t>(System::GetInstance().Time().Micros() -
+                           static_cast<uint32_t>(burst.timestamp_us));
+  const uint32_t latency_us =
+      (elapsed_us > 0) ? static_cast<uint32_t>(elapsed_us) : 0u;
+  const SensorFifoRecord gyro = MakeFifoRecord(
+      kMsgSensorGyroFifo, burst, latency_us, burst.gyro_scale, burst.gyro);
+  const SensorFifoRecord accel = MakeFifoRecord(
+      kMsgSensorAccelFifo, burst, latency_us, burst.accel_scale, burst.accel);
+
+  // Both or neither: they describe one FIFO read, and a reader that found the
+  // accel without the gyro would be reading a gap as a measurement.
+  const size_t needed = sizeof(gyro) + sizeof(accel);
+  if ((ring_.Capacity() - ring_.Available()) < needed) {
+    stats_.dropped_bytes += needed;
+    return;
+  }
+  ring_.PushBlock(reinterpret_cast<const uint8_t *>(&gyro), sizeof(gyro));
+  ring_.PushBlock(reinterpret_cast<const uint8_t *>(&accel), sizeof(accel));
 }
 
 void LogService::AppendToStaging(const void *data, size_t len) {
@@ -506,7 +642,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
     }
     slow_sched_.MarkSent(slot, now_us);
 
-    switch (static_cast<MsgId>(slot + 1)) {
+    switch (static_cast<MsgId>(slot + kMsgPushedCount)) {
       case kMsgRc: {
         const RcData &rc = blackboard_->GetRc();
         RcRecord rec = MakeRecord<RcRecord>(kMsgRc, Stamp64(rc.timestamp_us));
@@ -600,7 +736,6 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         AppendToStaging(&rec, sizeof(rec));
         break;
       }
-      case kMsgEstimator:
       case kMsgCount:
         break;
     }
@@ -608,6 +743,11 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
 }
 
 void LogService::StageFromRing() {
+  // Sampled before draining, so it is the depth the producer actually reached.
+  const uint32_t pending = static_cast<uint32_t>(ring_.Available());
+  if (pending > stats_.ring_peak_bytes) {
+    stats_.ring_peak_bytes = pending;
+  }
   while (fill_len_ < kStagingBytes) {
     const auto readable = ring_.ContiguousReadable();
     if (readable.empty()) {
@@ -640,12 +780,29 @@ void LogService::TryStartFlush() {
     return;
   }
   dma_busy_ = true;
+  flush_start_us_ = System::GetInstance().Time().Micros();
   fill_index_ ^= 1u;
   fill_len_ = 0;
 }
 
 void LogService::FinishFlush(bool ok) {
   dma_busy_ = false;
+  // The card's own stalls -- erase, wear levelling -- land here as write time,
+  // and the ring is all that stands between one and a dropped record. Hence
+  // the worst rather than the mean, and a histogram to say how often.
+  const uint32_t elapsed_us =
+      System::GetInstance().Time().Micros() - flush_start_us_;
+  ++stats_.flush_count;
+  stats_.flush_total_us += elapsed_us;
+  if (elapsed_us > stats_.flush_max_us) {
+    stats_.flush_max_us = elapsed_us;
+  }
+  size_t bucket = 0;
+  for (uint32_t edge = 1000u; bucket < 7u && elapsed_us >= edge; edge *= 2u) {
+    ++bucket;
+  }
+  ++stats_.flush_hist[bucket];
+
   if (ok) {
     flushed_bytes_ += kStagingBytes;
   } else {
@@ -678,6 +835,7 @@ void LogService::StartFlight(uint32_t now_us) {
   if (session_open_ || !file_ready_) {
     return;
   }
+  session_start_us_ = now_us;
   ring_.Clear();
   fill_index_ = 0;
   fill_len_ = 0;
@@ -727,6 +885,24 @@ void LogService::StopFlight() {
       }
     }
   }
+
+  const uint32_t mean_us =
+      stats_.flush_count ? stats_.flush_total_us / stats_.flush_count : 0u;
+  fc_link_->SendLog(
+      "log: %lu B %lu wr mean=%luus max=%luus ring=%lu/%lu drop=%lu err=%lu",
+      static_cast<unsigned long>(log_bytes_),
+      static_cast<unsigned long>(stats_.flush_count),
+      static_cast<unsigned long>(mean_us),
+      static_cast<unsigned long>(stats_.flush_max_us),
+      static_cast<unsigned long>(stats_.ring_peak_bytes),
+      static_cast<unsigned long>(kRingBytes),
+      static_cast<unsigned long>(stats_.dropped_bytes),
+      static_cast<unsigned long>(stats_.write_errors));
+  fc_link_->SendLog("log: ms<1 %u %u %u %u %u %u %u >=64 %u",
+                    stats_.flush_hist[0], stats_.flush_hist[1],
+                    stats_.flush_hist[2], stats_.flush_hist[3],
+                    stats_.flush_hist[4], stats_.flush_hist[5],
+                    stats_.flush_hist[6], stats_.flush_hist[7]);
 
   const uint32_t final_bytes = sink_failed_ ? flushed_bytes_ : log_bytes_;
   // Best effort, never a panic: disarm may be a landing. A file left full-size
@@ -867,6 +1043,24 @@ void LogService::ReadLog(const message::LogReadMsg &req,
 
 void LogService::Poll(uint32_t now_us) {
   const uint64_t now64 = Now64(now_us);
+
+  // A bench run needs no transmitter: the control tick already produces bursts
+  // while disarmed, so only the session was missing. Opens itself, runs the
+  // configured span, then closes -- and StopFlight is what reports.
+  if (cfg_.bench_seconds != 0u && !bench_done_) {
+    if (!bench_started_) {
+      bench_started_ = true;
+      StartFlight(now_us);
+    } else if ((now_us - session_start_us_) >=
+               (cfg_.bench_seconds * 1000000u)) {
+      bench_done_ = true;
+      fc_link_->SendPacket(message::MsgId::kTone,
+                           message::ToneMsg{.tone = static_cast<uint8_t>(
+                                                message::Tone::kConfirm)});
+      StopFlight();
+      return;
+    }
+  }
 
   if (!logging_) {
     return;

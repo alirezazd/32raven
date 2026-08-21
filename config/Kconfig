@@ -3216,6 +3216,17 @@ config STM32_LOG_PREALLOC_MB
       Preallocation fails, and logging with it, once the card has no
       contiguous run this large left.
 
+config STM32_LOG_BENCH_SECONDS
+    int "Self-contained bench log of N seconds at boot (0 = off)"
+    range 0 600
+    default 0
+    help
+      Opens a log session shortly after boot, runs it this long, then sounds a
+      confirmation tone, closes the file and reports the write counters. Needs
+      no transmitter and arms nothing: the control tick already produces IMU
+      bursts while disarmed, so only the session was missing. Leave at 0 for
+      flight, where arming is what starts a log.
+
 # Cadences for the scheduled topics. The estimator stream is absent on
 # purpose: it rides the control tick and its rate is CONTROL_LOOP_HZ.
 #
@@ -3231,6 +3242,19 @@ config STM32_LOG_PREALLOC_MB
 # "log at the topic's full rate", this scheduler reads 0 as "disabled". So
 # esc_telemetry cannot express PX4's uncapped esc_status; 20 ms is one full
 # request round across four motors, which is as fast as new data exists.
+
+config STM32_LOG_TOPIC_RAW_IMU
+    bool "Raw IMU samples"
+    default n
+    help
+      Record every IMU sample as unscaled counts, one entry per FIFO read,
+      for filter and notch work that needs the spectrum the control loop
+      never sees. A tuning profile rather than a flight setting: the stream
+      is the ODR, not a period, so with this on the raw pair is essentially
+      the whole log and every scheduled topic together rounds to nothing
+      beside it. The entry carries as many samples as the FIFO watermark, so
+      a smaller watermark spends proportionally more of the stream on entry
+      headers.
 
 config STM32_LOG_TOPIC_RC_INPUT_PERIOD_MS
     int "RC input period (ms)"

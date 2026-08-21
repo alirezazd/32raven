@@ -51,6 +51,10 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   fifo_wm_records_ = cfg.fifo.watermark_records;
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
   last_irq_cnt_ = System::GetInstance().Time().Micros();
+  // Seeded from the counter, not from zero: this is the unwrapped host clock,
+  // and the log builds its own timeline from the same TIM2 count. Starting at
+  // zero would stamp every IMU record a whole boot behind the rest of the file.
+  last_irq_us_ = last_irq_cnt_;
   hires_ = cfg.fifo.hires;
   packet_bytes_ =
       hires_ ? Icm42688pReg::kPacket4Bytes : Icm42688pReg::kPacket3Bytes;
@@ -59,7 +63,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
                                   : Icm42688pReg::AccelLsbToMps2(cfg.fs.accel),
       .gyro_lsb_to_rad_s = hires_ ? Icm42688pReg::GyroLsbToRadS_HiRes()
                                   : Icm42688pReg::GyroLsbToRadS(cfg.fs.gyro),
-      .hires = hires_,
       .axis_map = cfg.axis_map,
   };
   gyro_odr_hz_ = EffectiveOdrHz(cfg.rates.gyro, cfg.external_clock);
@@ -124,7 +127,7 @@ uint32_t Icm42688p::GetDeviceId() const {
 
 void Icm42688p::ValidateConfig(const Config &cfg) {
   if (cfg.fifo.watermark_records == 0 ||
-      cfg.fifo.watermark_records > kMaxWatermarkRecords) {
+      cfg.fifo.watermark_records > kImuMaxSamples) {
     Panic(ErrorCode::Stm32::kInvalidFifoWatermarkRecords);
   }
 
@@ -353,12 +356,16 @@ void Icm42688p::OnSpiDone(bool ok) {
 
   const uint8_t *p = &fifo_rx_[1];
 
-  ImuSampleBatch batch{};
-  batch.count = 0;
+  ImuBurst burst{};
+  burst.device_id = device_id_;
+  burst.gyro_scale = scale_config_.gyro_lsb_to_rad_s;
+  burst.accel_scale = scale_config_.accel_lsb_to_mps2;
 
+  // Outlives the loop so the newest sample's timestamp is still readable once
+  // the offset servo below has run.
+  Sample s{};
   for (uint16_t i = 0; i < fifo_wm_records_; ++i) {
     const uint8_t *rec = p + (static_cast<uint32_t>(i) * packet_bytes_);
-    Sample s{};
     bool ok_rec;
     if (hires_) {
       ok_rec = ParsePacket4Record(rec, s);
@@ -379,17 +386,18 @@ void Icm42688p::OnSpiDone(bool ok) {
     last_temp_raw_ = s.temp_raw;
     have_temp_ = true;
 
-    // Scaled here rather than by the consumer: the burst leaves this file in
-    // body-NED SI, so nothing downstream needs the chip's frame or its
-    // full-scale knobs. Costs ~300 cycles a burst inside the interrupt.
-    batch.samples[batch.count++] = ScaleSample(s);
+    MapAxes(s, burst.count, burst);
+    ++burst.count;
   }
 
   // After the loop: tmst64_us_ now holds the newest sample, which is the one
   // whose arrival raised the interrupt last_irq_us_ was stamped from.
   SyncHostOffset();
 
-  PublishLatestBatch(batch);
+  burst.timestamp_us = s.timestamp_us;
+  burst.dt_us = static_cast<float>(last_sample_dt_q16_) / 65536.0f;
+
+  PublishBurst(burst);
 
   if (resync_pending_.exchange(false, std::memory_order_acq_rel)) {
     FlushAndResync();
@@ -426,32 +434,27 @@ void Icm42688p::HandleOverrunFault() {
 float Icm42688p::ScaleTemperature(int16_t temp_raw) const {
   // Packet4 carries 16 bits, Packet3 only the low 8 -- and temp_raw is int16_t
   // for both, so the narrow form has to be re-signed before it is converted.
-  return scale_config_.hires ? Icm42688pReg::FifoTemperatureC16(temp_raw)
-                             : Icm42688pReg::FifoTemperatureC(
-                                   static_cast<int8_t>(temp_raw & 0xFF));
+  return hires_ ? Icm42688pReg::FifoTemperatureC16(temp_raw)
+                : Icm42688pReg::FifoTemperatureC(
+                      static_cast<int8_t>(temp_raw & 0xFF));
 }
 
-ImuSample Icm42688p::ScaleSample(const Sample &sample) const {
-  const ScaleConfig &cfg = scale_config_;
-  ImuSample out{};
-  out.timestamp_us = sample.timestamp_us;
-
-  // Chip-frame -> body-NED via the per-board axis map (pick + optional sign).
-  // Default = identity (chip XYZ = body NED).
-  const uint8_t src[3] = {cfg.axis_map.x_from, cfg.axis_map.y_from,
-                          cfg.axis_map.z_from};
-  const bool neg[3] = {cfg.axis_map.x_neg, cfg.axis_map.y_neg,
-                       cfg.axis_map.z_neg};
+// Chip-frame -> body-NED via the per-board axis map (pick + optional sign).
+// Default = identity (chip XYZ = body NED). The only frame boundary there is:
+// nothing downstream re-flips axes, and nothing downstream reads the full-scale
+// knobs -- HiRes locks the chip to a fixed sensitivity and ignores them, so
+// deriving the scales anywhere else is wrong the moment that knob and the
+// hardware disagree.
+void Icm42688p::MapAxes(const Sample &sample, uint16_t slot,
+                        ImuBurst &out) const {
+  const auto &map = scale_config_.axis_map;
+  const uint8_t src[3] = {map.x_from, map.y_from, map.z_from};
+  const bool neg[3] = {map.x_neg, map.y_neg, map.z_neg};
   for (uint8_t body = 0; body < 3u; ++body) {
-    const uint8_t chip = src[body];
-    const float sign = neg[body] ? -1.0f : 1.0f;
-    out.accel_mps2[body] =
-        sign * static_cast<float>(sample.accel[chip]) * cfg.accel_lsb_to_mps2;
-    out.gyro_rad_s[body] =
-        sign * static_cast<float>(sample.gyro[chip]) * cfg.gyro_lsb_to_rad_s;
+    const int32_t sign = neg[body] ? -1 : 1;
+    out.gyro[body][slot] = sign * sample.gyro[src[body]];
+    out.accel[body][slot] = sign * sample.accel[src[body]];
   }
-
-  return out;
 }
 
 void Icm42688p::ChipFromBody(const float body[3], float chip[3]) const {
@@ -479,6 +482,9 @@ void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
         (static_cast<uint64_t>(dt16) * timestamp_tick_scale_q16_) +
         timestamp_tick_remainder_q16_;
     tmst64_us_ += scaled_dt_q16 >> 16;
+    // Kept in Q16 and converted once per burst: the log wants the fraction,
+    // and a float per sample would land in the interrupt for nothing.
+    last_sample_dt_q16_ = static_cast<uint32_t>(scaled_dt_q16);
     timestamp_tick_remainder_q16_ =
         static_cast<uint32_t>(scaled_dt_q16 & (kTimestampScaleQ16 - 1u));
   }
@@ -671,8 +677,8 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
   });
 }
 
-void Icm42688p::PublishLatestBatch(const ImuSampleBatch &batch) {
-  ImuSampleSlot &slot = blackboard_->ImuSampleMailbox();
+void Icm42688p::PublishBurst(const ImuBurst &burst) {
+  ImuBurstSlot &slot = blackboard_->ImuBurstMailbox();
   if (slot.fresh) {
     // The consumer is still reading the previous burst, so this one is
     // dropped. Counted in samples to stay comparable with the ODR, which is
@@ -685,8 +691,8 @@ void Icm42688p::PublishLatestBatch(const ImuSampleBatch &batch) {
   // Acquire: the write below must not be hoisted above the test that made it
   // safe.
   std::atomic_signal_fence(std::memory_order_acquire);
-  slot.batch = batch;
-  // Release: the batch must be complete before the flag advertises it.
+  slot.burst = burst;
+  // Release: the burst must be complete before the flag advertises it.
   std::atomic_signal_fence(std::memory_order_release);
   slot.fresh = true;
   publish_cnt_.fetch_add(1, std::memory_order_relaxed);
@@ -715,8 +721,8 @@ void Icm42688p::CalibrateGyro() {
   // Seeded so the first burst collected is one that arrived after calibration
   // began, not whatever the driver happened to be holding.
   uint32_t last_publish = publish_cnt_.load(std::memory_order_relaxed);
-  // Body-NED now that the burst arrives scaled. The stillness knob is quoted in
-  // chip LSB, so it converts once here rather than per comparison.
+  // The stillness knob is quoted in chip LSB and the run below compares in
+  // rad/s, so it converts once here rather than per sample.
   const float still_threshold_rad_s =
       static_cast<float>(still_threshold_raw) * scale_config_.gyro_lsb_to_rad_s;
   float sum[3] = {0.0f, 0.0f, 0.0f};
@@ -729,12 +735,12 @@ void Icm42688p::CalibrateGyro() {
     // it here would hand the interrupt a slot the loop is still reading.
     // Masking instead, which is safe because calibration is a bench operation
     // on a still airframe and the window is sub-microsecond.
-    ImuSampleBatch batch{};
+    ImuBurst burst{};
     const uint32_t primask = __get_PRIMASK();
     __disable_irq();
     const uint32_t published = publish_cnt_.load(std::memory_order_relaxed);
     if (published != last_publish) {
-      batch = blackboard_->ImuSampleMailbox().batch;
+      burst = blackboard_->ImuBurstMailbox().burst;
     }
     __set_PRIMASK(primask);
 
@@ -746,10 +752,10 @@ void Icm42688p::CalibrateGyro() {
     }
     last_publish = published;
 
-    for (uint8_t i = 0; i < batch.count && collected < sample_count; ++i) {
-      const ImuSample &s = batch.samples[i];
+    for (uint8_t i = 0; i < burst.count && collected < sample_count; ++i) {
       for (int axis = 0; axis < 3; ++axis) {
-        const float g = s.gyro_rad_s[axis];
+        const float g =
+            static_cast<float>(burst.gyro[axis][i]) * burst.gyro_scale;
         if (collected == 0) {
           min_g[axis] = g;
           max_g[axis] = g;
@@ -1103,9 +1109,9 @@ void Icm42688p::ResumeSampling() {
   // FIFO_THS never re-fires from a FIFO already above the watermark.
   WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadReg(Reg::kIntStatus);
-  // A batch published while no consumer was wired is the same backlog in
+  // A burst published while no consumer was wired is the same backlog in
   // software. The IRQ is still masked here, so nothing races the clear.
-  blackboard_->ImuSampleMailbox().fresh = false;
+  blackboard_->ImuBurstMailbox().fresh = false;
   // EXTI latched an edge while sampling was unheard. Its pending bit goes
   // first -- clearing only the NVIC's lets EXTI re-pend at once.
   EXTI->PR = board::kImuInt.pin;

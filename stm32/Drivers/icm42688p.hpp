@@ -11,15 +11,11 @@
 #include "icm42688p_reg.hpp"
 #include "shared_state.hpp"
 #include "spi.hpp"
-#include "stm32_limits.hpp"
 
 class GPIO;
 
 class Icm42688p {
  public:
-  static constexpr uint16_t kMaxWatermarkRecords =
-      stm32_limits::kIcm42688pMaxWatermarkRecords;
-
   struct Config {
     SpiPrescaler spi_prescaler;
 
@@ -61,8 +57,6 @@ class Icm42688p {
     struct Fifo {
       uint16_t watermark_records;
       bool hold_last;
-      // Packet4 (20-byte) records instead of Packet3 (16-byte). Packet4
-      // reports at fixed sensitivity, so it also overrides the fs setting.
       bool hires;
     } fifo;
 
@@ -76,8 +70,8 @@ class Icm42688p {
       uint32_t fault_led_period_ms;
     } recovery;
 
-    // Per-board chip-frame → body-NED axis remap applied by ScaleSample;
-    // the sole conversion boundary, so no downstream code re-flips axes.
+    // Per-board chip-frame → body-NED axis remap, applied inside this driver
+    // and nowhere else, so no downstream code re-flips axes.
     // Each component picks a chip axis (0=X, 1=Y, 2=Z) and optional sign.
     // Identity default: chip +X/+Y/+Z = body +X(N)/+Y(E)/+Z(D).
     struct AxisMap {
@@ -145,13 +139,13 @@ class Icm42688p {
 
   static void SpiDoneThunk(void *user, bool ok);
   void OnSpiDone(bool ok);
-  void PublishLatestBatch(const ImuSampleBatch &batch);
+  void PublishBurst(const ImuBurst &burst);
   void PublishHealth(uint32_t now_us);
   // Rate-limited inside; called on every burst so the cadence lives with the
   // reason for it rather than with the caller.
   void PublishTemperature(uint32_t now_us);
-  // The chip's own report: chip frame, LSB counts. Never leaves this file --
-  // ScaleSample is the sole conversion boundary, and raw counts are unusable to
+  // One decoded FIFO record, still in the chip's frame. Never leaves this file:
+  // MapAxes is the sole frame boundary, and a chip-frame count is unusable to
   // anything that does not already know the part.
   struct Sample {
     uint64_t timestamp_us;
@@ -163,13 +157,12 @@ class Icm42688p {
   bool ParsePacket3Record(const uint8_t *rec, Sample &out);
   bool ParsePacket4Record(const uint8_t *rec, Sample &out);
 
-  // The one chip-frame/LSB -> body-NED/SI boundary. Nothing downstream
-  // re-scales or re-flips, and nothing downstream reads the full-scale knobs:
-  // HiRes locks the chip to fixed sensitivity and ignores them, so deriving
-  // the factors anywhere else is wrong the moment that knob and the hardware
-  // disagree.
-  ImuSample ScaleSample(const Sample &sample) const;
-  // Frame half of ScaleSample, inverted. CalibrateGyro measures in body-NED but
+  // Writes one sample into the burst's axis-major arrays. Out-param rather than
+  // a returned struct because the destination is structure-of-arrays: a
+  // per-sample return would only be transposed at the call site.
+  void MapAxes(const Sample &sample, uint16_t slot, ImuBurst &out) const;
+
+  // Frame half of MapAxes, inverted. CalibrateGyro measures in body-NED but
   // OFFSET_USER is per chip axis, so the mean has to come back through the map
   // before it is written -- and that write is permanent. Units are not
   // inverted: the offset register takes dps, so nothing returns to LSB.
@@ -200,8 +193,7 @@ class Icm42688p {
   // only the first 16 bytes. Static so SPI DMA buffers never re-allocate
   // when the FIFO mode flips.
   static constexpr uint16_t kMaxPacketBytes = Icm42688pReg::kPacket4Bytes;
-  static constexpr uint16_t kMaxReadBytes =
-      kMaxWatermarkRecords * kMaxPacketBytes;
+  static constexpr uint16_t kMaxReadBytes = kImuMaxSamples * kMaxPacketBytes;
 
   // Set from Config::Fifo::hires at Init, alongside the FS selections.
   bool hires_{false};
@@ -234,6 +226,7 @@ class Icm42688p {
 
   uint16_t last_tmst16_{0};
   uint64_t tmst64_us_{0};
+  uint32_t last_sample_dt_q16_{0};
   uint32_t timestamp_tick_scale_q16_{kTimestampScaleQ16};
   uint32_t timestamp_tick_remainder_q16_{0};
   bool tmst_inited_{false};
@@ -241,13 +234,10 @@ class Icm42688p {
   int64_t host_offset_us_{0};
   bool host_sync_inited_{false};
   bool fifo_hold_last_data_en_{false};
-  // Captured from cfg.axis_map at Init. Applied per sample in
-  // ScaleSample to convert chip-frame → body-NED.
   // Resolved once at Init rather than branched on per sample.
   struct ScaleConfig {
     float accel_lsb_to_mps2;
     float gyro_lsb_to_rad_s;
-    bool hires;  // the temperature word is 16-bit rather than 8-bit
     typename Config::AxisMap axis_map;
   };
   ScaleConfig scale_config_{};

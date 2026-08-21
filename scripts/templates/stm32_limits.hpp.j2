@@ -18,6 +18,10 @@ namespace stm32_limits {
 
 inline constexpr std::size_t kUsbCdcStringDescriptorBytes = {{ usb_cdc_string_descriptor_bytes }};
 inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_records }};
+{# Sizes the log's topic tables, so it is a shape rather than a tunable: the
+   raw IMU pair is the one topic set pushed per FIFO read instead of scheduled,
+   and with it off the log carries scheduled records only. #}
+inline constexpr bool kLogRawImuEnabled = {{ log_raw_imu | cpp_bool }};
 inline constexpr uint32_t kDshotMinPeriodTicks = {{ dshot_min_period_ticks }};
 inline constexpr uint32_t kDshotMaxPeriodTicks = {{ dshot_max_period_ticks }};
 

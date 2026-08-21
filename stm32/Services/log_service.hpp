@@ -19,19 +19,46 @@
 // flight path writes raw sectors through Sdio -- FatFs sees the file again
 // only at finalize.
 //
-// PushEstimate produces from the control tick (PendSV), Poll consumes from
-// the main tick, and the ring is their whole interface. Ring and staging stay
-// in plain SRAM: CCM is not DMA-reachable and the flush is a DMA read.
+// PushRawImu produces from the control tick (PendSV), Poll consumes from the
+// main tick, and the ring is their whole interface. Ring and staging stay in
+// plain SRAM: CCM is not DMA-reachable and the flush is a DMA read.
 //
 // Init panics on an unusable card; past init a full file or a dead write
 // leaves the service inert and counting, never feeding Sentinel.
 class LogService {
+ public:
+  // The raw IMU pair is the one exception to "every topic is scheduled": it is
+  // pushed per FIFO read, so it has ids but no slots. Off, and it is not in the
+  // file at all -- the ids below shift down and the tables shrink with them.
+  // Public so the .cpp's topic tables can be shaped by it.
+  static constexpr bool kRawImuLogEnabled = stm32_limits::kLogRawImuEnabled;
+
+ private:
+  static constexpr uint16_t kMsgSensorGyroFifo = 0u;
+  static constexpr uint16_t kMsgSensorAccelFifo = 1u;
+  static constexpr uint16_t kMsgPushedCount = kRawImuLogEnabled ? 2u : 0u;
+
+  // The scheduled set, one id per scheduler slot: slot n is id
+  // n + kMsgPushedCount. Ahead of the public block because kTopicCount is
+  // derived from it.
+  enum MsgId : uint16_t {
+    kMsgRc = kMsgPushedCount,
+    kMsgBattery,
+    kMsgEscTelemetry,
+    kMsgGps,
+    kMsgImuHealth,
+    kMsgCrsfLink,
+    kMsgLogger,
+    kMsgCount,
+  };
+
  public:
   // Only `period` is read: this scheduler emits every due topic rather than
   // picking one, and never suppresses. `priority` and `max_silence` are
   // carried to keep one TopicConfig shape across both schedulers.
   struct Config {
     uint32_t prealloc_mb;
+    uint32_t bench_seconds;
     TopicConfig rc_input{};
     TopicConfig battery{};
     TopicConfig esc_telemetry{};
@@ -42,9 +69,12 @@ class LogService {
   };
 
   static constexpr size_t kSlowTopicCount = 7;
+  // Public only so the .cpp's format and name tables can be sized by it.
+  static constexpr size_t kTopicCount = kMsgCount;
+  static_assert(kSlowTopicCount == kMsgCount - kMsgPushedCount);
 
   // The only member callable from PendSV; a full ring drops the record.
-  void PushEstimate(const EstimatorState &estimate);
+  void PushRawImu();
 
   // Both blocking and idempotent; StopFlight also preallocates the next file.
   void StartFlight(uint32_t now_us);
@@ -66,23 +96,19 @@ class LogService {
   void Init(const Config &cfg, SharedState &blackboard,
             FcLink &fc_link);
 
-  // ULog message ids double as topic-scheduler slots for the slow set.
-  enum MsgId : uint16_t {
-    kMsgEstimator = 0,
-    kMsgRc,
-    kMsgBattery,
-    kMsgEscTelemetry,
-    kMsgGps,
-    kMsgImuHealth,
-    kMsgCrsfLink,
-    kMsgLogger,
-    kMsgCount,
-  };
-  static_assert(kSlowTopicCount == kMsgCount - 1);
-
   struct Stats {
     uint32_t dropped_bytes = 0;
     uint32_t write_errors = 0;
+    // A card stalls for its own reasons -- erase, wear levelling -- and the
+    // ring is the only thing between that stall and a dropped record. So the
+    // worst single write matters, not the mean, and `ring_peak_bytes` is what
+    // says how close it came: at kRingBytes the next stall drops records.
+    uint32_t flush_count = 0;
+    uint32_t flush_max_us = 0;
+    uint32_t flush_total_us = 0;
+    uint32_t ring_peak_bytes = 0;
+    // Power-of-two microsecond buckets from <1 ms, the last one open-ended.
+    uint16_t flush_hist[8] = {};
   };
 
   void PrepareNextFile();
@@ -126,12 +152,16 @@ class LogService {
   uint8_t fill_index_ = 0;
   size_t fill_len_ = 0;
   bool dma_busy_ = false;
+  uint32_t flush_start_us_ = 0;
 
   // Producer gate, written from the main tick and read from PendSV. Separate
   // from session_open_ so a dead card stops the producer while the file stays
   // open for a best-effort finalize at disarm.
   volatile bool logging_ = false;
   bool session_open_ = false;
+  uint32_t session_start_us_ = 0;
+  bool bench_started_ = false;
+  bool bench_done_ = false;
   bool sink_failed_ = false;
 
   uint32_t log_bytes_ = 0;      // ULog stream length

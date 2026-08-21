@@ -15,23 +15,37 @@
 
 // POD (Plain Old Data) Sensor Packets
 
-// One IMU sample, already through the axis map: body-NED, SI units.
-struct ImuSample {
-  uint64_t timestamp_us = 0;
-  float accel_mps2[3] = {0.0f, 0.0f, 0.0f};
-  float gyro_rad_s[3] = {0.0f, 0.0f, 0.0f};
-};
+inline constexpr uint16_t kImuMaxSamples =
+    stm32_limits::kIcm42688pMaxWatermarkRecords;
 
-struct ImuSampleBatch {
+// One FIFO read, in the chip's own counts: the axis map is a signed
+// permutation, so it applies losslessly to the integers, and the two scales are
+// what turn a count into SI. Sized by the watermark: a burst spanning several
+// reads would have to average `dt` and coarsen the scale.
+//
+// int32 because HiRes samples are 20 bits. Narrowing to 16 would fit only
+// +/-250 dps and +/-4 g, so every burst past either would have to fall back to
+// a 16x coarser scale -- on exactly the transients worth having.
+//
+// Per-sample stamps are not carried: sample i sat at
+// `timestamp_us - (count-1-i) * dt_us`, which is also how a ULog reader expands
+// the record built from these fields.
+struct ImuBurst {
+  uint64_t timestamp_us = 0;  // the burst's newest sample
+  uint32_t device_id = 0;
+  float dt_us = 0.0f;        // between samples, from the chip's own timestamp
+  float gyro_scale = 0.0f;   // count -> rad/s
+  float accel_scale = 0.0f;  // count -> m/s^2
   uint8_t count = 0;
-  ImuSample samples[stm32_limits::kIcm42688pMaxWatermarkRecords]{};
+  int32_t gyro[3][kImuMaxSamples]{};
+  int32_t accel[3][kImuMaxSamples]{};
 };
 
 // A mailbox, not a plain store: the interrupt sets `fresh` and will not write
 // while it is set; the consumer clears it once it has finished reading.
-struct ImuSampleSlot {
+struct ImuBurstSlot {
   volatile bool fresh = false;
-  ImuSampleBatch batch{};
+  ImuBurst burst{};
 };
 
 struct GpsData {
@@ -245,12 +259,12 @@ class SharedState {
   // what keeps it here rather than behind a Sentinel accessor.
   uint32_t FailsafeFlags() const { return failsafe_flags_; }
 
-  const ImuSampleSlot &GetImuSampleSlot() const { return imu_slot_; }
+  const ImuBurstSlot &GetImuBurstSlot() const { return imu_slot_; }
 
  private:
   friend class Icm42688p;
   friend class Ahrs;
-  ImuSampleSlot &ImuSampleMailbox() { return imu_slot_; }
+  ImuBurstSlot &ImuBurstMailbox() { return imu_slot_; }
 
   // Sentinel is the only writer of both: changing the arm state goes through
   // Sentinel::RequestArm, which carries the interlock and the stop frames.
@@ -268,7 +282,7 @@ class SharedState {
   ControlLoopLoad control_loop_load_{};
   uint32_t main_tick_count_ = 0;
   ImuTemperature imu_temp_{};
-  alignas(8) ImuSampleSlot imu_slot_{};
+  alignas(8) ImuBurstSlot imu_slot_{};
   EstimatorState estimate_{};
   UsbStatusData usb_{};
   FlightMode mode_ = FlightMode::kAcro;

@@ -219,7 +219,7 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
 {# Chip-frame -> body-NED axis remap. Identity: this board mounts the
    ICM-42688P with its native axes already aligned to body-NED (chip
    +X = body North, +Y = body East, +Z = body Down). The single
-   axis-conversion boundary lives in the driver's ScaleSample --
+   axis-conversion boundary lives in the driver's MapAxes --
    everything downstream is body-NED with no flips. If a future
    board rotates/flips the chip, promote these to Kconfig. #}
     .axis_map = {
@@ -372,6 +372,7 @@ inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
 
 inline constexpr LogService::Config kLogServiceConfig = {
     .prealloc_mb = {{ log_service.prealloc_mb }}u,
+    .bench_seconds = {{ log_service.bench_seconds }}u,
 {% for name in ["rc_input", "battery", "esc_telemetry", "gps", "imu_health",
                 "crsf_link", "logger_status"] %}
 {% set topic = log_service.topics[name] %}
