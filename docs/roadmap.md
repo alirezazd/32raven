@@ -961,9 +961,12 @@ looking for.
 Two unrelated halves, both armed the moment a MAVLink trigger is wired.
 
 **Accel calibration does nothing.** `accel_calibration_` is loaded from EE at `Init` and written
-back by `SaveAccelCalibration`, and `ScaleSample` never reads it. It round-trips through storage
-and never reaches a sample. The `EeConfigStorage` path around it is correct end to end — the
-value simply has no consumer.
+back by `SaveAccelCalibration`, and nothing on the sample path reads it. It round-trips through
+storage and never reaches a sample. The `EeConfigStorage` path around it is correct end to end —
+the value simply has no consumer. Note there is no longer a float conversion inside the driver
+to fold it into: the burst leaves in counts, so applying it means either an integer offset in
+`MapAxes` or a correction in the estimator, and the two differ in whether the log carries a
+corrected signal.
 
 **Gyro calibration would trip the watchdog.** `CalibrateGyro` collects for `gyro_duration_s` of
 2 with a `gyro_timeout_s` ceiling of 5, and there is no `Watchdog::Kick` anywhere in that
@@ -976,19 +979,10 @@ trigger has to check the reset cause as well.
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
-**None of the SD path has touched hardware.** The encoding is validated against pyulog
-off-target only, and the first bench pass is also what confirms the DevEBox slot is SDIO-wired
-at all — the repo has no schematic for it, so the pinout is taken from stm32-base.org and is
-proven only by the card answering CMD0/ACMD41.
-
-What that pass has to establish:
-
-- A card present at boot preallocates `LOG00001.ULG` at `STM32_LOG_PREALLOC_MB`, contiguous;
-  no card boots clean.
-- An armed props-off run truncates to real size at disarm, opens in pyulog and PlotJuggler,
-  shows `estimator_state` at ~2048 Hz and `dropped_records` at zero.
-- The `SdCard` menu entry mounts on a PC, and `tools/pull_logs.py` returns a byte-identical
-  copy over WiFi.
+What the bench pass never reached is the two retrieval paths: the `SdCard` menu entry mounting
+on a PC over MSC, and `tools/pull_logs.py` returning a byte-identical copy over WiFi. Both are
+still unexercised. PlotJuggler has also never opened one of these files — pyulog and Flight
+Review have.
 
 Content gaps are #31 and #33; a card that fills is #37; formatting is #32.
 
@@ -1002,8 +996,6 @@ esc_service as locals and never touch the blackboard, so the logger cannot see t
   the same shape as `UpdateEstimate`. ~36 bytes at 2048 Hz adds ~80 KB/s to the stream.
 - **A decimation knob** for the fast topics, once real flights show whether full rate is worth
   the file sizes.
-- **Raw pre-decimation gyro batches** as an optional topic, for the #23 filter design work —
-  the 8192 Hz stream is the one place motor noise is visible above 1024 Hz.
 - **Firmware identity in the ULog `I` messages.** The STM32 has no version constant (#18); when
   it gains one, stamp it so a log names the code that flew it.
 
@@ -1080,11 +1072,10 @@ would rather lose.
 Distinct from #31, which needs new plumbing before anything can be recorded. Everything here is
 already on the SharedState, already timestamped, and simply never written — so the work is
 record fields and format strings, not a design change. The whole list costs a few KB/s against
-a stream the estimator already dominates at 108 KB/s, except the first entry.
+a stream the raw IMU pair dominates at ~328 KB/s whenever it is enabled.
 
 | Source | Not recorded |
 | --- | --- |
-| Raw IMU batch | 4 samples per tick at 8192 Hz, each with its own sensor-domain timestamp |
 | `GpsData` | `hAcc`, `vAcc`, `gDOP`, `pDOP`, `vDOP`, UTC date/time, `valid`, `tAcc`, `posCov*`, `velCovValid` — 18 of 27 fields |
 | `EscTelemetryData` | the whole topic — recording is off, see below |
 | SharedState | `flight_mode`, `IsArmed()` |
@@ -1093,13 +1084,12 @@ a stream the estimator already dominates at 108 KB/s, except the first entry.
 | `CrsfLinkData` | `active_antenna` |
 | `ImuHealth` | `last_bad_header` |
 
-**The raw IMU batch is the one that is not cheap and the one that matters most.** `Ahrs::Process`
-integrates every sample, but publishes their mean, so the logged stream is band-limited to
-1024 Hz by a 4-tap box — and #23 needs to see motor noise above exactly that. Logging all four
-is ~196 KB/s, roughly tripling the file, so it wants a bounded window or an on-demand mode
-rather than always-on. Note PX4 makes the opposite trade: `sensor_combined` at full rate,
-`vehicle_attitude` decimated to 20 Hz. It logs the measurement and thins the estimate; this
-logs the estimate and drops the measurement.
+**The estimate is not recorded at all.** The raw FIFO topics carry the full-rate truth, so what
+is missing is PX4's pair, through the scheduler rather than pushed: `vehicle_angular_velocity`
+at 20 ms and `vehicle_attitude` at 50 ms, in PX4's field order and units. Both live in
+`msg/versioned/` with `MESSAGE_VERSION = 0`, so the shape has to be copied deliberately rather
+than approximated — and ours would be the burst mean, where PX4's is calibration-corrected,
+notch/LPF filtered and EKF-bias-subtracted, which the record cannot claim to be.
 
 **ESC telemetry is recorded not at all, deliberately.** `STM32_LOG_TOPIC_ESC_TELEMETRY_PERIOD_MS`
 defaults to 0. The four motors answer their own requests and carry their own timestamps, so a
@@ -1129,12 +1119,11 @@ viewer renders rather than something a reader has to infer:
 - **`'O'` dropout records.** A full ring increments `dropped_bytes` and moves on, so a gap
   reads as "nothing happened". Viewers draw a dropout; they cannot draw a counter.
 
-**Topic naming is a decision, not a task.** Flight Review is hardcoded to PX4 topic names, and
-`estimator_state`'s fields already match `sensor_combined`'s `gyro_rad` and
-`accelerometer_m_s2` in both shape and units. Renaming would inherit PX4's whole analysis suite
-— vibration metrics, FFT, spectral density — for free. Against that: `estimator_state` is
-honest about being a fused estimate, and PX4's names would claim a compatibility the fields
-only partly honour. Worth deciding deliberately rather than drifting into.
+**Topic naming is settled for the raw pair and open for everything else.** Flight Review is
+hardcoded to PX4 topic names, so `sensor_gyro_fifo` / `sensor_accel_fifo` inherit its whole
+analysis suite — virtual FIFO expansion, FFT, spectral density — for free. Every topic above
+still carries a name of our own, which buys nothing from any viewer; each one is worth checking
+against a PX4 topic before its record shape is fixed.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
@@ -1206,7 +1195,7 @@ Y, and hands the AHRS a left-handed frame.
 Betaflight's set is the right size: 8 orientations, 4 yaw × {upright, flipped}
 (`common/sensor_alignment.h`), plus a sentinel for the driver default and one custom escape.
 It covers every mount anyone builds on a board they designed, stays a signed permutation so
-`ScaleSample` remains a table lookup, and structurally cannot express a reflection. PX4 carries
+`MapAxes` remains a table lookup, and structurally cannot express a reflection. PX4 carries
 41 rotations behind an Euler table and a DCM multiply, including 45-degree steps and one
 `ROTATION_ROLL_90_PITCH_68_YAW_293`, because it runs on airframes somebody else laid out. That
 generality is a liability here, not a feature.
