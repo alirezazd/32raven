@@ -7,11 +7,11 @@
 
 // uint32_t entry point so all ErrorCode domains share one panic loop without
 // pulling error_code.hpp into this header. Callers use Panic<E> below.
-void PanicImpl(uint32_t code);
+[[noreturn]] void PanicImpl(uint32_t code);
 
 // Disjoint underlying ranges (Common below ErrorCode::kStm32Base, then
 // kStm32Base and kEsp32Base) preserve the domain on the wire after the cast.
 template <typename E>
-inline void Panic(E code) {
+[[noreturn]] inline void Panic(E code) {
   PanicImpl(static_cast<uint32_t>(code));
 }

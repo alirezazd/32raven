@@ -174,7 +174,7 @@ extern "C" void PanicHardFault(void) {
   Panic(ErrorCode::Stm32::kHardFault);
 }
 
-void PanicImpl(uint32_t code) {
+[[noreturn]] void PanicImpl(uint32_t code) {
   // Fail safe: stop any in-flight frame and latch the lines low. Gated on the
   // TIM1 clock — touching a clock-gated peripheral (panic before the motor
   // driver is up) would fault.
