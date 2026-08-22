@@ -2015,6 +2015,18 @@ def _ee_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {"spi1_prescaler": prescaler}
 
 
+def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    # Knobs of the procedure, not of the part: the symbols keep their IMU names,
+    # but SensorCalService consumes them and nothing in the driver reads them.
+    return {
+        "duration_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_DURATION_S"),
+        "timeout_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_S"),
+        "still_threshold_raw": sym_int(
+            kconf, "STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW"
+        ),
+    }
+
+
 def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     # SPI2 hangs off APB1. The part is rated to 24 MHz and the flight loop wants
     # every bit of that, so take the fastest divider the ceiling allows.
@@ -2069,13 +2081,6 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "watermark_records": _imu_watermark_records(kconf),
             "hold_last": sym_bool(kconf, "STM32_IMU_FIFO_HOLD_LAST"),
             "hires": sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN"),
-        },
-        "calibration": {
-            "gyro_duration_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_DURATION_S"),
-            "gyro_timeout_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_S"),
-            "gyro_still_threshold_raw": sym_int(
-                kconf, "STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW"
-            ),
         },
         "recovery": {
             "fault_led_period_ms": sym_int(
@@ -2226,6 +2231,7 @@ def _runtime_context(
         "fclink": _fclink_context(kconf),
         "m10": _m10_context(kconf),
         "icm42688p": _icm42688p_context(kconf),
+        "sensor_cal": _sensor_cal_context(kconf),
         "control_loop_hz": _control_loop_hz(kconf),
         "enable_profiling": sym_bool(kconf, "STM32_PROFILING"),
         "button": _button_context(kconf),

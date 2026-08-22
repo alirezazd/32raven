@@ -165,6 +165,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/states.cpp
     Services/m10_service.cpp
     Services/log_service.cpp
+    Services/sensor_cal_service.cpp
     Services/crsf_link_service.cpp
     Drivers/ee_config_storage.cpp
     Drivers/dshot_codec.cpp

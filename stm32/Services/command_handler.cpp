@@ -154,6 +154,25 @@ static void OnReqReceiverBind(const AppContext &ctx,
   ctx.sys->FcLinkSvc().SendLog("CRSF RX bind requested");
 }
 
+// No arm check here: SensorCalService owns that and the busy test both. The
+// outcome is a tone, not a reply -- the run outlasts this packet.
+static void OnCalibrateGyro(const AppContext &ctx, const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kCalibrateGyro,
+                                     pkt.header.len)) {
+    return;
+  }
+
+  if (ctx.sys->SensorCalSvc().Gyro().Start(ctx.now_us)) {
+    ctx.sys->FcLinkSvc().SendLog("Gyro calibration started");
+    return;
+  }
+  // 🖕 if asked while not idle, return the finger.
+  ctx.sys->FcLinkSvc().SendLog("Gyro calibration refused: armed or busy");
+  ctx.sys->FcLinkSvc().SendPacket(
+      message::MsgId::kTone,
+      message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kWarning)});
+}
+
 // Privileged: directly toggle ESC + Mixer arm state, bypassing any future
 // arming state machine. Trust model matches kReboot/kBootload (gated only by
 // FCLink access). Used by test fixtures to drive non-zero mixer outputs
@@ -236,6 +255,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kSetRcCalibrationConfig, OnSetRcCalibration},
     {message::MsgId::kReqGyroCalibrationId, OnReqGyroCalibrationId},
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
+    {message::MsgId::kCalibrateGyro, OnCalibrateGyro},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
     {message::MsgId::kSetUsbMode, OnSetUsbMode},

@@ -97,8 +97,6 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "IMU re-init";
     case ErrorCode::Stm32::kImuInvalidSampleDetected:
       return "IMU invalid sample detected";
-    case ErrorCode::Stm32::kImuCalibrationMotionDetected:
-      return "Motion detected during IMU calibration";
     case ErrorCode::Stm32::kEepromNotInitialized:
       return "EEPROM emulation not initialized";
     case ErrorCode::Stm32::kEepromReinit:
@@ -159,6 +157,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 command handler re-init";
     case ErrorCode::Stm32::kFcLinkReinit:
       return "STM32 FcLink re-init";
+    case ErrorCode::Stm32::kSensorCalServiceReinit:
+      return "Gyro calibration service re-init";
   }
   return "Unknown error";
 }

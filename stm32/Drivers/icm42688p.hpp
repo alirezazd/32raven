@@ -60,12 +60,6 @@ class Icm42688p {
       bool hires;
     } fifo;
 
-    struct Calibration {
-      uint32_t gyro_duration_s;
-      uint32_t gyro_timeout_s;
-      uint32_t gyro_still_threshold_raw;
-    } calibration;
-
     struct Recovery {
       uint32_t fault_led_period_ms;
     } recovery;
@@ -87,10 +81,9 @@ class Icm42688p {
   // Checked where the config is defined rather than at Init: every field is a
   // build-time constant, so a bad one fails the build instead of the aircraft.
   static consteval bool WatermarkFitsFifo(const Config &cfg) {
-    const uint32_t capacity =
-        Icm42688pReg::kFifoBytes / (cfg.fifo.hires
-                                        ? Icm42688pReg::kPacket4Bytes
-                                        : Icm42688pReg::kPacket3Bytes);
+    const uint32_t capacity = Icm42688pReg::kFifoBytes /
+                              (cfg.fifo.hires ? Icm42688pReg::kPacket4Bytes
+                                              : Icm42688pReg::kPacket3Bytes);
     return cfg.fifo.watermark_records != 0u &&
            cfg.fifo.watermark_records <= capacity;
   }
@@ -111,7 +104,10 @@ class Icm42688p {
   // Suspend, discard whatever the chip buffered, resume. Sentinel's lever on
   // a stalled sample path.
   void RestartSampling();
-  void CalibrateGyro();
+  // bias_body is body-NED; OFFSET_USER is per chip axis. Blocking, and stops
+  // the sample path for ~50 ms: slow loop only, never while armed.
+  void ApplyGyroOffsets(const float bias_body[3]);
+
   const ee_schema::ImuAccelCalibration &GetAccelCalibration() const {
     return accel_calibration_;
   }
@@ -262,7 +258,6 @@ class Icm42688p {
   };
   ScaleConfig scale_config_{};
   uint32_t gyro_odr_hz_{0};
-  typename Config::Calibration calibration_cfg_{};
   uint8_t who_am_i_{0};
   uint32_t device_id_{0};
 

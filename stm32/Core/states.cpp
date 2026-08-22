@@ -44,6 +44,10 @@ static void ControlTickFlightLoop(AppContext &ctx) {
       ctx.sys->AhrsSvc().Process(ctx.sys->Blackboard());
   ctx.sys->Blackboard().UpdateEstimate(estimate);
 
+  // After the AHRS on purpose: calibration has no deadline, so it reads the
+  // slot on the sequence rather than holding the interrupt out of it longer.
+  ctx.sys->SensorCalSvc().MaybeCollectBurst();
+
   // Cascade: sticks → rate_sp → rate PID → torque → mixer → DShot.
   // Mixer and ESC both read the blackboard's armed flag, which Sentinel is
   // the only writer of: Mix() returns all zeros until armed, and the ESC
@@ -214,6 +218,7 @@ static void MainTick(AppContext &ctx) {
   ctx.sys->EscSvc().Poll(micros());
 
   ctx.sys->LogSvc().Poll(micros());
+  ctx.sys->SensorCalSvc().Poll(micros());
 
   ctx.sys->MspSvc().Poll(micros());
 

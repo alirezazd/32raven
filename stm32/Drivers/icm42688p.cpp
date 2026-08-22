@@ -15,7 +15,6 @@
 #include "stm32_config.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
-#include "watchdog.hpp"
 
 using namespace Icm42688pReg;
 
@@ -68,7 +67,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   gyro_odr_hz_ = EffectiveOdrHz(cfg.rates.gyro, cfg.external_clock);
   timestamp_tick_scale_q16_ = TimestampTickScaleQ16(cfg.external_clock);
   timestamp_tick_remainder_q16_ = 0;
-  calibration_cfg_ = cfg.calibration;
   accel_calibration_ = EeConfigStorage::LoadOrInitImuAccelCalibration(ee);
 
   System::GetInstance().Time().DelayMicros(MillisToMicros(10));
@@ -647,95 +645,13 @@ void Icm42688p::PublishBurst(const ImuBurst &burst) {
   SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
 }
 
-void Icm42688p::CalibrateGyro() {
-  const uint32_t duration_us =
-      SecondsToMicros(calibration_cfg_.gyro_duration_s);
-  const uint32_t timeout_us = SecondsToMicros(calibration_cfg_.gyro_timeout_s);
-  const uint32_t still_threshold_raw =
-      calibration_cfg_.gyro_still_threshold_raw;
-  const uint32_t odr_hz = gyro_odr_hz_;
-  const uint64_t sample_count_u64 =
-      (((uint64_t)duration_us * odr_hz) + SecondsToMicros(1) - 1ULL) /
-      SecondsToMicros(1);
-
-  const uint32_t sample_count =
-      sample_count_u64 == 0 ? 1u : static_cast<uint32_t>(sample_count_u64);
-
+void Icm42688p::ApplyGyroOffsets(const float bias_body[3]) {
   auto &time = System::GetInstance().Time();
-  const uint32_t start_us = time.Micros();
-
-  // Seeded so the first burst collected is one that arrived after calibration
-  // began, not whatever the driver happened to be holding.
-  uint32_t last_publish = publish_cnt_.load(std::memory_order_relaxed);
-  // The stillness knob is quoted in chip LSB and the run below compares in
-  // rad/s, so it converts once here rather than per sample.
-  const float still_threshold_rad_s =
-      static_cast<float>(still_threshold_raw) * scale_config_.gyro_lsb_to_rad_s;
-  float sum[3] = {0.0f, 0.0f, 0.0f};
-  float min_g[3] = {0.0f, 0.0f, 0.0f};
-  float max_g[3] = {0.0f, 0.0f, 0.0f};
-  uint32_t collected = 0;
-
-  while (collected < sample_count) {
-    // Fed per iteration: collection runs for gyro_duration_s, several times the
-    // watchdog's worst-case 681 ms window. The loop is bounded twice over --
-    // by sample_count while bursts arrive, by timeout_us when they stop -- and
-    // runs from the main loop, so a genuinely wedged one is still caught.
-    Watchdog::GetInstance().Kick();
-
-    // A peek, not a consume: `fresh` belongs to the control loop, and clearing
-    // it here would hand the interrupt a slot the loop is still reading.
-    // Masking instead, which is safe because calibration is a bench operation
-    // on a still airframe and the window is sub-microsecond.
-    ImuBurst burst{};
-    const uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-    const uint32_t published = publish_cnt_.load(std::memory_order_relaxed);
-    if (published != last_publish) {
-      burst = blackboard_->ImuBurstMailbox().burst;
-    }
-    __set_PRIMASK(primask);
-
-    if (published == last_publish) {
-      if ((uint32_t)(time.Micros() - start_us) >= timeout_us) {
-        return;
-      }
-      continue;
-    }
-    last_publish = published;
-
-    for (uint8_t i = 0; i < burst.count && collected < sample_count; ++i) {
-      for (int axis = 0; axis < 3; ++axis) {
-        const float g =
-            static_cast<float>(burst.gyro[axis][i]) * burst.gyro_scale;
-        if (collected == 0) {
-          min_g[axis] = g;
-          max_g[axis] = g;
-        } else {
-          if (g < min_g[axis]) {
-            min_g[axis] = g;
-          }
-          if (g > max_g[axis]) {
-            max_g[axis] = g;
-          }
-        }
-        if ((max_g[axis] - min_g[axis]) > still_threshold_rad_s) {
-          Panic(ErrorCode::Stm32::kImuCalibrationMotionDetected);
-        }
-        sum[axis] += g;
-      }
-      collected++;
-    }
-  }
 
   // The mean is body-NED but OFFSET_USER is per chip axis, so it goes back
   // through the map before any register sees it. Getting this backwards writes
   // a permanent offset to the wrong axis, correcting nothing and spoiling one
   // that was fine.
-  float bias_body[3] = {0.0f, 0.0f, 0.0f};
-  for (int axis = 0; axis < 3; ++axis) {
-    bias_body[axis] = sum[axis] / static_cast<float>(collected);
-  }
   float bias_chip[3] = {0.0f, 0.0f, 0.0f};
   ChipFromBody(bias_body, bias_chip);
 

@@ -23,6 +23,7 @@
 #include "multirotor_mixer.hpp"
 #include "rate_controller.hpp"
 #include "rc_receiver.hpp"
+#include "sensor_cal_service.hpp"
 #include "sentinel.hpp"
 #include "spi.hpp"
 #include "stat_publisher.hpp"
@@ -208,11 +209,6 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .hold_last = {{ icm42688p.fifo.hold_last | cpp_bool }},
         .hires = {{ icm42688p.fifo.hires | cpp_bool }},
     },
-    .calibration = {
-        .gyro_duration_s = {{ icm42688p.calibration.gyro_duration_s }},
-        .gyro_timeout_s = {{ icm42688p.calibration.gyro_timeout_s }},
-        .gyro_still_threshold_raw = {{ icm42688p.calibration.gyro_still_threshold_raw }},
-    },
     .recovery = {
         .fault_led_period_ms = {{ icm42688p.recovery.fault_led_period_ms }},
     },
@@ -236,6 +232,17 @@ static_assert(Icm42688p::WatermarkFitsFifo(kIcm42688pConfig),
               "size -- lower STM32_CONTROL_LOOP_HZ or the gyro ODR");
 static_assert(Icm42688p::AxisMapIsPermutation(kIcm42688pConfig.axis_map),
               "IMU axis map is not a permutation of {0,1,2}");
+
+inline constexpr SensorCalService::Config kSensorCalConfig = {
+    .gyro = {
+        .duration_s = {{ sensor_cal.duration_s }},
+        .timeout_s = {{ sensor_cal.timeout_s }},
+        .still_threshold_raw = {{ sensor_cal.still_threshold_raw }},
+    },
+};
+static_assert(kSensorCalConfig.gyro.timeout_s > kSensorCalConfig.gyro.duration_s,
+              "gyro calibration deadline leaves no room for a restart -- "
+              "raise STM32_IMU_GYRO_CAL_TIMEOUT_S above the duration");
 
 inline constexpr SpiConfig kSpi2Config = {
     .polarity = SpiPolarity::kHigh,

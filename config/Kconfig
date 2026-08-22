@@ -1843,22 +1843,26 @@ config STM32_IMU_GYRO_CAL_DURATION_S
     range 1 20
     default 2
     help
-      Amount of stable sampling time required to complete gyro bias
-      calibration.
+      Stable sampling the run must gather before it commits, as a floor on
+      both elapsed sensor time and sample count. Must be below the timeout.
 
 config STM32_IMU_GYRO_CAL_TIMEOUT_S
     int "Gyro calibration timeout (s)"
     range 1 60
     default 5
     help
-      Maximum time allowed for gyro calibration before it aborts.
+      Deadline for the whole attempt. Motion restarts collection rather than
+      failing it, so this is what ends a run the airframe will not hold still
+      for. Must exceed the duration or the build fails.
 
 config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
     int "Gyro calibration stillness threshold (raw)"
     range 1 32767
     default 64
     help
-      Maximum raw gyro magnitude treated as stationary during calibration.
+      Peak-to-peak spread per axis, in the chip's own counts, that still
+      counts as stationary. A spread, not a magnitude: a large but steady
+      bias is exactly what the run is there to measure.
 
 endmenu
 

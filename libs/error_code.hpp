@@ -66,7 +66,6 @@ enum class Stm32 : uint32_t {
   kImuNotInitialized,
   kImuReinit,
   kImuInvalidSampleDetected,
-  kImuCalibrationMotionDetected,
   // EEPROM
   kEepromNotInitialized,
   kEepromReinit,
@@ -102,6 +101,7 @@ enum class Stm32 : uint32_t {
   kHardFault,
   kCommandHandlerReinit,
   kFcLinkReinit,
+  kSensorCalServiceReinit,
 };
 
 enum class Esp32 : uint32_t {

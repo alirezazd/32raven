@@ -60,6 +60,7 @@ constexpr std::array<System::Component,
         System::Component::kSdio,
         System::Component::kLogService,
         System::Component::kMscService,
+        System::Component::kSensorCalService,
     };
 
 // -Werror=switch already ties Component to InitComponent's switch; this ties it
@@ -175,6 +176,11 @@ void System::InitComponent(Component c) {
                      rate_controller_, Icm42688p::GetInstance(),
                      FcLink::GetInstance());
       break;
+    case Component::kSensorCalService:
+      SensorCalService::GetInstance().Init(
+          kSensorCalConfig, blackboard_, Icm42688p::GetInstance(),
+          FcLink::GetInstance());
+      break;
     case Component::kStatPublisher:
       StatPublisher::GetInstance().Init(
           kStatPublisherConfig, blackboard_, FcLink::GetInstance(),
@@ -247,8 +253,7 @@ void System::InitComponent(Component c) {
       Sdio::GetInstance().Init();
       break;
     case Component::kLogService:
-      log_service_.Init(kLogServiceConfig, blackboard_,
-                        FcLink::GetInstance());
+      log_service_.Init(kLogServiceConfig, blackboard_, FcLink::GetInstance());
       break;
     case Component::kMscService:
       msc_service_.Init(UsbCdc::GetInstance(), log_service_, blackboard_);

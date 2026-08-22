@@ -34,6 +34,7 @@ enum class MsgId : uint8_t {
   kSetRcMapConfig = 0x0A,
   kSetRcCalibrationConfig = 0x0B,
   kReqReceiverBind = 0x0C,
+  kCalibrateGyro = 0x0D,
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kAttitude = 0x11,
@@ -344,6 +345,7 @@ inline constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kSetRcMapConfig:
     case MsgId::kSetRcCalibrationConfig:
     case MsgId::kReqReceiverBind:
+    case MsgId::kCalibrateGyro:
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
     case MsgId::kSystemStatus:
@@ -375,6 +377,7 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
     case MsgId::kReqRcCalibration:
     case MsgId::kReqGyroCalibrationId:
     case MsgId::kReqReceiverBind:
+    case MsgId::kCalibrateGyro:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:

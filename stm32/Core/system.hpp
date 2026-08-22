@@ -25,6 +25,7 @@
 #include "rc_receiver.hpp"
 #include "rcc.hpp"
 #include "sdio.hpp"
+#include "sensor_cal_service.hpp"
 #include "sentinel.hpp"
 #include "shared_state.hpp"
 #include "stat_publisher.hpp"
@@ -73,6 +74,7 @@ class System {
     kSdio,
     kLogService,
     kMscService,
+    kSensorCalService,
 
     kCount,  // terminator: keep last
   };
@@ -103,6 +105,7 @@ class System {
   Sdio &Sd() { return Sdio::GetInstance(); }
   LogService &LogSvc() { return log_service_; }
   MscService &MscSvc() { return msc_service_; }
+  SensorCalService &SensorCalSvc() { return SensorCalService::GetInstance(); }
   multirotor_mixer::Mixer &MixerSvc() { return mixer_; }
   Ahrs &AhrsSvc() { return ahrs_; }
   RateController &RateControllerSvc() { return rate_controller_; }
