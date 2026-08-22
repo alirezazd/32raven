@@ -3,6 +3,9 @@
 
 #include "system.hpp"
 
+#include <array>
+#include <cstddef>
+
 #include "error_code.hpp"
 #include "esp32_config.hpp"
 #include "panic.hpp"
@@ -12,6 +15,53 @@ extern "C" {
 #include "freertos/task.h"
 }
 static constexpr const char *kTag = "system";
+
+namespace {
+
+// Boot order, and the only place it is written down.
+constexpr std::array<System::Component,
+                     static_cast<std::size_t>(System::Component::kCount)>
+    kInitOrder{
+        System::Component::kLed,
+        System::Component::kBuzzer,
+        System::Component::kTonePlayer,
+        System::Component::kButton,
+        System::Component::kDisplayI2c,
+        System::Component::kDisplayPanel,
+        System::Component::kUi,
+        System::Component::kWifi,
+        System::Component::kTcpServer,
+        System::Component::kUdpServer,
+        System::Component::kUsbCdcServer,
+        System::Component::kTelemUart,
+        System::Component::kFcLinkUart,
+        System::Component::kProgrammer,
+        System::Component::kFcLink,
+        System::Component::kMavlink,
+        System::Component::kCommandHandler,
+    };
+
+// -Werror=switch already ties Component to InitComponent's switch; this ties it
+// to the boot order, so an enumerator nobody brings up fails the build.
+consteval bool InitOrderCoversEveryComponent() {
+  std::array<bool, static_cast<std::size_t>(System::Component::kCount)> seen{};
+  for (const System::Component c : kInitOrder) {
+    const auto i = static_cast<std::size_t>(c);
+    if (i >= seen.size() || seen[i]) {
+      return false;
+    }
+    seen[i] = true;
+  }
+  for (const bool s : seen) {
+    if (!s) {
+      return false;
+    }
+  }
+  return true;
+}
+static_assert(InitOrderCoversEveryComponent());
+
+}  // namespace
 
 System &System::GetInstance() {
   static System instance;
@@ -24,23 +74,9 @@ void System::Init() {
   }
   initialized_ = true;
   main_task_handle_ = xTaskGetCurrentTaskHandle();
-  InitComponent(Component::kLed);
-  InitComponent(Component::kBuzzer);
-  InitComponent(Component::kTonePlayer);
-  InitComponent(Component::kButton);
-  InitComponent(Component::kDisplayI2c);
-  InitComponent(Component::kDisplayPanel);
-  InitComponent(Component::kUi);
-  InitComponent(Component::kWifi);
-  InitComponent(Component::kTcpServer);
-  InitComponent(Component::kUdpServer);
-  InitComponent(Component::kUsbCdcServer);
-  InitComponent(Component::kTelemUart);
-  InitComponent(Component::kFcLinkUart);
-  InitComponent(Component::kProgrammer);
-  InitComponent(Component::kFcLink);
-  InitComponent(Component::kMavlink);
-  InitComponent(Component::kCommandHandler);
+  for (const Component c : kInitOrder) {
+    InitComponent(c);
+  }
 }
 
 void System::InitComponent(Component c) {
@@ -75,8 +111,7 @@ void System::InitComponent(Component c) {
       break;
     case Component::kUi:
       if (kSsd1306PanelConfig.enabled) {
-        Ui().Init(kUiConfig, &DisplayPanel(), Wifi(), Programmer(),
-                  Mavlink());
+        Ui().Init(kUiConfig, &DisplayPanel(), Wifi(), Programmer(), Mavlink());
         ESP_LOGI(kTag, "UI initialized");
       }
       break;
@@ -119,6 +154,8 @@ void System::InitComponent(Component c) {
     case Component::kCommandHandler:
       CommandHandler().Init(::CommandHandler::Config{});
       ESP_LOGI(kTag, "CommandHandler service initialized");
+      break;
+    case Component::kCount:
       break;
   }
 }

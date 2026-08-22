@@ -46,9 +46,11 @@ class System {
     kTelemUart,
     kFcLinkUart,
     kProgrammer,
-    kMavlink,
     kFcLink,
-    kCommandHandler
+    kMavlink,
+    kCommandHandler,
+
+    kCount,  // terminator: keep last
   };
 
   ::LED &Led() { return ::LED::GetInstance(); }
