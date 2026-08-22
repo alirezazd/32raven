@@ -633,9 +633,13 @@ void Icm42688p::PublishBurst(const ImuBurst &burst) {
   // Acquire: the write below must not be hoisted above the test that made it
   // safe.
   std::atomic_signal_fence(std::memory_order_acquire);
-  slot.burst = burst;
-  // Release: the burst must be complete before the flag advertises it.
+  // Both fences are load-bearing: without them the compiler is free to move the
+  // copy out from between the two `seq` stores that bracket it.
+  slot.seq = slot.seq + 1u;
   std::atomic_signal_fence(std::memory_order_release);
+  slot.burst = burst;
+  std::atomic_signal_fence(std::memory_order_release);
+  slot.seq = slot.seq + 1u;
   slot.fresh = true;
   publish_cnt_.fetch_add(1, std::memory_order_relaxed);
 

@@ -43,7 +43,13 @@ struct ImuBurst {
 
 // A mailbox, not a plain store: the interrupt sets `fresh` and will not write
 // while it is set; the consumer clears it once it has finished reading.
+//
+// `seq` serves everyone after that: once `fresh` is cleared the interrupt may
+// overwrite the burst at any instant, so a later reader copies it between two
+// reads of `seq` and keeps the copy only if the value is even and unchanged.
+// Odd means the interrupt was mid-write.
 struct ImuBurstSlot {
+  volatile uint32_t seq = 0;
   volatile bool fresh = false;
   ImuBurst burst{};
 };
