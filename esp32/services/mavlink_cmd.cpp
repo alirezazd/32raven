@@ -75,8 +75,22 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       }
       break;
     case MAV_CMD_PREFLIGHT_CALIBRATION:
-      QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
-                      source_system, source_component);
+      // param1 is the gyro slot. ACCEPTED means the request reached the flight
+      // controller, not that the run finished -- that ends in a tone.
+      if (static_cast<uint32_t>(cmd.param1) != 0u) {
+        message::Packet req_pkt{};
+        req_pkt.header.id =
+            static_cast<uint8_t>(message::MsgId::kCalibrateGyro);
+        req_pkt.header.len = 0;
+        fc_link_->SendPacket(req_pkt);
+        QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
+                        source_system, source_component);
+      } else {
+        QueueCommandAck(static_cast<uint16_t>(cmd.command),
+                        MAV_RESULT_UNSUPPORTED, source_system,
+                        source_component);
+        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command), "cal-slot");
+      }
       break;
     default:
       QueueCommandAck(static_cast<uint16_t>(cmd.command),
