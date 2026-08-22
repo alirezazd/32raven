@@ -10,8 +10,8 @@
 class CommandHandler {
  public:
   struct Config {};
-  enum class DfuTcpAction : uint8_t {
-    kStayInDfu = 0,
+  enum class ServiceTcpAction : uint8_t {
+    kStayInService = 0,
     kEnterProgram,
     kEnterLogPull,
   };
@@ -20,7 +20,7 @@ class CommandHandler {
 
   void Dispatch(const AppContext &ctx, const message::Packet &pkt);
 
-  DfuTcpAction Dispatch(const AppContext &ctx, const TcpServer::Event &ev);
+  ServiceTcpAction Dispatch(const AppContext &ctx, const TcpServer::Event &ev);
 
  private:
   friend class System;

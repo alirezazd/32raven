@@ -46,25 +46,25 @@ constexpr TimeMs kEntryTextAnimationDurationMs = 200;
 constexpr TimeMs kGearRotationPeriodMs = 1600;
 constexpr TimeMs kLargeGearRotationPeriodMs = kGearRotationPeriodMs * 2;
 constexpr char kServingStatus[] = "Serving";
-constexpr char kDfuStatus[] = "DFU";
+constexpr char kServiceStatus[] = "Service";
 constexpr char kMavlinkWifiStatus[] = "MAVLink";
 constexpr char kEscConfigStatus[] = "ESC Config";
 constexpr char kWifiLogStatus[] = "WiFi Log Download";
 constexpr char kUsbLogStatus[] = "USB Log Download";
-constexpr size_t kDfuIconLeftX = 0;
-constexpr size_t kDfuIconRightInsetX = 0;
+constexpr size_t kServiceIconLeftX = 0;
+constexpr size_t kServiceIconRightInsetX = 0;
 constexpr size_t kCornerBadgeRightInsetX = 0;
 constexpr size_t kCornerBadgeTopY = 0;
 constexpr int16_t kCornerBadgeWarningGapPx = 1;
-constexpr int16_t kDfuLinkGlyphGapPx = 1;
+constexpr int16_t kServiceLinkGlyphGapPx = 1;
 constexpr int16_t kBodyTextLineGapPx = 2;
 constexpr TimeMs kMavlinkIconFramePeriodMs = 250;
 constexpr int16_t kStatusRightInsetPx = 1;
 constexpr int16_t kStatusBadgeGapPx = 2;
 constexpr int16_t kStatusScrollSlackPercent = 10;
-constexpr TimeMs kDefaultDfuLinkStepPeriodMs = 16;
-constexpr uint16_t kDfuLinkSubpixelScale = 256;
-constexpr uint16_t kDfuLinkPixelsPerSecond = 48;
+constexpr TimeMs kDefaultServiceLinkStepPeriodMs = 16;
+constexpr uint16_t kServiceLinkSubpixelScale = 256;
+constexpr uint16_t kServiceLinkPixelsPerSecond = 48;
 constexpr int16_t kProgressBarHeightPx = 1;
 constexpr int16_t kProgressBarIconGapPx = 2;
 constexpr int16_t kProgressBarBlackWidthPx = 2;
@@ -82,7 +82,7 @@ constexpr int16_t kVerifyMagnifierLensRadiusPx = 8;
 constexpr int16_t kVerifyDigitGlyphWidthPx = 5;
 constexpr int16_t kVerifyDigitGlyphHeightPx = 7;
 constexpr int16_t kVerifyDigitGlyphGapPx = 0;
-constexpr DisplayTextStyle kDfuSleepStyle{
+constexpr DisplayTextStyle kServiceSleepStyle{
     .scale = 1,
     .font = DisplayTextStyle::Font::kDefault,
 };
@@ -126,9 +126,9 @@ const char *StatusTextForMode(WidgetMode mode) {
       return "Booting";
     case WidgetMode::kServing:
       return kServingStatus;
-    case WidgetMode::kDfuDisconnected:
-    case WidgetMode::kDfuIdleConnected:
-      return kDfuStatus;
+    case WidgetMode::kServiceDisconnected:
+    case WidgetMode::kServiceIdleConnected:
+      return kServiceStatus;
     case WidgetMode::kMavlinkWifiDisconnected:
     case WidgetMode::kMavlinkWifiConnected:
       return kMavlinkWifiStatus;
@@ -170,9 +170,9 @@ bool IsUsbLogMode(WidgetMode mode) {
   return mode == WidgetMode::kUsbLogIdle || mode == WidgetMode::kUsbLogActive;
 }
 
-bool IsDfuVisualMode(WidgetMode mode) {
-  return mode == WidgetMode::kDfuDisconnected ||
-         mode == WidgetMode::kDfuIdleConnected ||
+bool IsServiceVisualMode(WidgetMode mode) {
+  return mode == WidgetMode::kServiceDisconnected ||
+         mode == WidgetMode::kServiceIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected ||
          IsEscConfigMode(mode) || IsWifiLogMode(mode) || IsUsbLogMode(mode) ||
@@ -185,7 +185,7 @@ bool IsScrollableProgressMode(WidgetMode mode) {
 
 // The transport this screen needs is not up: badge blinks with a "!".
 bool ShouldBlinkCornerBadge(WidgetMode mode) {
-  return mode == WidgetMode::kDfuDisconnected ||
+  return mode == WidgetMode::kServiceDisconnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kEscConfigDisconnected ||
          mode == WidgetMode::kEscConfigArmed ||
@@ -267,7 +267,7 @@ PackedBitmap CornerBadgeForMode(WidgetMode mode) {
   if (IsEscConfigMode(mode) || IsUsbLogMode(mode)) {
     return usb_bitmap::kBitmap;
   }
-  if (IsDfuVisualMode(mode) && mode != WidgetMode::kVerifying) {
+  if (IsServiceVisualMode(mode) && mode != WidgetMode::kVerifying) {
     return wifi_bitmap::kBitmap;
   }
   return {};
@@ -334,8 +334,8 @@ PackedBitmap RightIconForMode(WidgetMode mode, TimeMs now) {
 }
 
 bool ShouldAnimateEntryText(WidgetMode mode) {
-  return mode == WidgetMode::kServing || mode == WidgetMode::kDfuDisconnected ||
-         mode == WidgetMode::kDfuIdleConnected ||
+  return mode == WidgetMode::kServing || mode == WidgetMode::kServiceDisconnected ||
+         mode == WidgetMode::kServiceIdleConnected ||
          mode == WidgetMode::kMavlinkWifiDisconnected ||
          mode == WidgetMode::kMavlinkWifiConnected ||
          IsEscConfigMode(mode) || IsWifiLogMode(mode) || IsUsbLogMode(mode);
@@ -346,11 +346,11 @@ bool ShouldAnimateEntryText(WidgetMode mode) {
 void DrawBodyTextLines(DisplayRenderer &renderer, TimeMs now,
                        int16_t status_height, const char *line1,
                        const char *line2 = nullptr) {
-  const DisplayTextBounds bounds1 = renderer.MeasureText(line1, kDfuSleepStyle);
+  const DisplayTextBounds bounds1 = renderer.MeasureText(line1, kServiceSleepStyle);
   int16_t line_height = static_cast<int16_t>(bounds1.height);
   if (line2 != nullptr) {
     const DisplayTextBounds bounds2 =
-        renderer.MeasureText(line2, kDfuSleepStyle);
+        renderer.MeasureText(line2, kServiceSleepStyle);
     line_height =
         static_cast<int16_t>(std::max(bounds1.height, bounds2.height));
   }
@@ -371,12 +371,12 @@ void DrawBodyTextLines(DisplayRenderer &renderer, TimeMs now,
       renderer.Width() - static_cast<size_t>(kTextInsetX));
 
   renderer.DrawScrollingText(line1, kTextInsetX, top, line_width, now,
-                             kDfuSleepStyle);
+                             kServiceSleepStyle);
   if (line2 != nullptr) {
     renderer.DrawScrollingText(
         line2, kTextInsetX,
         static_cast<int16_t>(top + line_height + kBodyTextLineGapPx),
-        line_width, now, kDfuSleepStyle);
+        line_width, now, kServiceSleepStyle);
   }
 }
 
@@ -521,10 +521,10 @@ void MainUiWidget::OnEnter(WidgetContext &ctx) {
   last_gear_step_ms_ = now;
   gear_animation_ms_ = 0;
   last_dot_count_ = 0;
-  dfu_link_offset_px_ = 0;
-  dfu_link_last_step_ms_ = now;
-  dfu_link_subpixel_offset_ = 0;
-  dfu_link_initialized_ = false;
+  service_link_offset_px_ = 0;
+  service_link_last_step_ms_ = now;
+  service_link_subpixel_offset_ = 0;
+  service_link_initialized_ = false;
   link_packet_last_step_ms_ = now;
   ResetLinkPacketAnimation(PacketSourceForMode(CurrentMode(), now));
   ResetVerifyMagnifierAnimation(now);
@@ -544,23 +544,23 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
 
   const Mode mode = CurrentMode();
   AdvanceGearAnimation(ctx, now, IsServingMode(mode));
-  const bool dfu_binary_link_active = mode == Mode::kProgramming;
+  const bool service_binary_link_active = mode == Mode::kProgramming;
   const bool status_scroll_active = StatusLineScrolls(*ctx.renderer, mode);
   const bool body_text_animation_active = IsBodyTextMode(mode);
-  const TimeMs dfu_link_step_period_ms =
+  const TimeMs service_link_step_period_ms =
       (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
           ? ctx.ui->GetFrameIntervalMs()
-          : kDefaultDfuLinkStepPeriodMs;
+          : kDefaultServiceLinkStepPeriodMs;
   const bool verify_magnifier_changed = AdvanceVerifyMagnifierAnimation(
-      now, mode == Mode::kVerifying, dfu_link_step_period_ms);
+      now, mode == Mode::kVerifying, service_link_step_period_ms);
   const LinkPacketSource packet_source = PacketSourceForMode(mode, now);
   const bool link_packet_changed = AdvanceLinkPacketAnimation(
-      *ctx.renderer, now, packet_source, dfu_link_step_period_ms);
+      *ctx.renderer, now, packet_source, service_link_step_period_ms);
   const bool link_packet_active =
       link_tx_lane_.active_count > 0 || link_rx_lane_.active_count > 0;
   const bool mode_changed = mode != last_mode_;
-  const bool dfu_link_changed = AdvanceDfuLinkAnimation(
-      *ctx.renderer, now, dfu_binary_link_active, dfu_link_step_period_ms);
+  const bool service_link_changed = AdvanceServiceLinkAnimation(
+      *ctx.renderer, now, service_binary_link_active, service_link_step_period_ms);
 
   if (mode_changed) {
     if (HasPacketLanes(mode) != HasPacketLanes(last_mode_) ||
@@ -581,7 +581,7 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   const bool serving_animation_active = IsServingMode(mode);
   if (!has_rendered_ || text_animation_active_ ||
       last_dot_count_ != DotCount(now) || serving_animation_active ||
-      dfu_link_changed || verify_magnifier_changed || link_packet_changed ||
+      service_link_changed || verify_magnifier_changed || link_packet_changed ||
       link_packet_active || body_text_animation_active ||
       status_scroll_active) {
     RenderMode(ctx, now, mode);
@@ -593,13 +593,13 @@ void MainUiWidget::EnsureLinkGlyphMetrics(DisplayRenderer &renderer) {
     return;
   }
 
-  const DisplayTextBounds bounds = renderer.MeasureText("0", kDfuSleepStyle);
-  dfu_link_glyph_x_ = bounds.x;
-  dfu_link_glyph_y_ = bounds.y;
-  dfu_link_glyph_width_px_ = std::max<int16_t>(6, bounds.width);
-  dfu_link_glyph_height_px_ = std::max<int16_t>(8, bounds.height);
-  dfu_link_glyph_pitch_px_ =
-      static_cast<int16_t>(dfu_link_glyph_width_px_ + kDfuLinkGlyphGapPx);
+  const DisplayTextBounds bounds = renderer.MeasureText("0", kServiceSleepStyle);
+  service_link_glyph_x_ = bounds.x;
+  service_link_glyph_y_ = bounds.y;
+  service_link_glyph_width_px_ = std::max<int16_t>(6, bounds.width);
+  service_link_glyph_height_px_ = std::max<int16_t>(8, bounds.height);
+  service_link_glyph_pitch_px_ =
+      static_cast<int16_t>(service_link_glyph_width_px_ + kServiceLinkGlyphGapPx);
   link_glyph_metrics_initialized_ = true;
 }
 
@@ -626,7 +626,7 @@ void MainUiWidget::AdvanceGearAnimation(WidgetContext &ctx, TimeMs now,
   gear_animation_ms_ += step_ms;
 }
 
-void MainUiWidget::InitializeDfuLinkAnimation(DisplayRenderer &renderer,
+void MainUiWidget::InitializeServiceLinkAnimation(DisplayRenderer &renderer,
                                               TimeMs now,
                                               TimeMs step_period_ms) {
   (void)step_period_ms;
@@ -636,34 +636,34 @@ void MainUiWidget::InitializeDfuLinkAnimation(DisplayRenderer &renderer,
       renderer.Width() - chip_bitmap::kVisibleWidth - pc_bitmap::kVisibleWidth);
   const size_t required_glyphs =
       static_cast<size_t>(std::max<int16_t>(1, gap_width) /
-                          std::max<int16_t>(1, dfu_link_glyph_pitch_px_)) +
+                          std::max<int16_t>(1, service_link_glyph_pitch_px_)) +
       3u;
-  dfu_link_glyph_count_ = std::clamp(required_glyphs, static_cast<size_t>(4u),
-                                     kDfuLinkGlyphCapacity);
-  for (size_t index = 0; index < dfu_link_glyph_count_; ++index) {
-    dfu_link_glyphs_[index] = RandomBinaryGlyph();
+  service_link_glyph_count_ = std::clamp(required_glyphs, static_cast<size_t>(4u),
+                                     kServiceLinkGlyphCapacity);
+  for (size_t index = 0; index < service_link_glyph_count_; ++index) {
+    service_link_glyphs_[index] = RandomBinaryGlyph();
   }
-  dfu_link_offset_px_ = 0;
-  dfu_link_subpixel_offset_ = 0;
-  dfu_link_last_step_ms_ = now;
-  dfu_link_initialized_ = true;
+  service_link_offset_px_ = 0;
+  service_link_subpixel_offset_ = 0;
+  service_link_last_step_ms_ = now;
+  service_link_initialized_ = true;
 }
 
-bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
+bool MainUiWidget::AdvanceServiceLinkAnimation(DisplayRenderer &renderer,
                                            TimeMs now, bool active,
                                            TimeMs step_period_ms) {
   if (!active) {
     return false;
   }
   const TimeMs effective_step_period_ms =
-      (step_period_ms > 0) ? step_period_ms : kDefaultDfuLinkStepPeriodMs;
-  if (!dfu_link_initialized_) {
-    InitializeDfuLinkAnimation(renderer, now, effective_step_period_ms);
+      (step_period_ms > 0) ? step_period_ms : kDefaultServiceLinkStepPeriodMs;
+  if (!service_link_initialized_) {
+    InitializeServiceLinkAnimation(renderer, now, effective_step_period_ms);
     return true;
   }
 
-  const TimeMs previous_step_ms = dfu_link_last_step_ms_;
-  dfu_link_last_step_ms_ = now;
+  const TimeMs previous_step_ms = service_link_last_step_ms_;
+  service_link_last_step_ms_ = now;
   if (previous_step_ms == 0 || now <= previous_step_ms) {
     return false;
   }
@@ -671,27 +671,27 @@ bool MainUiWidget::AdvanceDfuLinkAnimation(DisplayRenderer &renderer,
   const TimeMs step_ms =
       std::min(now - previous_step_ms, effective_step_period_ms);
   const uint32_t advanced_subpixels =
-      (static_cast<uint32_t>(step_ms) * kDfuLinkPixelsPerSecond *
-       kDfuLinkSubpixelScale) /
+      (static_cast<uint32_t>(step_ms) * kServiceLinkPixelsPerSecond *
+       kServiceLinkSubpixelScale) /
       1000u;
-  dfu_link_subpixel_offset_ =
-      static_cast<uint16_t>(dfu_link_subpixel_offset_ + advanced_subpixels);
+  service_link_subpixel_offset_ =
+      static_cast<uint16_t>(service_link_subpixel_offset_ + advanced_subpixels);
 
   uint8_t pixel_steps =
-      static_cast<uint8_t>(dfu_link_subpixel_offset_ / kDfuLinkSubpixelScale);
-  dfu_link_subpixel_offset_ =
-      static_cast<uint16_t>(dfu_link_subpixel_offset_ % kDfuLinkSubpixelScale);
+      static_cast<uint8_t>(service_link_subpixel_offset_ / kServiceLinkSubpixelScale);
+  service_link_subpixel_offset_ =
+      static_cast<uint16_t>(service_link_subpixel_offset_ % kServiceLinkSubpixelScale);
   if (pixel_steps == 0) {
     return false;
   }
 
   while (pixel_steps-- > 0u) {
-    ++dfu_link_offset_px_;
-    if (dfu_link_offset_px_ >= dfu_link_glyph_pitch_px_) {
-      dfu_link_offset_px_ = 0;
-      std::shift_right(dfu_link_glyphs_.begin(),
-                       dfu_link_glyphs_.begin() + dfu_link_glyph_count_, 1);
-      dfu_link_glyphs_[0] = RandomBinaryGlyph();
+    ++service_link_offset_px_;
+    if (service_link_offset_px_ >= service_link_glyph_pitch_px_) {
+      service_link_offset_px_ = 0;
+      std::shift_right(service_link_glyphs_.begin(),
+                       service_link_glyphs_.begin() + service_link_glyph_count_, 1);
+      service_link_glyphs_[0] = RandomBinaryGlyph();
     }
   }
 
@@ -758,7 +758,7 @@ bool MainUiWidget::AdvanceLinkPacketAnimation(DisplayRenderer &renderer,
   const int16_t gap_width = static_cast<int16_t>(
       renderer.Width() - chip_bitmap::kVisibleWidth - source.left_icon_width);
   const int16_t travel_px =
-      std::max<int16_t>(0, gap_width - dfu_link_glyph_width_px_);
+      std::max<int16_t>(0, gap_width - service_link_glyph_width_px_);
   if (travel_px <= 0) {
     return false;
   }
@@ -766,10 +766,10 @@ bool MainUiWidget::AdvanceLinkPacketAnimation(DisplayRenderer &renderer,
   const uint32_t travel_subpixels =
       static_cast<uint32_t>(travel_px) * kLinkPacketSubpixelScale;
   const uint32_t min_spawn_progress_subpx =
-      static_cast<uint32_t>(std::max<int16_t>(1, dfu_link_glyph_pitch_px_)) *
+      static_cast<uint32_t>(std::max<int16_t>(1, service_link_glyph_pitch_px_)) *
       kLinkPacketSubpixelScale;
   const TimeMs effective_step_period_ms =
-      (step_period_ms > 0) ? step_period_ms : kDefaultDfuLinkStepPeriodMs;
+      (step_period_ms > 0) ? step_period_ms : kDefaultServiceLinkStepPeriodMs;
   const TimeMs previous_step_ms = link_packet_last_step_ms_;
   link_packet_last_step_ms_ = now;
 
@@ -870,7 +870,7 @@ bool MainUiWidget::AdvanceVerifyMagnifierAnimation(TimeMs now, bool active,
   }
 
   const TimeMs effective_step_period_ms =
-      (step_period_ms > 0) ? step_period_ms : kDefaultDfuLinkStepPeriodMs;
+      (step_period_ms > 0) ? step_period_ms : kDefaultServiceLinkStepPeriodMs;
   if (!verify_magnifier_initialized_) {
     verify_magnifier_last_step_ms_ = now;
     verify_magnifier_subpixel_offset_ = 0;
@@ -974,12 +974,12 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       IsScrollableProgressMode(mode)
           ? (kProgressBarHeightPx + kProgressBarIconGapPx)
           : 0;
-  const int16_t dfu_idle_icon_bottom_inset =
-      (mode == Mode::kDfuIdleConnected)
+  const int16_t service_idle_icon_bottom_inset =
+      (mode == Mode::kServiceIdleConnected)
           ? static_cast<int16_t>(kProgressBarHeightPx + kProgressBarIconGapPx)
           : 0;
   const int16_t icon_bottom_inset =
-      static_cast<int16_t>(progress_bottom_inset + dfu_idle_icon_bottom_inset);
+      static_cast<int16_t>(progress_bottom_inset + service_idle_icon_bottom_inset);
   const int16_t status_top = kTextInsetY;
   const int16_t status_y = static_cast<int16_t>(status_top - status_bounds.y);
   const auto finish_render = [&]() {
@@ -1078,7 +1078,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           gear_animation_ms_, static_cast<size_t>(left_gear_x), left_gear_y,
           false, kLargeGearRotationPeriodMs);
     }
-  } else if (IsDfuVisualMode(mode)) {
+  } else if (IsServiceVisualMode(mode)) {
     // Not the entry condition: the verify screen is here and has no badge.
     const PackedBitmap badge = CornerBadgeForMode(mode);
     const bool badge_fits = badge.Valid() && badge.width <= renderer.Width() &&
@@ -1098,7 +1098,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
 
       if (ShouldBlinkCornerBadge(mode)) {
         const DisplayTextBounds exclamation_bounds =
-            renderer.MeasureText("!", kDfuSleepStyle);
+            renderer.MeasureText("!", kServiceSleepStyle);
         if (exclamation_bounds.width > 0 && exclamation_bounds.height > 0) {
           const int16_t exclamation_top = static_cast<int16_t>(
               badge_y +
@@ -1112,7 +1112,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               exclamation_bounds.x);
           const int16_t exclamation_y =
               static_cast<int16_t>(exclamation_top - exclamation_bounds.y);
-          renderer.DrawText("!", exclamation_x, exclamation_y, kDfuSleepStyle);
+          renderer.DrawText("!", exclamation_x, exclamation_y, kServiceSleepStyle);
         }
       }
     }
@@ -1217,7 +1217,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         left_icon.height <= renderer.Height() &&
         right_icon.height <= renderer.Height()) {
       const size_t right_icon_x =
-          renderer.Width() - right_icon.width - kDfuIconRightInsetX;
+          renderer.Width() - right_icon.width - kServiceIconRightInsetX;
       const int16_t icon_region_height = static_cast<int16_t>(
           std::max(left_icon.height, right_icon.height));
       const int16_t icon_region_y = static_cast<int16_t>(
@@ -1227,43 +1227,43 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       const int16_t chip_icon_y = static_cast<int16_t>(
           renderer.Height() - icon_bottom_inset - right_icon.height);
       const int16_t gap_left =
-          static_cast<int16_t>(kDfuIconLeftX + left_icon.width);
+          static_cast<int16_t>(kServiceIconLeftX + left_icon.width);
       const int16_t gap_right = static_cast<int16_t>(right_icon_x);
 
       if (mode == Mode::kProgramming && gap_left < gap_right) {
-        if (!dfu_link_initialized_) {
-          const TimeMs dfu_link_step_period_ms =
+        if (!service_link_initialized_) {
+          const TimeMs service_link_step_period_ms =
               (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
                   ? ctx.ui->GetFrameIntervalMs()
-                  : kDefaultDfuLinkStepPeriodMs;
-          InitializeDfuLinkAnimation(renderer, now, dfu_link_step_period_ms);
+                  : kDefaultServiceLinkStepPeriodMs;
+          InitializeServiceLinkAnimation(renderer, now, service_link_step_period_ms);
         }
         const int16_t link_top = static_cast<int16_t>(
             icon_region_y +
             std::max<int16_t>(
-                0, (icon_region_height - dfu_link_glyph_height_px_) / 2));
+                0, (icon_region_height - service_link_glyph_height_px_) / 2));
         const int16_t link_cursor_y =
-            static_cast<int16_t>(link_top - dfu_link_glyph_y_);
-        for (size_t index = 0; index < dfu_link_glyph_count_; ++index) {
+            static_cast<int16_t>(link_top - service_link_glyph_y_);
+        for (size_t index = 0; index < service_link_glyph_count_; ++index) {
           const int16_t glyph_left = static_cast<int16_t>(
-              gap_left - dfu_link_glyph_pitch_px_ +
-              (static_cast<int16_t>(index) * dfu_link_glyph_pitch_px_) +
-              dfu_link_offset_px_);
+              gap_left - service_link_glyph_pitch_px_ +
+              (static_cast<int16_t>(index) * service_link_glyph_pitch_px_) +
+              service_link_offset_px_);
           const int16_t glyph_right =
-              static_cast<int16_t>(glyph_left + dfu_link_glyph_width_px_);
+              static_cast<int16_t>(glyph_left + service_link_glyph_width_px_);
           if (glyph_right <= gap_left || glyph_left >= gap_right) {
             continue;
           }
 
-          const char glyph[2] = {dfu_link_glyphs_[index], '\0'};
+          const char glyph[2] = {service_link_glyphs_[index], '\0'};
           renderer.DrawText(
-              glyph, static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
-              link_cursor_y, kDfuSleepStyle);
+              glyph, static_cast<int16_t>(glyph_left - service_link_glyph_x_),
+              link_cursor_y, kServiceSleepStyle);
         }
       } else if (HasPacketLanes(mode) && gap_left < gap_right) {
         EnsureLinkGlyphMetrics(renderer);
         const int16_t travel_px = std::max<int16_t>(
-            0, gap_right - gap_left - dfu_link_glyph_width_px_);
+            0, gap_right - gap_left - service_link_glyph_width_px_);
         if (travel_px > 0) {
           const int16_t lane_top_y =
               std::max<int16_t>(0, std::min<int16_t>(left_icon_y, chip_icon_y));
@@ -1271,12 +1271,12 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               0, std::max<int16_t>(
                      left_icon_y + static_cast<int16_t>(left_icon.height),
                      chip_icon_y + static_cast<int16_t>(right_icon.height)) -
-                     dfu_link_glyph_height_px_);
+                     service_link_glyph_height_px_);
           const auto draw_lane = [&](const LinkPacketLane &lane,
                                      int16_t start_x, int16_t direction_sign,
                                      int16_t lane_y) {
             const int16_t cursor_y =
-                static_cast<int16_t>(lane_y - dfu_link_glyph_y_);
+                static_cast<int16_t>(lane_y - service_link_glyph_y_);
             for (size_t index = 0; index < lane.active_count; ++index) {
               const LinkPacketGlyph &glyph = lane.packets[index];
               const int16_t progress_px = static_cast<int16_t>(
@@ -1285,40 +1285,40 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                   start_x + (direction_sign * progress_px));
               const char text[2] = {glyph.glyph, '\0'};
               renderer.DrawText(
-                  text, static_cast<int16_t>(glyph_left - dfu_link_glyph_x_),
-                  cursor_y, kDfuSleepStyle);
+                  text, static_cast<int16_t>(glyph_left - service_link_glyph_x_),
+                  cursor_y, kServiceSleepStyle);
             }
           };
 
           // Device left, host right: the host's frames fly right-to-left on
           // the top lane, the device's answers left-to-right on the bottom.
           draw_lane(link_rx_lane_,
-                    static_cast<int16_t>(gap_right - dfu_link_glyph_width_px_),
+                    static_cast<int16_t>(gap_right - service_link_glyph_width_px_),
                     -1, lane_top_y);
           draw_lane(link_tx_lane_, gap_left, 1, lane_bottom_y);
         }
       }
 
-      renderer.DrawBitmap(left_icon, kDfuIconLeftX,
+      renderer.DrawBitmap(left_icon, kServiceIconLeftX,
                           static_cast<size_t>(left_icon_y));
       renderer.DrawBitmap(right_icon, right_icon_x,
                           static_cast<size_t>(chip_icon_y));
 
-      if ((mode == Mode::kDfuIdleConnected ||
+      if ((mode == Mode::kServiceIdleConnected ||
            mode == Mode::kEscConfigIdleConnected) &&
           dot_count > 0 &&
-          (kDfuIconLeftX + left_icon.width) <= right_icon_x) {
+          (kServiceIconLeftX + left_icon.width) <= right_icon_x) {
         constexpr char sleep_char[] = "z";
         const DisplayTextBounds z_bounds =
-            renderer.MeasureText(sleep_char, kDfuSleepStyle);
+            renderer.MeasureText(sleep_char, kServiceSleepStyle);
         const DisplayTextBounds zz_bounds =
-            renderer.MeasureText("zz", kDfuSleepStyle);
+            renderer.MeasureText("zz", kServiceSleepStyle);
         const DisplayTextBounds zzz_bounds =
-            renderer.MeasureText("zzz", kDfuSleepStyle);
+            renderer.MeasureText("zzz", kServiceSleepStyle);
         if (z_bounds.width > 0 && z_bounds.height > 0 && zz_bounds.width > 0 &&
             zzz_bounds.width > 0) {
           const int16_t gap_left =
-              static_cast<int16_t>(kDfuIconLeftX + left_icon.width);
+              static_cast<int16_t>(kServiceIconLeftX + left_icon.width);
           const int16_t gap_width =
               static_cast<int16_t>(right_icon_x - gap_left);
           const int16_t zzz_left = static_cast<int16_t>(
@@ -1340,7 +1340,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           const uint8_t visible_z_count = std::min<uint8_t>(dot_count, 3);
           for (uint8_t index = 0; index < visible_z_count; ++index) {
             renderer.DrawText(sleep_char, z_positions[index], sleep_y,
-                              kDfuSleepStyle);
+                              kServiceSleepStyle);
           }
         }
       }

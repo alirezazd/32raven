@@ -153,7 +153,7 @@ class TcpServer {
   size_t evt_head_ = 0;
   size_t evt_tail_ = 0;
 
-  // Inbound staging for the DFU download, drained a chunk per app tick and
+  // Inbound staging for the firmware download, drained a chunk per app tick and
   // sized to swallow one whole PumpDataRx cycle. Below that, flow control
   // engages on every pump instead of only under real backpressure; the pump
   // static_asserts against this.

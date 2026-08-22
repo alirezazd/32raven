@@ -28,7 +28,7 @@ EXC_FRAME_BYTES = 144
 
 # Below this, a chain that the graph slightly under-measures stops being a
 # theoretical concern. Overflow is caught by the hardware stack guard, so the
-# failure is a reboot rather than corruption -- still fatal mid-DFU.
+# failure is a reboot rather than corruption -- still fatal mid-flash.
 MIN_MARGIN = 0.20
 
 # The task the handoff leads to, so its own chain keeps the recovery loop.

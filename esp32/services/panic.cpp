@@ -18,7 +18,7 @@ static constexpr const char *kTag = "panic";
 
 namespace {
 
-// The DFU recovery loop runs here rather than on the stack of
+// The Service recovery loop runs here rather than on the stack of
 // whatever panicked, and measures ~3.7 KB deep, so there is little to give
 // back. The priority has to outrank anything that could be wedged when it is
 // woken.
@@ -57,7 +57,7 @@ constexpr uint32_t Raw(E code) {
   return static_cast<uint32_t>(code);
 }
 
-bool SupportsDfuRecovery(uint32_t code) {
+bool SupportsServiceRecovery(uint32_t code) {
   switch (code) {
     case Raw(ErrorCode::Common::kUnknown):
     case Raw(ErrorCode::Esp32::kButtonGpioConfigFailed):
@@ -109,10 +109,10 @@ void ShowPanicUi(uint32_t code, bool recoverable) {
   Sys().Ui().NotifyUserActivity();
 }
 
-uint32_t EnterRecoveryDfuMode() {
+uint32_t EnterRecoveryServiceMode() {
   System &sys = Sys();
   sys.Button().FlushEvents();
-  sys.Ui().SetAppState(Ui::AppState::kDfu);
+  sys.Ui().SetAppState(Ui::AppState::kService);
   sys.Ui().NotifyUserActivity();
   // Reached from the panic task, so a Panic() here would nest another
   // RunPanicLoop on the same static stack. The checks below report instead.
@@ -146,7 +146,7 @@ class RecoverySession {
 
  private:
   enum class Mode : uint8_t {
-    kDfu,
+    kService,
     kProgram,
   };
 
@@ -155,16 +155,16 @@ class RecoverySession {
     kStopNetwork,
   };
 
-  bool EnterDfuMode(TimeMs now, NetworkAction network_on_error);
+  bool EnterServiceMode(TimeMs now, NetworkAction network_on_error);
   void EnterProgramMode(TimeMs now);
-  void StepDfuMode(TimeMs now);
+  void StepServiceMode(TimeMs now);
   void StepProgramMode(TimeMs now);
   void Exit(uint32_t code, NetworkAction network);
 
   System &sys_;
   TcpServer &tcp_;
   Programmer &prog_;
-  Mode mode_ = Mode::kDfu;
+  Mode mode_ = Mode::kService;
   uint32_t result_ = Raw(ErrorCode::Common::kOk);
   bool exit_ = false;
   TimeMs last_activity_ = 0;
@@ -174,20 +174,20 @@ class RecoverySession {
 RecoverySession::RecoverySession(System &sys)
     : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
 
-bool RecoverySession::EnterDfuMode(TimeMs now, NetworkAction network_on_error) {
-  const uint32_t recovery_error = EnterRecoveryDfuMode();
+bool RecoverySession::EnterServiceMode(TimeMs now, NetworkAction network_on_error) {
+  const uint32_t recovery_error = EnterRecoveryServiceMode();
   if (recovery_error != Raw(ErrorCode::Common::kOk)) {
     Exit(recovery_error, network_on_error);
     return false;
   }
 
-  mode_ = Mode::kDfu;
+  mode_ = Mode::kService;
   last_written_ = prog_.Written();
   last_activity_ = now;
   return true;
 }
 
-void RecoverySession::StepDfuMode(TimeMs now) {
+void RecoverySession::StepServiceMode(TimeMs now) {
   while (auto ev = tcp_.PopEvent()) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
@@ -199,7 +199,7 @@ void RecoverySession::StepDfuMode(TimeMs now) {
       case TcpServer::EventId::kAbort: {
         prog_.Abort();
         tcp_.StopDownload();
-        if (!EnterDfuMode(now, NetworkAction::kStopNetwork)) {
+        if (!EnterServiceMode(now, NetworkAction::kStopNetwork)) {
           return;
         }
         break;
@@ -248,7 +248,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
     tcp_.StopDownload();
     tcp_.SetStatus(st);
     (void)prog_.Boot();
-    (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
+    (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
     return;
   }
 
@@ -263,7 +263,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
       case TcpServer::EventId::kAbort:
         prog_.Abort();
         tcp_.StopDownload();
-        (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
+        (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
         return;
       case TcpServer::EventId::kReset:
         tcp_.DisableBridge();
@@ -277,7 +277,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
       case TcpServer::EventId::kDataDown:
         prog_.Abort();
         tcp_.StopDownload();
-        (void)EnterDfuMode(now, NetworkAction::kStopNetwork);
+        (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
         return;
       case TcpServer::EventId::kNone:
       case TcpServer::EventId::kCtrlUp:
@@ -328,7 +328,7 @@ void RecoverySession::Exit(uint32_t code, NetworkAction network) {
 }
 
 uint32_t RecoverySession::RunUntilFailure() {
-  if (!EnterDfuMode(sys_.Timebase().NowMs(), NetworkAction::kKeepNetwork)) {
+  if (!EnterServiceMode(sys_.Timebase().NowMs(), NetworkAction::kKeepNetwork)) {
     return result_;
   }
 
@@ -338,8 +338,8 @@ uint32_t RecoverySession::RunUntilFailure() {
     tcp_.Poll();
 
     switch (mode_) {
-      case Mode::kDfu:
-        StepDfuMode(now);
+      case Mode::kService:
+        StepServiceMode(now);
         break;
       case Mode::kProgram:
         StepProgramMode(now);
@@ -362,7 +362,7 @@ uint32_t RunRecoverableLoop() {
 
 [[noreturn]] void RunPanicLoop(uint32_t code) {
   Sys().Halt();
-  bool recoverable = SupportsDfuRecovery(code);
+  bool recoverable = SupportsServiceRecovery(code);
   const char *msg = GetMessage(code);
   Sys().TonePlayer().PlayBuiltinNow(::TonePlayer::BuiltinTone::kError);
   ShowPanicUi(code, recoverable);
@@ -379,7 +379,7 @@ uint32_t RunRecoverableLoop() {
       Sys().Button().Poll();
       if (Sys().Button().ConsumeLongPress()) {
         code = RunRecoverableLoop();
-        recoverable = SupportsDfuRecovery(code);
+        recoverable = SupportsServiceRecovery(code);
         msg = GetMessage(code);
         ShowPanicUi(code, recoverable);
         Sys().Mavlink().ReportPanic(Mavlink::PanicSource::kEsp32, code);

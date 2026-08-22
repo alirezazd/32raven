@@ -381,10 +381,10 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
       return MainScreen::kBooting;
     case AppState::kServing:
       return MainScreen::kServing;
-    case AppState::kDfu:
+    case AppState::kService:
       return wifi_->HasAssociatedStations()
-                 ? MainScreen::kDfuIdleConnected
-                 : MainScreen::kDfuDisconnected;
+                 ? MainScreen::kServiceIdleConnected
+                 : MainScreen::kServiceDisconnected;
     case AppState::kMavlinkWifi:
       return wifi_->HasAssociatedStations()
                  ? MainScreen::kMavlinkWifiConnected
@@ -440,9 +440,9 @@ Ui::ScreenGroup Ui::ScreenGroupFor(MainScreen screen) const {
     case MainScreen::kMavlinkWifiDisconnected:
     case MainScreen::kMavlinkWifiConnected:
       return ScreenGroup::kMavlink;
-    case MainScreen::kDfuDisconnected:
-    case MainScreen::kDfuIdleConnected:
-      return ScreenGroup::kDfu;
+    case MainScreen::kServiceDisconnected:
+    case MainScreen::kServiceIdleConnected:
+      return ScreenGroup::kService;
     case MainScreen::kProgramming:
     case MainScreen::kVerifying:
       return ScreenGroup::kProgram;
@@ -469,7 +469,7 @@ Ui::SlideDirection Ui::TransitionDirectionForScreens(MainScreen from,
 }
 
 bool Ui::ShouldSkipMainScreenTransition(MainScreen from, MainScreen to) const {
-  return from == MainScreen::kDfuIdleConnected &&
+  return from == MainScreen::kServiceIdleConnected &&
          (to == MainScreen::kProgramming || to == MainScreen::kVerifying);
 }
 
@@ -480,8 +480,8 @@ bool Ui::ShouldUseMosaicMainScreenTransition(MainScreen from,
   }
 
   return from == MainScreen::kVerifying &&
-         (to == MainScreen::kDfuIdleConnected ||
-          to == MainScreen::kDfuDisconnected);
+         (to == MainScreen::kServiceIdleConnected ||
+          to == MainScreen::kServiceDisconnected);
 }
 
 TimeMs Ui::MosaicDurationForScreens(MainScreen from, MainScreen to) const {

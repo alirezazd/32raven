@@ -74,13 +74,13 @@ static void OnPanic(const AppContext &ctx, const message::Packet &pkt) {
 
   // Killing the bridge mid-write is worse than carrying on with a faulted
   // STM32, and a four-way session is writing ESC firmware.
-  if (ctx.sm->CurrentState() == ctx.dfu_state ||
+  if (ctx.sm->CurrentState() == ctx.service_state ||
       ctx.sm->CurrentState() == ctx.esc_config_state) {
     static int64_t last_log_us = 0;
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_log_us >= 5000000) {
       ctx.sys->Mavlink().ReportPanic(Mavlink::PanicSource::kStm32, error_code);
-      ESP_LOGE(kTag, "STM32 Panic (Ignored in DFU): Code 0x%08lX: %s",
+      ESP_LOGE(kTag, "STM32 Panic (Ignored in Service): Code 0x%08lX: %s",
                static_cast<unsigned long>(error_code), GetMessage(error_code));
       last_log_us = now_us;
     }
@@ -186,7 +186,7 @@ void CommandHandler::Dispatch(const AppContext &ctx, const message::Packet &pkt)
   }
 }
 
-CommandHandler::DfuTcpAction CommandHandler::Dispatch(
+CommandHandler::ServiceTcpAction CommandHandler::Dispatch(
     const AppContext &ctx, const TcpServer::Event &ev) {
   switch (ev.id) {
     case TcpServer::EventId::kBegin: {
@@ -196,35 +196,35 @@ CommandHandler::DfuTcpAction CommandHandler::Dispatch(
       ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%s",
                (unsigned)ev.begin.size, (unsigned)ev.begin.crc,
                ev.begin.target[0] != '\0' ? ev.begin.target : "stm32");
-      return DfuTcpAction::kEnterProgram;
+      return ServiceTcpAction::kEnterProgram;
     }
     case TcpServer::EventId::kLogList: {
       ctx.log_pull_state->PrepareList();
-      return DfuTcpAction::kEnterLogPull;
+      return ServiceTcpAction::kEnterLogPull;
     }
     case TcpServer::EventId::kLogGet: {
       ctx.log_pull_state->PrepareGet(ev.log_name);
-      return DfuTcpAction::kEnterLogPull;
+      return ServiceTcpAction::kEnterLogPull;
     }
     case TcpServer::EventId::kAbort: {
       ctx.sys->Tcp().StopDownload();
       ESP_LOGI(kTag, "TCP: ABORT");
-      return DfuTcpAction::kStayInDfu;
+      return ServiceTcpAction::kStayInService;
     }
     case TcpServer::EventId::kReset: {
       ctx.sys->Tcp().DisableBridge();
       ESP_LOGW(kTag, "TCP: RESET requested. Rebooting...");
       ctx.sys->Programmer().Boot();
       esp_restart();
-      return DfuTcpAction::kStayInDfu;
+      return ServiceTcpAction::kStayInService;
     }
     case TcpServer::EventId::kBridge: {
       ESP_LOGI(kTag, "TCP: BRIDGE requested");
       ctx.sys->Tcp().EnableBridge();
-      return DfuTcpAction::kStayInDfu;
+      return ServiceTcpAction::kStayInService;
     }
     default:
       break;
   }
-  return DfuTcpAction::kStayInDfu;
+  return ServiceTcpAction::kStayInService;
 }

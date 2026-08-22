@@ -25,7 +25,7 @@ constexpr int16_t kRibbonGapPx = 4;
 constexpr int16_t kRibbonStripePitchPx = 12;
 constexpr int16_t kRibbonStripeWidthPx = 5;
 constexpr uint16_t kRibbonPixelsPerSecond = 28;
-constexpr char kRecoverableHint[] = ". Hold button0 to enter DFU.";
+constexpr char kRecoverableHint[] = ". Hold button0 to enter Service.";
 
 void DrawConstructionRibbon(DisplayRenderer &renderer, int16_t top,
                             int16_t height, TimeMs now) {

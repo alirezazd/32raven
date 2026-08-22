@@ -272,7 +272,7 @@ config ESP32_BUTTON_LONG_PRESS_MS
     default 500
     help
       Hold time required before the button reports a long-press event, which
-      enters DFU. A short press starts the Wi-Fi MAVLink bridge instead.
+      enters Service. A short press starts the Wi-Fi MAVLink bridge instead.
 
 endmenu
 
@@ -565,7 +565,7 @@ choice
     default ESP32_WIDGET_UI_TRANSITION_SPEED_2X
     help
       Select the swipe speed preset for major UI screen transitions such as
-      switching between Serving, MAVLink WiFi, and DFU screens.
+      switching between Serving, MAVLink WiFi, and Service screens.
 
 config ESP32_WIDGET_UI_TRANSITION_SPEED_1X
     bool "1x"

@@ -22,10 +22,10 @@ DEFAULT_SSID = "32Raven"
 DEFAULT_PASS = "32Raven@1234"
 DEFAULT_FALLBACK_IP = "192.168.4.1"
 CHUNK_SIZE = 4096
-DFU_WAIT_SECONDS = 60
+SERVICE_WAIT_SECONDS = 60
 FLASH_STATUS_POLL_S = 0.5
 FLASH_STATUS_TIMEOUT_S = 120
-DFU_POLL_SECONDS = 1.0
+SERVICE_POLL_SECONDS = 1.0
 WIFI_WAIT_SECONDS = 15
 
 
@@ -152,13 +152,13 @@ class Esp32Shell(cmd.Cmd):
     )
     prompt = "(disconnected) > "
 
-    def __init__(self, ip=None, timeout=10, wait_for_dfu=False):
+    def __init__(self, ip=None, timeout=10, wait_for_service=False):
         super().__init__()
         self.target_ip = ip
         self.timeout = timeout
         # Only the one-shot flash waits: an interactive session has a human
         # who can read the message and retry.
-        self.wait_for_dfu = wait_for_dfu
+        self.wait_for_service = wait_for_service
         self.ctrl_sock = None
         self.data_sock = None
         self.connected = False
@@ -182,7 +182,7 @@ class Esp32Shell(cmd.Cmd):
             return
 
         print(f"Connecting to {self.target_ip}...")
-        if self._open_ctrl(retry=self.wait_for_dfu):
+        if self._open_ctrl(retry=self.wait_for_service):
             self.connected = True
             self.prompt = f"({self.target_ip}) > "
             print("Connected.")
@@ -193,10 +193,10 @@ class Esp32Shell(cmd.Cmd):
         ECONNREFUSED here is not ambiguous: MavlinkWifiState calls Tcp().Stop()
         but leaves the AP up, so the host still associates and routes. A closed
         port 9000 with a reachable host means the ESP32 is running, just not in
-        DFU mode. Anything else -- timeout, unreachable -- is a network fault
-        and is reported as-is.
+        Service mode. Anything else -- timeout, unreachable -- is a network
+        fault and is reported as-is.
         """
-        deadline = time.time() + DFU_WAIT_SECONDS
+        deadline = time.time() + SERVICE_WAIT_SECONDS
         announced = False
         while True:
             try:
@@ -204,7 +204,7 @@ class Esp32Shell(cmd.Cmd):
                     (self.target_ip, CTRL_PORT), timeout=self.timeout
                 )
                 if announced:
-                    print("\nDFU mode detected.")
+                    print("\nService mode detected.")
                 return True
             except ConnectionRefusedError:
                 if not announced:
@@ -212,21 +212,21 @@ class Esp32Shell(cmd.Cmd):
                     print(
                         f"  CONNECTION REFUSED   {self.target_ip}:{CTRL_PORT}"
                     )
-                    print("  ESP32 is up, DFU server is not.")
+                    print("  ESP32 is up, Service server is not.")
                     print(
-                        "  Put it in DFU mode: press the button until "
-                        "the OLED reads DFU."
+                        "  Put it in Service mode: press the button until "
+                        "the OLED reads Service."
                     )
                     if not retry:
                         print()
                         return False
-                    print(f"  Waiting {DFU_WAIT_SECONDS}s...  ^C aborts.")
+                    print(f"  Waiting {SERVICE_WAIT_SECONDS}s...  ^C aborts.")
                     print()
                     announced = True
                 if time.time() > deadline:
-                    print("Gave up waiting for DFU mode.")
+                    print("Gave up waiting for Service mode.")
                     return False
-                time.sleep(DFU_POLL_SECONDS)
+                time.sleep(SERVICE_POLL_SECONDS)
             except OSError as e:
                 print(f"Connection failed: {e}")
                 return False
@@ -284,10 +284,10 @@ class Esp32Shell(cmd.Cmd):
             if resp is None:
                 print(
                     "No answer to the handshake. The ESP32 is on a page that "
-                    "does not serve flashing -- put it on DFU and retry."
+                    "does not serve flashing -- put it on Service and retry."
                 )
             elif "wrong_page" in resp:
-                print("Wrong page: put the ESP32 on DFU and retry.")
+                print("Wrong page: put the ESP32 on Service and retry.")
             else:
                 print(f"Target refused handshake: {resp}")
             self.data_sock.close()
@@ -644,7 +644,7 @@ def main():
     # Check if a command is provided (one or more arguments)
     is_batch_mode = len(args.command) > 0
 
-    shell = Esp32Shell(ip=target_ip, wait_for_dfu=is_batch_mode)
+    shell = Esp32Shell(ip=target_ip, wait_for_service=is_batch_mode)
 
     if is_batch_mode:
         line = " ".join(args.command)

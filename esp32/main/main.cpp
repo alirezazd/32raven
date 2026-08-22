@@ -16,7 +16,7 @@ AppContext MakeAppContext() {
   static ServingState serving_state;
   static MavlinkWifiState mavlink_wifi_state;
   static MavlinkUsbState mavlink_usb_state;
-  static DfuState dfu_state;
+  static ServiceState service_state;
   static ProgramState program_state;
   static EscConfigState esc_config_state;
   static WifiLogState wifi_log_state;
@@ -28,7 +28,7 @@ AppContext MakeAppContext() {
   ctx.serving_state = &serving_state;
   ctx.mavlink_wifi_state = &mavlink_wifi_state;
   ctx.mavlink_usb_state = &mavlink_usb_state;
-  ctx.dfu_state = &dfu_state;
+  ctx.service_state = &service_state;
   ctx.program_state = &program_state;
   ctx.esc_config_state = &esc_config_state;
   ctx.wifi_log_state = &wifi_log_state;

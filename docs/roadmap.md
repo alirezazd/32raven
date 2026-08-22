@@ -425,7 +425,7 @@ and joined before the STM32 can be fixed — including when the thing being debu
 WiFi. The bridge already has a USB cable attached for `make flash-esp32`; the same cable should
 carry a `make flash-stm32`.
 
-Everything below the host leg is already transport-agnostic. `DfuState` and `ProgramState`
+Everything below the host leg is already transport-agnostic. `ServiceState` and `ProgramState`
 drive `Programmer`, which pulses `BOOT0`/`NRST` and speaks the ROM bootloader over USART1;
 none of that knows or cares how the image arrived. Only the host-to-ESP32 hop is TCP, and the
 states touch it through about a dozen `TcpServer` calls — `Poll`, `PopEvent`, `SendCtrlLine`,
@@ -484,28 +484,6 @@ already wakes the panel for events worth seeing.
 The natural first users are the sites that already play `kWarning`, plus #11's ESC derating
 warning, which needs somewhere to be seen the moment it exists.
 
-### #38 — Put the destructive pages behind a service menu — 🟢 SUPPORTING
-
-DFU is one long-press from the operational cycle. `CycleOnButton` walks Serving, MavlinkWifi,
-WifiLog, UsbLog, MavlinkUsb and back, with Dfu and EscConfig hanging off the long press, so
-detaching the STM32's firmware is as reachable as switching telemetry transports. #32 adds
-erasing the card to the same neighbourhood.
-
-#32 already answers this for formatting alone — a hidden entry, a gesture that cannot be
-stumbled into, documented in the handbook and never on the screen. The point here is that the
-answer should be one gate rather than a second mechanism per dangerous page. Everything that
-reprograms an MCU or destroys stored data lives behind it; the cycle carries only what an
-operator uses in normal service.
-
-#### The recovery path must not go behind the gate
-
-`EnterRecoveryDfuMode` reaches DFU directly from the panic loop, not through the menu, and that
-has to stay true. A gesture-gated DFU that a panicking board cannot reach turns a bricked STM32
-into a cable job — the exact situation the WiFi DFU path exists to avoid.
-
-Lands after #32, since formatting is the second occupant that makes a shared gate worth
-building rather than a one-off.
-
 ### #39 — The LED says less than it has states — 🟢 SUPPORTING
 
 Six pages, three signals, and no scheme tying them together.
@@ -513,12 +491,12 @@ Six pages, three signals, and no scheme tying them together.
 | Page | Pattern |
 | --- | --- |
 | Serving | breathe, 3 s |
-| Dfu | blink, 400 ms |
+| Service | blink, 400 ms |
 | EscConfig, UsbLog, WifiLog | blink, 800 ms — identical on all three |
 | MavlinkWifi, MavlinkUsb | nothing set |
 | Program | off |
 
-So the LED distinguishes "a tool page" from DFU but not which tool page, and on the two MAVLink
+So the LED distinguishes "a tool page" from Service but not which tool page, and on the two MAVLink
 pages it shows whatever the previous page happened to leave behind.
 
 **A one-shot never gives the page back.** `SetPattern(..., repeat_count)` installs `kOffStep`
@@ -685,8 +663,8 @@ indicator, and is the thing the operator connects to on the bench.
 A fault code and the flight index it was raised in, sent over FcLink when Sentinel raises it and
 again on handshake so a fault raised while the link was down is not lost. The ESP32 appends to a
 small NVS ring — bounded, oldest dropped — and the UI shows a pending-fault indicator until it
-is cleared. Clearing is explicit and belongs behind #38's service menu; nothing clears on boot,
-on read, or on a good flight.
+is cleared. Clearing is explicit and confirmed on the page that shows the faults; nothing
+clears on boot, on read, or on a good flight.
 
 `ErrorCode` is already the shared vocabulary, so the wire carries a code the ESP32 can name
 through `error_code.cpp` rather than a second enum invented for the purpose.
@@ -711,18 +689,18 @@ Four states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them h
 
 | State | STM32 | FcLink | Telem UART | Wanted |
 | --- | --- | --- | --- | --- |
-| Dfu, waiting for a host | Idle, running | free | free | on |
+| Service, waiting for a host | Idle, running | free | free | on |
 | WifiLog, waiting for a host | Idle, running | free | free | on |
 | EscConfig | suspended | MSP relay | MAVLink, full | not-ready |
 | UsbLog (MSC) | suspended | grant only | free | on, not-ready |
 | LogPull, transferring | Idle, running | saturated | free | narrowed |
 | Program, flashing | ROM bootloader | held by Programmer | free | dark |
 
-`DfuState` and `WifiLogState` never touch the flight controller — they start the network and
+`ServiceState` and `WifiLogState` never touch the flight controller — they start the network and
 wait, indefinitely, while it runs normally. `ProgramState` is the only one with a physical
 reason: BOOT0 is asserted, `Programmer` owns USART1, and no firmware is left to publish.
-Recovery DFU is a seventh case, where the STM32 is halted in its panic loop and the ESP32
-holds the only fact worth sending — which is #40's.
+Recovery Service mode is a seventh case, where the STM32 is halted in its panic loop and the
+ESP32 holds the only fact worth sending — which is #40's.
 
 A dark link and a dead board are the same thing from the ground. That is the ambiguity #42
 removes from the fields, and there is no point making the values honest while the link that

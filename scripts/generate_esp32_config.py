@@ -56,7 +56,7 @@ MAVLINK_SYSTEM_STATUS_FRESH_MS = 3000
 # absorbs the burst it exists for -- so they are fixed here rather than
 # exposed as Kconfig knobs nobody could set better.
 # Async network events queued while the loop services the previous one.
-# Inbound staging for the DFU download; drained a chunk per app tick.
+# Inbound staging for the firmware download; drained a chunk per app tick.
 # Parsed FcLink packets held between UART parsing and the app loop.
 WIFI_AP_SSID_MIN_LEN = 1
 WIFI_AP_SSID_MAX_LEN = 32
@@ -287,7 +287,7 @@ def _validate_cross_field(kconf: kconfiglib.Kconfig) -> None:
             "ESP32 button pull-up and pull-down cannot both be enabled"
         )
     # A long press is only recognised once debounce has already elapsed, so a
-    # debounce at or above it makes DFU entry unreachable.
+    # debounce at or above it makes Service entry unreachable.
     debounce_ms = sym_int(kconf, "ESP32_BUTTON_DEBOUNCE_MS")
     long_press_ms = sym_int(kconf, "ESP32_BUTTON_LONG_PRESS_MS")
     if debounce_ms >= long_press_ms:

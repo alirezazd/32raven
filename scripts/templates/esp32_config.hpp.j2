@@ -185,7 +185,7 @@ inline constexpr UartConfig kFcLinkUartConfig = {
             .baud_rate = common_config::kFcLinkBaud,
             // 8E1, fixed: Programmer drives the STM32's ROM bootloader over
             // this UART and AN3155 specifies even parity. SetBaudRate carries
-            // this field into the DFU session unchanged.
+            // this field into the service session unchanged.
             .parity = UartParity::kEven,
         },
     .buffers =

@@ -72,9 +72,9 @@ class MavlinkUsbState : public IState<AppContext> {
   void OnStep(AppContext &ctx) override;
 };
 
-class DfuState : public IState<AppContext> {
+class ServiceState : public IState<AppContext> {
  public:
-  const char *Name() const override { return "Dfu"; }
+  const char *Name() const override { return "Service"; }
 
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;

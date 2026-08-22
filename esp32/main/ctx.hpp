@@ -9,7 +9,7 @@
 struct ServingState;
 struct MavlinkWifiState;
 struct MavlinkUsbState;
-struct DfuState;
+struct ServiceState;
 struct ProgramState;
 struct EscConfigState;
 struct WifiLogState;
@@ -28,7 +28,7 @@ struct AppContext {
   ServingState *serving_state = nullptr;
   MavlinkWifiState *mavlink_wifi_state = nullptr;
   MavlinkUsbState *mavlink_usb_state = nullptr;
-  DfuState *dfu_state = nullptr;
+  ServiceState *service_state = nullptr;
   ProgramState *program_state = nullptr;
   EscConfigState *esc_config_state = nullptr;
   WifiLogState *wifi_log_state = nullptr;

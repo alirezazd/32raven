@@ -96,7 +96,7 @@ class Ui {
   enum class AppState : uint8_t {
     kBooting,
     kServing,
-    kDfu,
+    kService,
     kMavlinkWifi,
     kMavlinkUsb,
     kProgram,
@@ -109,8 +109,8 @@ class Ui {
   enum class MainScreen : uint8_t {
     kBooting,
     kServing,
-    kDfuDisconnected,
-    kDfuIdleConnected,
+    kServiceDisconnected,
+    kServiceIdleConnected,
     kMavlinkWifiDisconnected,
     kMavlinkWifiConnected,
     kProgramming,
@@ -246,7 +246,7 @@ class Ui {
     kServing,
     kMavlink,
     kLog,
-    kDfu,
+    kService,
     kProgram,
     kEscConfig,
   };

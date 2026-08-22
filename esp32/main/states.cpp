@@ -21,10 +21,10 @@ extern "C" {
 static constexpr const char *kTag = "ESP32-SM";
 
 // LED cadence per page, so the board says where it is without the screen.
-// The three tool pages share one rate; DFU blinks faster because it is the
+// The three tool pages share one rate; Service blinks faster because it is the
 // only page waiting on a host to connect.
 static constexpr uint32_t kServingBreatheMs = 3000;
-static constexpr uint32_t kDfuBlinkMs = 400;
+static constexpr uint32_t kServiceBlinkMs = 400;
 static constexpr uint32_t kToolPageBlinkMs = 800;
 
 // Same patience as the boot handshake: the same STM32 on the same link.
@@ -78,11 +78,11 @@ static bool CycleOnButton(AppContext &ctx, const char *from,
 //   short press — cycle within the current menu
 //     normal: Serving -> MavlinkWifi -> WifiLog -> UsbLog -> MavlinkUsb
 //             -> Serving
-//     config: Dfu -> EscConfig -> Dfu
+//     config: Service -> EscConfig -> Service
 //   hold        — swap menus, from anywhere
-//     normal -> Dfu (config entry point), config -> Serving
+//     normal -> Service (config entry point), config -> Serving
 // Program is transient and sits outside the cycle; a hold aborts it back to
-// Dfu rather than leaving the config menu mid-flash.
+// Service rather than leaving the config menu mid-flash.
 
 // Serving State
 void ServingState::OnEnter(AppContext &ctx) {
@@ -93,7 +93,7 @@ void ServingState::OnEnter(AppContext &ctx) {
   // plugged in, with no user action required.
   ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
   ctx.sys->Mavlink().SetTelemetryLink(true);
-  // The STM32 keeps streaming FC link packets while DFU/program modes are not
+  // The STM32 keeps streaming FC link packets while Service/Program modes are not
   // polling them, so resume in a fresh resync state instead of parsing stale
   // buffered bytes as fatal corruption.
   ctx.sys->FcLink().ResetRxState();
@@ -103,7 +103,7 @@ void ServingState::OnEnter(AppContext &ctx) {
 
 void ServingState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "Serving", {*ctx.mavlink_wifi_state, "MavlinkWifi"},
-                    {*ctx.dfu_state, "Dfu"})) {
+                    {*ctx.service_state, "Service"})) {
     return;
   }
   DrainFcLink(ctx);
@@ -124,7 +124,7 @@ void MavlinkWifiState::OnEnter(AppContext &ctx) {
 
 void MavlinkWifiState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "MavlinkWifi", {*ctx.wifi_log_state, "WifiLog"},
-                    {*ctx.dfu_state, "Dfu"})) {
+                    {*ctx.service_state, "Service"})) {
     return;
   }
   DrainFcLink(ctx);
@@ -146,27 +146,27 @@ void MavlinkUsbState::OnEnter(AppContext &ctx) {
 
 void MavlinkUsbState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "MavlinkUsb", {*ctx.serving_state, "Serving"},
-                    {*ctx.dfu_state, "Dfu"})) {
+                    {*ctx.service_state, "Service"})) {
     return;
   }
   DrainFcLink(ctx);
   ctx.sys->Mavlink().Poll(ctx.now_ms);
 }
 
-// Dfu State
-void DfuState::OnEnter(AppContext &ctx) {
-  ESP_LOGI(kTag, "entering Dfu");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kDfu);
+// Service State
+void ServiceState::OnEnter(AppContext &ctx) {
+  ESP_LOGI(kTag, "entering Service");
+  ctx.sys->Ui().SetAppState(Ui::AppState::kService);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kDfuBlinkMs);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kServiceBlinkMs);
   // Panicking here would be unrecoverable (kTcpServerStartFailed is not
-  // DFU-recoverable), so a failed start only leaves nothing listening.
+  // Service-recoverable), so a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().DisableBridge();
 }
 
-void DfuState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "DFU", {*ctx.esc_config_state, "EscConfig"},
+void ServiceState::OnStep(AppContext &ctx) {
+  if (CycleOnButton(ctx, "Service", {*ctx.esc_config_state, "EscConfig"},
                     {*ctx.serving_state, "Serving"})) {
     return;
   }
@@ -175,16 +175,16 @@ void DfuState::OnStep(AppContext &ctx) {
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
     switch (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
-      case CommandHandler::DfuTcpAction::kEnterProgram:
+      case CommandHandler::ServiceTcpAction::kEnterProgram:
         ctx.sys->Tcp().SendCtrlLine("OK\n");
         ctx.sm->ReqTransition(*ctx.program_state);
         return;
-      case CommandHandler::DfuTcpAction::kEnterLogPull:
+      case CommandHandler::ServiceTcpAction::kEnterLogPull:
         // Logs are served from the WiFi log page, where the screen shows
         // the transfer.
         ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
         break;
-      case CommandHandler::DfuTcpAction::kStayInDfu:
+      case CommandHandler::ServiceTcpAction::kStayInService:
         break;
     }
   }
@@ -210,10 +210,10 @@ void ProgramState::OnStep(AppContext &ctx) {
   }
   if (button.ConsumeLongPress()) {
     ctx.sys->Ui().NotifyUserActivity();
-    ESP_LOGI(kTag, "Program -> Dfu (long press)");
+    ESP_LOGI(kTag, "Program -> Service (long press)");
     ctx.sys->Programmer().Abort();
     ctx.sys->Tcp().StopDownload();
-    ctx.sm->ReqTransition(*ctx.dfu_state);
+    ctx.sm->ReqTransition(*ctx.service_state);
     return;
   }
 
@@ -224,7 +224,7 @@ void ProgramState::OnStep(AppContext &ctx) {
   auto &prog = ctx.sys->Programmer();
 
   if (prog.Done()) {
-    ESP_LOGI(kTag, "Prog Done -> Transitioning to Dfu");
+    ESP_LOGI(kTag, "Prog Done -> Transitioning to Service");
     TcpServer::Status st{};
     st.rx = prog.Written();
     st.total = prog.Total();
@@ -233,7 +233,7 @@ void ProgramState::OnStep(AppContext &ctx) {
     tcp.SetStatus(st);
 
     ctx.sys->Programmer().Boot();
-    ctx.sm->ReqTransition(*ctx.dfu_state);
+    ctx.sm->ReqTransition(*ctx.service_state);
     return;
   }
 
@@ -244,14 +244,14 @@ void ProgramState::OnStep(AppContext &ctx) {
       ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev->id);
       tcp.StopDownload();
       prog.Abort();
-      // Dfu, where a completed flash also lands: the network stays up and the
+      // Service, where a completed flash also lands: the network stays up and the
       // host can retry without walking the menu again. Only the unasked-for
       // endings sound -- an ABORT line is the host's own doing, a dropped
       // socket is not, and the STM32 left half-written says so on next boot.
       if (ev->id != TcpServer::EventId::kAbort) {
         ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
       }
-      ctx.sm->ReqTransition(*ctx.dfu_state);
+      ctx.sm->ReqTransition(*ctx.service_state);
       return;
     }
   }
@@ -308,7 +308,7 @@ void EscConfigState::OnEnter(AppContext &ctx) {
 }
 
 void EscConfigState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "EscConfig", {*ctx.dfu_state, "Dfu"},
+  if (CycleOnButton(ctx, "EscConfig", {*ctx.service_state, "Service"},
                     {*ctx.serving_state, "Serving"},
                     DropUsbMode)) {
     return;
@@ -375,7 +375,7 @@ void UsbLogState::OnEnter(AppContext &ctx) {
 
 void UsbLogState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "UsbLog", {*ctx.mavlink_usb_state, "MavlinkUsb"},
-                    {*ctx.dfu_state, "Dfu"},
+                    {*ctx.service_state, "Service"},
                     DropUsbMode)) {
     return;
   }
@@ -424,7 +424,7 @@ void WifiLogState::OnEnter(AppContext &ctx) {
 
 void WifiLogState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "WifiLog", {*ctx.usb_log_state, "UsbLog"},
-                    {*ctx.dfu_state, "Dfu"})) {
+                    {*ctx.service_state, "Service"})) {
     return;
   }
 
@@ -433,16 +433,16 @@ void WifiLogState::OnStep(AppContext &ctx) {
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
     switch (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
-      case CommandHandler::DfuTcpAction::kEnterLogPull:
+      case CommandHandler::ServiceTcpAction::kEnterLogPull:
         ctx.sys->Tcp().SendCtrlLine("OK\n");
         ctx.sm->ReqTransition(*ctx.log_pull_state);
         return;
-      case CommandHandler::DfuTcpAction::kEnterProgram:
+      case CommandHandler::ServiceTcpAction::kEnterProgram:
         // BEGIN's dispatch already opened the download, so close it first.
         ctx.sys->Tcp().StopDownload();
         ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
         break;
-      case CommandHandler::DfuTcpAction::kStayInDfu:
+      case CommandHandler::ServiceTcpAction::kStayInService:
         break;
     }
   }
