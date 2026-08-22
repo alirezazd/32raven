@@ -5,6 +5,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <optional>
 #include <span>
 
 #include "checksum.hpp"
@@ -185,11 +186,14 @@ void CrsfLinkService::PollRx(uint32_t now_us, size_t byte_budget) {
     return;
   }
 
-  uint8_t byte = 0;
   size_t count = 0;
-  while (count < byte_budget && uart_->ReadByte(byte)) {
+  while (count < byte_budget) {
+    const std::optional<uint8_t> byte = uart_->ReadByte();
+    if (!byte) {
+      break;
+    }
     ++count;
-    (void)ProcessCrsfByte(byte, now_us);
+    (void)ProcessCrsfByte(byte.value(), now_us);
   }
 
 }

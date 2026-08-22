@@ -3,6 +3,7 @@
 
 #include "four_way_service.hpp"
 
+#include <optional>
 #include <span>
 #include <utility>
 
@@ -221,17 +222,18 @@ void FourWayService::Dispatch() {
       }
       selected_esc_ = params_[0];
 
-      EscBootloader::DeviceInfo info{};
-      if (!bootloader_->Connect(selected_esc_, info)) {
+      const std::optional<EscBootloader::DeviceInfo> info =
+          bootloader_->Connect(selected_esc_);
+      if (!info) {
         Respond(Ack::kDeviceGeneralError);
         return;
       }
       // Low byte first. Transposed, this is not a corrupt reply but a valid one
       // naming an MCU that does not exist, and the host drops the ESC silently.
-      ReplyBuf()[reply_len_++] = info.signature_lo;
-      ReplyBuf()[reply_len_++] = info.signature_hi;
-      ReplyBuf()[reply_len_++] = info.boot_version;
-      ReplyBuf()[reply_len_++] = info.interface_mode;
+      ReplyBuf()[reply_len_++] = info->signature_lo;
+      ReplyBuf()[reply_len_++] = info->signature_hi;
+      ReplyBuf()[reply_len_++] = info->boot_version;
+      ReplyBuf()[reply_len_++] = info->interface_mode;
       Respond(Ack::kOk);
       return;
     }

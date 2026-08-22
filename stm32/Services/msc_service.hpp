@@ -28,7 +28,8 @@ class MscService {
 
  private:
   friend class System;
-  void Init(UsbCdc &usb, LogService &log, SharedState &blackboard);
+  void Init(UsbCdc &usb, LogService &log, SharedState &blackboard,
+            Sdio &sd);
 
   enum class Bot : uint8_t {
     kWaitCbw,
@@ -71,6 +72,7 @@ class MscService {
   UsbCdc *usb_ = nullptr;
   LogService *log_ = nullptr;
   SharedState *blackboard_ = nullptr;
+  Sdio *sd_ = nullptr;
   bool initialized_ = false;
   bool granted_ = false;
 

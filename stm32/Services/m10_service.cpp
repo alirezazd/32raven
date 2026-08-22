@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
+#include <optional>
+
 #include "m10_service.hpp"
 
 #include "m10_reg.hpp"
@@ -173,17 +175,21 @@ void M10Service::Init(Uart2 &uart, SharedState &blackboard) {
 }
 
 void M10Service::Poll() {
-  uint8_t byte = 0;
   uint32_t budget = kRxByteBudget;
-  while (budget > 0u && uart_->ReadByte(byte)) {
-    ProcessByte(byte);
+  while (budget > 0u) {
+    const std::optional<uint8_t> byte = uart_->ReadByte();
+    if (!byte) {
+      break;
+    }
+    ProcessByte(byte.value());
     budget--;
   }
 
   PublishIfNew();
 }
 
-void M10Service::FillGpsData(GpsData &data) const {
+GpsData M10Service::BuildGpsData() const {
+  GpsData data{};
   // When the fix arrived, not when it was collected. Stamping at the call
   // makes every fix look new however long it queued, which is exactly the
   // case a freshness check downstream exists to catch.
@@ -216,6 +222,7 @@ void M10Service::FillGpsData(GpsData &data) const {
   data.posCovNN = cov_data_.posCovNN;
   data.posCovEE = cov_data_.posCovEE;
   data.posCovDD = cov_data_.posCovDD;
+  return data;
 }
 
 void M10Service::PublishIfNew() {
@@ -223,8 +230,6 @@ void M10Service::PublishIfNew() {
     return;
   }
 
-  GpsData data{};
-  FillGpsData(data);
-  blackboard_->UpdateGps(data);
+  blackboard_->UpdateGps(BuildGpsData());
   new_data_ = false;
 }

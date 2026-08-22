@@ -7,6 +7,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <span>
 
 #include "checksum.hpp"
@@ -36,26 +37,30 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   auto &uart = *uart_;
 
   // 1. RX Parsing
-  uint8_t c;
   size_t rx_count = 0;
-  while (rx_count < rx_budget && uart.ReadByte(c)) {
+  while (rx_count < rx_budget) {
+    const std::optional<uint8_t> next = uart.ReadByte();
+    if (!next) {
+      break;
+    }
+    const uint8_t byte = next.value();
     rx_count++;
     switch (rx_state_) {
       case RxState::kMagic1:
-        if (c == message::kMagic1) rx_state_ = RxState::kMagic2;
+        if (byte == message::kMagic1) rx_state_ = RxState::kMagic2;
         break;
       case RxState::kMagic2:
-        if (c == message::kMagic2)
+        if (byte == message::kMagic2)
           rx_state_ = RxState::kId;
         else
           rx_state_ = RxState::kMagic1;
         break;
       case RxState::kId:
-        rx_pkt_internal_.id = c;
+        rx_pkt_internal_.id = byte;
         rx_state_ = RxState::kLen;
         break;
       case RxState::kLen:
-        rx_len_ = c;
+        rx_len_ = byte;
         rx_idx_ = 0;
         if (!message::IsPayloadLengthValid(
                 static_cast<message::MsgId>(rx_pkt_internal_.id), rx_len_)) {
@@ -65,15 +70,15 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
         rx_state_ = (rx_len_ > 0) ? RxState::kPayload : RxState::kCrc1;
         break;
       case RxState::kPayload:
-        rx_pkt_internal_.payload[rx_idx_++] = c;
+        rx_pkt_internal_.payload[rx_idx_++] = byte;
         if (rx_idx_ >= rx_len_) rx_state_ = RxState::kCrc1;
         break;
       case RxState::kCrc1:
-        rx_pkt_internal_.crc = c;
+        rx_pkt_internal_.crc = byte;
         rx_state_ = RxState::kCrc2;
         break;
       case RxState::kCrc2:
-        rx_pkt_internal_.crc |= ((uint16_t)c << 8);
+        rx_pkt_internal_.crc |= ((uint16_t)byte << 8);
 
         if (message::IsPacketValid(rx_pkt_internal_.id,
                                    rx_pkt_internal_.payload, rx_len_)) {
@@ -109,8 +114,9 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   // Send in bounded chunks to keep this path deterministic.
   uint8_t tx_chunk[64];
   size_t n = 0;
-  while (n < tx_budget && tx_rb_.Pop(c)) {
-    tx_chunk[n++] = c;
+  uint8_t tx_byte = 0;
+  while (n < tx_budget && tx_rb_.Pop(tx_byte)) {
+    tx_chunk[n++] = tx_byte;
     if (n >= sizeof(tx_chunk)) break;
   }
   if (n > 0) {
@@ -189,9 +195,8 @@ void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
     msg.voltage_centivolts[i] =
         static_cast<uint16_t>(std::lround(src.voltage * 100.0f));
     msg.current_centiamps[i] =
-        src.current
-            ? static_cast<int16_t>(std::lround(*src.current * 100.0f))
-            : int16_t{-1};
+        src.current ? static_cast<int16_t>(std::lround(*src.current * 100.0f))
+                    : int16_t{-1};
     msg.consumption_mah[i] = src.consumption_mah
                                  ? static_cast<int32_t>(*src.consumption_mah)
                                  : int32_t{-1};

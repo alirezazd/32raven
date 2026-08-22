@@ -203,8 +203,8 @@ void System::InitComponent(Component c) {
       EscTelemetry::GetInstance().Init(kEscTelemetryConfig, blackboard_);
       break;
     case Component::kEscService:
-      esc_service_.Init(kEscServiceConfig, EscTelemetry::GetInstance(),
-                        blackboard_);
+      esc_service_.Init(kEscServiceConfig, DShotCodec::GetInstance(),
+                        EscTelemetry::GetInstance(), blackboard_);
       break;
     case Component::kUsbCdc:
       UsbCdc::GetInstance().Init(kUsbCdcConfig);
@@ -229,7 +229,7 @@ void System::InitComponent(Component c) {
       Uart2::GetInstance().Init(kUart2Config);
       break;
     case Component::kM10:
-      M10::GetInstance().Init(kM10Config);
+      M10::GetInstance().Init(Uart2::GetInstance(), kM10Config);
       gps_service_.Init(Uart2::GetInstance(), blackboard_);
       break;
     case Component::kIcm42688p:
@@ -256,7 +256,8 @@ void System::InitComponent(Component c) {
       log_service_.Init(kLogServiceConfig, blackboard_, FcLink::GetInstance());
       break;
     case Component::kMscService:
-      msc_service_.Init(UsbCdc::GetInstance(), log_service_, blackboard_);
+      msc_service_.Init(UsbCdc::GetInstance(), log_service_, blackboard_,
+                        Sdio::GetInstance());
       break;
     case Component::kCount:
       break;

@@ -36,7 +36,7 @@ class EscService {
     kSaveSettings = 12,
   };
 
-  void Init(const Config &cfg, EscTelemetry &telemetry,
+  void Init(const Config &cfg, DShotCodec &codec, EscTelemetry &telemetry,
             SharedState &blackboard);
   void Poll(uint32_t now_us);
 
@@ -108,6 +108,7 @@ class EscService {
 
   Config cfg_{};
   PendingCommand command_{};
+  DShotCodec *codec_ = nullptr;
   EscTelemetry *telemetry_ = nullptr;
   SharedState *blackboard_ = nullptr;
   bool initialized_ = false;

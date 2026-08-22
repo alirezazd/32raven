@@ -4,6 +4,7 @@
 #include "msc_service.hpp"
 
 #include <cstring>
+#include <optional>
 
 #include "error_code.hpp"
 #include "log_service.hpp"
@@ -61,13 +62,15 @@ void PutBeU32(uint8_t *p, uint32_t v) {
 
 }  // namespace
 
-void MscService::Init(UsbCdc &usb, LogService &log, SharedState &blackboard) {
+void MscService::Init(UsbCdc &usb, LogService &log, SharedState &blackboard,
+                      Sdio &sd) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kMscServiceReinit);
   }
   usb_ = &usb;
   log_ = &log;
   blackboard_ = &blackboard;
+  sd_ = &sd;
   initialized_ = true;
 }
 
@@ -129,8 +132,7 @@ void MscService::ResetBot() {
   discard_left_ = 0;
   reply_len_ = 0;
   reply_sent_ = 0;
-  uint8_t discard = 0;
-  while (usb_->Read(discard)) {
+  while (usb_->Read()) {
   }
 }
 
@@ -177,7 +179,7 @@ void MscService::ReplyFixed(std::span<const uint8_t> data) {
 
 void MscService::HandleCbw() {
   const uint8_t op = cbw_.cb[0];
-  const bool card_ok = Sdio::GetInstance().CardPresent();
+  const bool card_ok = (*sd_).CardPresent();
 
   switch (op) {
     case kScsiTestUnitReady:
@@ -227,7 +229,7 @@ void MscService::HandleCbw() {
     case kScsiReadFormatCapacities: {
       uint8_t caps[12] = {};
       caps[3] = 8;
-      PutBeU32(&caps[4], Sdio::GetInstance().BlockCount());
+      PutBeU32(&caps[4], (*sd_).BlockCount());
       caps[8] = 0x02;  // formatted media
       caps[10] = static_cast<uint8_t>(Sdio::kBlockBytes >> 8);
       ReplyFixed(caps);
@@ -236,7 +238,7 @@ void MscService::HandleCbw() {
 
     case kScsiReadCapacity10: {
       uint8_t cap[8] = {};
-      PutBeU32(&cap[0], Sdio::GetInstance().BlockCount() - 1u);
+      PutBeU32(&cap[0], (*sd_).BlockCount() - 1u);
       PutBeU32(&cap[4], Sdio::kBlockBytes);
       ReplyFixed(cap);
       return;
@@ -254,7 +256,7 @@ void MscService::HandleCbw() {
         QueueCsw(0u, cbw_.data_length);
         return;
       }
-      if ((lba + count) > Sdio::GetInstance().BlockCount() ||
+      if ((lba + count) > (*sd_).BlockCount() ||
           cbw_.data_length != count * Sdio::kBlockBytes) {
         FailCommand(kSenseIllegalRequest, kAscLbaOutOfRange);
         return;
@@ -311,7 +313,7 @@ void MscService::PollDataIn() {
     if (blocks_this_poll == kReadBlocksPerPoll) {
       return;
     }
-    if (!Sdio::GetInstance().ReadBlocks(xfer_lba_, block_)) {
+    if (!(*sd_).ReadBlocks(xfer_lba_, block_)) {
       usb_->StallBulkIn();
       sense_key_ = kSenseMediumError;
       sense_asc_ = kAscReadError;
@@ -328,15 +330,18 @@ void MscService::PollDataIn() {
 }
 
 void MscService::PollDataOut() {
-  uint8_t byte = 0;
-  while (block_fill_ < Sdio::kBlockBytes && usb_->Read(byte)) {
-    block_[block_fill_++] = byte;
+  while (block_fill_ < Sdio::kBlockBytes) {
+    const std::optional<uint8_t> byte = usb_->Read();
+    if (!byte) {
+      break;
+    }
+    block_[block_fill_++] = byte.value();
   }
   if (block_fill_ < Sdio::kBlockBytes) {
     return;
   }
 
-  if (!Sdio::GetInstance().WriteBlocks(xfer_lba_, block_)) {
+  if (!(*sd_).WriteBlocks(xfer_lba_, block_)) {
     sense_key_ = kSenseMediumError;
     sense_asc_ = kAscWriteError;
     discard_left_ = (xfer_blocks_left_ - 1u) * Sdio::kBlockBytes;
@@ -355,8 +360,7 @@ void MscService::PollDataOut() {
 }
 
 void MscService::PollDiscard() {
-  uint8_t byte = 0;
-  while (discard_left_ > 0u && usb_->Read(byte)) {
+  while (discard_left_ > 0u && usb_->Read()) {
     --discard_left_;
   }
   if (discard_left_ == 0u) {
@@ -382,10 +386,13 @@ void MscService::Poll(uint32_t now_us) {
 
   switch (bot_) {
     case Bot::kWaitCbw: {
-      uint8_t byte = 0;
       auto *raw = reinterpret_cast<uint8_t *>(&cbw_);
-      while (cbw_fill_ < sizeof(Cbw) && usb_->Read(byte)) {
-        raw[cbw_fill_++] = byte;
+      while (cbw_fill_ < sizeof(Cbw)) {
+        const std::optional<uint8_t> byte = usb_->Read();
+        if (!byte) {
+          break;
+        }
+        raw[cbw_fill_++] = byte.value();
       }
       if (cbw_fill_ < sizeof(Cbw)) {
         return;

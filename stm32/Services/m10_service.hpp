@@ -159,7 +159,7 @@ class M10Service {
   friend class System;
 
   void Init(Uart2 &uart, SharedState &blackboard);
-  void FillGpsData(GpsData &out) const;
+  GpsData BuildGpsData() const;
   void PublishIfNew();
   void DispatchFrame();
 

@@ -46,8 +46,8 @@ bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust,
                      now_us);
 }
 
-void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
-                      SharedState &blackboard) {
+void EscService::Init(const Config &cfg, DShotCodec &codec,
+                      EscTelemetry &telemetry, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscServiceInitFailed);
   }
@@ -58,9 +58,10 @@ void EscService::Init(const Config &cfg, EscTelemetry &telemetry,
   }
 
   cfg_ = cfg;
+  codec_ = &codec;
   telemetry_ = &telemetry;
   blackboard_ = &blackboard;
-  DShotCodec::GetInstance().Init(cfg_.dshot);
+  codec_->Init(cfg_.dshot);
   initialized_ = true;
 }
 
@@ -364,7 +365,7 @@ bool EscService::WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
     requests[telemetry_motor] = true;
   }
 
-  if (!DShotCodec::GetInstance().Write(motor, requests)) {
+  if (!codec_->Write(motor, requests)) {
     dropped_write_count_++;
     return false;
   }
