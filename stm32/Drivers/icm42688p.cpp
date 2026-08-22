@@ -264,7 +264,7 @@ void Icm42688p::OnIrq() {
     // a flush this one missed burst ends the stream for good. The bus belongs
     // to the burst in flight, so defer it.
     resync_pending_.store(true, std::memory_order_release);
-    true_overrun_cnt_.fetch_add(1, std::memory_order_relaxed);
+    overrun_cnt_.fetch_add(1, std::memory_order_relaxed);
     return;
   }
   const uint16_t transfer_len =
@@ -598,8 +598,7 @@ void Icm42688p::PublishTemperature(uint32_t now_us) {
 void Icm42688p::PublishHealth(uint32_t now_us) {
   // Summed rather than counted separately: a fifth counter read before these
   // four can report a total smaller than the parts printed beside it.
-  const uint32_t true_overruns =
-      true_overrun_cnt_.load(std::memory_order_relaxed);
+  const uint32_t overruns = overrun_cnt_.load(std::memory_order_relaxed);
   const uint32_t dma_start_fails =
       dma_start_fail_cnt_.load(std::memory_order_relaxed);
   const uint32_t spi_errors = spi_error_cnt_.load(std::memory_order_relaxed);
@@ -607,9 +606,8 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
   blackboard_->UpdateImuHealth(ImuHealth{
       .timestamp_us = now_us,
       .publish_count = publish_cnt_.load(std::memory_order_relaxed),
-      .path_faults =
-          true_overruns + dma_start_fails + spi_errors + parse_fails,
-      .true_overruns = true_overruns,
+      .path_faults = overruns + dma_start_fails + spi_errors + parse_fails,
+      .overruns = overruns,
       .dma_start_fails = dma_start_fails,
       .spi_errors = spi_errors,
       .parse_fails = parse_fails,

@@ -224,7 +224,7 @@ class Icm42688p {
   // Set when an interrupt arrived mid-burst and its records went undrained.
   // Consumed by OnSpiDone, which is where the bus is free again.
   std::atomic<bool> resync_pending_{false};
-  std::atomic<uint32_t> true_overrun_cnt_{0};
+  std::atomic<uint32_t> overrun_cnt_{0};
   std::atomic<uint32_t> spi_error_cnt_{0};
   // Records the chip held that a flush threw away, read from FIFO_COUNT at the
   // moment of the flush rather than assumed from the watermark.

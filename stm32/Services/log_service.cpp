@@ -210,7 +210,7 @@ struct __attribute__((packed)) ImuHealthRecord {
   uint64_t timestamp;
   uint32_t publish_count;
   uint32_t path_faults;
-  uint32_t true_overruns;
+  uint32_t overruns;
   uint32_t dma_start_fails;
   uint32_t spi_errors;
   uint32_t parse_fails;
@@ -220,7 +220,7 @@ struct __attribute__((packed)) ImuHealthRecord {
 static_assert(sizeof(ImuHealthRecord) == 45);
 constexpr char kFmtImuHealth[] =
     "imu_health:uint64_t timestamp;uint32_t publish_count;"
-    "uint32_t path_faults;uint32_t true_overruns;uint32_t dma_start_fails;"
+    "uint32_t path_faults;uint32_t overruns;uint32_t dma_start_fails;"
     "uint32_t spi_errors;uint32_t parse_fails;uint32_t dropped_records;"
     "uint32_t missed_samples;";
 
@@ -704,7 +704,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
             kMsgImuHealth, Stamp64(imu.timestamp_us));
         rec.publish_count = imu.publish_count;
         rec.path_faults = imu.path_faults;
-        rec.true_overruns = imu.true_overruns;
+        rec.overruns = imu.overruns;
         rec.dma_start_fails = imu.dma_start_fails;
         rec.spi_errors = imu.spi_errors;
         rec.parse_fails = imu.parse_fails;
