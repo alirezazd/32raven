@@ -265,16 +265,16 @@ a clear antenna, and nothing else. Put it wherever the airframe has room.
 
 ## Compass
 
-`TBD(#4)` — **planned.** A magnetometer gives an absolute heading, which gyro yaw drifts away
+`TBD(#45)` — **planned.** A magnetometer gives an absolute heading, which gyro yaw drifts away
 from on its own, so anything that holds a position or flies a course depends on it. No driver
 in the firmware yet and no pins assigned. Siting will matter more than wiring — motors and
 current-carrying wire are what corrupt it.
 
 ## Barometer
 
-`TBD(#4)` — **planned.** Altitude hold and vertical speed need a pressure reference; the IMU
+`TBD(#46)` — **planned.** Altitude hold and vertical speed need a pressure reference; the IMU
 alone cannot tell a climb from an accelerometer bias. No driver in the firmware yet and no pins
-assigned. The reference build will use a MicoAir module, model `TBD(#4)`.
+assigned. The reference build will use a MicoAir module, model `TBD(#46)`.
 
 ## Telemetry radio
 

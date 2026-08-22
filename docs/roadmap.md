@@ -57,8 +57,8 @@ estimate here is worse than the blank, because a reader will size their own pack
 
 ### #4 — The remaining stubbed build stages — 🎯 CRITICAL
 
-Materials, boards and wiring have pages, and the firmware section covers toolchain,
-configure and flash. Still to write: frame and motors, power, smoke test, sensors, RC link,
+Materials, boards, wiring and peripherals have pages, and the firmware section covers
+toolchain, configure and flash. Still to write: frame and motors, power, smoke test, RC link,
 bench test, and first flight.
 
 Write each as its stage is reached during the real build, while the details are fresh and
@@ -318,8 +318,10 @@ turns the watchdog from "the loop turns" into "the control loop is running".
 
 Two constraints:
 
-- **`EscBootloader` also kicks, deliberately.** During ESC flashing the control loop is not the
-  liveness criterion, so the kick policy has to be mode-aware or that path resets mid-write.
+- **Three paths already kick outside the superloop, deliberately.** `EscBootloader` during ESC
+  flashing, `Sdio`'s blocking waits, and `LogService::DrainFlush` at disarm. None of them has the
+  control loop as its liveness criterion, so the kick policy has to be mode-aware or each of
+  them resets the board mid-operation.
 - **WWDG is unused and is not redundant.** The F407's second watchdog is a *window* watchdog
   off PCLK1: it resets when fed too early as well as too late, catching a loop running
   wrong-fast, which IWDG structurally cannot. Its ceiling is short — order of 50 ms at typical
@@ -526,10 +528,11 @@ which on a page with no pattern of its own reads as a link pulse — and on any 
 would silently end it. The mechanism wants a foreground/background split: a page installs
 background, a transient plays over it and hands it back.
 
-**The STM32 has no vocabulary at all.** `stm32/Drivers/led.hpp` exposes `Set(bool)` and nothing
-else. That is fine while every annunciation goes to the ESP32's buzzer and screen, and stops
-being fine the moment #28 lands: an arm refused on the RC path with the bridge dead has one
-LED, no tone and no display, which is the silent refusal #28 names as its own failure mode.
+**The STM32 has no vocabulary at all.** `stm32/Drivers/led.hpp` exposes `Set`, `Toggle` and
+`IsOn` — a pin, not a signal. That is fine while every annunciation goes to the ESP32's buzzer
+and screen, and stops being fine the moment #28 lands: an arm refused on the RC path with the
+bridge dead has one LED, no tone and no display, which is the silent refusal #28 names as its
+own failure mode.
 
 Worth deciding what the LED *means* before adding patterns to it — page identity, link
 liveness, or fault — because it currently attempts all three with no priority between them.
@@ -537,7 +540,7 @@ liveness, or fault — because it currently attempts all three with no priority 
 ### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
 `SharedState` is a const-correct store, not an access-controlled one. Readers get `const &` so
-they cannot mutate shared state, but eleven of its thirteen setters are **public**, so the
+they cannot mutate shared state, but fourteen of its sixteen setters are **public**, so the
 pattern governs *how* a write happens and never *who* performs it. `UpdateEstimate` is meant to
 be the AHRS path's alone and `UpdateRc` `RcReceiver`'s alone; nothing says so and nothing checks.
 
@@ -637,13 +640,12 @@ Capture it at boot, clear it, and carry it in `SystemStatusMsg`. Three lines, an
 silent restart into a reported one. Worth landing alongside #20's counters, since both are
 `SystemStatusMsg` additions and one wire break costs one dual-flash.
 
-#### It is a prerequisite for gyro calibration, not a nicety
+#### A reset silently discards the gyro calibration
 
-`Init` zeroes `OFFSET_USER` on every boot and nothing puts a value back, so #25's MAVLink
-calibration work will add a trigger for `StartGyroCal`. Running that after a *non*-power-on
-reset either trips `kImuCalibrationMotionDetected` or writes the motion permanently into the
-chip's offset registers. "Only calibrate on a power-on reset" is the check that prevents it,
-and it needs the cause to exist first.
+`Init` calls `ClearUserOffsets()` on every boot and nothing puts a value back, so a board that
+restarts in flight keeps flying on zeroed offsets and says nothing. Calibration is operator-
+triggered over MAVLink and refuses while armed, so it cannot re-run on its own — which leaves
+the reported reset cause as the only thing that would explain why the bias came back.
 
 #### In-flight restart recovery is a separate project — 🧊 DEFERRED
 
@@ -791,9 +793,9 @@ the build-time knob is for.
 
 `-Wunused` fires only for internal-linkage functions, so an unused public header-inline accessor
 is invisible to every build: no TU odr-uses it, so no TU emits it, so it costs no flash and
-raises no warning. `Ahrs::Current()` survived that way until it was found by reading; so did
-the CRSF direct-send trio, private and unreachable for months after StatPublisher took their
-job. Three tools each catch part of the gap, and they do not overlap:
+raises no warning. `Icm42688p::GetAccelCalibration()` is one sitting in the tree right now, and
+it is the accessor #25 is about — the calibration has no consumer, and nothing says so. Three
+tools each catch part of the gap, and they do not overlap:
 
 - `-Wl,--print-gc-sections` — ground truth on the binary. Finds unused data, vtables and
   transitively dead code. Blind to never-emitted inline functions, which is most of what
@@ -803,13 +805,13 @@ job. Three tools each catch part of the gap, and they do not overlap:
 - clang `-Wunused-private-field` — the only one that finds unused *data members*. Needs nothing
   but `-fsyntax-only`.
 
-All three stay advisory. The confidential SIL consumes this repo's public API, so a whole-program
-"unused" verdict from inside the repo is the exact false positive that rule exists to catch —
-a list to review, never a build gate.
+All three stay advisory. A whole-program "unused" verdict is only as good as its view of the
+callers, and a public API has callers no single-tree pass can see — a list to review, never a
+build gate.
 
 ### #34 — Linter exceptions are scattered, and no rule can be silenced on one line — 🟢 SUPPORTING
 
-Seventeen scripts in `scripts/lint/` gate this repo, and the answer to "why does this file not
+Eighteen scripts in `scripts/lint/` gate this repo, and the answer to "why does this file not
 have to obey" is in a different place for each of them:
 
 - **Two read an exceptions file, in two grammars that disagree.** `comment_exceptions.txt` takes
@@ -817,9 +819,11 @@ have to obey" is in a different place for each of them:
   `path:line:col` *or* the offending source text, so one entry can excuse a construct everywhere
   rather than excuse a file — and it arrives through a `--exceptions` flag rather than a fixed
   path. Both files are empty today, which is the only reason the difference has cost nothing yet.
-- **Two carry the list as Python constants.** `check_timer_access.py`'s `ALLOWED` (three paths)
-  and `check_license.py`'s `EXEMPT_PATTERNS` (fourteen globs). Both already demand a written
-  reason per entry, in a comment — the discipline is right, the storage is wrong.
+- **Three carry the list as Python constants, and not in the same shape.**
+  `check_timer_access.py`'s `ALLOWED` (three paths) and `check_license.py`'s `EXEMPT_PATTERNS`
+  (fourteen globs) excuse a path outright; `check_singleton_style.py`'s `ALLOWED` maps a path to
+  a *set of rule names*, so it excuses per rule. All three already demand a written reason per
+  entry, in a comment — the discipline is right, the storage is wrong.
 - **The hook config is a third location, and it is honoured in only one of the two runs.**
   `.pre-commit-config.yaml` scopes each hook with `files:`/`exclude:` and a shared `&not_ours`
   anchor, while `.github/workflows/lint.yml` runs every script bare over the whole tree. An
@@ -839,7 +843,7 @@ reason, plus an inline `// LINT(<rule>): <reason>` for the single-line case, hel
 standard `check_comments.py` already imposes on `NOLINT`. Stale entries should fail — a rule that
 quietly stopped applying is worse than one that was never written.
 
-The counter-pressure is real and belongs in the design: thirteen of the seventeen have no
+The counter-pressure is real and belongs in the design: thirteen of the eighteen have no
 exemption mechanism at all, and that is why they hold. A shared escape hatch makes suppression
 cheap for rules that currently cost an argument, so the inline form has to name the rule and the
 reason in the diff the reviewer reads, and the thirteen keep having no entries until something
@@ -918,7 +922,7 @@ The IMU path already answers this, layer for layer:
   transmit — same timer, same stream, same pins — and a phase machine split across files
   would give one DMA stream two owners.
 - **GCR decode → a pure function beside `DShotCodec`**, encode's mirror: samples in, eRPM
-  out, no hardware. Pure is what lets the SIL test 400 lines of bit-twiddling off-target with
+  out, no hardware. Pure is what lets 400 lines of bit-twiddling be tested off-target against
   canned buffers.
 - **Publish → the driver, from the RX-complete ISR**, exactly as `Icm42688p` parses and
   publishes `ImuHealth` from its DMA-done ISR. Into a **new** blackboard struct —
@@ -946,8 +950,8 @@ reach into the other's state.
   sharing a wire.
 
 The decoder should be genuinely pure — `<array>`, `<cstdint>`, no hardware header — which
-puts it in `libs/` rather than under `stm32/`, where the SIL reaches it without dragging in
-STM32 headers to feed it canned sample buffers.
+puts it in `libs/` rather than under `stm32/`, so anything host-side can feed it canned sample
+buffers without dragging in STM32 headers.
 
 Worth noting on the way past: `DShotCodec` is *not* pure today. `dshot_codec.cpp` includes
 `dshot_tim1.hpp`, so the codec already reaches into the driver. That coupling is worth undoing
@@ -959,14 +963,10 @@ looking for.
 ### #25 — Calibration never reaches a sample — 🎯 CRITICAL
 
 **Accel calibration has no consumer.** `accel_calibration_` round-trips through EE — loaded at
-`Init`, written back by `SaveAccelCalibration` — and nothing on the sample path reads it. The
-`EeConfigStorage` path around it is correct end to end; the value simply goes nowhere. Applying
-it means either an integer offset in `MapAxes` or a correction in the estimator, and the two
-differ in whether the log carries a corrected signal.
-
-**Gyro calibration has no trigger.** `SensorCalService::StartGyroCal` has no caller, so the chip
-flies on whatever `ClearUserOffsets()` left, which is nothing. If the trigger lands at boot
-rather than on a MAVLink request, #21 explains why it has to check the reset cause first.
+`Init`, written back by `SaveAccelCalibration` — and `GetAccelCalibration()` has no callers, so
+nothing on the sample path reads it. The `EeConfigStorage` path around it is correct end to end;
+the value simply goes nowhere. Applying it means either an integer offset in `MapAxes` or a
+correction in the estimator, and the two differ in whether the log carries a corrected signal.
 
 No gyro record beside `ImuAccelCalibration`, by decision: bias moves with die temperature, so a
 stored offset is a stale number, and neither reference implementation trusts one. Accel keeps
@@ -1037,9 +1037,10 @@ preallocation whatever its length, so a 30-second hover costs the same 256 MB as
 124 flights on a 32 GB card, 62 on a 16 GB one. That is a season, not a lifetime.
 
 What happens at the end of it is a panic. `f_expand` returns `FR_DENIED`, `PrepareNextFile`
-raises `kSdCardFull`, and because that call sits in `Init` as well as `StopFlight`, the board
-stops booting. The card filling on the last flight of a day panics *at disarm, after landing*,
-and the vehicle then refuses to start until a PC has been found.
+raises `kSdCardFull`, and because that call sits in `Init` and `RemountAfterMsc` as well as
+`StopFlight`, the board stops booting. The card filling on the last flight of a day panics *at
+disarm, after landing*, the vehicle then refuses to start until a PC has been found, and an MSC
+session that ends without freeing space panics again on remount.
 
 #### The ring is cheap here
 
