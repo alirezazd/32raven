@@ -162,7 +162,7 @@ void ServiceState::OnEnter(AppContext &ctx) {
   // Panicking here would be unrecoverable (kTcpServerStartFailed is not
   // Service-recoverable), so a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
-  ctx.sys->Tcp().DisableBridge();
+  ctx.sys->Tcp().CloseDataRx();
 }
 
 void ServiceState::OnStep(AppContext &ctx) {
@@ -188,6 +188,8 @@ void ServiceState::OnStep(AppContext &ctx) {
         break;
     }
   }
+
+  (void)ctx.sys->Tcp().TakeLinkDrops();
 }
 
 // Program State
@@ -212,7 +214,7 @@ void ProgramState::OnStep(AppContext &ctx) {
     ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "Program -> Service (long press)");
     ctx.sys->Programmer().Abort();
-    ctx.sys->Tcp().StopDownload();
+    ctx.sys->Tcp().EndTransfer();
     ctx.sm->ReqTransition(*ctx.service_state);
     return;
   }
@@ -229,7 +231,7 @@ void ProgramState::OnStep(AppContext &ctx) {
     st.rx = prog.Written();
     st.total = prog.Total();
     st.state = 1;
-    tcp.StopDownload();
+    tcp.EndTransfer();
     tcp.SetStatus(st);
 
     ctx.sys->Programmer().Boot();
@@ -238,22 +240,27 @@ void ProgramState::OnStep(AppContext &ctx) {
   }
 
   while (auto ev = tcp.PopEvent()) {
-    if (ev->id == TcpServer::EventId::kAbort ||
-        ev->id == TcpServer::EventId::kCtrlDown ||
-        ev->id == TcpServer::EventId::kDataDown) {
-      ESP_LOGE(kTag, "ProgramState Event: %d -> Abort", (int)ev->id);
-      tcp.StopDownload();
+    if (ev->id == TcpServer::EventId::kAbort) {
+      ESP_LOGE(kTag, "ProgramState: ABORT");
+      tcp.EndTransfer();
       prog.Abort();
-      // Service, where a completed flash also lands: the network stays up and the
-      // host can retry without walking the menu again. Only the unasked-for
-      // endings sound -- an ABORT line is the host's own doing, a dropped
-      // socket is not, and the STM32 left half-written says so on next boot.
-      if (ev->id != TcpServer::EventId::kAbort) {
-        ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
-      }
       ctx.sm->ReqTransition(*ctx.service_state);
       return;
     }
+  }
+
+  const TcpServer::LinkDrops drops = tcp.TakeLinkDrops();
+  if (drops.ctrl || drops.data) {
+    ESP_LOGE(kTag, "ProgramState: link drop -> Abort");
+    tcp.EndTransfer();
+    prog.Abort();
+    // Service, where a completed flash also lands: the network stays up and
+    // the host can retry without walking the menu again. Only the unasked-for
+    // endings sound -- an ABORT line is the host's own doing, a dropped
+    // socket is not, and the STM32 left half-written says so on next boot.
+    ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+    ctx.sm->ReqTransition(*ctx.service_state);
+    return;
   }
 
   if (prog.IsVerifying()) {
@@ -269,7 +276,7 @@ void ProgramState::OnStep(AppContext &ctx) {
   if (free > 0) {
     uint8_t buf[512];
     const std::span<uint8_t> chunk{buf};
-    const size_t n = tcp.ReadDownload(
+    const size_t n = tcp.ReadDataRx(
         chunk.first((free < chunk.size()) ? free : chunk.size()));
     if (n > 0) {
       prog.PushBytes(chunk.first(n));
@@ -419,7 +426,7 @@ void WifiLogState::OnEnter(AppContext &ctx) {
   ctx.sys->FcLink().ResetRxState();
   // Best effort: a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
-  ctx.sys->Tcp().DisableBridge();
+  ctx.sys->Tcp().CloseDataRx();
 }
 
 void WifiLogState::OnStep(AppContext &ctx) {
@@ -438,14 +445,16 @@ void WifiLogState::OnStep(AppContext &ctx) {
         ctx.sm->ReqTransition(*ctx.log_pull_state);
         return;
       case CommandHandler::ServiceTcpAction::kEnterProgram:
-        // BEGIN's dispatch already opened the download, so close it first.
-        ctx.sys->Tcp().StopDownload();
+        // BEGIN's dispatch already opened the transfer, so close it first.
+        ctx.sys->Tcp().EndTransfer();
         ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
         break;
       case CommandHandler::ServiceTcpAction::kStayInService:
         break;
     }
   }
+
+  (void)ctx.sys->Tcp().TakeLinkDrops();
 }
 
 // LogPull State

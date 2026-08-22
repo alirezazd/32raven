@@ -5,10 +5,13 @@
 
 #include <fcntl.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <charconv>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 
 extern "C" {
 #include "esp_log.h"
@@ -56,9 +59,8 @@ void TcpServer::Stop() {
 
   // Clear buffers/queues
   evt_head_ = evt_tail_ = 0;
-  down_head_ = down_tail_ = 0;
-  download_overflow_ = false;
-  download_enabled_ = false;
+  data_rx_head_ = data_rx_tail_ = 0;
+  data_rx_open_ = false;
 }
 
 void TcpServer::Poll() {
@@ -91,59 +93,66 @@ bool TcpServer::PushEvent(const Event &e) {
   return true;
 }
 
-void TcpServer::EnableBridge() { download_enabled_ = true; }
-
-void TcpServer::DisableBridge() {
-  download_enabled_ = false;
-  down_head_ = down_tail_ = 0;
-  download_overflow_ = false;
+void TcpServer::QueueSimpleCommand(EventId id) {
+  Event e{};
+  e.id = id;
+  if (!PushEvent(e)) {
+    SendCtrlLine("ERR evt_queue_full\n");
+    return;
+  }
+  SendCtrlLine("OK\n");
 }
 
-void TcpServer::StartDownload(size_t total_size) {
-  download_enabled_ = true;
-  down_head_ = down_tail_ = 0;
-  download_overflow_ = false;
+TcpServer::LinkDrops TcpServer::TakeLinkDrops() {
+  const LinkDrops out = link_drops_;
+  link_drops_ = LinkDrops{};
+  return out;
+}
+
+void TcpServer::OpenDataRx() { data_rx_open_ = true; }
+
+void TcpServer::CloseDataRx() {
+  data_rx_open_ = false;
+  data_rx_head_ = data_rx_tail_ = 0;
+}
+
+void TcpServer::BeginTransfer(size_t total_size) {
+  data_rx_open_ = true;
+  data_rx_head_ = data_rx_tail_ = 0;
   status_ = Status{};
   status_.total = total_size;
 }
 
-void TcpServer::StopDownload() {
-  download_enabled_ = false;
-  down_head_ = down_tail_ = 0;
-  download_overflow_ = false;
+void TcpServer::EndTransfer() {
+  data_rx_open_ = false;
+  data_rx_head_ = data_rx_tail_ = 0;
   status_ = Status{};
 }
 
-size_t TcpServer::ReadDownload(std::span<uint8_t> dst) {
+size_t TcpServer::ReadDataRx(std::span<uint8_t> dst) {
   size_t n = 0;
-  while (n < dst.size() && down_head_ != down_tail_) {
-    dst[n++] = down_[down_head_];
-    down_head_ = (down_head_ + 1) % kDownCap;
+  while (n < dst.size() && data_rx_head_ != data_rx_tail_) {
+    dst[n++] = data_rx_[data_rx_head_];
+    data_rx_head_ = (data_rx_head_ + 1) % kDataRxCap;
   }
   return n;
 }
 
-bool TcpServer::WriteDownload(const uint8_t *data, size_t len) {
-  if (!download_enabled_) {
-    return false;
-  }
-  if (len > RbFree(down_head_, down_tail_, kDownCap)) {
-    download_overflow_ = true;
-    return false;
+// len always fits: the pump caps its recv at ring free space while the sink
+// is open, and a closed sink drains-and-drops here.
+void TcpServer::StageDataRx(const uint8_t *data, size_t len) {
+  if (!data_rx_open_) {
+    return;
   }
   for (size_t i = 0; i < len; ++i) {
-    down_[down_tail_] = data[i];
-    down_tail_ = (down_tail_ + 1) % kDownCap;
+    data_rx_[data_rx_tail_] = data[i];
+    data_rx_tail_ = (data_rx_tail_ + 1) % kDataRxCap;
   }
-  return true;
 }
 
 void TcpServer::SetStatus(const Status &s) { status_ = s; }
 
-TcpServer::Status TcpServer::GetStatus() const {
-  Status s = status_;
-  return s;
-}
+TcpServer::Status TcpServer::GetStatus() const { return status_; }
 
 bool TcpServer::SetNonblock(int fd) {
   const int fl = fcntl(fd, F_GETFL, 0);
@@ -151,12 +160,11 @@ bool TcpServer::SetNonblock(int fd) {
   return fcntl(fd, F_SETFL, fl | O_NONBLOCK) == 0;
 }
 
-bool TcpServer::SetKeepalive(int fd, const Config &cfg) {
-  if (cfg.keepalive_idle_s <= 0) return true;
+void TcpServer::SetKeepalive(int fd, const Config &cfg) {
+  if (cfg.keepalive_idle_s <= 0) return;
 
   int yes = 1;
-  if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) != 0)
-    return false;
+  if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) != 0) return;
 
   // LWIP uses these names; ESP-IDF maps them.
   int idle = cfg.keepalive_idle_s;
@@ -166,12 +174,11 @@ bool TcpServer::SetKeepalive(int fd, const Config &cfg) {
   (void)setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
   (void)setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
   (void)setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
-  return true;
 }
 
-bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port) {
-  out_fd = (int)socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-  if (out_fd < 0) return false;
+std::optional<int> TcpServer::MakeListenSocket(uint16_t port) {
+  const int out_fd = (int)socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+  if (out_fd < 0) return std::nullopt;
 
   int opt = 1;
   (void)setsockopt(out_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -183,8 +190,7 @@ bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port) {
 
   if (bind(out_fd, (sockaddr *)&addr, sizeof(addr)) != 0) {
     close(out_fd);
-    out_fd = -1;
-    return false;
+    return std::nullopt;
   }
 
   // One control client and one data client, and both accept paths close
@@ -193,11 +199,13 @@ bool TcpServer::MakeListenSocket(int &out_fd, uint16_t port) {
   // lwIP refuses every SYN once accepts_pending reaches the backlog.
   if (listen(out_fd, 1) != 0) {
     close(out_fd);
-    out_fd = -1;
-    return false;
+    return std::nullopt;
   }
 
-  (void)SetNonblock(out_fd);
+  if (!SetNonblock(out_fd)) {
+    close(out_fd);
+    return std::nullopt;
+  }
 
   return true;
 }
@@ -213,9 +221,7 @@ void TcpServer::CloseCtrl() {
     // also drop data when ctrl is gone (single-session rule)
     CloseData();
 
-    Event e{};
-    e.id = EventId::kCtrlDown;
-    (void)PushEvent(e);
+    link_drops_.ctrl = true;
   }
 }
 
@@ -224,9 +230,7 @@ void TcpServer::CloseData() {
     close(data_fd_);
     data_fd_ = -1;
 
-    Event e{};
-    e.id = EventId::kDataDown;
-    (void)PushEvent(e);
+    link_drops_.data = true;
   }
 }
 
@@ -263,8 +267,11 @@ void TcpServer::AcceptCtrl() {
   int fd = accept(ctrl_listen_fd_, (sockaddr *)&cli, &len);
   if (fd < 0) return;
 
-  (void)SetNonblock(fd);
-  (void)SetKeepalive(fd, cfg_);
+  if (!SetNonblock(fd)) {
+    close(fd);
+    return;
+  }
+  SetKeepalive(fd, cfg_);
 
   ctrl_fd_ = fd;
   ctrl_peer_ipv4_ = cli.sin_addr.s_addr;  // network byte order
@@ -274,10 +281,7 @@ void TcpServer::AcceptCtrl() {
 
   // reset parser buffer
   line_len_ = 0;
-
-  Event e{};
-  e.id = EventId::kCtrlUp;
-  (void)PushEvent(e);
+  line_overflow_ = false;
 }
 
 void TcpServer::AcceptData() {
@@ -314,14 +318,13 @@ void TcpServer::AcceptData() {
     return;
   }
 
-  (void)SetNonblock(fd);
-  (void)SetKeepalive(fd, cfg_);
+  if (!SetNonblock(fd)) {
+    close(fd);
+    return;
+  }
+  SetKeepalive(fd, cfg_);
 
   data_fd_ = fd;
-
-  Event e{};
-  e.id = EventId::kDataUp;
-  (void)PushEvent(e);
 }
 
 // RX pumps
@@ -336,10 +339,14 @@ void TcpServer::PumpCtrlRx() {
     if (ctrl_fd_ < 0) return;
     int r = recv(ctrl_fd_, buf, sizeof(buf), 0);
     if (r > 0) {
-      // feed bytes into line parser (PART 3 implements linebuf_add_ and
-      // HandleLine_)
       for (int i = 0; i < r; i++) {
-        if (LinebufAdd(buf[i])) {
+        const LineFeed fed = LinebufAdd(buf[i]);
+        if (fed == LineFeed::kTruncated) {
+          SendCtrlLine("ERR line_too_long\n");
+          line_len_ = 0;
+          continue;
+        }
+        if (fed == LineFeed::kComplete) {
           line_buf_[line_len_] = '\0';
           ESP_LOGI(kTag, "Cmd line: %s", line_buf_);
           HandleLine(line_buf_);
@@ -367,19 +374,19 @@ void TcpServer::PumpCtrlRx() {
 void TcpServer::PumpDataRx() {
   if (data_fd_ < 0) return;
 
-  static_assert(kDataPumpReadBytes * kDataPumpMaxIterations <= kDownCap,
+  static_assert(kDataPumpReadBytes * kDataPumpMaxIterations <= kDataRxCap,
                 "one pump cycle can outrun the download ring, so flow control "
                 "would engage on every pump rather than under backpressure");
 
   uint8_t buf[kDataPumpReadBytes];
   for (int iter = 0; iter < kDataPumpMaxIterations; ++iter) {
     // Flow control: check space before pulling from TCP
-    bool enabled = download_enabled_;
-    size_t free = RbFree(down_head_, down_tail_, kDownCap);
+    const bool open = data_rx_open_;
+    const size_t free = RbFree(data_rx_head_, data_rx_tail_, kDataRxCap);
 
-    // If download is enabled but no space, stop reading to assert method
-    // (backpressure). But we MUST check if the peer closed the connection!
-    if (enabled && free == 0) {
+    // An open sink with no space stops reading to assert backpressure -- but
+    // the peer close must still be seen.
+    if (open && free == 0) {
       char dummy;
       int r = recv(data_fd_, &dummy, 1, MSG_PEEK | MSG_DONTWAIT);
       if (r == 0) {
@@ -399,19 +406,13 @@ void TcpServer::PumpDataRx() {
 
     // Determine read size
     size_t cap = sizeof(buf);
-    if (enabled && free < cap) {
+    if (open && free < cap) {
       cap = free;
     }
 
     int r = recv(data_fd_, buf, cap, 0);
     if (r > 0) {
-      // store bytes if allowed, else drop (policy controlled by App via
-      // SetDownloadEnabled)
-      if (!WriteDownload(buf, (size_t)r)) {
-        // buffer full or download disabled
-        // keep socket open; App can disable download and/or close data
-        // connection by policy
-      }
+      StageDataRx(buf, (size_t)r);
       continue;
     }
 
@@ -467,26 +468,29 @@ static inline const char *SkipSpace(const char *p) {
 // Control line buffer helpers
 
 
-bool TcpServer::LinebufAdd(char b) {
-  if (b == '\r') return false;
+TcpServer::LineFeed TcpServer::LinebufAdd(char b) {
+  if (b == '\r') return LineFeed::kIncomplete;
 
   if (b == '\n') {
-    return line_len_ > 0;
+    const bool truncated = line_overflow_;
+    line_overflow_ = false;
+    if (truncated) return LineFeed::kTruncated;
+    return (line_len_ > 0) ? LineFeed::kComplete : LineFeed::kIncomplete;
   }
 
   if (line_len_ >= TcpServer::kMaxLineBytes) {
-    // line too long -> saturate (truncate), drop extra chars
-    return false;
+    line_overflow_ = true;
+    return LineFeed::kIncomplete;
   }
 
   line_buf_[line_len_++] = (char)b;
-  return false;
+  return LineFeed::kIncomplete;
 }
 
-// parse "key=value" where value is u32 decimal or hex (0x..). returns true if
-// found.
-static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
+// nullopt when the key is absent, unparseable, or wider than u32.
+static std::optional<uint32_t> FindU32KV(const char *line, const char *key) {
   const char *p = line;
+  const char *const end = line + std::strlen(line);
   const size_t len = std::strlen(key);
 
   while (*p) {
@@ -503,45 +507,24 @@ static bool FindU32KV(const char *line, const char *key, uint32_t &out) {
         p += 2;
       }
 
-      uint64_t v = 0;
-      bool any = false;
-      while (*p) {
-        char c = *p;
-        unsigned d;
-        if (c >= '0' && c <= '9')
-          d = (unsigned)(c - '0');
-        else if (base == 16 && c >= 'a' && c <= 'f')
-          d = 10u + (unsigned)(c - 'a');
-        else if (base == 16 && c >= 'A' && c <= 'F')
-          d = 10u + (unsigned)(c - 'A');
-        else
-          break;
-
-        if (d >= (unsigned)base) break;
-
-        any = true;
-        v = (v * (uint64_t)base) + (uint64_t)d;
-        if (v > 0xFFFFFFFFull) return false;
-        ++p;
+      uint32_t v = 0;
+      if (std::from_chars(p, end, v, base).ec != std::errc{}) {
+        return std::nullopt;
       }
-
-      if (!any) return false;
-
-      out = (uint32_t)v;
-      return true;
+      return v;
     }
 
     // skip token
     while (*p && *p != ' ' && *p != '\t') ++p;
   }
 
-  return false;
+  return std::nullopt;
 }
 
-static bool FindStrKV(const char *p, const char *key, char *out_buf,
-                      size_t max_len) {
-  if (!p || !key || !out_buf || max_len == 0) return false;
-
+// The value token for key, viewed into the line; nullopt when the key is
+// absent.
+static std::optional<std::string_view> FindStrKV(const char *p,
+                                                 const char *key) {
   const size_t len = std::strlen(key);
 
   while (*p) {
@@ -551,16 +534,11 @@ static bool FindStrKV(const char *p, const char *key, char *out_buf,
     // find key at token start
     if (std::strncmp(p, key, len) == 0 && p[len] == '=') {
       p += len + 1;
-      // Copy value until space or end
-      size_t i = 0;
+      const char *const start = p;
       while (*p && *p != ' ' && *p != '\t' && *p != '\r' && *p != '\n') {
-        if (i < max_len - 1) {
-          out_buf[i++] = *p;
-        }
         ++p;
       }
-      out_buf[i] = '\0';
-      return true;
+      return std::string_view{start, static_cast<size_t>(p - start)};
     }
 
     // skip token
@@ -568,17 +546,19 @@ static bool FindStrKV(const char *p, const char *key, char *out_buf,
       ++p;
     }
   }
-  return false;
+  return std::nullopt;
 }
 
-static bool StartsWithCI(const char *s, const char *prefix) {
-  while (*prefix) {
+// The first token of s equals verb, case-insensitive: the match must end at
+// space or end of line, so BEGINNING is not BEGIN.
+static bool TokenEqCI(const char *s, const char *verb) {
+  while (*verb) {
     char a = *s++;
-    char b = *prefix++;
+    char b = *verb++;
     if (std::toupper((unsigned char)a) != std::toupper((unsigned char)b))
       return false;
   }
-  return true;
+  return *s == '\0' || *s == ' ' || *s == '\t';
 }
 
 // Command handling
@@ -592,13 +572,12 @@ void TcpServer::HandleLine(const char *line) {
   const char *p = SkipSpace(line);
   if (!*p) return;
 
-  if (StartsWithCI(p, "BEGIN")) {
-    uint32_t size = 0;
-    uint32_t crc = 0;
-    bool ok_size = FindU32KV(p, "size", size);
-    (void)FindU32KV(p, "crc", crc);
+  if (TokenEqCI(p, "BEGIN")) {
+    const std::optional<uint32_t> parsed_size = FindU32KV(p, "size");
+    const uint32_t size = parsed_size.value_or(0);
+    const uint32_t crc = FindU32KV(p, "crc").value_or(0);
 
-    if (!ok_size || size == 0) {
+    if (!parsed_size || size == 0) {
       SendCtrlLine("ERR bad_size\n");
       return;
     }
@@ -607,7 +586,11 @@ void TcpServer::HandleLine(const char *line) {
     e.id = EventId::kBegin;
     e.begin.size = size;
     e.begin.crc = crc;
-    (void)FindStrKV(p, "target", e.begin.target, sizeof(e.begin.target));
+    const std::optional<std::string_view> target = FindStrKV(p, "target");
+    if (target) {
+      const size_t n = std::min(target->size(), sizeof(e.begin.target) - 1);
+      std::memcpy(e.begin.target, target->data(), n);
+    }
     if (!PushEvent(e)) {
       SendCtrlLine("ERR evt_queue_full\n");
       return;
@@ -615,33 +598,24 @@ void TcpServer::HandleLine(const char *line) {
     return;
   }
 
-  if (StartsWithCI(p, "ABORT")) {
-    Event e{};
-    e.id = EventId::kAbort;
-    (void)PushEvent(e);
-    SendCtrlLine("OK\n");
+  if (TokenEqCI(p, "ABORT")) {
+    QueueSimpleCommand(EventId::kAbort);
     return;
   }
 
-  if (StartsWithCI(p, "RESET")) {
-    Event e{};
-    e.id = EventId::kReset;
-    (void)PushEvent(e);
-    SendCtrlLine("OK\n");
+  if (TokenEqCI(p, "RESET")) {
+    QueueSimpleCommand(EventId::kReset);
     return;
   }
 
-  if (StartsWithCI(p, "BRIDGE") || StartsWithCI(p, "MONITOR")) {
-    Event e{};
-    e.id = EventId::kBridge;
-    (void)PushEvent(e);
-    SendCtrlLine("OK\n");
+  if (TokenEqCI(p, "BRIDGE") || TokenEqCI(p, "MONITOR")) {
+    QueueSimpleCommand(EventId::kBridge);
     return;
   }
 
-  if (StartsWithCI(p, "LOG")) {
+  if (TokenEqCI(p, "LOG")) {
     const char *arg = SkipSpace(p + 3);
-    if (StartsWithCI(arg, "LIST")) {
+    if (TokenEqCI(arg, "LIST")) {
       Event e{};
       e.id = EventId::kLogList;
       if (!PushEvent(e)) {
@@ -650,7 +624,7 @@ void TcpServer::HandleLine(const char *line) {
       }
       return;
     }
-    if (StartsWithCI(arg, "GET")) {
+    if (TokenEqCI(arg, "GET")) {
       const char *name = SkipSpace(arg + 3);
       Event e{};
       e.id = EventId::kLogGet;
@@ -674,7 +648,7 @@ void TcpServer::HandleLine(const char *line) {
     return;
   }
 
-  if (StartsWithCI(p, "STATUS?") || StartsWithCI(p, "STATUS")) {
+  if (TokenEqCI(p, "STATUS?") || TokenEqCI(p, "STATUS")) {
     Status st = GetStatus();
     char buf[128];
     std::snprintf(buf, sizeof(buf), "STATUS rx=%u total=%u state=%u err=%u\n",
@@ -691,18 +665,22 @@ void TcpServer::Start() {
   if (running_) return;
 
   evt_head_ = evt_tail_ = 0;
-  down_head_ = down_tail_ = 0;
-  download_overflow_ = false;
-  download_enabled_ = false;
+  data_rx_head_ = data_rx_tail_ = 0;
+  data_rx_open_ = false;
+  link_drops_ = LinkDrops{};
   status_ = Status{};
 
   ctrl_fd_ = -1;
   data_fd_ = -1;
   ctrl_peer_ipv4_ = 0;
   line_len_ = 0;
+  line_overflow_ = false;
 
-  if (!MakeListenSocket(ctrl_listen_fd_, cfg_.ctrl_port) ||
-      !MakeListenSocket(data_listen_fd_, cfg_.data_port)) {
+  const std::optional<int> ctrl_fd = MakeListenSocket(cfg_.ctrl_port);
+  const std::optional<int> data_fd = MakeListenSocket(cfg_.data_port);
+  ctrl_listen_fd_ = ctrl_fd.value_or(-1);
+  data_listen_fd_ = data_fd.value_or(-1);
+  if (!ctrl_fd || !data_fd) {
     ESP_LOGE(kTag, "listen sockets failed; nothing listening");
     CloseAll();
     return;

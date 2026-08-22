@@ -42,10 +42,6 @@ class TcpServer {
     kAbort,
     kReset,
     kBridge,  // Explicit command to enable transparent bridge
-    kCtrlUp,
-    kCtrlDown,
-    kDataUp,
-    kDataDown,
     kLogList,
     kLogGet,
   };
@@ -64,18 +60,27 @@ class TcpServer {
 
   std::optional<Event> PopEvent();
 
-  // Helpers to manage download session
-  void EnableBridge();
-  void DisableBridge();
-  void StartDownload(size_t total_size);
-  void StopDownload();
-  bool DownloadEnabled() const { return download_enabled_; }
+  // Socket drops since the last call, latched so a drop between polls is
+  // never missed. Take once per tick, after draining PopEvent, so a command
+  // and a drop landing in the same tick resolve to the drop.
+  struct LinkDrops {
+    bool ctrl = false;
+    bool data = false;
+  };
+  LinkDrops TakeLinkDrops();
+
+  // The inbound ring has one gate and two lifecycles on it: Open/CloseDataRx
+  // switch the raw sink (bridge) and leave Status alone -- a finished
+  // transfer's Status must survive the return to the service page --
+  // Begin/EndTransfer wrap a sized download and own its Status.
+  void OpenDataRx();
+  void CloseDataRx();
+  void BeginTransfer(size_t total_size);
+  void EndTransfer();
+  bool DataRxOpen() const { return data_rx_open_; }
 
   // Binary bytes buffered from DATA socket
-  [[nodiscard]] size_t ReadDownload(std::span<uint8_t> dst);
-
-  bool DownloadOverflowed() const { return download_overflow_; }
-  void ClearDownloadOverflow() { download_overflow_ = false; }
+  [[nodiscard]] size_t ReadDataRx(std::span<uint8_t> dst);
 
   // Status snapshot (App updates, client may query via STATUS?)
   struct Status {
@@ -118,16 +123,19 @@ class TcpServer {
   void HandleLine(const char *line);
 
   // Queues/buffers
-  bool PushEvent(const Event &e);
-  bool WriteDownload(const uint8_t *data, size_t len);
+  [[nodiscard]] bool PushEvent(const Event &e);
+  // Push-and-OK for the payload-free verbs; BEGIN and LOG answer from the
+  // page that pops them.
+  void QueueSimpleCommand(EventId id);
+  void StageDataRx(const uint8_t *data, size_t len);
 
-  // Line parser helper
-  bool LinebufAdd(char c);
+  enum class LineFeed : uint8_t { kIncomplete, kComplete, kTruncated };
+  LineFeed LinebufAdd(char c);
 
   // Socket helpers
   static bool SetNonblock(int fd);
-  static bool SetKeepalive(int fd, const Config &cfg);
-  static bool MakeListenSocket(int &out_fd, uint16_t port);
+  static void SetKeepalive(int fd, const Config &cfg);
+  static std::optional<int> MakeListenSocket(uint16_t port);
 
   Config cfg_{};
   bool running_ = false;
@@ -143,8 +151,10 @@ class TcpServer {
   // One past the longest line, for the NUL written before HandleLine sees it.
   char line_buf_[kMaxLineBytes + 1]{};
   size_t line_len_ = 0;
+  // Saturated line, reported once at its newline so resync is free.
+  bool line_overflow_ = false;
 
-  // Async network events queued while the loop services the previous one. One
+  // Host commands queued while the loop services the previous one. One
   // control connection issues one verb per line, so the depth is rarely past
   // one; overflow answers ERR evt_queue_full rather than dropping, so this
   // trades a little RAM against a spurious error.
@@ -153,16 +163,17 @@ class TcpServer {
   size_t evt_head_ = 0;
   size_t evt_tail_ = 0;
 
+  LinkDrops link_drops_{};
+
   // Inbound staging for the firmware download, drained a chunk per app tick and
   // sized to swallow one whole PumpDataRx cycle. Below that, flow control
   // engages on every pump instead of only under real backpressure; the pump
   // static_asserts against this.
-  static constexpr size_t kDownCap = 4096;
-  uint8_t down_[kDownCap]{};
-  size_t down_head_ = 0;
-  size_t down_tail_ = 0;
-  bool download_overflow_ = false;
-  bool download_enabled_ = false;
+  static constexpr size_t kDataRxCap = 4096;
+  uint8_t data_rx_[kDataRxCap]{};
+  size_t data_rx_head_ = 0;
+  size_t data_rx_tail_ = 0;
+  bool data_rx_open_ = false;
 
   Status status_{};
 };

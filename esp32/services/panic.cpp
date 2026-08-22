@@ -117,7 +117,7 @@ uint32_t EnterRecoveryServiceMode() {
   // Reached from the panic task, so a Panic() here would nest another
   // RunPanicLoop on the same static stack. The checks below report instead.
   sys.StartNetwork();
-  sys.Tcp().DisableBridge();
+  sys.Tcp().CloseDataRx();
 
   if (!sys.Wifi().IsOn()) {
     return Raw(ErrorCode::Esp32::kWifiInitFailed);
@@ -192,35 +192,33 @@ void RecoverySession::StepServiceMode(TimeMs now) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
         tcp_.SendCtrlLine("OK\n");
-        tcp_.StartDownload(ev->begin.size);
+        tcp_.BeginTransfer(ev->begin.size);
         prog_.SetTarget(ev->begin.target);
         EnterProgramMode(now);
         return;
       case TcpServer::EventId::kAbort: {
         prog_.Abort();
-        tcp_.StopDownload();
+        tcp_.EndTransfer();
         if (!EnterServiceMode(now, NetworkAction::kStopNetwork)) {
           return;
         }
         break;
       }
       case TcpServer::EventId::kReset:
-        tcp_.DisableBridge();
+        tcp_.CloseDataRx();
         (void)prog_.Boot();
         esp_restart();
         break;
       case TcpServer::EventId::kBridge:
-        tcp_.EnableBridge();
+        tcp_.OpenDataRx();
         break;
       case TcpServer::EventId::kNone:
-      case TcpServer::EventId::kCtrlUp:
-      case TcpServer::EventId::kCtrlDown:
-      case TcpServer::EventId::kDataUp:
-      case TcpServer::EventId::kDataDown:
       default:
         break;
     }
   }
+
+  (void)tcp_.TakeLinkDrops();
 }
 
 void RecoverySession::EnterProgramMode(TimeMs now) {
@@ -234,7 +232,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
 
   if (prog_.Error()) {
     const uint32_t programmer_error = prog_.LastErrorCode();
-    tcp_.StopDownload();
+    tcp_.EndTransfer();
     prog_.Abort();
     Exit(programmer_error, NetworkAction::kStopNetwork);
     return;
@@ -245,7 +243,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
     st.rx = prog_.Written();
     st.total = prog_.Total();
     st.state = 1;
-    tcp_.StopDownload();
+    tcp_.EndTransfer();
     tcp_.SetStatus(st);
     (void)prog_.Boot();
     (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
@@ -256,35 +254,35 @@ void RecoverySession::StepProgramMode(TimeMs now) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
         tcp_.SendCtrlLine("OK\n");
-        tcp_.StartDownload(ev->begin.size);
+        tcp_.BeginTransfer(ev->begin.size);
         prog_.SetTarget(ev->begin.target);
         EnterProgramMode(now);
         return;
       case TcpServer::EventId::kAbort:
         prog_.Abort();
-        tcp_.StopDownload();
+        tcp_.EndTransfer();
         (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
         return;
       case TcpServer::EventId::kReset:
-        tcp_.DisableBridge();
+        tcp_.CloseDataRx();
         (void)prog_.Boot();
         esp_restart();
         break;
       case TcpServer::EventId::kBridge:
-        tcp_.EnableBridge();
+        tcp_.OpenDataRx();
         break;
-      case TcpServer::EventId::kCtrlDown:
-      case TcpServer::EventId::kDataDown:
-        prog_.Abort();
-        tcp_.StopDownload();
-        (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
-        return;
       case TcpServer::EventId::kNone:
-      case TcpServer::EventId::kCtrlUp:
-      case TcpServer::EventId::kDataUp:
       default:
         break;
     }
+  }
+
+  const TcpServer::LinkDrops drops = tcp_.TakeLinkDrops();
+  if (drops.ctrl || drops.data) {
+    prog_.Abort();
+    tcp_.EndTransfer();
+    (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
+    return;
   }
 
   if (prog_.IsVerifying()) {
@@ -299,7 +297,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
   if (free > 0) {
     uint8_t buf[512];
     const size_t read_size = std::min(free, sizeof(buf));
-    const size_t n = tcp_.ReadDownload({buf, read_size});
+    const size_t n = tcp_.ReadDataRx({buf, read_size});
     if (n > 0) {
       prog_.PushBytes({buf, n});
       last_activity_ = now;

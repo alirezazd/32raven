@@ -190,7 +190,7 @@ CommandHandler::ServiceTcpAction CommandHandler::Dispatch(
     const AppContext &ctx, const TcpServer::Event &ev) {
   switch (ev.id) {
     case TcpServer::EventId::kBegin: {
-      ctx.sys->Tcp().StartDownload(ev.begin.size);
+      ctx.sys->Tcp().BeginTransfer(ev.begin.size);
       ctx.sys->Programmer().SetTarget(ev.begin.target);
 
       ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%s",
@@ -207,12 +207,12 @@ CommandHandler::ServiceTcpAction CommandHandler::Dispatch(
       return ServiceTcpAction::kEnterLogPull;
     }
     case TcpServer::EventId::kAbort: {
-      ctx.sys->Tcp().StopDownload();
+      ctx.sys->Tcp().EndTransfer();
       ESP_LOGI(kTag, "TCP: ABORT");
       return ServiceTcpAction::kStayInService;
     }
     case TcpServer::EventId::kReset: {
-      ctx.sys->Tcp().DisableBridge();
+      ctx.sys->Tcp().CloseDataRx();
       ESP_LOGW(kTag, "TCP: RESET requested. Rebooting...");
       ctx.sys->Programmer().Boot();
       esp_restart();
@@ -220,7 +220,7 @@ CommandHandler::ServiceTcpAction CommandHandler::Dispatch(
     }
     case TcpServer::EventId::kBridge: {
       ESP_LOGI(kTag, "TCP: BRIDGE requested");
-      ctx.sys->Tcp().EnableBridge();
+      ctx.sys->Tcp().OpenDataRx();
       return ServiceTcpAction::kStayInService;
     }
     default:
