@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "uart_soft.hpp"
@@ -33,7 +34,7 @@ class EscBootloader {
   // than sitting in its bootloader. The caller must have stopped DShot and the
   // flight cascade first -- the pin belongs to TIM1 until this claims it, and a
   // byte costs 520 us with interrupts masked.
-  bool Connect(uint8_t motor_index, DeviceInfo &out);
+  std::optional<DeviceInfo> Connect(uint8_t motor_index);
 
   void HoldAll();
   void ReleaseAll();
@@ -66,7 +67,7 @@ class EscBootloader {
 
  private:
   bool SendWake();
-  bool ReadBootInfo(DeviceInfo &out);
+  std::optional<DeviceInfo> ReadBootInfo();
   bool SendCommand(std::span<const uint8_t> cmd);
   bool SendPayload(std::span<const uint8_t> bytes);
   bool ReadFramed(uint8_t *out, uint16_t len);

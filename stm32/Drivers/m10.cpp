@@ -4,6 +4,7 @@
 #include "m10.hpp"
 
 #include <cstring>
+#include <optional>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -15,10 +16,14 @@
 #include "time_base.hpp"
 #include "uart.hpp"
 
-inline void UbxChecksum(const uint8_t *data, size_t len, uint8_t &ck_a,
-                        uint8_t &ck_b) {
-  ck_a = 0;
-  ck_b = 0;
+struct UbxChecksum {
+  uint8_t ck_a;
+  uint8_t ck_b;
+};
+
+inline UbxChecksum ComputeUbxChecksum(const uint8_t *data, size_t len) {
+  uint8_t ck_a = 0;
+  uint8_t ck_b = 0;
   for (size_t i = 0; i < len; i++) {
     ck_a = static_cast<uint8_t>(ck_a + data[i]);
     ck_b = static_cast<uint8_t>(ck_b + ck_a);
@@ -61,11 +66,9 @@ class ValsetFrame {
     buf_[3] = UBX::kIdCfgValset;
     buf_[4] = payload_len & 0xFF;
     buf_[5] = (payload_len >> 8) & 0xFF;
-    uint8_t ck_a = 0;
-    uint8_t ck_b = 0;
-    UbxChecksum(&buf_[2], 4 + payload_len, ck_a, ck_b);
-    buf_[idx_] = ck_a;
-    buf_[idx_ + 1] = ck_b;
+    const UbxChecksum ck = ComputeUbxChecksum(&buf_[2], 4 + payload_len);
+    buf_[idx_] = ck.ck_a;
+    buf_[idx_ + 1] = ck.ck_b;
     return {buf_, idx_ + 2};
   }
 
@@ -96,7 +99,7 @@ M10 &M10::GetInstance() {
 }
 
 void M10::WaitForReady() {
-  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
+  auto &uart = (*uart_);
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
 
@@ -197,7 +200,7 @@ void M10::ApplyConfig(ValsetLayer layer) {
       frame.AddU1(signal.key, signal.value);
     }
     const std::span<const uint8_t> bytes = frame.Finish();
-    Uart<UartInstance::kUart2>::GetInstance().Send(bytes.data(), bytes.size());
+    (*uart_).Send(bytes.data(), bytes.size());
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
     }
@@ -205,7 +208,7 @@ void M10::ApplyConfig(ValsetLayer layer) {
     System::GetInstance().Time().DelayMicros(MillisToMicros(500));
 
     for (const auto &signal : signals) {
-      Uart<UartInstance::kUart2>::GetInstance().FlushRx();
+      (*uart_).FlushRx();
       SendCfgValGet(signal.key, ValgetLayer::kRam);
       if (!WaitForValget<uint8_t>(signal.key, signal.value)) {
         Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
@@ -231,7 +234,7 @@ void M10::ApplyConfig(ValsetLayer layer) {
                 static_cast<uint8_t>(config_.tp1.align_to_tow));
     frame.AddU1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
     const std::span<const uint8_t> bytes = frame.Finish();
-    Uart<UartInstance::kUart2>::GetInstance().Send(bytes.data(), bytes.size());
+    (*uart_).Send(bytes.data(), bytes.size());
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       Panic(ErrorCode::Stm32::kGpsConfigTimepulseFailed);
     }
@@ -249,20 +252,17 @@ void M10::ApplyConfig(ValsetLayer layer) {
   }
 }
 
-void M10::Init(const Config &config) {
+void M10::Init(Uart2 &uart, const Config &config) {
+  uart_ = &uart;
   config_ = config;
 
   WaitForReady();
-  Uart<UartInstance::kUart2>::GetInstance().FlushRx();
+  (*uart_).FlushRx();
   ApplyConfig(ValsetLayer::kRam);
 }
 
-bool M10::Read(uint8_t &b) {
-  return Uart<UartInstance::kUart2>::GetInstance().ReadByte(b);
-}
-
 bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
-  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
+  auto &uart = (*uart_);
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
 
@@ -270,8 +270,9 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
   uint8_t idx = 0;
 
   while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
-    uint8_t b;
-    if (!uart.ReadByte(b)) continue;
+    const std::optional<uint8_t> byte = uart.ReadByte();
+    if (!byte) continue;
+    const uint8_t b = byte.value();
 
     if (idx == 0) {
       if (b != UBX::kSync1) continue;
@@ -298,12 +299,10 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 
     if (frame[4] != 0x02 || frame[5] != 0x00) continue;
 
-    uint8_t ck_a = 0;
-    uint8_t ck_b = 0;
-    uint8_t chk_buf[6] = {frame[2], frame[3], frame[4],
-                          frame[5], frame[6], frame[7]};
-    UbxChecksum(chk_buf, sizeof(chk_buf), ck_a, ck_b);
-    if (ck_a != frame[8] || ck_b != frame[9]) continue;
+    const uint8_t chk_buf[6] = {frame[2], frame[3], frame[4],
+                                frame[5], frame[6], frame[7]};
+    const UbxChecksum ck = ComputeUbxChecksum(chk_buf, sizeof(chk_buf));
+    if (ck.ck_a != frame[8] || ck.ck_b != frame[9]) continue;
 
     if (frame[6] == want_cls && frame[7] == want_id) {
       return id == UBX::kIdAckAck;
@@ -342,13 +341,11 @@ void M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
 
   std::memcpy(&buf[14], &value, sizeof(T));
 
-  uint8_t ck_a = 0;
-  uint8_t ck_b = 0;
-  UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
-  buf[packet_len - 2] = ck_a;
-  buf[packet_len - 1] = ck_b;
+  const UbxChecksum ck = ComputeUbxChecksum(&buf[2], 4 + payload_len);
+  buf[packet_len - 2] = ck.ck_a;
+  buf[packet_len - 1] = ck.ck_b;
 
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
+  (*uart_).Send(buf, packet_len);
 }
 
 void M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
@@ -376,13 +373,11 @@ void M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
   buf[12] = (key >> 16) & 0xFF;
   buf[13] = (key >> 24) & 0xFF;
 
-  uint8_t ck_a = 0;
-  uint8_t ck_b = 0;
-  UbxChecksum(&buf[2], 4 + payload_len, ck_a, ck_b);
-  buf[packet_len - 2] = ck_a;
-  buf[packet_len - 1] = ck_b;
+  const UbxChecksum ck = ComputeUbxChecksum(&buf[2], 4 + payload_len);
+  buf[packet_len - 2] = ck.ck_a;
+  buf[packet_len - 1] = ck.ck_b;
 
-  Uart<UartInstance::kUart2>::GetInstance().Send(buf, packet_len);
+  (*uart_).Send(buf, packet_len);
 }
 
 template <typename T>
@@ -390,7 +385,7 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
-  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
+  auto &uart = (*uart_);
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
 
@@ -400,8 +395,9 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
   size_t frame_len = 0;
 
   while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
-    uint8_t b;
-    if (!uart.ReadByte(b)) continue;
+    const std::optional<uint8_t> byte = uart.ReadByte();
+    if (!byte) continue;
+    const uint8_t b = byte.value();
 
     if (idx == 0 && b != UBX::kSync1) continue;
     if (idx == 1 && b != UBX::kSync2) {
@@ -430,10 +426,9 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
     if (frame[2] != UBX::kClsCfg || frame[3] != UBX::kIdCfgValget) continue;
     if (payload_len != 4 + 4 + sizeof(T)) continue;
 
-    uint8_t ck_a = 0;
-    uint8_t ck_b = 0;
-    UbxChecksum(&frame[2], 4 + payload_len, ck_a, ck_b);
-    if (ck_a != frame[6 + payload_len] || ck_b != frame[6 + payload_len + 1])
+    const UbxChecksum ck = ComputeUbxChecksum(&frame[2], 4 + payload_len);
+    if (ck.ck_a != frame[6 + payload_len] ||
+        ck.ck_b != frame[6 + payload_len + 1])
       continue;
 
     const uint32_t resp_key = (uint32_t)frame[10] | ((uint32_t)frame[11] << 8) |
@@ -451,7 +446,7 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
 
 template <typename T>
 bool M10::SendCfgValSet(uint32_t key, T value, ValsetLayer layer) {
-  auto &uart = Uart<UartInstance::kUart2>::GetInstance();
+  auto &uart = (*uart_);
 
   SendCfgValSetRaw(key, value, layer);
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) return false;

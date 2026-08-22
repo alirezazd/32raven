@@ -4,6 +4,8 @@
 #pragma once
 #include <cstdint>
 
+#include "uart.hpp"
+
 class M10 {
  public:
   enum class BaudRate : uint32_t {
@@ -111,7 +113,6 @@ class M10 {
     uint32_t ack_timeout_us;
   };
 
-  bool Read(uint8_t &b);
 
  private:
   friend class System;
@@ -128,7 +129,7 @@ class M10 {
     kDefault = 7,
   };
 
-  void Init(const Config &config);
+  void Init(Uart2 &uart, const Config &config);
   void ApplyConfig(ValsetLayer layer);
 
   template <typename T>
@@ -144,6 +145,8 @@ class M10 {
 
   void WaitForReady();
   bool WaitForAck(uint8_t want_cls, uint8_t want_id);
+
+  Uart2 *uart_ = nullptr;
 
   Config config_{};
 

@@ -161,12 +161,12 @@ void UartSoft::ShiftOutByte(uint8_t value) {
   }
 }
 
-bool UartSoft::ShiftInByte(uint8_t &out) {
+std::optional<uint8_t> UartSoft::ShiftInByte() {
   const uint32_t timeout_at = Micros() + cfg_.start_bit_timeout_us;
   while (LineHigh()) {
     if (Reached(Micros(), timeout_at)) {
       ++rx_timeout_err_;
-      return false;
+      return std::nullopt;
     }
   }
 
@@ -198,7 +198,7 @@ bool UartSoft::ShiftInByte(uint8_t &out) {
   const bool stop_ok = (frame & (1u << (sampled_bits - 1u))) != 0u;
   if (!start_ok || !stop_ok) {
     ++rx_framing_err_;
-    return false;
+    return std::nullopt;
   }
 
   const uint8_t value = static_cast<uint8_t>((frame >> 1u) & 0xFFu);
@@ -209,12 +209,11 @@ bool UartSoft::ShiftInByte(uint8_t &out) {
       // time but one of them is wrong, which points at noise on the wire
       // rather than at a rate mismatch.
       ++rx_parity_err_;
-      return false;
+      return std::nullopt;
     }
   }
 
-  out = value;
-  return true;
+  return value;
 }
 
 void UartSoft::Send(const uint8_t *data, size_t len) {
@@ -236,14 +235,14 @@ void UartSoft::Send(const uint8_t *data, size_t len) {
   SetInput();
 }
 
-bool UartSoft::ReadByte(uint8_t &out) {
+std::optional<uint8_t> UartSoft::ReadByte() {
   if (!open_) {
-    return false;
+    return std::nullopt;
   }
   __disable_irq();
-  const bool ok = ShiftInByte(out);
+  const std::optional<uint8_t> value = ShiftInByte();
   __enable_irq();
-  return ok;
+  return value;
 }
 
 size_t UartSoft::ReadBytes(uint8_t *out, size_t len) {
@@ -252,10 +251,11 @@ size_t UartSoft::ReadBytes(uint8_t *out, size_t len) {
   }
   size_t got = 0;
   while (got < len) {
-    if (!ReadByte(out[got])) {
+    const std::optional<uint8_t> byte = ReadByte();
+    if (!byte) {
       break;
     }
-    ++got;
+    out[got++] = byte.value();
   }
   return got;
 }
@@ -267,7 +267,6 @@ void UartSoft::FlushRx() {
   // Nothing is buffered -- there is no ring and no DMA -- so the only stale
   // state is a byte still on the wire. Drain until the line has been idle for
   // one full character.
-  uint8_t discard = 0;
-  while (ReadByte(discard)) {
+  while (ReadByte()) {
   }
 }

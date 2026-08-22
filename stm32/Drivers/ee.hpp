@@ -69,7 +69,12 @@ class EE {
   EE(const EE &) = delete;
   EE &operator=(const EE &) = delete;
 
-  bool ReadJedecId(uint8_t jedec_id[3]) const;
+  struct JedecId {
+    uint8_t manufacturer;
+    uint8_t memory_type;
+    uint8_t capacity;
+  };
+  std::optional<JedecId> ReadJedecId() const;
   std::optional<uint8_t> ReadStatus() const;
   bool WriteStatus(uint8_t status);
   bool EnsureWritable();

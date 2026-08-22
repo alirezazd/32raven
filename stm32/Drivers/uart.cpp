@@ -260,8 +260,13 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-bool Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::ReadByte(uint8_t &out) {
-  return rx_ring_.Pop(out);
+std::optional<uint8_t>
+Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::ReadByte() {
+  uint8_t out = 0;
+  if (!rx_ring_.Pop(out)) {
+    return std::nullopt;
+  }
+  return out;
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,

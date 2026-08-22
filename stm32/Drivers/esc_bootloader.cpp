@@ -4,6 +4,7 @@
 #include "esc_bootloader.hpp"
 
 #include <array>
+#include <optional>
 
 #include "checksum.hpp"
 #include "dshot_codec.hpp"
@@ -119,39 +120,41 @@ bool EscBootloader::SendWake() {
   return true;
 }
 
-bool EscBootloader::ReadBootInfo(DeviceInfo &out) {
+std::optional<EscBootloader::DeviceInfo> EscBootloader::ReadBootInfo() {
   uint8_t info[kBootInfoBytes] = {};
   if (uart_->ReadBytes(info, kBootInfoBytes) != kBootInfoBytes) {
-    return false;
+    return std::nullopt;
   }
 
-  uint8_t ack = 0;
-  if (!uart_->ReadByte(ack) || ack != kBlbSuccess) {
-    return false;
+  const std::optional<uint8_t> ack = uart_->ReadByte();
+  if (!ack || ack.value() != kBlbSuccess) {
+    return std::nullopt;
   }
 
   // Only the first three characters are checked. The fourth varies by
   // bootloader build and is reported to the host rather than validated.
   for (size_t i = 0; i < sizeof(kBootMsg); ++i) {
     if (info[i] != kBootMsg[i]) {
-      return false;
+      return std::nullopt;
     }
   }
 
+  DeviceInfo out{};
   out.signature_lo = info[5];
   out.signature_hi = info[4];
   out.boot_version = info[3];
   if (!IsArmSignature(out.signature_lo, out.signature_hi)) {
-    return false;
+    return std::nullopt;
   }
   out.interface_mode = kInterfaceModeArmBlb;
-  return true;
+  return out;
 }
 
-bool EscBootloader::Connect(uint8_t motor_index, DeviceInfo &out) {
+std::optional<EscBootloader::DeviceInfo> EscBootloader::Connect(
+    uint8_t motor_index) {
   const board::BoardPin *pin = MotorPin(motor_index);
   if (pin == nullptr) {
-    return false;
+    return std::nullopt;
   }
 
   // A previous session on another motor leaves that pin borrowed.
@@ -160,14 +163,18 @@ bool EscBootloader::Connect(uint8_t motor_index, DeviceInfo &out) {
   uart_->Open(pin->port, pin->pin, pin->af);
   motor_index_ = motor_index;
 
-  if (!SendWake() || !ReadBootInfo(out)) {
+  std::optional<DeviceInfo> info;
+  if (SendWake()) {
+    info = ReadBootInfo();
+  }
+  if (!info) {
     ++connect_fail_count_;
     Disconnect();
-    return false;
+    return std::nullopt;
   }
 
   connected_ = true;
-  return true;
+  return info;
 }
 
 bool EscBootloader::SendCommand(std::span<const uint8_t> cmd) {
@@ -193,11 +200,10 @@ bool EscBootloader::SendCommand(std::span<const uint8_t> cmd) {
 // watchdog's worst-case 681 ms window. The loop is bounded and runs from the
 // main loop, so a genuinely wedged one is still caught.
 uint8_t EscBootloader::ReadAck(uint16_t attempts) {
-  uint8_t ack = kBlbNone;
   for (uint16_t i = 0; i < attempts; ++i) {
     Watchdog::GetInstance().Kick();
-    if (uart_->ReadByte(ack)) {
-      return ack;
+    if (const std::optional<uint8_t> ack = uart_->ReadByte()) {
+      return ack.value();
     }
   }
   return kBlbNone;
@@ -225,22 +231,30 @@ bool EscBootloader::SendPayload(std::span<const uint8_t> bytes) {
 bool EscBootloader::ReadFramed(uint8_t *out, uint16_t len) {
   uint16_t crc = 0;
   for (uint16_t i = 0; i < len; ++i) {
-    if (!uart_->ReadByte(out[i])) {
+    const std::optional<uint8_t> byte = uart_->ReadByte();
+    if (!byte) {
       return false;
     }
+    out[i] = byte.value();
     crc = checksum::Arc16Update(crc, out[i]);
   }
 
-  uint8_t crc_lo = 0;
-  uint8_t crc_hi = 0;
-  uint8_t ack = 0;
-  if (!uart_->ReadByte(crc_lo) || !uart_->ReadByte(crc_hi) || !uart_->ReadByte(ack)) {
+  const std::optional<uint8_t> crc_lo = uart_->ReadByte();
+  if (!crc_lo) {
+    return false;
+  }
+  const std::optional<uint8_t> crc_hi = uart_->ReadByte();
+  if (!crc_hi) {
+    return false;
+  }
+  const std::optional<uint8_t> ack = uart_->ReadByte();
+  if (!ack) {
     return false;
   }
 
   const uint16_t received = static_cast<uint16_t>(
-      crc_lo | (static_cast<uint16_t>(crc_hi) << 8));
-  return received == crc && ack == kBlbSuccess;
+      crc_lo.value() | (static_cast<uint16_t>(crc_hi.value()) << 8));
+  return received == crc && ack.value() == kBlbSuccess;
 }
 
 // 0xFFFF is the protocol's "no address", sent by hosts whose command operates

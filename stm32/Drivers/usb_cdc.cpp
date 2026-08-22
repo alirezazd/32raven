@@ -1104,15 +1104,18 @@ size_t UsbCdc::Send(const uint8_t *data, size_t len) {
   return written;
 }
 
-bool UsbCdc::Read(uint8_t &out) {
-  const bool got = rx_ring_.Pop(out);
+std::optional<uint8_t> UsbCdc::Read() {
+  uint8_t out = 0;
+  if (!rx_ring_.Pop(out)) {
+    return std::nullopt;
+  }
   // Space only reappears here, so this is where a NAKing endpoint gets revived.
-  if (got && bulk_out_stalled_ && configured_) {
+  if (bulk_out_stalled_ && configured_) {
     NVIC_DisableIRQ(OTG_FS_IRQn);
     ArmBulkOut();
     NVIC_EnableIRQ(OTG_FS_IRQn);
   }
-  return got;
+  return out;
 }
 
 extern "C" void UsbCdcOnIrq(void) { UsbCdc::GetInstance().IrqHandler(); }

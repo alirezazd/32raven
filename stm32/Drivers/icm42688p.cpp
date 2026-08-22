@@ -308,16 +308,12 @@ void Icm42688p::OnSpiDone(bool ok) {
 
   // Outlives the loop so the newest sample's timestamp is still readable once
   // the offset servo below has run.
-  Sample s{};
+  Sample sample{};
   for (uint16_t i = 0; i < fifo_wm_records_; ++i) {
     const uint8_t *rec = p + (static_cast<uint32_t>(i) * packet_bytes_);
-    bool ok_rec;
-    if (hires_) {
-      ok_rec = ParsePacket4Record(rec, s);
-    } else {
-      ok_rec = ParsePacket3Record(rec, s);
-    }
-    if (!ok_rec) {
+    const std::optional<Sample> parsed =
+        hires_ ? ParsePacket4Record(rec) : ParsePacket3Record(rec);
+    if (!parsed) {
       parse_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
       dropped_records_.fetch_add(fifo_wm_records_, std::memory_order_relaxed);
       FlushAndResync();
@@ -325,11 +321,13 @@ void Icm42688p::OnSpiDone(bool ok) {
       return;
     }
 
+    sample = parsed.value();
+
     // Kept raw: the decode happens once per publication, not once per sample.
-    last_temp_raw_ = s.temp_raw;
+    last_temp_raw_ = sample.temp_raw;
     have_temp_ = true;
 
-    MapAxes(s, burst.count, burst);
+    MapAxes(sample, burst.count, burst);
     ++burst.count;
   }
 
@@ -337,7 +335,7 @@ void Icm42688p::OnSpiDone(bool ok) {
   // whose arrival raised the interrupt last_irq_us_ was stamped from.
   SyncHostOffset();
 
-  burst.timestamp_us = s.timestamp_us;
+  burst.timestamp_us = sample.timestamp_us;
   burst.dt_us = static_cast<float>(last_sample_dt_q16_) / 65536.0f;
 
   PublishBurst(burst);
@@ -400,7 +398,7 @@ void Icm42688p::ChipFromBody(const float body[3], float chip[3]) const {
   }
 }
 
-void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
+uint64_t Icm42688p::UpdateTimestampAndSync(uint16_t ts16) {
   // Unwrap 16-bit timestamp (1us ticks) into tmst64_us_
   if (!tmst_inited_) {
     last_tmst16_ = ts16;
@@ -430,7 +428,7 @@ void Icm42688p::UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us) {
     host_sync_inited_ = true;
   }
 
-  out_host_us = static_cast<uint64_t>(imu_us + host_offset_us_);
+  return static_cast<uint64_t>(imu_us + host_offset_us_);
 }
 
 // One correction per burst, not per record: last_irq_us_ moves once per burst,
@@ -448,15 +446,17 @@ void Icm42688p::SyncHostOffset() {
   host_offset_us_ += (err >> 7);
 }
 
-bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
-  if (!rec) return false;
+std::optional<Icm42688p::Sample> Icm42688p::ParsePacket3Record(
+    const uint8_t *rec) {
+  if (!rec) return std::nullopt;
+  Sample out{};
 
   // Header check for Packet3 accel+gyro+temp+timestamp, 16-bit mode.
   // Accept both normal packets (0x68) and ODR-change-tagged variants (0x6C).
   const uint8_t hdr = rec[0];
   if ((hdr & 0xF8u) != 0x68u) {
     last_bad_header_.store(hdr, std::memory_order_relaxed);
-    return false;
+    return std::nullopt;
   }
 
   // Packet3 temperature byte is at 0x0D and timestamp stays at 0x0E..0x0F.
@@ -466,10 +466,7 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
   out.temp_raw = static_cast<int8_t>(rec[0x0D]);
   const uint16_t ts16 = LoadBe16(&rec[0x0E]);
 
-  uint64_t host_ts_us = 0;
-  UpdateTimestampAndSync(ts16, host_ts_us);
-
-  out.timestamp_us = host_ts_us;
+  out.timestamp_us = UpdateTimestampAndSync(ts16);
 
   // Packet layout (big-endian)
   out.accel[0] = LoadBe16Signed(&rec[0x01]);
@@ -489,15 +486,17 @@ bool Icm42688p::ParsePacket3Record(const uint8_t *rec, Sample &out) {
         out.accel[2] == kInvalid16 || out.gyro[0] == kInvalid16 ||
         out.gyro[1] == kInvalid16 || out.gyro[2] == kInvalid16) {
       invalid_sample_cnt_.fetch_add(1, std::memory_order_relaxed);
-      return false;
+      return std::nullopt;
     }
   }
 
-  return true;
+  return out;
 }
 
-bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
-  if (!rec) return false;
+std::optional<Icm42688p::Sample> Icm42688p::ParsePacket4Record(
+    const uint8_t *rec) {
+  if (!rec) return std::nullopt;
+  Sample out{};
 
   // Header check: Packet4 = 0x78 with mask 0xF8 (top 5 bits define the
   // variant; bits[1:0] are ODR-change flags, ignored). Also accepts the
@@ -506,7 +505,7 @@ bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   if ((hdr & Icm42688pReg::kFifoHeaderVariantMask) !=
       Icm42688pReg::kFifoHeaderPacket4) {
     last_bad_header_.store(hdr, std::memory_order_relaxed);
-    return false;
+    return std::nullopt;
   }
 
   // Reassemble split 20-bit signed value: high 16 bits + low 4. Sign extends
@@ -532,9 +531,7 @@ bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
   const int16_t temp16 = LoadBe16Signed(&rec[0x0D]);
   const uint16_t ts16 = LoadBe16(&rec[0x0F]);
 
-  uint64_t host_ts_us = 0;
-  UpdateTimestampAndSync(ts16, host_ts_us);
-  out.timestamp_us = host_ts_us;
+  out.timestamp_us = UpdateTimestampAndSync(ts16);
   out.temp_raw = temp16;
 
   const uint8_t b11 = rec[0x11];
@@ -563,11 +560,11 @@ bool Icm42688p::ParsePacket4Record(const uint8_t *rec, Sample &out) {
         out.accel[2] == kInvalid20 || out.gyro[0] == kInvalid20 ||
         out.gyro[1] == kInvalid20 || out.gyro[2] == kInvalid20) {
       invalid_sample_cnt_.fetch_add(1, std::memory_order_relaxed);
-      return false;
+      return std::nullopt;
     }
   }
 
-  return true;
+  return out;
 }
 
 // Roughly once a second, against a burst rate three orders of magnitude higher:

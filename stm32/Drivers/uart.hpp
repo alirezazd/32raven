@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "ring_buffer.hpp"
 #include "stm32f4xx.h"
@@ -74,7 +75,8 @@ class Uart {
 
   void Send(const char *str);
   void Send(const uint8_t *data, size_t len);
-  bool ReadByte(uint8_t &out);
+  // nullopt when the ring is empty.
+  [[nodiscard]] std::optional<uint8_t> ReadByte();
   void FlushRx();
   void SuspendRx();
   void ResumeRx();

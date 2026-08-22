@@ -70,9 +70,9 @@ void EE::Init(GPIO &gpio, Spi1 &spi) {
 
   CsHigh();
 
-  uint8_t jedec_id[3] = {};
-  if (!ReadJedecId(jedec_id) || jedec_id[0] != kJedecManufacturerWinbond ||
-      jedec_id[2] != kJedecCapacity16Mbit) {
+  const std::optional<JedecId> jedec = ReadJedecId();
+  if (!jedec || jedec->manufacturer != kJedecManufacturerWinbond ||
+      jedec->capacity != kJedecCapacity16Mbit) {
     Panic(ErrorCode::Stm32::kEepromDeviceNotFound);
   }
   if (!EnsureWritable()) {
@@ -251,9 +251,9 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
   return true;
 }
 
-bool EE::ReadJedecId(uint8_t jedec_id[3]) const {
-  if (jedec_id == nullptr || gpio_ == nullptr || spi_ == nullptr) {
-    return false;
+std::optional<EE::JedecId> EE::ReadJedecId() const {
+  if (gpio_ == nullptr || spi_ == nullptr) {
+    return std::nullopt;
   }
 
   uint8_t tx[4] = {kCmdReadJedecId, 0xFFu, 0xFFu, 0xFFu};
@@ -262,10 +262,8 @@ bool EE::ReadJedecId(uint8_t jedec_id[3]) const {
   spi_->TxRx(tx, rx, sizeof(tx));
   CsHigh();
 
-  jedec_id[0] = rx[1];
-  jedec_id[1] = rx[2];
-  jedec_id[2] = rx[3];
-  return true;
+  return JedecId{
+      .manufacturer = rx[1], .memory_type = rx[2], .capacity = rx[3]};
 }
 
 std::optional<uint8_t> EE::ReadStatus() const {

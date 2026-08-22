@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <optional>
 
 #include "ee.hpp"
 #include "ee_schema.hpp"
@@ -167,8 +168,8 @@ class Icm42688p {
     int16_t temp_raw;
   };
 
-  bool ParsePacket3Record(const uint8_t *rec, Sample &out);
-  bool ParsePacket4Record(const uint8_t *rec, Sample &out);
+  std::optional<Sample> ParsePacket3Record(const uint8_t *rec);
+  std::optional<Sample> ParsePacket4Record(const uint8_t *rec);
 
   // Writes one sample into the burst's axis-major arrays. Out-param rather than
   // a returned struct because the destination is structure-of-arrays: a
@@ -184,7 +185,7 @@ class Icm42688p {
   // here rather than at either call site.
   float ScaleTemperature(int16_t temp_raw) const;
   // Per record: the sensor stamps each sample, so each needs unwrapping.
-  void UpdateTimestampAndSync(uint16_t ts16, uint64_t &out_host_us);
+  uint64_t UpdateTimestampAndSync(uint16_t ts16);
   // Per burst: INT1 fires when the newest sample lands, so last_irq_us_
   // and tmst64_us_ describe the same instant only once the loop is done.
   void SyncHostOffset();

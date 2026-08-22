@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "stm32f4xx.h"
 #include "uart.hpp"
@@ -56,7 +57,7 @@ class UartSoft {
   bool IsOpen() const { return open_; }
 
   void Send(const uint8_t *data, size_t len);
-  bool ReadByte(uint8_t &out);
+  [[nodiscard]] std::optional<uint8_t> ReadByte();
 
   // Stops at the first byte that does not arrive, so a short count means a
   // timeout rather than a partial frame worth keeping.
@@ -82,7 +83,7 @@ class UartSoft {
   void SetInput();
   bool ParityBit(uint8_t value) const;
   void ShiftOutByte(uint8_t value);
-  bool ShiftInByte(uint8_t &out);
+  std::optional<uint8_t> ShiftInByte();
 
   bool LineHigh() const { return (port_->IDR & pin_) != 0u; }
   void DriveHigh() { port_->BSRR = pin_; }

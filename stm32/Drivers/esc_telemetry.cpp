@@ -156,7 +156,8 @@ void EscTelemetry::Poll(uint32_t now_us) {
   PublishIfChanged();
 }
 
-void EscTelemetry::FillEscTelemetryData(EscTelemetryData &out) const {
+EscTelemetryData EscTelemetry::BuildEscTelemetryData() const {
+  EscTelemetryData out{};
   out.valid_mask = valid_mask_;
   out.frame_count = frame_count_;
   out.crc_error_count = crc_error_count_;
@@ -183,6 +184,7 @@ void EscTelemetry::FillEscTelemetryData(EscTelemetryData &out) const {
     dst.temperature_c = src.temperature_c;
     dst.valid = src.valid;
   }
+  return out;
 }
 
 void EscTelemetry::PublishIfChanged() {
@@ -191,9 +193,7 @@ void EscTelemetry::PublishIfChanged() {
     return;
   }
 
-  EscTelemetryData data{};
-  FillEscTelemetryData(data);
-  blackboard_->UpdateEscTelemetry(data);
+  blackboard_->UpdateEscTelemetry(BuildEscTelemetryData());
 }
 
 void EscTelemetry::OnUartInterrupt() {

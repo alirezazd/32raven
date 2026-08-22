@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "ring_buffer.hpp"
 #include "stm32_limits.hpp"
@@ -74,7 +75,7 @@ class UsbCdc {
   void Poll(uint32_t now_us);
 
   size_t Send(const uint8_t *data, size_t len);
-  bool Read(uint8_t &out);
+  [[nodiscard]] std::optional<uint8_t> Read();
 
   // Drives the D+ pull-up. Detached when ESC configuration is not authorised,
   // so the host sees no COM port rather than an unresponsive one.
