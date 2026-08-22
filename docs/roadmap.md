@@ -640,7 +640,7 @@ silent restart into a reported one. Worth landing alongside #20's counters, sinc
 #### It is a prerequisite for gyro calibration, not a nicety
 
 `Init` zeroes `OFFSET_USER` on every boot and nothing puts a value back, so #25's MAVLink
-calibration work will add a trigger for `CalibrateGyro`. Running that after a *non*-power-on
+calibration work will add a trigger for `StartGyroCal`. Running that after a *non*-power-on
 reset either trips `kImuCalibrationMotionDetected` or writes the motion permanently into the
 chip's offset registers. "Only calibrate on a power-on reset" is the check that prevents it,
 and it needs the cause to exist first.
@@ -956,45 +956,27 @@ whether or not bidir ever lands.
 It pays for itself twice. Besides #23, per-motor eRPM every loop is the desync detector #12 is
 looking for.
 
-### #25 — Calibration is stored and never applied — 🎯 CRITICAL
+### #25 — Calibration never reaches a sample — 🎯 CRITICAL
 
-Two unrelated halves, both armed the moment a MAVLink trigger is wired.
+**Accel calibration has no consumer.** `accel_calibration_` round-trips through EE — loaded at
+`Init`, written back by `SaveAccelCalibration` — and nothing on the sample path reads it. The
+`EeConfigStorage` path around it is correct end to end; the value simply goes nowhere. Applying
+it means either an integer offset in `MapAxes` or a correction in the estimator, and the two
+differ in whether the log carries a corrected signal.
 
-**Accel calibration does nothing.** `accel_calibration_` is loaded from EE at `Init` and written
-back by `SaveAccelCalibration`, and nothing on the sample path reads it. It round-trips through
-storage and never reaches a sample. The `EeConfigStorage` path around it is correct end to end —
-the value simply has no consumer. Note there is no longer a float conversion inside the driver
-to fold it into: the burst leaves in counts, so applying it means either an integer offset in
-`MapAxes` or a correction in the estimator, and the two differ in whether the log carries a
-corrected signal.
+**Gyro calibration has no trigger.** `SensorCalService::StartGyroCal` has no caller, so the chip
+flies on whatever `ClearUserOffsets()` left, which is nothing. If the trigger lands at boot
+rather than on a MAVLink request, #21 explains why it has to check the reset cause first.
 
-**Gyro calibration has no caller.** `CalibrateGyro` runs, feeds the watchdog and returns a
-mean, and nothing invokes it — so the chip flies on whatever `ClearUserOffsets()` left, which
-is nothing.
+No gyro record beside `ImuAccelCalibration`, by decision: bias moves with die temperature, so a
+stored offset is a stale number, and neither reference implementation trusts one. Accel keeps
+its record because a 6-point fit measures a mechanical property that does not drift the same way.
 
-The gyro half is incomplete beyond that: `ClearUserOffsets()` wipes the chip's offsets every
-boot, there is no EE record for them the way there is for accel, and #21 explains why the
-trigger has to check the reset cause as well.
-
-**The trigger is a decision, not just missing plumbing.** Operator-triggered over MAVLink is one
-shape, automatic at boot is the other, and they need different things underneath:
-
-- *Recalibrate every boot, persist nothing.* Consistent with the `ClearUserOffsets()` that
-  already runs unconditionally, needs no EE record, and requires the craft still at power-on.
-- *Calibrate on command, persist, restore at boot.* Needs a gyro record beside
-  `ImuAccelCalibration`, and a reason for `ClearUserOffsets()` to stop wiping.
-
-Today's code is neither — it wipes at boot and stores nothing.
-
-Two things gate that choice rather than follow from it. The AHRS already carries a Mahony PI
-bias term (`ki_bias`), and it has never executed: the accel-trust band is +/-0.020 g full and
-+/-0.050 g zero, so a 4 g reading held the gate shut for the life of the board. With the
-sensitivities corrected it runs, and what `bias_` converges to decides whether a hardware offset
-is needed at all -- the residual to beat is 0.910 dps. Second, automation changes what motion
-should do: `Panic(kImuCalibrationMotionDetected)` is defensible for an operator-triggered bench
-step and hostile as a boot step that bricks the aircraft because someone leaned on the bench.
-The stillness gate itself -- 64 raw counts, scale-invariant, so the sensitivity fix did not move
-it -- has never been measured against a still board.
+Two measurements are still owed. The AHRS carries a Mahony PI bias term (`ki_bias`) that has
+never executed — the accel-trust band held the gate shut for the life of the board while |a|
+read 4 g — so what `bias_` converges to decides whether a hardware offset is needed at all; the
+residual to beat is 0.910 dps. And the stillness gate, 64 raw counts, has never been measured
+against a still board.
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
@@ -1161,7 +1143,7 @@ Against the rename, and the reason not to do it reflexively:
   is opt-in in PX4, so `vehicle_imu_status` exists to stand in for a raw stream that is usually
   absent. `gyro_vibration_metric` is an EWMA of consecutive-sample difference magnitude — one
   number where we record the spectrum. `var_gyro` is recoverable offline from the same samples.
-- **PX4's fault taxonomy is coarser than ours.** `true_overruns`, `dma_start_fails`,
+- **PX4's fault taxonomy is coarser than ours.** `overruns`, `dma_start_fails`,
   `spi_errors` and `parse_fails` all collapse into one `gyro_error_count`.
 
 **Clipping is the exception, and wants doing whatever the topic ends up called.** A sample
@@ -1169,6 +1151,38 @@ pinned at the 20-bit rail is indistinguishable from a real reading once it is in
 +/-16 g is reachable on a quad. `accel_clipping[3]` / `gyro_clipping[3]` are per-axis counts of
 exactly that, and nothing here detects it -- `invalid_samples` counts the chip's no-fresh-data
 sentinel, which is a different thing.
+
+### #45 — Magnetometer, MMC5983MA — 🟢 SUPPORTING
+
+No heading reference exists. `ControlTickFlightLoop` says so twice: yaw bypasses the attitude
+loop entirely, and the swing-twist decoupling is there to stop yaw drift bleeding into roll and
+pitch. Stabilize holds tilt but lets heading wander, and nothing can hold a course.
+
+The part is chosen (MMC5983MA, 3-axis AMR, SPI or I2C) but nothing is wired or written. Needed:
+a bus and a free chip select on the STM32 -- unverified, and the answer decides whether this is
+a wiring change or a board change -- a driver, a blackboard fact with its own timestamp, and a
+`MagCal` sibling in `SensorCalService`.
+
+That calibration is not the gyro's shape. Hard-iron offset plus soft-iron matrix is an ellipsoid
+fit over many orientations, so it is operator-guided and takes tens of seconds. It joins as a
+tenant with its own feed and its own fit, sharing only the reporting and the one-run-at-a-time
+interlock. The part's internal SET/RESET degauss is what removes the sensor's own offset drift
+and is a separate step from the vehicle's iron.
+
+### #46 — Barometer, DPS310 — 🟢 SUPPORTING
+
+There is no altitude source, which is why #15 cannot offer a rescue descent and why the airframe
+has no altitude hold. The part is chosen (Infineon DPS310, pressure plus die temperature, SPI or
+I2C) and, like #45, nothing is wired or written.
+
+Needed: bus and chip select, a driver, and a blackboard fact. Calibration is the one place it
+does *not* follow #45 -- a baro's zero is a ground reference re-established at every arm, not a
+stored constant, so it belongs with the estimator rather than in `SensorCalService`. PX4 treats
+it the same way: `baro_calibration.cpp` is an EKF-driven bias estimate, not a bench procedure.
+
+Its own temperature reading matters more than it looks: pressure output is temperature-
+compensated by coefficients read from the part at boot, so a driver that skips them reports
+plausible nonsense rather than failing.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
@@ -1250,7 +1264,7 @@ already consumes, with a determinant check in the generator so a bad expansion f
 instead of the flight. Nothing in the control path changes.
 
 **The calibration hazard is handled but stays load-bearing.** `OFFSET_USER` is per chip axis, so
-`CalibrateGyro` runs its body-frame mean back through `Icm42688p::ChipFromBody` before writing.
+`ApplyGyroOffsets` runs the body-frame mean back through `ChipFromBody` before writing.
 That inversion is exact only because the map is a signed permutation — one chip axis per body
 axis — and a general rotation would need a transpose instead. The write is permanent, silent
 when wrong, and shows up as drift on an axis that was never calibrated, so any change to how the
