@@ -70,6 +70,8 @@ class DisplayCanvas : public RenderCanvas {
 struct WidgetContext {
   Ui *ui = nullptr;
   DisplayRenderer *renderer = nullptr;
+  const WifiController *wifi = nullptr;
+  const Mavlink *mavlink = nullptr;
 
   void LoadWidget(IWidget *widget) const;
 };

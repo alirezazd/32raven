@@ -41,12 +41,10 @@ bool UdpServer::IsReady() const {
 }
 
 void UdpServer::ResetShaperState() {
-  upload_tokens_bytes_ = 0;
-  upload_last_refill_us_ = 0;
+  upload_bucket_ = TokenBucket{};
   upload_overflow_count_ = 0;
   upload_shaper_buffer_.Clear();
-  download_tokens_bytes_ = 0;
-  download_last_refill_us_ = 0;
+  download_bucket_ = TokenBucket{};
   download_overflow_count_ = 0;
   download_shaper_buffer_.Clear();
 }
@@ -84,23 +82,26 @@ bool UdpServer::SetNonblock(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0;
 }
 
-void UdpServer::RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
-                             uint32_t &tokens_bytes, int64_t &last_refill_us) {
+UdpServer::TokenBucket UdpServer::RefillTokens(TokenBucket bucket,
+                                               uint32_t bytes_per_s,
+                                               uint32_t burst_bytes) {
   const int64_t now_us = esp_timer_get_time();
-  if (last_refill_us == 0) {
-    last_refill_us = now_us;
+  if (bucket.last_refill_us == 0) {
+    bucket.last_refill_us = now_us;
   }
-  if (now_us <= last_refill_us) {
-    return;
+  if (now_us <= bucket.last_refill_us) {
+    return bucket;
   }
 
-  const uint64_t elapsed_us = static_cast<uint64_t>(now_us - last_refill_us);
+  const uint64_t elapsed_us =
+      static_cast<uint64_t>(now_us - bucket.last_refill_us);
   const uint64_t refill =
       (elapsed_us * static_cast<uint64_t>(bytes_per_s)) / 1000000ull;
-  const uint64_t topped = static_cast<uint64_t>(tokens_bytes) + refill;
-  tokens_bytes = static_cast<uint32_t>(
+  const uint64_t topped = static_cast<uint64_t>(bucket.tokens_bytes) + refill;
+  bucket.tokens_bytes = static_cast<uint32_t>(
       std::min<uint64_t>(topped, static_cast<uint64_t>(burst_bytes)));
-  last_refill_us = now_us;
+  bucket.last_refill_us = now_us;
+  return bucket;
 }
 
 void UdpServer::Start() {
@@ -191,8 +192,8 @@ int UdpServer::Receive(std::span<uint8_t> dst) {
     }
   };
 
-  RefillTokens(upload_cap_bytes_per_s_, kUploadBufferBytes,
-               upload_tokens_bytes_, upload_last_refill_us_);
+  upload_bucket_ = RefillTokens(upload_bucket_, upload_cap_bytes_per_s_,
+                                kUploadBufferBytes);
 
   uint8_t rx_buf[512];
   while (upload_shaper_buffer_.Available() < kUploadBufferBytes) {
@@ -240,13 +241,13 @@ int UdpServer::Receive(std::span<uint8_t> dst) {
   }
 
   const size_t buffered = upload_shaper_buffer_.Available();
-  if (buffered == 0 || upload_tokens_bytes_ == 0) {
+  if (buffered == 0 || upload_bucket_.tokens_bytes == 0) {
     return 0;
   }
 
   const size_t out_budget =
       std::min(dst.size(),
-               std::min(buffered, static_cast<size_t>(upload_tokens_bytes_)));
+               std::min(buffered, static_cast<size_t>(upload_bucket_.tokens_bytes)));
   size_t copied = 0;
   while (copied < out_budget) {
     const auto chunk = upload_shaper_buffer_.ContiguousReadable();
@@ -259,7 +260,7 @@ int UdpServer::Receive(std::span<uint8_t> dst) {
     copied += take;
   }
 
-  upload_tokens_bytes_ -= static_cast<uint32_t>(copied);
+  upload_bucket_.tokens_bytes -= static_cast<uint32_t>(copied);
   return static_cast<int>(copied);
 }
 
@@ -290,19 +291,19 @@ int UdpServer::Send(std::span<const uint8_t> bytes) {
   };
 
   const auto flush_download_buffer = [&]() {
-    while (download_tokens_bytes_ > 0 && !download_shaper_buffer_.IsEmpty()) {
+    while (download_bucket_.tokens_bytes > 0 && !download_shaper_buffer_.IsEmpty()) {
       const auto chunk = download_shaper_buffer_.ContiguousReadable();
       if (chunk.empty()) {
         break;
       }
       const size_t budget =
-          std::min(chunk.size(), static_cast<size_t>(download_tokens_bytes_));
+          std::min(chunk.size(), static_cast<size_t>(download_bucket_.tokens_bytes));
       const size_t sent = send_chunk(chunk.data(), budget);
       if (sent == 0) {
         break;
       }
       download_shaper_buffer_.Consume(sent);
-      download_tokens_bytes_ -= static_cast<uint32_t>(sent);
+      download_bucket_.tokens_bytes -= static_cast<uint32_t>(sent);
     }
   };
 
@@ -321,8 +322,8 @@ int UdpServer::Send(std::span<const uint8_t> bytes) {
     }
   };
 
-  RefillTokens(download_cap_bytes_per_s_, kDownloadBufferBytes,
-               download_tokens_bytes_, download_last_refill_us_);
+  download_bucket_ = RefillTokens(download_bucket_, download_cap_bytes_per_s_,
+                                  kDownloadBufferBytes);
 
   flush_download_buffer();
 

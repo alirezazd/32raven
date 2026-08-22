@@ -59,8 +59,12 @@ class TonePlayer {
   void StopPlayback();
   float DutyCycleForVolume(uint8_t volume) const;
 
-  static void SkipSeparators(const char *&p);
-  static uint32_t ParseNumber(const char *&p);
+  static const char *SkipSeparators(const char *p);
+  struct ParsedNumber {
+    uint32_t value;
+    const char *next;
+  };
+  static ParsedNumber ParseNumber(const char *p);
   static uint32_t NoteToFrequencyHz(char note, Accidental accidental,
                                     uint32_t octave);
 

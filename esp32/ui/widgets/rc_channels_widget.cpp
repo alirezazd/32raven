@@ -22,15 +22,17 @@ constexpr int16_t kStatusGap = 3;
 
 }  // namespace
 
-void RcChannelsWidget::OnEnter(WidgetContext &ctx) { Render(ctx); }
-
-void RcChannelsWidget::OnStep(WidgetContext &ctx, TimeMs now) {
-  (void)now;
-  Render(ctx);
+void RcChannelsWidget::OnEnter(WidgetContext &ctx) {
+  Render(ctx, Sys().Timebase().NowMs());
 }
 
-void RcChannelsWidget::Render(WidgetContext &ctx) const {
-  if (ctx.ui == nullptr || ctx.renderer == nullptr) {
+void RcChannelsWidget::OnStep(WidgetContext &ctx, TimeMs now) {
+  Render(ctx, now);
+}
+
+void RcChannelsWidget::Render(WidgetContext &ctx, TimeMs now) const {
+  if (ctx.ui == nullptr || ctx.renderer == nullptr ||
+      ctx.mavlink == nullptr) {
     return;
   }
 
@@ -46,8 +48,7 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
     return;
   }
 
-  const uint32_t now_ms = Sys().Timebase().NowMs();
-  const auto sample = Sys().Mavlink().GetLatestRcChannelsData();
+  const auto sample = ctx.mavlink->GetLatestRcChannelsData();
 
   const int16_t line_height = static_cast<int16_t>(sample_bounds.height);
   const int16_t line_step = static_cast<int16_t>(line_height + kLineSpacing);
@@ -75,7 +76,7 @@ void RcChannelsWidget::Render(WidgetContext &ctx) const {
   line_top = static_cast<int16_t>(line_top + kStatusGap);
   char status[20];
   if (sample.has_value()) {
-    const bool live = (now_ms - sample->update_ms) <= kRcSampleFreshMs;
+    const bool live = (now - sample->update_ms) <= kRcSampleFreshMs;
     std::snprintf(status, sizeof(status), "LQ:%3u %s",
                   static_cast<unsigned>(sample->msg.link_quality),
                   live ? "LIVE" : "STALE");

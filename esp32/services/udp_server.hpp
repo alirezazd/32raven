@@ -41,8 +41,13 @@ class UdpServer : public IMavlinkTransport {
   friend class System;
   void Init(const Config &cfg, WifiController &wifi);
   static bool SetNonblock(int fd);
-  static void RefillTokens(uint32_t bytes_per_s, uint32_t burst_bytes,
-                           uint32_t &tokens_bytes, int64_t &last_refill_us);
+  // The two scalars move together, so they travel together.
+  struct TokenBucket {
+    uint32_t tokens_bytes = 0;
+    int64_t last_refill_us = 0;
+  };
+  static TokenBucket RefillTokens(TokenBucket bucket, uint32_t bytes_per_s,
+                                  uint32_t burst_bytes);
   void ResetShaperState();
 
   Config cfg_{};
@@ -56,15 +61,13 @@ class UdpServer : public IMavlinkTransport {
       static_cast<uint32_t>(esp32_limits::kUdpServerDownloadBufferBytes);
   bool upload_cap_enabled_ = false;
   uint32_t upload_cap_bytes_per_s_ = 0;
-  uint32_t upload_tokens_bytes_ = 0;
-  int64_t upload_last_refill_us_ = 0;
+  TokenBucket upload_bucket_{};
   uint32_t upload_overflow_count_ = 0;
   RingBuffer<uint8_t, esp32_limits::kUdpServerUploadBufferBytes + 1>
       upload_shaper_buffer_;
   bool download_cap_enabled_ = false;
   uint32_t download_cap_bytes_per_s_ = 0;
-  uint32_t download_tokens_bytes_ = 0;
-  int64_t download_last_refill_us_ = 0;
+  TokenBucket download_bucket_{};
   uint32_t download_overflow_count_ = 0;
   RingBuffer<uint8_t, esp32_limits::kUdpServerDownloadBufferBytes + 1>
       download_shaper_buffer_;

@@ -52,8 +52,10 @@ class MainUiWidget : public IWidget {
     uint32_t tx_heartbeat_count = 0;
   };
 
-  static LinkPacketSource PacketSourceForMode(Mode mode, TimeMs now);
-  void ResetLinkPacketAnimation(const LinkPacketSource &source);
+  static LinkPacketSource PacketSourceForMode(Mode mode, TimeMs now,
+                                              const Ui &ui,
+                                              const Mavlink &mavlink);
+  void ResetLinkPacketAnimation(const LinkPacketSource &source, TimeMs now);
   bool AdvanceLinkPacketAnimation(DisplayRenderer &renderer, TimeMs now,
                                   const LinkPacketSource &source,
                                   TimeMs step_period_ms);

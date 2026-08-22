@@ -189,21 +189,24 @@ bool TonePlayer::ParseHeader(const char *rtttl) {
   while (*p != '\0' && *p != ':') {
     if (*p == 'd' && *(p + 1) == '=') {
       p += 2;
-      const uint32_t value = ParseNumber(p);
-      if (value != 0) {
-        default_duration_ = value;
+      const ParsedNumber parsed = ParseNumber(p);
+      p = parsed.next;
+      if (parsed.value != 0) {
+        default_duration_ = parsed.value;
       }
     } else if (*p == 'o' && *(p + 1) == '=') {
       p += 2;
-      const uint32_t value = ParseNumber(p);
-      if (value <= 8) {
-        default_octave_ = value;
+      const ParsedNumber parsed = ParseNumber(p);
+      p = parsed.next;
+      if (parsed.value <= 8) {
+        default_octave_ = parsed.value;
       }
     } else if (*p == 'b' && *(p + 1) == '=') {
       p += 2;
-      const uint32_t value = ParseNumber(p);
-      if (value >= kMinBpm) {
-        bpm_ = value;
+      const ParsedNumber parsed = ParseNumber(p);
+      p = parsed.next;
+      if (parsed.value >= kMinBpm) {
+        bpm_ = parsed.value;
       }
     } else {
       ++p;
@@ -233,12 +236,14 @@ std::optional<TonePlayer::NoteEvent> TonePlayer::ParseNextNote() {
     return std::nullopt;
   }
 
-  SkipSeparators(cursor_);
+  cursor_ = SkipSeparators(cursor_);
   if (*cursor_ == '\0') {
     return std::nullopt;
   }
 
-  const uint32_t duration_value = ParseNumber(cursor_);
+  const ParsedNumber duration = ParseNumber(cursor_);
+  cursor_ = duration.next;
+  const uint32_t duration_value = duration.value;
   const uint32_t duration_divisor =
       (duration_value == 0) ? default_duration_ : duration_value;
   if (duration_divisor == 0) {
@@ -271,7 +276,9 @@ std::optional<TonePlayer::NoteEvent> TonePlayer::ParseNextNote() {
 
   uint32_t octave = default_octave_;
   if (*cursor_ >= '0' && *cursor_ <= '9') {
-    octave = ParseNumber(cursor_);
+    const ParsedNumber parsed = ParseNumber(cursor_);
+    cursor_ = parsed.next;
+    octave = parsed.value;
   }
 
   if (*cursor_ == '.') {
@@ -320,13 +327,14 @@ float TonePlayer::DutyCycleForVolume(uint8_t volume) const {
   return 0.5f * normalized * normalized;
 }
 
-void TonePlayer::SkipSeparators(const char *&p) {
+const char *TonePlayer::SkipSeparators(const char *p) {
   while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' || *p == ',') {
     ++p;
   }
+  return p;
 }
 
-uint32_t TonePlayer::ParseNumber(const char *&p) {
+TonePlayer::ParsedNumber TonePlayer::ParseNumber(const char *p) {
   uint32_t value = 0;
   bool have_digit = false;
   while (*p >= '0' && *p <= '9') {
@@ -334,7 +342,7 @@ uint32_t TonePlayer::ParseNumber(const char *&p) {
     value = (value * 10U) + static_cast<uint32_t>(*p - '0');
     ++p;
   }
-  return have_digit ? value : 0;
+  return ParsedNumber{.value = have_digit ? value : 0, .next = p};
 }
 
 uint32_t TonePlayer::NoteToFrequencyHz(char note, Accidental accidental,

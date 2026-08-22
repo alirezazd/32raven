@@ -13,7 +13,7 @@ class RcChannelsWidget : public IWidget {
   void OnStep(WidgetContext &ctx, TimeMs now) override;
 
  private:
-  void Render(WidgetContext &ctx) const;
+  void Render(WidgetContext &ctx, TimeMs now) const;
 
   static constexpr size_t kChannelCount = 4;
 };

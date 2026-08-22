@@ -501,6 +501,8 @@ void Ui::RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
   WidgetContext ctx{
       .ui = this,
       .renderer = &renderer,
+      .wifi = wifi_,
+      .mavlink = mavlink_,
   };
 
   main_ui_widget_->SetMode(screen);
@@ -792,6 +794,8 @@ void Ui::Task() {
   WidgetContext ctx{
       .ui = this,
       .renderer = &renderer_,
+      .wifi = wifi_,
+      .mavlink = mavlink_,
   };
 
   while (true) {

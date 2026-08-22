@@ -526,13 +526,15 @@ void MainUiWidget::OnEnter(WidgetContext &ctx) {
   service_link_subpixel_offset_ = 0;
   service_link_initialized_ = false;
   link_packet_last_step_ms_ = now;
-  ResetLinkPacketAnimation(PacketSourceForMode(CurrentMode(), now));
   ResetVerifyMagnifierAnimation(now);
   last_mode_ = CurrentMode();
 
-  if (ctx.ui == nullptr || ctx.renderer == nullptr) {
+  if (ctx.ui == nullptr || ctx.renderer == nullptr || ctx.mavlink == nullptr) {
     return;
   }
+
+  ResetLinkPacketAnimation(
+      PacketSourceForMode(CurrentMode(), now, *ctx.ui, *ctx.mavlink), now);
 
   BeginTextPhase(ctx, now, last_mode_);
 }
@@ -553,7 +555,8 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
           : kDefaultServiceLinkStepPeriodMs;
   const bool verify_magnifier_changed = AdvanceVerifyMagnifierAnimation(
       now, mode == Mode::kVerifying, service_link_step_period_ms);
-  const LinkPacketSource packet_source = PacketSourceForMode(mode, now);
+  const LinkPacketSource packet_source =
+      PacketSourceForMode(mode, now, *ctx.ui, *ctx.mavlink);
   const bool link_packet_changed = AdvanceLinkPacketAnimation(
       *ctx.renderer, now, packet_source, service_link_step_period_ms);
   const bool link_packet_active =
@@ -565,7 +568,7 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
   if (mode_changed) {
     if (HasPacketLanes(mode) != HasPacketLanes(last_mode_) ||
         IsMavlinkMode(mode) != IsMavlinkMode(last_mode_)) {
-      ResetLinkPacketAnimation(packet_source);
+      ResetLinkPacketAnimation(packet_source, now);
     }
     const bool status_changed = std::strcmp(StatusTextForMode(last_mode_),
                                             StatusTextForMode(mode)) != 0;
@@ -700,10 +703,10 @@ bool MainUiWidget::AdvanceServiceLinkAnimation(DisplayRenderer &renderer,
 
 // MAVLink counts UDP packets locally; ESC config and USB log have to be told,
 // since those frames are on the STM32's USB port and never touch this MCU.
-MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(Mode mode,
-                                                                 TimeMs now) {
+MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(
+    Mode mode, TimeMs now, const Ui &ui, const Mavlink &mavlink) {
   if (mode == Mode::kEscConfigConnected || mode == Mode::kUsbLogActive) {
-    const auto usb = Sys().Ui().PeerUsb(now);
+    const auto usb = ui.PeerUsb(now);
     return {
         .active = usb.has_value(),
         .left_icon_width = mode == Mode::kUsbLogActive
@@ -714,7 +717,7 @@ MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(Mode mode,
     };
   }
   if (mode == Mode::kWifiLogConnected) {
-    const auto traffic = Sys().Ui().GetLogTraffic();
+    const auto traffic = ui.GetLogTraffic();
     return {
         .active = true,
         .left_icon_width = sd_card_bitmap::kVisibleWidth,
@@ -726,23 +729,24 @@ MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(Mode mode,
     return {
         .active = true,
         .left_icon_width = chip_bitmap::kVisibleWidth,
-        .rx_count = Sys().Mavlink().GetUdpRxPacketCount(),
-        .tx_count = Sys().Mavlink().GetUdpTxPacketCount(),
-        .rx_heartbeat_count = Sys().Mavlink().GetUdpRxHeartbeatCount(),
-        .tx_heartbeat_count = Sys().Mavlink().GetUdpTxHeartbeatCount(),
+        .rx_count = mavlink.GetUdpRxPacketCount(),
+        .tx_count = mavlink.GetUdpTxPacketCount(),
+        .rx_heartbeat_count = mavlink.GetUdpRxHeartbeatCount(),
+        .tx_heartbeat_count = mavlink.GetUdpTxHeartbeatCount(),
     };
   }
   return {};
 }
 
-void MainUiWidget::ResetLinkPacketAnimation(const LinkPacketSource &source) {
+void MainUiWidget::ResetLinkPacketAnimation(const LinkPacketSource &source,
+                                            TimeMs now) {
   link_tx_lane_ = {};
   link_rx_lane_ = {};
   link_tx_lane_.last_seen_packet_count = source.tx_count;
   link_rx_lane_.last_seen_packet_count = source.rx_count;
   link_tx_lane_.last_seen_heartbeat_count = source.tx_heartbeat_count;
   link_rx_lane_.last_seen_heartbeat_count = source.rx_heartbeat_count;
-  link_packet_last_step_ms_ = Sys().Timebase().NowMs();
+  link_packet_last_step_ms_ = now;
 }
 
 bool MainUiWidget::AdvanceLinkPacketAnimation(DisplayRenderer &renderer,
@@ -1140,9 +1144,9 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         char ssid_line[96];
         char password_line[96];
         std::snprintf(ssid_line, sizeof(ssid_line), "AP: %s",
-                      Sys().Wifi().ApSsid());
+                      ctx.wifi->ApSsid());
         std::snprintf(password_line, sizeof(password_line), "Password: %s",
-                      Sys().Wifi().ApPassword());
+                      ctx.wifi->ApPassword());
         DrawBodyTextLines(renderer, now, body_top, ssid_line, password_line);
       }
       finish_render();
