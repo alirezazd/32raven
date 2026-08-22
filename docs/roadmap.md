@@ -964,6 +964,37 @@ still unexercised.
 
 Content gaps are #31 and #33; a card that fills is #37; formatting is #32.
 
+### #47 — Nothing starts a log without arming — 🟢 SUPPORTING
+
+`ArmedState::OnEnter` is the only caller of `StartFlight`, so every measurement the card can hold
+costs an arm. On a built aircraft that means spinning props for a capture that has nothing to do
+with flying, and it puts the one interlock that matters between the operator and a number they
+wanted on the bench.
+
+Nothing else is missing. The control tick produces IMU bursts while disarmed, the scheduled topics
+run off the main tick, and `StartFlight`/`StopFlight` already open, close and report a session --
+only the second caller is absent.
+
+- **A session command on the ctrl channel.** `LOG START` / `LOG STOP` where the host already
+  speaks, forwarded over FcLink as one `MsgId`. Refused while armed, since arming owns the
+  session -- the same refusal the calibration request takes.
+- **A scalar result goes back as a log line.** `FcLink::SendLog` already reaches the host, and
+  #33 already wants that stream mirrored into the ULog as `'L'` records -- so one call site
+  gives both the terminal readout now and the same text on the plot timeline later.
+- **A time series stays in the log.** Loop rate, jitter and tick load sampled over a minute are
+  data rather than verdicts; they belong as recorded topics, where a viewer already draws them,
+  and streaming them would fight FcLink's 64 B/ms TX budget for nothing.
+- **The card benchmark must not write through the logger.** The logger's own writes are the
+  load under test, so a result recorded through it changes the number it reports.
+- **Chaining is the host's job.** One command opens a session, runs the sequence, closes it and
+  pulls the file back; `tools/pull_logs.py` is already the retrieval half (#26).
+
+Worth measuring once the session exists: card write throughput against the preallocation, the
+control-loop rate and its jitter, tick load, and the bus counters #42 wants on the wire anyway.
+
+A wire addition, so it travels with #21's reset cause and #42's counters rather than costing a
+dual flash of its own.
+
 ### #31 — Tuning-grade log content — 🟢 SUPPORTING
 
 The blackbox records what the vehicle *did*; a PID tune also needs what the controller *asked

@@ -1677,7 +1677,6 @@ def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
     return {
         "prealloc_mb": sym_int(kconf, "STM32_LOG_PREALLOC_MB"),
-        "bench_seconds": sym_int(kconf, "STM32_LOG_BENCH_SECONDS"),
         "topics": topics,
     }
 

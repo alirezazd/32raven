@@ -1044,24 +1044,6 @@ void LogService::ReadLog(const message::LogReadMsg &req,
 void LogService::Poll(uint32_t now_us) {
   const uint64_t now64 = Now64(now_us);
 
-  // A bench run needs no transmitter: the control tick already produces bursts
-  // while disarmed, so only the session was missing. Opens itself, runs the
-  // configured span, then closes -- and StopFlight is what reports.
-  if (cfg_.bench_seconds != 0u && !bench_done_) {
-    if (!bench_started_) {
-      bench_started_ = true;
-      StartFlight(now_us);
-    } else if ((now_us - session_start_us_) >=
-               (cfg_.bench_seconds * 1000000u)) {
-      bench_done_ = true;
-      fc_link_->SendPacket(message::MsgId::kTone,
-                           message::ToneMsg{.tone = static_cast<uint8_t>(
-                                                message::Tone::kConfirm)});
-      StopFlight();
-      return;
-    }
-  }
-
   if (!logging_) {
     return;
   }

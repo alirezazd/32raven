@@ -3220,17 +3220,6 @@ config STM32_LOG_PREALLOC_MB
       Preallocation fails, and logging with it, once the card has no
       contiguous run this large left.
 
-config STM32_LOG_BENCH_SECONDS
-    int "Self-contained bench log of N seconds at boot (0 = off)"
-    range 0 600
-    default 0
-    help
-      Opens a log session shortly after boot, runs it this long, then sounds a
-      confirmation tone, closes the file and reports the write counters. Needs
-      no transmitter and arms nothing: the control tick already produces IMU
-      bursts while disarmed, so only the session was missing. Leave at 0 for
-      flight, where arming is what starts a log.
-
 # Cadences for the scheduled topics. The estimator stream is absent on
 # purpose: it rides the control tick and its rate is CONTROL_LOOP_HZ.
 #

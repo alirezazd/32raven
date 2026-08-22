@@ -58,7 +58,6 @@ class LogService {
   // carried to keep one TopicConfig shape across both schedulers.
   struct Config {
     uint32_t prealloc_mb;
-    uint32_t bench_seconds;
     TopicConfig rc_input{};
     TopicConfig battery{};
     TopicConfig esc_telemetry{};
@@ -160,8 +159,6 @@ class LogService {
   volatile bool logging_ = false;
   bool session_open_ = false;
   uint32_t session_start_us_ = 0;
-  bool bench_started_ = false;
-  bool bench_done_ = false;
   bool sink_failed_ = false;
 
   uint32_t log_bytes_ = 0;      // ULog stream length
