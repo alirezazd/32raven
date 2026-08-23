@@ -25,17 +25,35 @@ jobs:
 
       - uses: astral-sh/setup-uv@v9.0.0
 
-      # Mirrors the Dockerfile: gcc-arm-none-eabi ships neither the C++ headers
-      # nor newlib, so <atomic>, <complex> and <sys/stat.h> are absent without
-      # the two -newlib packages. clang-tidy is here rather than with the other
-      # linters because the checks that use it need this job's build.
-      - name: Toolchain
+      # The doctor has to fail on a bare runner, or it is a no-op that would
+      # keep passing as its tables rot. This is the assertion that gives the
+      # green one below its meaning.
+      - name: Doctor fails before the toolchain is installed
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi binutils-arm-none-eabi \
-            libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib \
-            cmake ninja-build clang-tidy
+          if make doctor TARGET=stm32; then
+            echo "::error::doctor passed on a runner with no ARM toolchain" >&2
+            exit 1
+          fi
+
+      # The installer owns the package list, so this job cannot drift from it:
+      # a wrong table stops being a stale comment and becomes a failed build.
+      # clang-tidy comes with it because the checks below need this job's build.
+      - name: Toolchain
+        run: make install-deps TARGET=stm32 YES=1
+
+      - name: Doctor
+        run: make doctor TARGET=stm32
+
+      # `make doctor` claims this floor is what CI proves. Nothing else pins the
+      # version ubuntu-latest happens to ship, so assert it here rather than let
+      # the constant drift above the toolchain it describes.
+      - name: ARM toolchain meets the doctor's floor
+        run: |
+          floor=$(sed -n 's/^ARM_GCC_MIN_MAJOR = \([0-9]*\).*/\1/p' \
+            scripts/check_setup.py)
+          have=$(arm-none-eabi-g++ -dumpversion | cut -d. -f1)
+          echo "arm-none-eabi-g++ $have, doctor floor $floor"
+          test "$have" -ge "$floor"
 
       - name: Build
         run: make stm32 USE_DOCKER=0
@@ -76,13 +94,20 @@ jobs:
           path: ~/.espressif
           key: espressif-${{ hashFiles('third_party/esp-idf/version.txt') }}
 
+      # Same ownership as the stm32 job: the installer's table is the list, so
+      # it cannot drift from what the build needs. It runs first because
+      # idf-install builds its Python env against these.
+      - name: Toolchain
+        run: make install-deps TARGET=esp32 YES=1
+
       - name: Install ESP-IDF tools
         run: make idf-install USE_DOCKER=0
 
-      - name: Toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-tidy
+      # No bare-runner counterpart to the stm32 job's failure assertion: the
+      # cache step above can restore ~/.espressif, so a red doctor would not be
+      # guaranteed and the check would flake.
+      - name: Doctor
+        run: make doctor TARGET=esp32
 
       - name: Build
         run: make esp32 USE_DOCKER=0
