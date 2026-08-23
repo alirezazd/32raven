@@ -10,6 +10,7 @@ project(32Raven_esp32)
 add_compile_options(
     -Wdouble-promotion
     -Werror=switch
+    -Werror=return-type
     -Wunused
     -ffunction-sections
     -fdata-sections

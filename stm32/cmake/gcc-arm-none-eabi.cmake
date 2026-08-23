@@ -32,7 +32,10 @@ set(CMAKE_ASM_FLAGS "${CMAKE_C_FLAGS} -x assembler-with-cpp -MMD -MP")
 #                          rounding; faster and more accurate in the control math)
 #   -fno-math-errno     -> math funcs don't set errno, so sqrtf/fabsf/... inline
 #                          to single hardware instructions (VSQRT.F32, VABS)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -fdata-sections -ffunction-sections -ffp-contract=fast -fno-math-errno")
+# Matches the ESP32 build, where ESP-IDF passes -Wall -Wextra -Werror: every
+# diagnostic is a stop. -Wshadow and -Wundef are extra here because Kconfig
+# macros arrive through generated headers, where a typo'd #if reads as 0.
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -Wshadow -Wundef -Werror -fdata-sections -ffunction-sections -ffp-contract=fast -fno-math-errno")
 
 # Debug: no optimization, full symbols. Release: -O2 (the Cortex-M4 speed sweet
 # spot) + LTO so the many small cross-TU methods (singleton accessors, inline

@@ -240,6 +240,7 @@ target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     -Wdouble-promotion
     -Wunused
     -Werror=switch
+    -Werror=return-type
     -Wno-psabi # Suppress Eigen's Matrix warnings
 )
 
