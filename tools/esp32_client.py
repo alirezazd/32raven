@@ -3,6 +3,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Alireza Azadi
 
+# /// script
+# dependencies = [
+#     "rich",
+# ]
+# ///
+
 import argparse
 import cmd
 import fcntl
@@ -14,6 +20,15 @@ import socket
 import subprocess
 import sys
 import time
+
+from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    DownloadColumn,
+    Progress,
+    TimeRemainingColumn,
+    TransferSpeedColumn,
+)
 
 # Constants
 CTRL_PORT = 9000
@@ -27,6 +42,13 @@ FLASH_STATUS_POLL_S = 0.5
 FLASH_STATUS_TIMEOUT_S = 120
 SERVICE_POLL_SECONDS = 1.0
 WIFI_WAIT_SECONDS = 15
+
+# STATUS? state values, mirroring TcpServer::Status in tcp_server.hpp.
+STATE_DONE = 1
+STATE_VERIFYING = 2
+
+# Flash-path output only; the interactive shell keeps plain prints.
+console = Console()
 
 
 class AutoConnector:
@@ -268,61 +290,78 @@ class Esp32Shell(cmd.Cmd):
         self.do_disconnect(None)
 
     def _upload(self, filename, begin_extra):
-        """Open the data socket, BEGIN on ctrl, and stream the file."""
+        """BEGIN on ctrl, open the data socket on OK, and stream the file."""
         filesize = os.path.getsize(filename)
-        try:
-            self.data_sock = socket.create_connection(
-                (self.target_ip, DATA_PORT), timeout=self.timeout
-            )
-        except OSError as e:
-            print(f"Error connecting to data port: {e}")
-            return False
 
         print(f"Handshake (BEGIN{begin_extra})...")
         resp = self._send_ctrl(f"BEGIN size={filesize} crc=0{begin_extra}")
         if resp != "OK":
             if resp is None:
-                print(
-                    "No answer to the handshake. The ESP32 is on a page that "
-                    "does not serve flashing -- put it on Service and retry."
+                # The connect succeeded, so something is listening; silence
+                # means nothing is consuming commands. The claim stops there:
+                # this path has covered a wedged server as well as the wrong
+                # page, and a guessed diagnosis reads as fact.
+                console.print(
+                    "[red]Connected, but nothing answered BEGIN.[/red] The "
+                    "ESP32 is not serving flashing right now -- not on the "
+                    "Service page, or its command loop is stuck. Check the "
+                    "serial log."
                 )
             elif "wrong_page" in resp:
-                print("Wrong page: put the ESP32 on Service and retry.")
+                console.print(
+                    "[yellow]Wrong page:[/yellow] put the ESP32 on Service "
+                    "and retry."
+                )
             else:
-                print(f"Target refused handshake: {resp}")
-            self.data_sock.close()
-            self.data_sock = None
+                console.print(f"[red]Target refused handshake:[/red] {resp}")
             return False
 
-        print("Streaming firmware...")
+        try:
+            self.data_sock = socket.create_connection(
+                (self.target_ip, DATA_PORT), timeout=self.timeout
+            )
+        except OSError as e:
+            # The target armed a transfer on BEGIN; tell it the stream is
+            # not coming rather than leaving it waiting for one.
+            print(f"Error connecting to data port: {e}")
+            self._send_ctrl("ABORT")
+            return False
+
         total_sent = 0
         start_time = time.time()
+        progress = Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            DownloadColumn(),
+            TransferSpeedColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        )
         try:
-            with open(filename, "rb") as f:
+            with open(filename, "rb") as f, progress:
+                task = progress.add_task("upload", total=filesize)
                 while True:
                     chunk = f.read(CHUNK_SIZE)
                     if not chunk:
                         break
                     self.data_sock.sendall(chunk)
                     total_sent += len(chunk)
-                    percent = int(total_sent * 100 / filesize)
-                    bar = ("=" * int(percent / 5)).ljust(20)
-                    sys.stdout.write(f"\rProgress: [{bar}] {percent}%")
-                    sys.stdout.flush()
+                    progress.update(task, completed=total_sent)
         except Exception as e:
-            print(f"\nError sending data: {e}")
+            console.print(f"[red]Error sending data:[/red] {e}")
             self.do_disconnect(None)
             return False
 
         duration = time.time() - start_time
         rate_kb = total_sent / duration / 1024
-        print(
-            f"\nUpload complete. {total_sent} bytes in {duration:.2f}s "
-            f"({rate_kb:.2f} KB/s)"
+        console.print(
+            f"[green]Uploaded[/green] {total_sent} bytes in {duration:.2f}s "
+            f"({rate_kb:.1f} KB/s)"
         )
         return True
 
-    def _await_flash(self, done_marker=None):
+    def _await_flash(self, expect_done=False):
         """Poll STATUS? until the target finishes, refuses, or the wait ends.
 
         A dropped connection is the ordinary success signal -- the target
@@ -331,24 +370,57 @@ class Esp32Shell(cmd.Cmd):
         rather than being counted as progress.
         """
         deadline = time.monotonic() + FLASH_STATUS_TIMEOUT_S
-        while time.monotonic() < deadline:
-            try:
-                resp = self._send_ctrl("STATUS?")
-            except (OSError, BrokenPipeError):
-                print("\nConnection closed by remote (Success/Reboot).")
-                return True
-            if not resp:
-                print("\nConnection closed by remote (Success).")
-                return True
-            if resp.startswith("ERR"):
-                print(f"\nTarget refused the flash: {resp}")
-                return False
-            if done_marker and done_marker in resp:
-                print("\nFlash Success! (Target Rebooted)")
-                return True
-            time.sleep(FLASH_STATUS_POLL_S)
-        print(
-            f"\nTarget never reported done after {FLASH_STATUS_TIMEOUT_S}s. "
+        progress = Progress(
+            "[progress.description]{task.description}",
+            BarColumn(),
+            DownloadColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=True,
+        )
+        status_re = re.compile(r"rx=(\d+) total=(\d+) state=(\d+)")
+        with progress:
+            task = progress.add_task("write", total=None)
+            verifying = False
+            while time.monotonic() < deadline:
+                try:
+                    resp = self._send_ctrl("STATUS?")
+                except (OSError, BrokenPipeError):
+                    resp = None
+                if not resp:
+                    # The target reboots into the new image mid-poll; the
+                    # drop is the ordinary success signal.
+                    progress.stop()
+                    console.print(
+                        "[green]Flash success[/green] (target rebooted)"
+                    )
+                    return True
+                if resp.startswith("ERR"):
+                    progress.stop()
+                    console.print(
+                        f"[red]Target refused the flash:[/red] {resp}"
+                    )
+                    return False
+                if match := status_re.search(resp):
+                    rx = int(match.group(1))
+                    total = int(match.group(2))
+                    state = int(match.group(3))
+                    # rx restarts from zero when the target switches to
+                    # verifying, so the bar has to restart with it.
+                    if state == STATE_VERIFYING and not verifying:
+                        verifying = True
+                        progress.update(task, description="verify")
+                    progress.update(
+                        task, completed=rx, total=total if total else None
+                    )
+                    if expect_done and state == STATE_DONE:
+                        progress.stop()
+                        console.print("[green]Flash success[/green]")
+                        return True
+                time.sleep(FLASH_STATUS_POLL_S)
+        console.print(
+            f"[red]Target never reported done after "
+            f"{FLASH_STATUS_TIMEOUT_S}s.[/red] "
             "Check which page the ESP32 is on."
         )
         return False
@@ -368,16 +440,15 @@ class Esp32Shell(cmd.Cmd):
         if not self._ensure_connected():
             return
 
-        print(
-            f"Prepare to flash '{filename}' "
-            f"({os.path.getsize(filename)} bytes)..."
+        console.print(
+            f"Flashing [bold]{filename}[/bold] "
+            f"({os.path.getsize(filename)} bytes)"
         )
         if not self._upload(filename, ""):
             return
 
-        print("Verifying and Flashing...")
         # STATUS rx=... total=... state=1 err=0
-        if not self._await_flash(done_marker="state=1"):
+        if not self._await_flash(expect_done=True):
             return
         self.failed = False
 
@@ -413,15 +484,14 @@ class Esp32Shell(cmd.Cmd):
         if not self._ensure_connected():
             return
 
-        print(
-            f"Prepare to flash ESP32 '{filename}' "
-            f"({os.path.getsize(filename)} bytes)..."
+        console.print(
+            f"Flashing ESP32 [bold]{filename}[/bold] "
+            f"({os.path.getsize(filename)} bytes)"
         )
         if not self._upload(filename, " target=esp32"):
             return
 
         # The ESP32 reboots into the new image; the drop is the only ack.
-        print("Verifying and Flashing...")
         if not self._await_flash():
             return
         self.failed = False

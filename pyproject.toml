@@ -22,3 +22,14 @@ docs = [
     "mkdocs-material>=9.5",      # mkdocs core + Material theme
     "pymdown-extensions>=10.7",  # superfences / snippets / details / tabbed
 ]
+
+# Scripts under tools/ pull their third-party imports from their own PEP 723
+# header, so those packages are never in this env and the editor cannot resolve
+# them. Silencing it here rather than per-import keeps the source clean, and
+# scoping it to tools/ leaves a genuinely missing import elsewhere reportable.
+[[tool.pyright.executionEnvironments]]
+root = "tools"
+reportMissingImports = "none"
+
+[[tool.pyright.executionEnvironments]]
+root = "."
