@@ -174,7 +174,8 @@ class RecoverySession {
 RecoverySession::RecoverySession(System &sys)
     : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
 
-bool RecoverySession::EnterServiceMode(TimeMs now, NetworkAction network_on_error) {
+bool RecoverySession::EnterServiceMode(TimeMs now,
+                                       NetworkAction network_on_error) {
   const uint32_t recovery_error = EnterRecoveryServiceMode();
   if (recovery_error != Raw(ErrorCode::Common::kOk)) {
     Exit(recovery_error, network_on_error);
@@ -371,7 +372,7 @@ uint32_t RunRecoverableLoop() {
   if (recoverable) {
     Sys().Button().FlushEvents();
   }
-  int level = 0;
+  bool led_on = false;
   while (true) {
     if (recoverable) {
       Sys().Button().Poll();
@@ -386,8 +387,8 @@ uint32_t RunRecoverableLoop() {
         }
       }
     }
-    gpio_set_level(kPinMap.led, level);
-    level = !level;
+    gpio_set_level(kPinMap.led, led_on ? 1 : 0);
+    led_on = !led_on;
     ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
     vTaskDelay(pdMS_TO_TICKS(40));
   }
@@ -400,10 +401,10 @@ uint32_t RunRecoverableLoop() {
 // is standing in for.
 [[noreturn]] void ReportNestedPanic(uint32_t code) {
   const char *msg = GetMessage(code);
-  int level = 0;
+  bool led_on = false;
   while (true) {
-    gpio_set_level(kPinMap.led, level);
-    level = !level;
+    gpio_set_level(kPinMap.led, led_on ? 1 : 0);
+    led_on = !led_on;
     ESP_LOGE(kTag, "PANIC IN PANIC [0x%08lX]: %s", (unsigned long)code, msg);
     vTaskDelay(pdMS_TO_TICKS(15));
   }

@@ -95,8 +95,11 @@ EXCLUDED = {
 # Each of these finds a defect: a cycle the stack bound cannot measure through,
 # a header definition that breaks the one-definition rule, an assignment
 # operator that cannot chain, a const that binds to the wrong side of a
-# pointer, a call that is not safe to make from more than one task, and an
-# arithmetic precedence a reader has to hold in their head.
+# pointer, a call that is not safe to make from more than one task, an
+# arithmetic precedence a reader has to hold in their head, and a bool that
+# silently becomes an integer or the reverse — legal C++ no compiler warning
+# catches, and `return true` in a function returning optional<int> is a valid
+# fd. Conditions stay idiomatic via the Allow options in .clang-tidy.
 NAMED = (
     "misc-no-recursion",
     "misc-definitions-in-headers",
@@ -104,6 +107,7 @@ NAMED = (
     "misc-misplaced-const",
     "concurrency-mt-unsafe",
     "readability-math-missing-parentheses",
+    "readability-implicit-bool-conversion",
 )
 
 CHECKS = ",".join(

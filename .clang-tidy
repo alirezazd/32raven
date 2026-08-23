@@ -68,3 +68,11 @@ CheckOptions:
   # Macros
   - key: readability-identifier-naming.MacroDefinitionCase
     value: UPPER_CASE
+
+  # Bool/integer conversions: `if (ptr)` and `if (count)` stay idiomatic;
+  # what remains — bool arithmetic, bool returned as a number, int assigned
+  # to bool — is the defect class check_tidy.py names this check for.
+  - key: readability-implicit-bool-conversion.AllowIntegerConditions
+    value: true
+  - key: readability-implicit-bool-conversion.AllowPointerConditions
+    value: true
