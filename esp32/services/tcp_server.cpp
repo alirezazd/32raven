@@ -207,7 +207,7 @@ std::optional<int> TcpServer::MakeListenSocket(uint16_t port) {
     return std::nullopt;
   }
 
-  return true;
+  return out_fd;
 }
 
 // Close helpers
