@@ -80,10 +80,12 @@ CLEAN_FILES := \
 	stm32/Drivers/ee_schema.hpp \
 	libs/common_config.hpp
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs doctor install-deps
 
 help:
 	@echo "Targets:"
+	@echo "  doctor              - Check the host toolchain, per firmware target"
+	@echo "  install-deps        - Install the host packages doctor reports missing"
 	@echo "  configure           - Configure CMake"
 	@echo "  all                 - Build all firmware"
 	@echo "  32raven-menuconfig  - Run 32Raven menuconfig (ESP32 + STM32)"
@@ -109,6 +111,17 @@ help:
 	@echo "  docs                - Build the handbook strictly into ./site + lint it"
 	@echo "  docs-serve          - Live-reload handbook preview at http://127.0.0.1:8000"
 	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_ROOT=build, BUILD_DIR=build/<generator>, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..., USE_DOCKER=0|1, DOCKER_IMAGE=..."
+
+# Both run bare python3 on the host, never through $(RUN): they exist to report
+# on the machine you are standing at, and they have to work before uv does.
+# TARGET=stm32|esp32 narrows either to one firmware's prerequisites.
+TARGET ?= all
+
+doctor:
+	@python3 ./scripts/check_setup.py --target $(TARGET)
+
+install-deps:
+	@python3 ./scripts/install_deps.py --target $(TARGET) $(if $(YES),--yes)
 
 configure:
 	@mkdir -p "$(BUILD_DIR)"

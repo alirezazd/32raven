@@ -42,6 +42,10 @@ make idf-install     # once — ESP-IDF tools
 make all             # both firmwares
 ```
 
+Building on the host instead? `make doctor` reports what is missing, per firmware,
+and `make install-deps` installs it — apt, dnf, pacman or Homebrew. Add
+`TARGET=stm32` (or `esp32`) to either if you only care about one side.
+
 Flash — the ESP32 over USB, the STM32 over the air through it:
 
 ```bash
