@@ -84,9 +84,16 @@ class TcpServer {
 
   // Status snapshot (App updates, client may query via STATUS?)
   struct Status {
+    // Values for `state`. On the wire, so tools/esp32_client.py mirrors them:
+    // rx counts written bytes while kWriting and verified bytes while
+    // kVerifying, and the host restarts its progress at the switch.
+    static constexpr uint32_t kWriting = 0;
+    static constexpr uint32_t kDone = 1;
+    static constexpr uint32_t kVerifying = 2;
+
     uint32_t rx = 0;
     uint32_t total = 0;
-    uint32_t state = 0;
+    uint32_t state = kWriting;
     uint32_t err = 0;
   };
 

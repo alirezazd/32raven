@@ -230,7 +230,7 @@ void ProgramState::OnStep(AppContext &ctx) {
     TcpServer::Status st{};
     st.rx = prog.Written();
     st.total = prog.Total();
-    st.state = 1;
+    st.state = TcpServer::Status::kDone;
     tcp.EndTransfer();
     tcp.SetStatus(st);
 
@@ -265,6 +265,12 @@ void ProgramState::OnStep(AppContext &ctx) {
 
   if (prog.IsVerifying()) {
     ctx.sys->Led().Toggle();
+    // Writing is over, so rx would otherwise sit frozen at the last written
+    // byte for the whole verify pass. state distinguishes the two counts.
+    TcpServer::Status verifying = tcp.GetStatus();
+    verifying.rx = prog.VerifyOffset();
+    verifying.state = TcpServer::Status::kVerifying;
+    tcp.SetStatus(verifying);
     return;
   }
 

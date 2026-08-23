@@ -243,7 +243,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
     TcpServer::Status st{};
     st.rx = prog_.Written();
     st.total = prog_.Total();
-    st.state = 1;
+    st.state = TcpServer::Status::kDone;
     tcp_.EndTransfer();
     tcp_.SetStatus(st);
     (void)prog_.Boot();
@@ -287,6 +287,10 @@ void RecoverySession::StepProgramMode(TimeMs now) {
   }
 
   if (prog_.IsVerifying()) {
+    TcpServer::Status verifying = tcp_.GetStatus();
+    verifying.rx = prog_.VerifyOffset();
+    verifying.state = TcpServer::Status::kVerifying;
+    tcp_.SetStatus(verifying);
     return;
   }
 
