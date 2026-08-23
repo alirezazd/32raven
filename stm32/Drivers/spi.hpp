@@ -65,7 +65,7 @@ class Spi {
   void OnRxDmaTcIrq()
     requires(Inst == SpiInstance::kSpi2);
 
-  void HandleDmaError(uint32_t isr_flags)
+  void HandleDmaError()
     requires(Inst == SpiInstance::kSpi2);
 
  private:

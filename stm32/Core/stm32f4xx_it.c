@@ -82,7 +82,7 @@ extern void DshotTim1KeepAlive(void);
 extern void PanicHardFault(void);
 extern void ImuTick(void);
 extern void Spi2RxDmaComplete(void);
-extern void Spi2DmaError(uint32_t isr);
+extern void Spi2DmaError(void);
 
 extern void Uart1OnUartInterrupt(void);
 extern void Uart2OnUartInterrupt(void);
@@ -266,7 +266,7 @@ void DMA1_Stream3_IRQHandler(void) {
   if (lisr & (DMA_LISR_TEIF3 | DMA_LISR_DMEIF3 | DMA_LISR_FEIF3)) {
     DMA1->LIFCR = DMA_LIFCR_CTEIF3 | DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3 |
                   DMA_LIFCR_CHTIF3 | DMA_LIFCR_CTCIF3;
-    Spi2DmaError(lisr);
+    Spi2DmaError();
     return;
   }
 
@@ -289,7 +289,7 @@ void DMA1_Stream4_IRQHandler(void) {
                 DMA_HIFCR_CHTIF4 | DMA_HIFCR_CTCIF4;
 
   if (hisr & (DMA_HISR_TEIF4 | DMA_HISR_DMEIF4 | DMA_HISR_FEIF4)) {
-    Spi2DmaError(hisr);
+    Spi2DmaError();
   }
 }
 

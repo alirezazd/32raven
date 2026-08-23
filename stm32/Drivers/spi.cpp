@@ -358,11 +358,9 @@ void Spi<Inst>::OnRxDmaTcIrq()
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::HandleDmaError(uint32_t isr_flags)
+void Spi<Inst>::HandleDmaError()
   requires(Inst == SpiInstance::kSpi2)
 {
-  (void)isr_flags;
-
   // Tear down like OnRxDmaTcIrq, but report failure to the callback.
   SPI_TypeDef *spi = Hw();
   DMA_Stream_TypeDef *rx_stream = nullptr;
@@ -414,5 +412,5 @@ template class Spi<SpiInstance::kSpi2>;
 
 extern "C" {
 void Spi2RxDmaComplete() { Spi2::GetInstance().OnRxDmaTcIrq(); }
-void Spi2DmaError(uint32_t isr) { Spi2::GetInstance().HandleDmaError(isr); }
+void Spi2DmaError() { Spi2::GetInstance().HandleDmaError(); }
 }
