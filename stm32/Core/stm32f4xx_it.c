@@ -73,9 +73,9 @@ extern void Uart6DmaTxComplete(void);
 extern void Uart1DmaError(uint32_t);
 extern void Uart2DmaError(uint32_t);
 extern void Uart6DmaError(uint32_t);
-extern void Uart1RxDmaError(uint32_t);
-extern void Uart2RxDmaError(uint32_t);
-extern void Uart6RxDmaError(uint32_t);
+extern void Uart1RxDmaError(void);
+extern void Uart2RxDmaError(void);
+extern void Uart6RxDmaError(void);
 extern void TimeBaseOnTim5Irq(void);
 extern void EstimatorOnTim5Irq(void);
 extern void DshotTim1KeepAlive(void);
@@ -97,7 +97,7 @@ extern void Uart6OnRxCplt(void);
 extern void EscTelemetryOnUartInterrupt(void);
 extern void EscTelemetryOnRxHalfCplt(void);
 extern void EscTelemetryOnRxCplt(void);
-extern void EscTelemetryRxDmaError(uint32_t);
+extern void EscTelemetryRxDmaError(void);
 
 /* USER CODE BEGIN EV */
 
@@ -241,7 +241,7 @@ void DMA1_Stream1_IRQHandler(void) {
   if (lisr & (DMA_LISR_TEIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIF1)) {
     DMA1->LIFCR = DMA_LIFCR_CTEIF1 | DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1 |
                   DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
-    EscTelemetryRxDmaError(lisr);
+    EscTelemetryRxDmaError();
     return;
   }
 
@@ -305,7 +305,7 @@ void DMA1_Stream5_IRQHandler(void) {
     // Clear ALL flags for this stream
     DMA1->HIFCR = DMA_HIFCR_CTEIF5 | DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CFEIF5 |
                   DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTCIF5;
-    Uart2RxDmaError(hisr);
+    Uart2RxDmaError();
     return;
   }
 
@@ -379,7 +379,7 @@ void DMA2_Stream1_IRQHandler(void) {
   if (lisr & (DMA_LISR_TEIF1 | DMA_LISR_DMEIF1 | DMA_LISR_FEIF1)) {
     DMA2->LIFCR = DMA_LIFCR_CTEIF1 | DMA_LIFCR_CDMEIF1 | DMA_LIFCR_CFEIF1 |
                   DMA_LIFCR_CHTIF1 | DMA_LIFCR_CTCIF1;
-    Uart6RxDmaError(lisr);
+    Uart6RxDmaError();
     return;
   }
 
@@ -407,7 +407,7 @@ void DMA2_Stream2_IRQHandler(void) {
     // Clear ALL flags for this stream
     DMA2->LIFCR = DMA_LIFCR_CTEIF2 | DMA_LIFCR_CDMEIF2 | DMA_LIFCR_CFEIF2 |
                   DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTCIF2;
-    Uart1RxDmaError(lisr);
+    Uart1RxDmaError();
     return;
   }
 

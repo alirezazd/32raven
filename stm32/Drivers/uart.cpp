@@ -321,8 +321,7 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::IrqHandler() {
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError(
-    uint32_t isr_flags) {
+void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError() {
   rx_dma_err_ = rx_dma_err_ + 1;
   System::GetInstance().Led().Set(true);
 
@@ -649,17 +648,11 @@ void Uart1RxDmaIrq() {
   // Unused
 }
 
-void Uart1RxDmaError(uint32_t isr_flags) {
-  Uart1::GetInstance().HandleRxDmaError(isr_flags);
-}
+void Uart1RxDmaError() { Uart1::GetInstance().HandleRxDmaError(); }
 
-void Uart2RxDmaError(uint32_t isr_flags) {
-  Uart2::GetInstance().HandleRxDmaError(isr_flags);
-}
+void Uart2RxDmaError() { Uart2::GetInstance().HandleRxDmaError(); }
 
-void Uart6RxDmaError(uint32_t isr_flags) {
-  Uart6::GetInstance().HandleRxDmaError(isr_flags);
-}
+void Uart6RxDmaError() { Uart6::GetInstance().HandleRxDmaError(); }
 
 // Wrappers for interrupts
 

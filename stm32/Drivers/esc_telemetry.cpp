@@ -232,8 +232,7 @@ void EscTelemetry::OnRxHalfCplt() { DrainRx(); }
 
 void EscTelemetry::OnRxCplt() { DrainRx(); }
 
-void EscTelemetry::HandleRxDmaError(uint32_t isr_flags) {
-  (void)isr_flags;
+void EscTelemetry::HandleRxDmaError() {
   rx_dma_error_count_ = rx_dma_error_count_ + 1u;  // volatile-safe (C++20)
   StartRxDma();
 }
@@ -393,7 +392,5 @@ void EscTelemetryOnRxHalfCplt(void) {
 
 void EscTelemetryOnRxCplt(void) { EscTelemetry::GetInstance().OnRxCplt(); }
 
-void EscTelemetryRxDmaError(uint32_t isr_flags) {
-  EscTelemetry::GetInstance().HandleRxDmaError(isr_flags);
-}
+void EscTelemetryRxDmaError() { EscTelemetry::GetInstance().HandleRxDmaError(); }
 }

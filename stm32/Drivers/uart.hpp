@@ -89,7 +89,7 @@ class Uart {
   // Called from ISR
   void IrqHandler();
   void HandleDmaError(uint32_t isr_flags);
-  void HandleRxDmaError(uint32_t isr_flags);
+  void HandleRxDmaError();
 
   // RX Controls
   void StartRxDma();

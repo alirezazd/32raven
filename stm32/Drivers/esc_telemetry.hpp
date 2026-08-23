@@ -73,7 +73,7 @@ class EscTelemetry {
   void OnUartInterrupt();
   void OnRxHalfCplt();
   void OnRxCplt();
-  void HandleRxDmaError(uint32_t isr_flags);
+  void HandleRxDmaError();
 
  private:
   friend class System;
