@@ -28,6 +28,7 @@ inline UbxChecksum ComputeUbxChecksum(const uint8_t *data, size_t len) {
     ck_a = static_cast<uint8_t>(ck_a + data[i]);
     ck_b = static_cast<uint8_t>(ck_b + ck_a);
   }
+  return UbxChecksum{.ck_a = ck_a, .ck_b = ck_b};
 }
 
 // One CFG-VALSET frame carrying several keys, for a group whose members have
