@@ -151,6 +151,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "Corrupted SD card";
     case ErrorCode::Stm32::kSdCardFull:
       return "SD card full";
+    case ErrorCode::Stm32::kSdCardGeometry:
+      return "SD card FAT too large -- reformat";
     case ErrorCode::Stm32::kHardFault:
       return "STM32 hard fault";
     case ErrorCode::Stm32::kCommandHandlerReinit:

@@ -131,6 +131,7 @@ class LogService {
   bool initialized_ = false;
   bool mounted_ = false;
   bool file_ready_ = false;
+  bool prepare_pending_ = false;
 
   FATFS fs_{};
   FIL file_{};

@@ -22,6 +22,11 @@ namespace {
 // Far above any real root directory, far below forever.
 constexpr uint32_t kMaxRootScanEntries = 4096;
 
+// A time budget: preallocation walks the FAT a sector at a time over SDIO.
+// 32 GB at the 32 KB-cluster default builds a 4 MB table; the same card cut
+// into 4 KB clusters builds 32 MB, which is what this rejects.
+constexpr uint32_t kMaxFatSectors = 20000;
+
 // What a ULog reader takes for "no sample", as opposed to a sample of zero.
 constexpr float kMissingFloat = std::numeric_limits<float>::quiet_NaN();
 
@@ -344,7 +349,15 @@ void LogService::Init(const Config &cfg, SharedState &blackboard,
   }
   mounted_ = true;
 
-  PrepareNextFile();
+  if (fs_.fsize > kMaxFatSectors) {
+    LogSdFailure(*fc_link_, "fat too large", static_cast<int>(fs_.fsize));
+    Panic(ErrorCode::Stm32::kSdCardGeometry);
+  }
+
+  // Deferred to Poll: Init runs before FcLink exists, so scanning the FAT here
+  // spends seconds the ESP32 can only read as an unanswered handshake. The
+  // first tick services FcLink ahead of this service.
+  prepare_pending_ = true;
 }
 
 void LogService::PrepareNextFile() {
@@ -1042,6 +1055,11 @@ void LogService::ReadLog(const message::LogReadMsg &req,
 }
 
 void LogService::Poll(uint32_t now_us) {
+  if (prepare_pending_) {
+    prepare_pending_ = false;
+    PrepareNextFile();
+  }
+
   const uint64_t now64 = Now64(now_us);
 
   if (!logging_) {
