@@ -95,8 +95,13 @@ static void OnSetRcMapConfig(const AppContext &ctx,
     return;
   }
 
+  // Outside Idle the config belongs to the flight or to the host: the write is
+  // a blocking EEPROM transfer on SPI1 from the main tick, and it would retune
+  // the channel map the aircraft is being flown by. Echoing the unchanged map
+  // below is what tells the sender the write did not take.
   const auto &req = message::PayloadAs<message::RcMapConfigMsg>(pkt);
-  if (message::IsRcMapConfigValid(req)) {
+  if (ctx.sm->CurrentState() == ctx.idle_state &&
+      message::IsRcMapConfigValid(req)) {
     (void)ctx.sys->RcRx().SetRcMapConfig(req);
   }
 
@@ -114,8 +119,10 @@ static void OnSetRcCalibration(const AppContext &ctx,
     return;
   }
 
+  // Idle only, for the reasons in OnSetRcMapConfig.
   const auto &req = message::PayloadAs<message::RcCalibrationConfigMsg>(pkt);
-  if (message::IsRcCalibrationConfigValid(req)) {
+  if (ctx.sm->CurrentState() == ctx.idle_state &&
+      message::IsRcCalibrationConfigValid(req)) {
     (void)ctx.sys->RcRx().SetCalibrationConfig(req);
   }
 
