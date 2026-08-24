@@ -111,13 +111,20 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
   }
 
   // 2. TX Flushing (RingBuffer -> UART)
-  // Send in bounded chunks to keep this path deterministic.
+  // Send in bounded chunks to keep this path deterministic, and never pop more
+  // than the UART can take: Send drops per byte, and these bytes have already
+  // left tx_rb_, so an overrun costs a frame its middle rather than costing a
+  // whole packet -- which reaches the ESP32 as a CRC failure, not a gap.
   uint8_t tx_chunk[64];
+  size_t room = tx_budget < sizeof(tx_chunk) ? tx_budget : sizeof(tx_chunk);
+  const size_t tx_free = uart.TxFree();
+  if (tx_free < room) {
+    room = tx_free;
+  }
   size_t n = 0;
   uint8_t tx_byte = 0;
-  while (n < tx_budget && tx_rb_.Pop(tx_byte)) {
+  while (n < room && tx_rb_.Pop(tx_byte)) {
     tx_chunk[n++] = tx_byte;
-    if (n >= sizeof(tx_chunk)) break;
   }
   if (n > 0) {
     uart.Send(tx_chunk, n);

@@ -247,9 +247,6 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
     // Non-blocking: drop if full
     if (!tx_buffer_.Push(data[i])) {
       tx_drop_bytes_ = tx_drop_bytes_ + 1;
-      // Can't log via UART (buffer full); signal overflow on LED instead.
-      System::GetInstance().Led().Set(true);
-      // TODO(stm32): Handle UART TX buffer overflow correctly in future
     }
   }
 
