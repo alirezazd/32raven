@@ -45,9 +45,16 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
   switch (cmd.command) {
     case MAV_CMD_START_RX_PAIR: {
       if (static_cast<uint32_t>(cmd.param1) == RC_TYPE_CRSF) {
+        // MAVLink defines no cancel for this command, and no RC sub-type for
+        // CRSF -- so param2 is the one slot a later spec revision cannot
+        // collide with. 0 keeps the plain "start pairing" meaning.
+        constexpr uint32_t sub_type_cancel_bind = 1u;
+        const bool cancel =
+            static_cast<uint32_t>(cmd.param2) == sub_type_cancel_bind;
         message::Packet req_pkt{};
-        req_pkt.header.id =
-            static_cast<uint8_t>(message::MsgId::kReqReceiverBind);
+        req_pkt.header.id = static_cast<uint8_t>(
+            cancel ? message::MsgId::kReqReceiverCancelBind
+                   : message::MsgId::kReqReceiverBind);
         req_pkt.header.len = 0;
         fc_link_->SendPacket(req_pkt);
         QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,

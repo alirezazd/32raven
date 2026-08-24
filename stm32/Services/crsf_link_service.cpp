@@ -305,13 +305,8 @@ bool CrsfLinkService::PayloadChanged(TelemetryTopic topic,
 }
 
 bool CrsfLinkService::TrySendPendingCommand() {
-  if (pending_command_ == PendingCommand::kNone) {
-    return false;
-  }
-
-  // TODO(crsf): Bind/cancel-bind is currently fire-and-forget. Parse command
-  // ACKs and enforce timeout/retry or Panic() policy once the CRSF ACK path is
-  // implemented.
+  // Fire-and-forget: the receive path parses RC channels and link statistics
+  // only, so nothing here can observe whether the receiver acted on it.
   uint8_t payload = 0;
   switch (pending_command_) {
     case PendingCommand::kReceiverBind:
@@ -321,7 +316,6 @@ bool CrsfLinkService::TrySendPendingCommand() {
       payload = kCrsfCrossfireSubcmdCancelBind;
       break;
     case PendingCommand::kNone:
-    default:
       return false;
   }
 

@@ -161,6 +161,17 @@ static void OnReqReceiverBind(const AppContext &ctx,
   ctx.sys->FcLinkSvc().SendLog("CRSF RX bind requested");
 }
 
+static void OnReqReceiverCancelBind(const AppContext &ctx,
+                                    const message::Packet &pkt) {
+  if (!message::IsPayloadLengthValid(message::MsgId::kReqReceiverCancelBind,
+                                     pkt.header.len)) {
+    return;
+  }
+
+  ctx.sys->CrsfLinkSvc().RequestReceiverCancelBind();
+  ctx.sys->FcLinkSvc().SendLog("CRSF RX bind cancelled");
+}
+
 // No arm check here: SensorCalService owns that and the busy test both. The
 // outcome is a tone, not a reply -- the run outlasts this packet.
 static void OnCalibrateGyro(const AppContext &ctx, const message::Packet &pkt) {
@@ -262,6 +273,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kSetRcCalibrationConfig, OnSetRcCalibration},
     {message::MsgId::kReqGyroCalibrationId, OnReqGyroCalibrationId},
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
+    {message::MsgId::kReqReceiverCancelBind, OnReqReceiverCancelBind},
     {message::MsgId::kCalibrateGyro, OnCalibrateGyro},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},

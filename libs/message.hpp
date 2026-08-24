@@ -35,6 +35,7 @@ enum class MsgId : uint8_t {
   kSetRcCalibrationConfig = 0x0B,
   kReqReceiverBind = 0x0C,
   kCalibrateGyro = 0x0D,
+  kReqReceiverCancelBind = 0x0E,
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kAttitude = 0x11,
@@ -124,7 +125,7 @@ struct GpsData {
 
   uint16_t gDOP;  // [0.01]
   uint16_t pDOP;  // [0.01]
-  uint16_t hDOP;  // [0.01]  TODO(fc): gate arming on this
+  uint16_t hDOP;  // [0.01]  TODO(#48): gate arming on this
   uint16_t vDOP;  // [0.01]
 
   uint8_t posCovValid;
@@ -345,6 +346,7 @@ inline constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kSetRcMapConfig:
     case MsgId::kSetRcCalibrationConfig:
     case MsgId::kReqReceiverBind:
+    case MsgId::kReqReceiverCancelBind:
     case MsgId::kCalibrateGyro:
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
@@ -377,6 +379,7 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
     case MsgId::kReqRcCalibration:
     case MsgId::kReqGyroCalibrationId:
     case MsgId::kReqReceiverBind:
+    case MsgId::kReqReceiverCancelBind:
     case MsgId::kCalibrateGyro:
     case MsgId::kReboot:
     case MsgId::kBootload:

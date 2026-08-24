@@ -82,14 +82,12 @@ class CrsfLinkService {
     kReceiverCancelBind,
   };
 
-  // TODO(crsf): add native telemetry frames as data lands and give each a
+  // TODO(#11): add native telemetry frames as data lands and give each a
   // topic in StatPublisher's CRSF group: flight mode 0x21, attitude 0x1E,
   // baro/vario 0x09/0x07, temps 0x0D, voltages/cell 0x0E, rpm 0x0C.
   std::optional<TelemetryFrame> PrepareTelemetryTopic(TelemetryTopic topic,
                                                       uint32_t now_us) const;
   bool PayloadChanged(TelemetryTopic topic, const TelemetryFrame &frame) const;
-  // TODO(crsf): track ACK/timeout for bind/cancel-bind; on no-ACK, retry,
-  // surface an FcLink error, or Panic().
   bool TrySendPendingCommand();
   bool ProcessCrsfByte(uint8_t byte, uint32_t now_us);
   bool FinishCrsfFrame(uint32_t now_us);
