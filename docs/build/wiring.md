@@ -128,7 +128,7 @@ One shared RX-only line back from the ESCs.
 The pin is configured with an internal pull-up because the line idles high and no ESC drives
 it until one is polled.
 
-<!-- TODO(build): ESC-to-FC harness photo, plus the AM32 telemetry-enable setting. -->
+<!-- TBD(#4): ESC-to-FC harness photo, plus the AM32 telemetry-enable setting. -->
 
 ## Battery sense (ADC1)
 
@@ -209,4 +209,4 @@ in the field, so consider where you mount it.
 
 Next: power and ESC configuration *(not yet written)*.
 
-<!-- TODO(build): full-aircraft wiring photo with callouts, once assembly is done. -->
+<!-- TBD(#4): full-aircraft wiring photo with callouts, once assembly is done. -->

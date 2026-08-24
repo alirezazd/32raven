@@ -390,9 +390,8 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
     case AppState::kMavlinkUsb:
-      // TODO(ui): Placeholder: re-uses the WiFi MAVLink screen until a
-      // USB-specific widget lands. The text path is the same; only the
-      // underlying transport differs.
+      // Re-uses the WiFi MAVLink screen: the text path is the same and only
+      // the underlying transport differs.
       return MainScreen::kMavlinkWifiDisconnected;
     case AppState::kProgram:
       if (programmer_->IsVerifying()) {

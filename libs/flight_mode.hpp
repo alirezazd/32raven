@@ -5,7 +5,6 @@
 //   kAcro       : sticks → angular-rate setpoint (current Phase A path)
 //   kStabilize  : sticks → desired-attitude quaternion → attitude
 //                 controller → angular-rate setpoint
-// TODO(fc): Future modes (altitude hold, position hold, RTH, mission)
 
 #pragma once
 

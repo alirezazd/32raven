@@ -65,6 +65,9 @@ Write each as its stage is reached during the real build, while the details are 
 the mistakes are still visible. A stage documented from memory six months later is the kind
 that omits the step that actually caused the problem.
 
+The pages that exist carry the same gaps where they need the built aircraft rather than a
+second draft — the wiring page marks two, both waiting on photographs of real harnesses.
+
 ### #6 — Buzzer — 🟢 SUPPORTING
 
 The buzzer is visible in the photographs on **The brain** and wired to `GPIO10`, but its
@@ -156,7 +159,7 @@ transmitter and two mechanisms already exist:
 - **Temperature as a telemetry sensor (0x0D)** lets the radio's own Logical Switches and
   Special Functions fire a voice callout, which beats a screen nobody is looking at mid-flight.
 
-Both frame types are already listed in the `TODO(crsf)` at `crsf_link_service.hpp`.
+Both frame types are already listed in the `TODO(#11)` at `crsf_link_service.hpp`.
 
 Deliberately not a panic: an ESC derating is a degraded aircraft the pilot may still want to
 land, not a reason to stop the motors.
@@ -290,7 +293,7 @@ failsafe conditions, FcLink peer loss, and the watchdog.
 
 `StatPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
 moving detection into Sentinel is *relocating* that computation rather than writing a second
-copy of it. `Sentinel::Supervise` is the slot, and carries the `TODO(fc)` naming the three.
+copy of it. `Sentinel::Supervise` is the slot, and carries the `TODO(#15)` naming the three.
 
 **It must live on the STM32**, because its whole purpose is to keep working when the ESP32 is
 gone. That is also why FcLink peer loss is Sentinel's to detect on this side (#17 owns the
@@ -1248,6 +1251,32 @@ so both firmwares. That is plumbing. The interlocks are the work:
 #15 first, and its tripwire says why: while `kPrivilegedArm` is the only route, holding stale
 sticks is harmless because nothing can arm behind them. A stick gesture removes that guarantee,
 so link-loss policy has to exist before this lands, not after.
+
+### #48 — Decide whether GPS quality gates arming — 🟢 SUPPORTING
+
+`hDOP` is plumbed end to end and read by nobody as a condition: `M10Service` publishes it,
+`StatPublisher` puts it on the wire, and `Mavlink` re-emits it as `eph`. Nothing compares it
+against anything. Sentinel's arm path takes no view of GPS at all.
+
+The decision is not the comparison, it is what a bad number is allowed to do. A quad that
+refuses to arm indoors because it cannot see satellites is broken for the bench, and this
+aircraft spends most of its life there — so a hard gate is wrong on the current airframe, and
+"warn, do not refuse" is the honest default while no mode navigates by GPS.
+
+- **`num_sats` and `fix_type` are the coarse conditions**, and `hDOP` is the one that says the
+  fix is *degraded* rather than absent. A gate written against DOP alone reads a good number
+  from a receiver reporting no fix at all, because DOP describes satellite geometry, not
+  whether a position was computed from it.
+- **Which way it points depends on #27 and #45.** Nothing navigates today, so a poor fix costs
+  nothing in the air; the moment an estimator consumes position, arming on a degraded fix stops
+  being a bench convenience and starts being a flyaway.
+- **The threshold cannot be picked from the datasheet.** DOP under an open sky and DOP beside a
+  building differ by more than any published figure predicts, so this wants numbers off the
+  actual card before a constant is written down — which is #33's job, since `hDOP` is among the
+  18 `GpsData` fields the log does not record.
+
+Whatever it becomes, it is a Sentinel condition and not a check in the GPS driver: #16 owns the
+arm decision, and a second component holding a veto is the shape #19 exists to prevent.
 
 ### #30 — Name the IMU orientations rather than configuring a triple — 🟢 SUPPORTING
 

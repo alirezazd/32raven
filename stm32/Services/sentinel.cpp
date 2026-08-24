@@ -80,9 +80,8 @@ void Sentinel::Supervise(uint32_t now_us) {
     Panic(ErrorCode::Stm32::kSentinelReinit);
   }
 
-  // TODO(fc): detect the RC-loss, battery and GPS conditions here and publish
-  // them through SetFailsafeFlags. Roadmap #15 owns which conditions count and
-  // what each one does.
+  // TODO(#15): detect the RC-loss, battery and GPS conditions here and publish
+  // them through SetFailsafeFlags.
 
   // Above the branch below: a throttle set on the bench survives the exit to
   // Idle, and the exit that matters is an arm request.

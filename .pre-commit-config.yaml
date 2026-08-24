@@ -47,6 +47,16 @@ repos:
         language: system
         files: '\.(c|h|cpp|hpp)$'
 
+      # Whole-tree: a marker resolves against docs/roadmap.md, so deleting a
+      # delivered item is what strands one -- in a file the commit never
+      # touched.
+      - id: check-todos
+        name: Roadmap references in TODO markers
+        entry: uv run --quiet --script scripts/lint/check_todos.py
+        language: system
+        pass_filenames: false
+        files: '\.(c|h|cpp|hpp|py|md|cmake|sh)$'
+
       - id: check-commit-msg
         name: Commit message shape
         entry: uv run --quiet --script scripts/lint/check_commit_msg.py
