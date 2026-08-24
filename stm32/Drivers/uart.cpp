@@ -320,7 +320,6 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleRxDmaError() {
   rx_dma_err_ = rx_dma_err_ + 1;
-  System::GetInstance().Led().Set(true);
 
   // RX DMA recovery: disable stream, clear flags, reload PAR/M0AR/NDTR,
   // re-enable.
@@ -377,7 +376,6 @@ template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
 void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleDmaError(
     uint32_t isr_flags) {
   tx_dma_err_ = tx_dma_err_ + 1;
-  System::GetInstance().Led().Set(true);
 
   // Retry Strategy
   if (tx_retry_count_ < 3) {

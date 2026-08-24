@@ -5,7 +5,6 @@
 
 #include "error_code.hpp"
 #include "panic.hpp"
-#include "system.hpp"
 
 template <SpiInstance Inst>
 void Spi<Inst>::Init(const SpiConfig &config) {
@@ -371,7 +370,6 @@ void Spi<Inst>::HandleDmaError()
   uint32_t high_clear_flags = 0;
 
   dma_errors_ = dma_errors_ + 1;
-  System::GetInstance().Led().Set(true);
 
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 

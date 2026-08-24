@@ -515,8 +515,9 @@ and screen, and stops being fine the moment #28 lands: an arm refused on the RC 
 bridge dead has one LED, no tone and no display, which is the silent refusal #28 names as its
 own failure mode.
 
-Worth deciding what the LED *means* before adding patterns to it — page identity, link
-liveness, or fault — because it currently attempts all three with no priority between them.
+Worth deciding what the LED *means* before adding patterns to it — page identity or link
+liveness on the ESP32, armed on the STM32 — because it attempts all three with no priority
+between them.
 
 ### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
