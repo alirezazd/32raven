@@ -274,7 +274,6 @@ void Icm42688p::OnIrq() {
                         &Icm42688p::SpiDoneThunk)) {
     CsHigh();
     inflight_.store(false, std::memory_order_release);
-    dma_start_fail_cnt_.fetch_add(1, std::memory_order_relaxed);
   }
 }
 
@@ -293,7 +292,6 @@ void Icm42688p::OnSpiDone(bool ok) {
   };
 
   if (!ok) {
-    spi_error_cnt_.fetch_add(1, std::memory_order_relaxed);
     FlushAndResync();
     finish();
     return;
@@ -594,17 +592,15 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
   // Summed rather than counted separately: a fifth counter read before these
   // four can report a total smaller than the parts printed beside it.
   const uint32_t overruns = overrun_cnt_.load(std::memory_order_relaxed);
-  const uint32_t dma_start_fails =
-      dma_start_fail_cnt_.load(std::memory_order_relaxed);
-  const uint32_t spi_errors = spi_error_cnt_.load(std::memory_order_relaxed);
+  const Spi2::Faults bus = Spi2::GetInstance().GetFaults();
+  const uint32_t dma_start_fails = bus.start_refused;
+  const uint32_t spi_errors = bus.dma_errors;
   const uint32_t parse_fails = parse_fail_cnt_.load(std::memory_order_relaxed);
   blackboard_->UpdateImuHealth(ImuHealth{
       .timestamp_us = now_us,
       .publish_count = publish_cnt_.load(std::memory_order_relaxed),
       .path_faults = overruns + dma_start_fails + spi_errors + parse_fails,
       .overruns = overruns,
-      .dma_start_fails = dma_start_fails,
-      .spi_errors = spi_errors,
       .parse_fails = parse_fails,
       .invalid_samples = invalid_sample_cnt_.load(std::memory_order_relaxed),
       .dropped_records = dropped_records_.load(std::memory_order_relaxed),

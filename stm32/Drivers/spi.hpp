@@ -52,6 +52,19 @@ class Spi {
 
   bool IsInitialized() const { return initialized_; }
 
+  // Since-boot bus faults. Counted here rather than by the device, because
+  // both are the bus's own events -- a refused start is this bus busy, and a
+  // transfer error is this bus's DMA. The device reads them back for its own
+  // path summary, so there is one count with two readers.
+  struct Faults {
+    uint32_t start_refused = 0;
+    uint32_t dma_errors = 0;
+  };
+
+  Faults GetFaults() const {
+    return Faults{.start_refused = start_refused_, .dma_errors = dma_errors_};
+  }
+
   bool Busy() const
     requires(Inst == SpiInstance::kSpi2);
 
@@ -90,6 +103,9 @@ class Spi {
 
   bool initialized_ = false;
   volatile bool busy_ = false;
+  // Both are incremented from ISR context or against an in-flight transfer.
+  volatile uint32_t start_refused_ = 0;
+  volatile uint32_t dma_errors_ = 0;
   const uint8_t *tx_ = nullptr;
   uint8_t *rx_ = nullptr;
   uint16_t len_ = 0;

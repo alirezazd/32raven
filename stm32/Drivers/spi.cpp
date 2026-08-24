@@ -198,6 +198,7 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
   requires(Inst == SpiInstance::kSpi2)
 {
   if (busy_ || len == 0 || len > 0xFFFF) {
+    start_refused_ = start_refused_ + 1;
     return false;
   }
   busy_ = true;
@@ -369,6 +370,7 @@ void Spi<Inst>::HandleDmaError()
   uint32_t low_clear_flags = 0;
   uint32_t high_clear_flags = 0;
 
+  dma_errors_ = dma_errors_ + 1;
   System::GetInstance().Led().Set(true);
 
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);

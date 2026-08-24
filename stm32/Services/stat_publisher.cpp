@@ -174,7 +174,7 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   if (gps.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagGps;
     if ((now_us - gps.timestamp_us) <= kGpsFreshTimeoutUs &&
-        gps.fix_type >= 2u) {
+        gps.fix_type >= 2u && gps_link_.healthy) {
       sensors_health |= message::kSystemSensorFlagGps;
     }
   }
@@ -188,7 +188,7 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
 
   if (rc.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagRcReceiver;
-    if ((now_us - rc.timestamp_us) <= kRcFreshTimeoutUs) {
+    if ((now_us - rc.timestamp_us) <= kRcFreshTimeoutUs && crsf_link_.healthy) {
       sensors_health |= message::kSystemSensorFlagRcReceiver;
     }
   }
@@ -493,6 +493,7 @@ void StatPublisher::Init(const Config &cfg, SharedState &blackboard,
   blackboard_ = &blackboard;
   fclink_svc_ = &fclink;
   crsf_svc_ = &crsf;
+  last_link_window_us_ = now_us;
   fclink_.scheduler.Init(kFcLinkTopicConfigs, fclink_.states, kFcLinkStaggerUs,
                          now_us);
   crsf_.scheduler.Init(kCrsfTopicConfigs, crsf_.states, kCrsfStaggerUs, now_us);
@@ -524,10 +525,29 @@ void StatPublisher::PollGroup(Group<N> &group,
   }
 }
 
+void StatPublisher::UpdateLinkHealth(uint32_t now_us) {
+  if ((now_us - last_link_window_us_) < kLinkErrorWindowUs) {
+    return;
+  }
+  last_link_window_us_ = now_us;
+
+  const SystemHealth &health = blackboard_->GetSystemHealth();
+
+  const uint32_t gps_total = health.gps_uart.Total();
+  gps_link_.healthy = gps_total == gps_link_.last_total;
+  gps_link_.last_total = gps_total;
+
+  const uint32_t crsf_total = health.rc_uart.Total();
+  crsf_link_.healthy = crsf_total == crsf_link_.last_total;
+  crsf_link_.last_total = crsf_total;
+}
+
 void StatPublisher::Poll(uint32_t now_us) {
   if (!initialized_) {
     return;
   }
+
+  UpdateLinkHealth(now_us);
 
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {
       PublishSystemStatus, PublishVehicleStatus, PublishEscTelemetry,

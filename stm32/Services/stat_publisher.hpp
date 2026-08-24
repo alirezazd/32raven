@@ -62,6 +62,21 @@ class StatPublisher {
   void Init(const Config &cfg, SharedState &blackboard,
             FcLink &fclink, CrsfLinkService &crsf, uint32_t now_us);
 
+  // Transport faults belong to the link that owns the UART, so each folds into
+  // that sensor's health bit rather than getting a field of its own. FcLink's
+  // own UART is absent on purpose: a report about FcLink's transport only
+  // arrives over FcLink when it was not needed.
+  struct LinkHealth {
+    uint32_t last_total = 0;
+    bool healthy = true;
+  };
+
+  // Long enough that a single retried DMA error does not hold a link unhealthy
+  // across a whole GCS refresh, short enough to still catch a repeating fault.
+  static constexpr uint32_t kLinkErrorWindowUs = 1000000u;
+
+  void UpdateLinkHealth(uint32_t now_us);
+
   // The .cpp's config array is built in this order and indexed by it.
   enum class FcLinkTopic : uint8_t {
     kSystemStatus,
@@ -148,6 +163,9 @@ class StatPublisher {
   SharedState *blackboard_ = nullptr;
   FcLink *fclink_svc_ = nullptr;
   CrsfLinkService *crsf_svc_ = nullptr;
+  uint32_t last_link_window_us_ = 0;
+  LinkHealth gps_link_{};
+  LinkHealth crsf_link_{};
   Group<kFcLinkTopicCount> fclink_{};  // -> UART1, the ESP32
   Group<kCrsfTopicCount> crsf_{};      // -> UART6, the receiver
   bool initialized_ = false;

@@ -222,14 +222,12 @@ class Icm42688p {
   // Consumed by OnSpiDone, which is where the bus is free again.
   std::atomic<bool> resync_pending_{false};
   std::atomic<uint32_t> overrun_cnt_{0};
-  std::atomic<uint32_t> spi_error_cnt_{0};
   // Records the chip held that a flush threw away, read from FIFO_COUNT at the
   // moment of the flush rather than assumed from the watermark.
   std::atomic<uint32_t> dropped_records_{0};
   std::atomic<uint32_t> publish_cnt_{0};
   std::atomic<uint32_t> parse_fail_cnt_{0};
   std::atomic<uint32_t> invalid_sample_cnt_{0};
-  std::atomic<uint32_t> dma_start_fail_cnt_{0};
   std::atomic<uint32_t> last_bad_header_{0};
   // Accumulated from 32-bit deltas, exactly as tmst64_us_ is built from the
   // sensor's 16-bit ticks. A single widened read would carry TIM2's

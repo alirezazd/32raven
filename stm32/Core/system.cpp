@@ -98,6 +98,7 @@ void System::Init() {
   }
   initialized_ = true;
 
+  reset_cause_ = ConsumeResetCause();
   CoreInit();
   NVIC_SetPriority(PendSV_IRQn, irq_priority::kPendSv);
 
@@ -110,7 +111,30 @@ void System::Init() {
   Wdg().Init();
 }
 
+// The one place that already knows which UART serves which peer, so the
+// mapping stays here rather than in every consumer of the record.
+void System::PublishSystemHealth(uint32_t now_us) {
+  const auto to_faults = [](const auto &uart) {
+    const auto f = uart.GetFaults();
+    return UartFaults{.tx_drops = f.tx_drops,
+                      .tx_dma_errors = f.tx_dma_errors,
+                      .rx_dma_errors = f.rx_dma_errors};
+  };
+
+  const Spi2::Faults spi = Spi2::GetInstance().GetFaults();
+
+  blackboard_.UpdateSystemHealth(SystemHealth{
+      .timestamp_us = now_us,
+      .fc_uart = to_faults(FcUart()),
+      .gps_uart = to_faults(GpsUart()),
+      .rc_uart = to_faults(RcUart()),
+      .imu_spi = {.start_refused = spi.start_refused,
+                  .dma_errors = spi.dma_errors},
+  });
+}
+
 void System::Poll(uint32_t now_us) {
+  PublishSystemHealth(now_us);
   SentinelSvc().Supervise(now_us);
   Batt().Poll(now_us);
   StatPubSvc().Poll(now_us);
@@ -131,6 +155,22 @@ void System::ResumeFlightComponents() {
   GpsUart().ResumeRx();
   RcUart().ResumeRx();
   Imu().ResumeSampling();
+}
+
+// Most-specific first: a watchdog reset also asserts the pin flag on this part,
+// so testing the pin earlier would hide every interesting case.
+ResetCause System::ConsumeResetCause() {
+  const uint32_t csr = RCC->CSR;
+  RCC->CSR |= RCC_CSR_RMVF;
+
+  if ((csr & RCC_CSR_LPWRRSTF) != 0u) return ResetCause::kLowPower;
+  if ((csr & RCC_CSR_WWDGRSTF) != 0u) return ResetCause::kWindowWatchdog;
+  if ((csr & RCC_CSR_IWDGRSTF) != 0u) return ResetCause::kIndependentWatchdog;
+  if ((csr & RCC_CSR_SFTRSTF) != 0u) return ResetCause::kSoftware;
+  if ((csr & RCC_CSR_BORRSTF) != 0u) return ResetCause::kBrownout;
+  if ((csr & RCC_CSR_PORRSTF) != 0u) return ResetCause::kPowerOn;
+  if ((csr & RCC_CSR_PINRSTF) != 0u) return ResetCause::kPin;
+  return ResetCause::kUnknown;
 }
 
 void System::CoreInit() {

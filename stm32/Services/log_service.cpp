@@ -718,8 +718,11 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         rec.publish_count = imu.publish_count;
         rec.path_faults = imu.path_faults;
         rec.overruns = imu.overruns;
-        rec.dma_start_fails = imu.dma_start_fails;
-        rec.spi_errors = imu.spi_errors;
+        // From the bus, which owns them: path_faults above folds them into its
+        // total, but the split belongs to SPI2 rather than to the IMU.
+        const SpiFaults &spi = blackboard_->GetSystemHealth().imu_spi;
+        rec.dma_start_fails = spi.start_refused;
+        rec.spi_errors = spi.dma_errors;
         rec.parse_fails = imu.parse_fails;
         rec.dropped_records = imu.dropped_records;
         rec.missed_samples = imu.missed_samples;

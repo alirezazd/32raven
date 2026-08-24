@@ -33,6 +33,21 @@
 #include "uart.hpp"
 #include "watchdog.hpp"
 
+// Why the board last came up. RCC->CSR accumulates these until RMVF is
+// written, so the register is read and cleared exactly once at boot -- miss
+// that and the answer is gone. Values are ours rather than the register's bit
+// positions, since they are meant to be decoded off-board eventually.
+enum class ResetCause : uint8_t {
+  kUnknown = 0,
+  kPowerOn,
+  kBrownout,
+  kPin,
+  kSoftware,
+  kIndependentWatchdog,
+  kWindowWatchdog,
+  kLowPower,
+};
+
 class System {
  public:
   static System &GetInstance();
@@ -113,6 +128,9 @@ class System {
   Sentinel &SentinelSvc() { return sentinel_; }
 
   SharedState &Blackboard() { return blackboard_; }
+  // Latched at boot and constant after, so it is read where it is reported
+  // rather than republished with the changing state.
+  ResetCause GetResetCause() const { return reset_cause_; }
   FcLink &FcLinkSvc() { return FcLink::GetInstance(); }
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
   StatPublisher &StatPubSvc() { return StatPublisher::GetInstance(); }
@@ -120,7 +138,10 @@ class System {
  private:
   void InitComponent(Component c);
   static void CoreInit();  // flash cache + NVIC priority grouping
+  static ResetCause ConsumeResetCause();
+  void PublishSystemHealth(uint32_t now_us);
   bool initialized_ = false;
+  ResetCause reset_cause_ = ResetCause::kUnknown;
   M10Service gps_service_;
   LogService log_service_;
   MscService msc_service_;

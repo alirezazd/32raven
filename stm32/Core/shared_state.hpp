@@ -131,12 +131,11 @@ struct ImuHealth {
   uint32_t timestamp_us = 0;
   uint32_t publish_count = 0;  // bursts handed to the control loop
   // Any exit from a sample interrupt that did not publish, which is what the
-  // driver's recovery window counts. Summed from the four below, so it always
-  // agrees with them.
+  // driver's recovery window counts. Sums the two below with SPI2's own two
+  // faults, which are SystemHealth::imu_spi rather than fields here -- they
+  // belong to the bus, and only this total needs them folded in.
   uint32_t path_faults = 0;
   uint32_t overruns = 0;  // interrupt arrived with a transfer in flight
-  uint32_t dma_start_fails = 0;
-  uint32_t spi_errors = 0;
   uint32_t parse_fails = 0;
   // Records the chip filled with its no-fresh-data sentinel. Separate from
   // parse_fails because the cause is a configuration mismatch, not lost
@@ -185,6 +184,36 @@ struct RcData {
 
 // CRSF LINK_STATISTICS (0x14). Its own frame, so its own timestamp -- on the
 // channels' it could read as fresh as the sticks while being arbitrarily old.
+// The driver's Uart::Faults, restated here so the blackboard does not pull the
+// UART template into every translation unit that reads it.
+struct UartFaults {
+  uint32_t tx_drops = 0;
+  uint32_t tx_dma_errors = 0;
+  uint32_t rx_dma_errors = 0;
+
+  uint32_t Total() const { return tx_drops + tx_dma_errors + rx_dma_errors; }
+};
+
+// The driver's Spi::Faults, restated for the same reason.
+struct SpiFaults {
+  uint32_t start_refused = 0;
+  uint32_t dma_errors = 0;
+
+  uint32_t Total() const { return start_refused + dma_errors; }
+};
+
+// Transport faults, per bus. Totals since boot, so a reader takes the delta
+// over its own window -- compared against zero they latch on the first
+// transient and never clear. StatPublisher reduces them to sensor health bits;
+// the log keeps the split, which is where which fault it was actually matters.
+struct SystemHealth {
+  uint32_t timestamp_us = 0;
+  UartFaults fc_uart{};   // UART1 -- the ESP32
+  UartFaults gps_uart{};  // UART2 -- the M10
+  UartFaults rc_uart{};   // UART6 -- the CRSF receiver
+  SpiFaults imu_spi{};    // SPI2 -- the ICM42688P
+};
+
 struct CrsfLinkData {
   uint32_t timestamp_us = 0;
   uint8_t uplink_rssi_ant1_dbm = 0;
@@ -223,6 +252,7 @@ class SharedState {
   void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
   void UpdateRc(const RcData &data) { rc_ = data; }
   void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
+  void UpdateSystemHealth(const SystemHealth &data) { system_health_ = data; }
   // Written from the TIM5 interrupt. Milliseconds in one word so the store
   // cannot be observed torn, which a 64-bit microsecond count would be.
   void UpdateUptimeMs(uint32_t uptime_ms) { uptime_ms_ = uptime_ms; }
@@ -249,6 +279,7 @@ class SharedState {
   const EscTelemetryData &GetEscTelemetry() const { return esc_; }
   const RcData &GetRc() const { return rc_; }
   const CrsfLinkData &GetCrsfLink() const { return crsf_link_; }
+  const SystemHealth &GetSystemHealth() const { return system_health_; }
   // Monotonic since boot; wraps at 49.7 days rather than TIM2's 71.6 min.
   uint32_t UptimeMs() const { return uptime_ms_; }
   const ImuHealth &GetImuHealth() const { return imu_health_; }
@@ -285,6 +316,7 @@ class SharedState {
   EscTelemetryData esc_{};
   RcData rc_{};
   CrsfLinkData crsf_link_{};
+  SystemHealth system_health_{};
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
   ControlLoopLoad control_loop_load_{};
