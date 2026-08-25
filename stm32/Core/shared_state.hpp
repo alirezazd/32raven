@@ -131,8 +131,8 @@ struct ImuHealth {
   uint32_t timestamp_us = 0;
   uint32_t publish_count = 0;  // bursts handed to the control loop
   // Any exit from a sample interrupt that did not publish, which is what the
-  // driver's recovery window counts. Sums the two below with SPI2's own two
-  // faults, which are SystemHealth::imu_spi rather than fields here -- they
+  // driver's recovery window counts. Sums the two below with every fault SPI2
+  // counts, which are SystemHealth::imu_spi rather than fields here -- they
   // belong to the bus, and only this total needs them folded in.
   uint32_t path_faults = 0;
   uint32_t overruns = 0;  // interrupt arrived with a transfer in flight
@@ -145,7 +145,6 @@ struct ImuHealth {
   // Published but never claimed, because the control loop still held the
   // previous burst. In samples, so it compares directly against the ODR.
   uint32_t missed_samples = 0;
-  uint8_t last_bad_header = 0;
 };
 
 // Die temperature, ~1 Hz: a ~90 s thermal constant does not belong on the fast

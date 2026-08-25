@@ -453,7 +453,6 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket3Record(
   // Accept both normal packets (0x68) and ODR-change-tagged variants (0x6C).
   const uint8_t hdr = rec[0];
   if ((hdr & 0xF8u) != 0x68u) {
-    last_bad_header_.store(hdr, std::memory_order_relaxed);
     return std::nullopt;
   }
 
@@ -502,7 +501,6 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket4Record(
   const uint8_t hdr = rec[0];
   if ((hdr & Icm42688pReg::kFifoHeaderVariantMask) !=
       Icm42688pReg::kFifoHeaderPacket4) {
-    last_bad_header_.store(hdr, std::memory_order_relaxed);
     return std::nullopt;
   }
 
@@ -606,8 +604,6 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
       .invalid_samples = invalid_sample_cnt_.load(std::memory_order_relaxed),
       .dropped_records = dropped_records_.load(std::memory_order_relaxed),
       .missed_samples = missed_samples_.load(std::memory_order_relaxed),
-      .last_bad_header = static_cast<uint8_t>(
-          last_bad_header_.load(std::memory_order_relaxed)),
   });
 }
 

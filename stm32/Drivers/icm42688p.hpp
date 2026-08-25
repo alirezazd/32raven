@@ -228,7 +228,6 @@ class Icm42688p {
   std::atomic<uint32_t> publish_cnt_{0};
   std::atomic<uint32_t> parse_fail_cnt_{0};
   std::atomic<uint32_t> invalid_sample_cnt_{0};
-  std::atomic<uint32_t> last_bad_header_{0};
   // Accumulated from 32-bit deltas, exactly as tmst64_us_ is built from the
   // sensor's 16-bit ticks. A single widened read would carry TIM2's
   // 71.6-minute wrap into the sync servo as a 33-second backward step.
