@@ -614,13 +614,14 @@ real surgery and belongs here rather than in the driver.
 ### #21 — Know why the board restarted — 🟢 SUPPORTING
 
 `RCC->CSR` records what caused the last reset — power-on, brownout, IWDG, window watchdog,
-software, pin — and holds it until `RMVF` is written. Nothing reads it. So an in-flight
-watchdog reset is indistinguishable from a cable glitch: the FC silently restarts and the GCS
-sees the handshake replay. #20 names one concrete route to exactly that.
+software, pin. `System` reads it at boot and clears `RMVF`, but `GetResetCause()` has no
+consumer, so an in-flight watchdog reset still reaches the ground indistinguishable from a cable
+glitch: the FC silently restarts and the GCS sees the handshake replay. #20 names one concrete
+route to exactly that.
 
-Capture it at boot, clear it, and carry it in `SystemStatusMsg`. Three lines, and it turns a
-silent restart into a reported one. Worth landing alongside #20's counters, since both are
-`SystemStatusMsg` additions and one wire break costs one dual-flash.
+What remains is carrying it in `SystemStatusMsg`, which turns a silent restart into a reported
+one. Worth landing alongside #20's counters, since both are `SystemStatusMsg` additions and one
+wire break costs one dual-flash.
 
 #### A reset silently discards the gyro calibration
 
@@ -1095,7 +1096,6 @@ a stream the raw IMU pair dominates at ~328 KB/s whenever it is enabled.
 | SharedState | `flight_mode`, `IsArmed()` |
 | SharedState | `uptime_ms`, `loop_counter` |
 | `CrsfLinkData` | `active_antenna` |
-| `ImuHealth` | `last_bad_header` |
 
 **The estimate is not recorded at all.** The raw FIFO topics carry the full-rate truth, so what
 is missing is PX4's pair, through the scheduler rather than pushed: `vehicle_angular_velocity`
@@ -1177,6 +1177,13 @@ a bus and a free chip select on the STM32 -- unverified, and the answer decides 
 a wiring change or a board change -- a driver, a blackboard fact with its own timestamp, and a
 `MagCal` sibling in `SensorCalService`.
 
+Landing on SPI2 costs more than a chip select. `SystemHealth::imu_spi` is named for the single
+device on that bus, and `ImuHealth::path_faults` folds every fault SPI2 counts into the IMU's
+own total — a second tenant makes a magnetometer's timeouts read as the IMU's, in the blackbox
+and in StatPublisher's sensor health bit alike. Sharing the bus means splitting that record by
+device first, which is cheaper to decide here than to discover from a log that blames the wrong
+part.
+
 That calibration is not the gyro's shape. Hard-iron offset plus soft-iron matrix is an ellipsoid
 fit over many orientations, so it is operator-guided and takes tens of seconds. It joins as a
 tenant with its own feed and its own fit, sharing only the reporting and the one-run-at-a-time
@@ -1189,10 +1196,12 @@ There is no altitude source, which is why #15 cannot offer a rescue descent and 
 has no altitude hold. The part is chosen (Infineon DPS310, pressure plus die temperature, SPI or
 I2C) and, like #45, nothing is wired or written.
 
-Needed: bus and chip select, a driver, and a blackboard fact. Calibration is the one place it
-does *not* follow #45 -- a baro's zero is a ground reference re-established at every arm, not a
-stored constant, so it belongs with the estimator rather than in `SensorCalService`. PX4 treats
-it the same way: `baro_calibration.cpp` is an EKF-driven bias estimate, not a bench procedure.
+Needed: bus and chip select, a driver, and a blackboard fact. The bus choice carries #45's
+health-attribution consequence unchanged, and carries it twice over if both parts land on SPI2.
+Calibration is the one place it does *not* follow #45 -- a baro's zero is a ground reference
+re-established at every arm, not a stored constant, so it belongs with the estimator rather than
+in `SensorCalService`. PX4 treats it the same way: `baro_calibration.cpp` is an EKF-driven bias
+estimate, not a bench procedure.
 
 Its own temperature reading matters more than it looks: pressure output is temperature-
 compensated by coefficients read from the part at boot, so a driver that skips them reports
