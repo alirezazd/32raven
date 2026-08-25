@@ -791,7 +791,8 @@ void LogService::TryStartFlush() {
     return;
   }
   const uint32_t lba = file_start_lba_ + (flushed_bytes_ / Sdio::kBlockBytes);
-  if (!Sdio::GetInstance().StartWrite(lba, staging_[fill_index_])) {
+  if (Sdio::GetInstance().StartWrite(lba, staging_[fill_index_]) !=
+      Outcome::kOk) {
     FailSink();
     return;
   }
@@ -894,7 +895,8 @@ void LogService::StopFlight() {
           file_start_lba_ + (flushed_bytes_ / Sdio::kBlockBytes);
       if ((flushed_bytes_ + padded) <= file_capacity_bytes_ &&
           Sdio::GetInstance().WriteBlocks(
-              lba, std::span{staging_[fill_index_]}.first(padded))) {
+              lba, std::span{staging_[fill_index_]}.first(padded)) ==
+              Outcome::kOk) {
         flushed_bytes_ += static_cast<uint32_t>(tail);
       } else {
         FailSink();

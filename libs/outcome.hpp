@@ -23,6 +23,10 @@ enum class Outcome : uint8_t {
   // answering. Any work already done is a fragment, and any output buffer
   // holds only what arrived before that.
   kTimeout,
+  // It ran and it answered, but the answer failed its integrity check. Unlike
+  // kInvalid the same call may well succeed next time, so this is worth a
+  // retry and worth counting separately from one that never answered.
+  kCorrupt,
   // The request could not be formed, or the target is not open. Retrying with
   // these arguments fails the same way.
   kInvalid,

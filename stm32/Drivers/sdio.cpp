@@ -18,6 +18,10 @@ namespace {
 // main loop and keep their own timeout, so a wedged loop still returns.
 void FeedWatchdog() { Watchdog::GetInstance().Kick(); }
 
+// For the paths that only ask whether the card answered: which way it failed
+// is already in Stats by the time they see this.
+bool Ok(Outcome o) { return o == Outcome::kOk; }
+
 // 48 MHz kernel clock: /(118+2) = 400 kHz to identify, /(0+2) = 24 MHz for
 // data. HWFC_EN stays off -- the F4 flow-control erratum corrupts data; DMA
 // keeps the FIFO fed instead.
@@ -90,7 +94,7 @@ void Sdio::PowerUpBus() {
   System::GetInstance().Time().DelayMicros(1000);
 }
 
-bool Sdio::SendCommand(Cmd cmd, uint32_t arg, Resp resp) {
+Outcome Sdio::SendCommand(Cmd cmd, uint32_t arg, Resp resp) {
   uint32_t waitresp = 0;
   if (resp == Resp::kShort || resp == Resp::kShortNoCrc) {
     waitresp = SDIO_CMD_WAITRESP_0;
@@ -108,38 +112,39 @@ bool Sdio::SendCommand(Cmd cmd, uint32_t arg, Resp resp) {
     if (resp == Resp::kNone) {
       if (sta & SDIO_STA_CMDSENT) {
         SDIO->ICR = SDIO_ICR_CMDSENTC;
-        return true;
+        return Outcome::kOk;
       }
     } else {
       if (sta & SDIO_STA_CTIMEOUT) {
         SDIO->ICR = SDIO_ICR_CTIMEOUTC;
         ++stats_.cmd_timeouts;
-        return false;
+        return Outcome::kTimeout;
       }
       if (sta & SDIO_STA_CCRCFAIL) {
         SDIO->ICR = SDIO_ICR_CCRCFAILC;
         if (resp == Resp::kShortNoCrc) {
-          return true;
+          return Outcome::kOk;
         }
         ++stats_.cmd_crc_errors;
-        return false;
+        return Outcome::kCorrupt;
       }
       if (sta & SDIO_STA_CMDREND) {
         SDIO->ICR = SDIO_ICR_CMDRENDC;
-        return true;
+        return Outcome::kOk;
       }
     }
     if ((Micros() - start) > kCmdTimeoutUs) {
       ++stats_.cmd_timeouts;
-      return false;
+      return Outcome::kTimeout;
     }
   }
 }
 
-bool Sdio::SendAppCommand(Acmd cmd, uint32_t arg, Resp resp) {
-  if (!SendCommand(Cmd::kApp, static_cast<uint32_t>(rca_) << 16,
-                   Resp::kShort)) {
-    return false;
+Outcome Sdio::SendAppCommand(Acmd cmd, uint32_t arg, Resp resp) {
+  const Outcome app =
+      SendCommand(Cmd::kApp, static_cast<uint32_t>(rca_) << 16, Resp::kShort);
+  if (app != Outcome::kOk) {
+    return app;
   }
   return SendCommand(static_cast<Cmd>(std::to_underlying(cmd)), arg, resp);
 }
@@ -152,13 +157,13 @@ bool Sdio::ProbeCard() {
 
   PowerUpBus();
 
-  if (!SendCommand(Cmd::kGoIdle, 0, Resp::kNone)) {
+  if (!Ok(SendCommand(Cmd::kGoIdle, 0, Resp::kNone))) {
     return false;
   }
 
   // Only a card that answers CMD8 honours ACMD41's HCS bit; one that ignores
   // it is a V1 byte-addressed part this driver does not speak.
-  if (!SendCommand(Cmd::kSendIfCond, kIfCondCheckPattern, Resp::kShort) ||
+  if (!Ok(SendCommand(Cmd::kSendIfCond, kIfCondCheckPattern, Resp::kShort)) ||
       (SDIO->RESP1 & 0xFFFu) != kIfCondCheckPattern) {
     return false;
   }
@@ -167,8 +172,8 @@ bool Sdio::ProbeCard() {
   const uint32_t acmd41_start = Micros();
   while (true) {
     FeedWatchdog();
-    if (!SendAppCommand(Acmd::kOpCond, kOcrHcs | kOcrVoltageWindow,
-                        Resp::kShortNoCrc)) {
+    if (!Ok(SendAppCommand(Acmd::kOpCond, kOcrHcs | kOcrVoltageWindow,
+                            Resp::kShortNoCrc))) {
       return false;
     }
     ocr = SDIO->RESP1;
@@ -184,16 +189,16 @@ bool Sdio::ProbeCard() {
     return false;
   }
 
-  if (!SendCommand(Cmd::kAllSendCid, 0, Resp::kLong)) {
+  if (!Ok(SendCommand(Cmd::kAllSendCid, 0, Resp::kLong))) {
     return false;
   }
-  if (!SendCommand(Cmd::kSendRelAddr, 0, Resp::kShort)) {
+  if (!Ok(SendCommand(Cmd::kSendRelAddr, 0, Resp::kShort))) {
     return false;
   }
   rca_ = static_cast<uint16_t>(SDIO->RESP1 >> 16);
 
-  if (!SendCommand(Cmd::kSendCsd, static_cast<uint32_t>(rca_) << 16,
-                   Resp::kLong)) {
+  if (!Ok(SendCommand(Cmd::kSendCsd, static_cast<uint32_t>(rca_) << 16,
+                       Resp::kLong))) {
     return false;
   }
   // CSD v2: C_SIZE spans bits [69:48], and capacity = (C_SIZE + 1) * 512 KB.
@@ -204,11 +209,11 @@ bool Sdio::ProbeCard() {
   const uint32_t c_size = ((SDIO->RESP2 & 0x3Fu) << 16) | (SDIO->RESP3 >> 16);
   block_count_ = (c_size + 1u) * 1024u;
 
-  if (!SendCommand(Cmd::kSelect, static_cast<uint32_t>(rca_) << 16,
-                   Resp::kShort)) {
+  if (!Ok(SendCommand(Cmd::kSelect, static_cast<uint32_t>(rca_) << 16,
+                           Resp::kShort))) {
     return false;
   }
-  if (!SendAppCommand(Acmd::kSetBusWidth, 2, Resp::kShort)) {
+  if (!Ok(SendAppCommand(Acmd::kSetBusWidth, 2, Resp::kShort))) {
     return false;
   }
 
@@ -219,8 +224,8 @@ bool Sdio::ProbeCard() {
 bool Sdio::WaitCardReady(uint32_t timeout_us) {
   const uint32_t start = Micros();
   while (true) {
-    if (!SendCommand(Cmd::kSendStatus, static_cast<uint32_t>(rca_) << 16,
-                     Resp::kShort)) {
+    if (!Ok(SendCommand(Cmd::kSendStatus, static_cast<uint32_t>(rca_) << 16,
+                             Resp::kShort))) {
       return false;
     }
     const uint32_t status = SDIO->RESP1;
@@ -279,14 +284,19 @@ void Sdio::AbortTransfer() {
   write_phase_ = WritePhase::kIdle;
 }
 
-bool Sdio::ReadBlocks(uint32_t lba, std::span<uint8_t> dst) {
+Outcome Sdio::ReadBlocks(uint32_t lba, std::span<uint8_t> dst) {
+  // Split out of the guard below: a write in flight is the one refusal the
+  // caller can wait out, where the rest need the request or the card fixed.
+  if (write_phase_ != WritePhase::kIdle) {
+    return Outcome::kRejected;
+  }
   if (!initialized_ || !present_ || dst.empty() ||
-      (dst.size() % kBlockBytes) != 0u || write_phase_ != WritePhase::kIdle) {
-    return false;
+      (dst.size() % kBlockBytes) != 0u) {
+    return Outcome::kInvalid;
   }
   if (!Aligned4(dst.data())) {
     ++stats_.unaligned_refusals;
-    return false;
+    return Outcome::kInvalid;
   }
   const bool multi = dst.size() > kBlockBytes;
 
@@ -295,10 +305,12 @@ bool Sdio::ReadBlocks(uint32_t lba, std::span<uint8_t> dst) {
   // card sees it. Writes are the other way round.
   PrepareDataPath(static_cast<uint32_t>(dst.size()), Dir::kFromCard);
 
-  if (!SendCommand(multi ? Cmd::kReadMulti : Cmd::kReadSingle, lba,
-                   Resp::kShort)) {
+  const Outcome cmd =
+      SendCommand(multi ? Cmd::kReadMulti : Cmd::kReadSingle, lba,
+                  Resp::kShort);
+  if (cmd != Outcome::kOk) {
     AbortTransfer();
-    return false;
+    return cmd;
   }
 
   const uint32_t start = Micros();
@@ -306,13 +318,14 @@ bool Sdio::ReadBlocks(uint32_t lba, std::span<uint8_t> dst) {
     FeedWatchdog();
     const uint32_t sta = SDIO->STA;
     if (sta & kStaDataErrors) {
-      if (sta & SDIO_STA_DCRCFAIL) {
+      const bool crc = (sta & SDIO_STA_DCRCFAIL) != 0;
+      if (crc) {
         ++stats_.data_crc_errors;
       } else {
         ++stats_.data_timeouts;
       }
       AbortTransfer();
-      return false;
+      return crc ? Outcome::kCorrupt : Outcome::kTimeout;
     }
     if (sta & SDIO_STA_DATAEND) {
       break;
@@ -320,7 +333,7 @@ bool Sdio::ReadBlocks(uint32_t lba, std::span<uint8_t> dst) {
     if ((Micros() - start) > kTransferTimeoutUs) {
       ++stats_.data_timeouts;
       AbortTransfer();
-      return false;
+      return Outcome::kTimeout;
     }
   }
 
@@ -332,47 +345,52 @@ bool Sdio::ReadBlocks(uint32_t lba, std::span<uint8_t> dst) {
     if ((Micros() - start) > kTransferTimeoutUs) {
       ++stats_.data_timeouts;
       AbortTransfer();
-      return false;
+      return Outcome::kTimeout;
     }
   }
 
   StopDma();
   SDIO->DCTRL = 0;
-  bool ok = true;
+  Outcome stop = Outcome::kOk;
   if (multi) {
-    ok = SendCommand(Cmd::kStop, 0, Resp::kShort);
+    stop = SendCommand(Cmd::kStop, 0, Resp::kShort);
   }
   SDIO->ICR = kIcrAll;
-  return ok;
+  return stop;
 }
 
-bool Sdio::StartWrite(uint32_t lba, std::span<const uint8_t> src) {
+Outcome Sdio::StartWrite(uint32_t lba, std::span<const uint8_t> src) {
+  // As in ReadBlocks: a write already in flight is the refusal worth retrying.
+  if (write_phase_ != WritePhase::kIdle) {
+    return Outcome::kRejected;
+  }
   if (!initialized_ || !present_ || src.empty() ||
-      (src.size() % kBlockBytes) != 0u || write_phase_ != WritePhase::kIdle) {
-    return false;
+      (src.size() % kBlockBytes) != 0u) {
+    return Outcome::kInvalid;
   }
   if (!Aligned4(src.data())) {
     ++stats_.unaligned_refusals;
-    return false;
+    return Outcome::kInvalid;
   }
   if (!WaitCardReady(kCmdTimeoutUs)) {
     ++stats_.write_errors;
-    return false;
+    return Outcome::kTimeout;
   }
   const bool multi = src.size() > kBlockBytes;
 
   ConfigureDma(src.data(), Dir::kToCard);
-  if (!SendCommand(multi ? Cmd::kWriteMulti : Cmd::kWriteSingle, lba,
-                   Resp::kShort)) {
+  const Outcome cmd = SendCommand(
+      multi ? Cmd::kWriteMulti : Cmd::kWriteSingle, lba, Resp::kShort);
+  if (cmd != Outcome::kOk) {
     StopDma();
-    return false;
+    return cmd;
   }
   PrepareDataPath(static_cast<uint32_t>(src.size()), Dir::kToCard);
 
   write_multi_ = multi;
   write_deadline_us_ = Micros() + kTransferTimeoutUs;
   write_phase_ = WritePhase::kData;
-  return true;
+  return Outcome::kOk;
 }
 
 Sdio::WriteStatus Sdio::PollWrite() {
@@ -397,7 +415,7 @@ Sdio::WriteStatus Sdio::PollWrite() {
         SDIO->DCTRL = 0;
         bool ok = true;
         if (write_multi_) {
-          ok = SendCommand(Cmd::kStop, 0, Resp::kShort);
+          ok = Ok(SendCommand(Cmd::kStop, 0, Resp::kShort));
         }
         SDIO->ICR = kIcrAll;
         if (!ok) {
@@ -419,8 +437,8 @@ Sdio::WriteStatus Sdio::PollWrite() {
     }
 
     case WritePhase::kProgramming: {
-      if (!SendCommand(Cmd::kSendStatus, static_cast<uint32_t>(rca_) << 16,
-                       Resp::kShort)) {
+      if (!Ok(SendCommand(Cmd::kSendStatus, static_cast<uint32_t>(rca_) << 16,
+                               Resp::kShort))) {
         ++stats_.write_errors;
         write_phase_ = WritePhase::kIdle;
         return WriteStatus::kError;
@@ -442,18 +460,21 @@ Sdio::WriteStatus Sdio::PollWrite() {
   return WriteStatus::kIdle;
 }
 
-bool Sdio::WriteBlocks(uint32_t lba, std::span<const uint8_t> src) {
-  if (!StartWrite(lba, src)) {
-    return false;
+Outcome Sdio::WriteBlocks(uint32_t lba, std::span<const uint8_t> src) {
+  const Outcome start = StartWrite(lba, src);
+  if (start != Outcome::kOk) {
+    return start;
   }
   while (true) {
     FeedWatchdog();
     const WriteStatus status = PollWrite();
     if (status == WriteStatus::kDone) {
-      return true;
+      return Outcome::kOk;
     }
+    // PollWrite reports progress, not cause; Stats carries which of the data
+    // errors it counted on the way to kError.
     if (status != WriteStatus::kBusy) {
-      return false;
+      return Outcome::kTimeout;
     }
   }
 }

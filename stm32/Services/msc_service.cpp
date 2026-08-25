@@ -313,7 +313,7 @@ void MscService::PollDataIn() {
     if (blocks_this_poll == kReadBlocksPerPoll) {
       return;
     }
-    if (!(*sd_).ReadBlocks(xfer_lba_, block_)) {
+    if ((*sd_).ReadBlocks(xfer_lba_, block_) != Outcome::kOk) {
       usb_->StallBulkIn();
       sense_key_ = kSenseMediumError;
       sense_asc_ = kAscReadError;
@@ -341,7 +341,7 @@ void MscService::PollDataOut() {
     return;
   }
 
-  if (!(*sd_).WriteBlocks(xfer_lba_, block_)) {
+  if ((*sd_).WriteBlocks(xfer_lba_, block_) != Outcome::kOk) {
     sense_key_ = kSenseMediumError;
     sense_asc_ = kAscWriteError;
     discard_left_ = (xfer_blocks_left_ - 1u) * Sdio::kBlockBytes;

@@ -49,10 +49,10 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count) {
   Sdio &sd = Sdio::GetInstance();
   if (Aligned4(buff)) {
     const std::span dst{buff, count * Sdio::kBlockBytes};
-    return sd.ReadBlocks(sector, dst) ? RES_OK : RES_ERROR;
+    return sd.ReadBlocks(sector, dst) == Outcome::kOk ? RES_OK : RES_ERROR;
   }
   for (UINT i = 0; i < count; ++i) {
-    if (!sd.ReadBlocks(sector + i, g_bounce)) {
+    if (sd.ReadBlocks(sector + i, g_bounce) != Outcome::kOk) {
       return RES_ERROR;
     }
     std::memcpy(buff + (i * Sdio::kBlockBytes), g_bounce, Sdio::kBlockBytes);
@@ -67,11 +67,11 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count) {
   Sdio &sd = Sdio::GetInstance();
   if (Aligned4(buff)) {
     const std::span src{buff, count * Sdio::kBlockBytes};
-    return sd.WriteBlocks(sector, src) ? RES_OK : RES_ERROR;
+    return sd.WriteBlocks(sector, src) == Outcome::kOk ? RES_OK : RES_ERROR;
   }
   for (UINT i = 0; i < count; ++i) {
     std::memcpy(g_bounce, buff + (i * Sdio::kBlockBytes), Sdio::kBlockBytes);
-    if (!sd.WriteBlocks(sector + i, g_bounce)) {
+    if (sd.WriteBlocks(sector + i, g_bounce) != Outcome::kOk) {
       return RES_ERROR;
     }
   }

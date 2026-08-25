@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <span>
 
+#include "outcome.hpp"
+
 // SD card block device on the SDIO peripheral, 4-bit bus, DMA2 Stream 3.
 // Meaning-free: 512-byte blocks in and out, no files, no ownership policy.
 // SDHC/SDXC only -- byte-addressed V1 cards are refused at probe. A missing
@@ -35,12 +37,17 @@ class Sdio {
 
   // Blocking, bench-tier. Length must be a nonzero multiple of kBlockBytes
   // and the address 4-byte aligned (DMA moves words), else refused.
-  bool ReadBlocks(uint32_t lba, std::span<uint8_t> dst);
-  bool WriteBlocks(uint32_t lba, std::span<const uint8_t> src);
+  //
+  // kRejected is the one worth acting on: it means a write is still in flight,
+  // so the same call succeeds once PollWrite finishes. kInvalid is a caller
+  // bug or an absent card, and the rest are the card misbehaving -- Stats
+  // keeps the tally that says which, across calls.
+  [[nodiscard]] Outcome ReadBlocks(uint32_t lba, std::span<uint8_t> dst);
+  [[nodiscard]] Outcome WriteBlocks(uint32_t lba, std::span<const uint8_t> src);
 
   // Non-blocking: the buffer belongs to DMA until PollWrite reports kDone or
   // kError. Each PollWrite costs at most one command exchange (~3 us).
-  bool StartWrite(uint32_t lba, std::span<const uint8_t> src);
+  [[nodiscard]] Outcome StartWrite(uint32_t lba, std::span<const uint8_t> src);
   WriteStatus PollWrite();
 
   bool Reprobe();
@@ -80,8 +87,8 @@ class Sdio {
 
   bool ProbeCard();
   void PowerUpBus();
-  bool SendCommand(Cmd cmd, uint32_t arg, Resp resp);
-  bool SendAppCommand(Acmd cmd, uint32_t arg, Resp resp);
+  Outcome SendCommand(Cmd cmd, uint32_t arg, Resp resp);
+  Outcome SendAppCommand(Acmd cmd, uint32_t arg, Resp resp);
   bool WaitCardReady(uint32_t timeout_us);
   void ConfigureDma(const uint8_t *buf, Dir dir);
   void StopDma();
