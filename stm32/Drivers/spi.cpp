@@ -132,8 +132,8 @@ void Spi<Inst>::EnableIrqs(uint32_t priority)
 }
 
 template <SpiInstance Inst>
-SpiStatus Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
-  if (len == 0) return SpiStatus::kOk;
+Outcome Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
+  if (len == 0) return Outcome::kOk;
 
   SPI_TypeDef *spi = Hw();
   const uint8_t *tx_ptr = tx;
@@ -147,7 +147,7 @@ SpiStatus Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
   while (i < len) {
     if (!SpinUntil(timeouts_, kFlagTimeoutUs,
                    [spi] { return (spi->SR & SPI_SR_TXE) != 0; })) {
-      return SpiStatus::kTxeTimeout;
+      return Outcome::kTimeout;
     }
 
     // Drive 0xFF when transmit-only so the receiver sees idle MOSI.
@@ -155,7 +155,7 @@ SpiStatus Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
 
     if (!SpinUntil(timeouts_, kFlagTimeoutUs,
                    [spi] { return (spi->SR & SPI_SR_RXNE) != 0; })) {
-      return SpiStatus::kRxneTimeout;
+      return Outcome::kTimeout;
     }
 
     // Reading DR clears RXNE.
@@ -169,7 +169,7 @@ SpiStatus Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
   // Wait for BSY before the caller deasserts CS.
   if (!SpinUntil(timeouts_, kFlagTimeoutUs,
                  [spi] { return (spi->SR & SPI_SR_BSY) == 0; })) {
-    return SpiStatus::kBsyTimeout;
+    return Outcome::kTimeout;
   }
 
   if (spi->SR & SPI_SR_OVR) {
@@ -177,16 +177,16 @@ SpiStatus Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
     tmp = spi->DR;
     tmp = spi->SR;
   }
-  return SpiStatus::kOk;
+  return Outcome::kOk;
 }
 
 template <SpiInstance Inst>
-SpiStatus Spi<Inst>::WriteBytes(std::span<const uint8_t> tx) {
+Outcome Spi<Inst>::WriteBytes(std::span<const uint8_t> tx) {
   return TxRx(tx.data(), nullptr, tx.size());
 }
 
 template <SpiInstance Inst>
-SpiStatus Spi<Inst>::ReadBytes(std::span<uint8_t> rx) {
+Outcome Spi<Inst>::ReadBytes(std::span<uint8_t> rx) {
   return TxRx(nullptr, rx.data(), rx.size());
 }
 

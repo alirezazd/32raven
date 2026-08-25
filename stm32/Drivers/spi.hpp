@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <span>
 
+#include "outcome.hpp"
 #include "stm32f4xx.h"
 
 enum class SpiInstance { kSpi1, kSpi2 };
@@ -26,15 +27,6 @@ enum class SpiPolarity : uint8_t { kLow = 0, kHigh = 1 };
 enum class SpiPhase : uint8_t { k1Edge = 0, k2Edge = 1 };
 enum class SpiBitOrder : uint8_t { kMsbFirst = 0, kLsbFirst = 1 };
 
-// Which status flag stopped answering. Anything but kOk means the transfer was
-// abandoned part-way, so rx holds only the bytes that arrived before it.
-enum class SpiStatus : uint8_t {
-  kOk = 0,
-  kTxeTimeout,
-  kRxneTimeout,
-  kBsyTimeout,
-};
-
 struct SpiConfig {
   SpiPolarity polarity;
   SpiPhase phase;
@@ -53,9 +45,9 @@ class Spi {
   // Discarding is legitimate -- the bus tallies the timeout either way -- but
   // only the callsite knows whether a truncated command is survivable, so it
   // has to say so.
-  [[nodiscard]] SpiStatus TxRx(const uint8_t *tx, uint8_t *rx, size_t len);
-  [[nodiscard]] SpiStatus WriteBytes(std::span<const uint8_t> tx);
-  [[nodiscard]] SpiStatus ReadBytes(std::span<uint8_t> rx);
+  [[nodiscard]] Outcome TxRx(const uint8_t *tx, uint8_t *rx, size_t len);
+  [[nodiscard]] Outcome WriteBytes(std::span<const uint8_t> tx);
+  [[nodiscard]] Outcome ReadBytes(std::span<uint8_t> rx);
 
   void SetPrescaler(SpiPrescaler rate);
   void EnableIrqs(uint32_t priority)

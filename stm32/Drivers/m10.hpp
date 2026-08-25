@@ -4,6 +4,7 @@
 #pragma once
 #include <cstdint>
 
+#include "outcome.hpp"
 #include "uart.hpp"
 
 class M10 {
@@ -133,12 +134,13 @@ class M10 {
   void ApplyConfig(ValsetLayer layer);
 
   template <typename T>
-  void SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer);
+  [[nodiscard]] Outcome SendCfgValSetRaw(uint32_t key, T value,
+                                                ValsetLayer layer);
 
   template <typename T>
   bool SendCfgValSet(uint32_t key, T value, ValsetLayer layer);
 
-  void SendCfgValGet(uint32_t key, ValgetLayer layer);
+  [[nodiscard]] Outcome SendCfgValGet(uint32_t key, ValgetLayer layer);
 
   template <typename T>
   bool WaitForValget(uint32_t key, T expected_value);

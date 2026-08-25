@@ -481,8 +481,9 @@ bool CrsfLinkService::SendBroadcastFrame(uint8_t type, const uint8_t *payload,
   }
   frame[total_len - 1u] =
       checksum::Dvbs2(std::span{frame}.subspan(2u, (size_t)payload_len + 1u));
-  uart_->Send(frame, total_len);
-  return true;
+  // TxFree was checked against total_len above, so this cannot be refused --
+  // propagated rather than discarded so that stays true if the guard moves.
+  return uart_->Send(frame, total_len) == Outcome::kOk;
 }
 
 bool CrsfLinkService::SendDirectCommand(uint8_t destination, uint8_t command_id,
@@ -516,6 +517,7 @@ bool CrsfLinkService::SendDirectCommand(uint8_t destination, uint8_t command_id,
   frame[total_len - 1u] = checksum::Dvbs2(
       std::span{frame}.subspan(2u, (size_t)frame_payload_len + 1u));
 
-  uart_->Send(frame, total_len);
-  return true;
+  // TxFree was checked against total_len above, so this cannot be refused --
+  // propagated rather than discarded so that stays true if the guard moves.
+  return uart_->Send(frame, total_len) == Outcome::kOk;
 }

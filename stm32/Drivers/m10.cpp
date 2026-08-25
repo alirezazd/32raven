@@ -107,7 +107,10 @@ void M10::WaitForReady() {
   while ((uint32_t)(time.Micros() - start) < MillisToMicros(1000)) {
     uart.FlushRx();
 
-    SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, ValsetLayer::kRam);
+    // Discarded alone among these: this loop already retries for a second,
+    // and a refusal here means the ring has not drained yet, which the next
+    // pass gives it 50 ms to do.
+    (void)SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, ValsetLayer::kRam);
     if (WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       return;
     }
@@ -124,12 +127,12 @@ template bool M10::SendCfgValSet<uint16_t>(uint32_t, uint16_t,
 template bool M10::SendCfgValSet<uint32_t>(uint32_t, uint32_t,
                                            M10::ValsetLayer);
 
-template void M10::SendCfgValSetRaw<uint8_t>(uint32_t, uint8_t,
-                                             M10::ValsetLayer);
-template void M10::SendCfgValSetRaw<uint16_t>(uint32_t, uint16_t,
-                                              M10::ValsetLayer);
-template void M10::SendCfgValSetRaw<uint32_t>(uint32_t, uint32_t,
-                                              M10::ValsetLayer);
+template Outcome M10::SendCfgValSetRaw<uint8_t>(uint32_t, uint8_t,
+                                                M10::ValsetLayer);
+template Outcome M10::SendCfgValSetRaw<uint16_t>(uint32_t, uint16_t,
+                                                 M10::ValsetLayer);
+template Outcome M10::SendCfgValSetRaw<uint32_t>(uint32_t, uint32_t,
+                                                 M10::ValsetLayer);
 
 template bool M10::WaitForValget<uint8_t>(uint32_t, uint8_t);
 template bool M10::WaitForValget<uint16_t>(uint32_t, uint16_t);
@@ -201,7 +204,12 @@ void M10::ApplyConfig(ValsetLayer layer) {
       frame.AddU1(signal.key, signal.value);
     }
     const std::span<const uint8_t> bytes = frame.Finish();
-    (*uart_).Send(bytes.data(), bytes.size());
+    // Named apart from the ack failure below: a refused frame never left the
+    // MCU, so blaming the constellation config would send anyone reading the
+    // panic code to the wrong end of the link.
+    if ((*uart_).Send(bytes.data(), bytes.size()) != Outcome::kOk) {
+      Panic(ErrorCode::Stm32::kGpsTxRejected);
+    }
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
     }
@@ -210,7 +218,9 @@ void M10::ApplyConfig(ValsetLayer layer) {
 
     for (const auto &signal : signals) {
       (*uart_).FlushRx();
-      SendCfgValGet(signal.key, ValgetLayer::kRam);
+      if (SendCfgValGet(signal.key, ValgetLayer::kRam) != Outcome::kOk) {
+        Panic(ErrorCode::Stm32::kGpsTxRejected);
+      }
       if (!WaitForValget<uint8_t>(signal.key, signal.value)) {
         Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
       }
@@ -235,7 +245,9 @@ void M10::ApplyConfig(ValsetLayer layer) {
                 static_cast<uint8_t>(config_.tp1.align_to_tow));
     frame.AddU1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
     const std::span<const uint8_t> bytes = frame.Finish();
-    (*uart_).Send(bytes.data(), bytes.size());
+    if ((*uart_).Send(bytes.data(), bytes.size()) != Outcome::kOk) {
+      Panic(ErrorCode::Stm32::kGpsTxRejected);
+    }
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       Panic(ErrorCode::Stm32::kGpsConfigTimepulseFailed);
     }
@@ -246,7 +258,10 @@ void M10::ApplyConfig(ValsetLayer layer) {
       Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
     }
   } else {
-    SendCfgValSetRaw<uint8_t>(kKeyUart1Enabled, 0, layer);
+    if (SendCfgValSetRaw<uint8_t>(kKeyUart1Enabled, 0, layer) !=
+        Outcome::kOk) {
+      Panic(ErrorCode::Stm32::kGpsTxRejected);
+    }
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
       Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
     }
@@ -314,7 +329,8 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 }
 
 template <typename T>
-void M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
+Outcome M10::SendCfgValSetRaw(uint32_t key, T value,
+                                     ValsetLayer layer) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
@@ -346,10 +362,10 @@ void M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
   buf[packet_len - 2] = ck.ck_a;
   buf[packet_len - 1] = ck.ck_b;
 
-  (*uart_).Send(buf, packet_len);
+  return (*uart_).Send(buf, packet_len);
 }
 
-void M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
+Outcome M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
   constexpr uint8_t version = 0x00;
   constexpr uint16_t position = 0;
   constexpr uint16_t payload_len = 4 + 4;
@@ -378,7 +394,7 @@ void M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
   buf[packet_len - 2] = ck.ck_a;
   buf[packet_len - 1] = ck.ck_b;
 
-  (*uart_).Send(buf, packet_len);
+  return (*uart_).Send(buf, packet_len);
 }
 
 template <typename T>
@@ -449,10 +465,17 @@ template <typename T>
 bool M10::SendCfgValSet(uint32_t key, T value, ValsetLayer layer) {
   auto &uart = (*uart_);
 
-  SendCfgValSetRaw(key, value, layer);
+  // Folded into the bool this already returns rather than panicking here:
+  // every caller treats false as the config step not taking, which is exactly
+  // what a refused frame means.
+  if (SendCfgValSetRaw(key, value, layer) != Outcome::kOk) {
+    return false;
+  }
   if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) return false;
 
   uart.FlushRx();
-  SendCfgValGet(key, ValgetLayer::kRam);
+  if (SendCfgValGet(key, ValgetLayer::kRam) != Outcome::kOk) {
+    return false;
+  }
   return WaitForValget<T>(key, value);
 }

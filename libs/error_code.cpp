@@ -85,6 +85,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "GPS Verify ITFM Failed";
     case ErrorCode::Stm32::kGpsValsetFrameOverflow:
       return "GPS: config frame exceeded its buffer";
+    case ErrorCode::Stm32::kGpsTxRejected:
+      return "GPS: config frame refused by a full UART";
     case ErrorCode::Stm32::kImuWhoAmIFail:
       return "IMU WhoAmI Failed";
     case ErrorCode::Stm32::kImuOverrun:

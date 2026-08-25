@@ -59,6 +59,7 @@ enum class Stm32 : uint32_t {
   kGpsVerifyConstellationFailed,
   kGpsVerifyItfmFailed,
   kGpsValsetFrameOverflow,
+  kGpsTxRejected,
   // IMU
   kImuWhoAmIFail,
   kImuOverrun,

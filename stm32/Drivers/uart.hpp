@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <optional>
 
+#include "outcome.hpp"
 #include "ring_buffer.hpp"
 #include "stm32f4xx.h"
 
@@ -73,8 +74,12 @@ class Uart {
     return instance;
   }
 
-  void Send(const char *str);
-  void Send(const uint8_t *data, size_t len);
+  // All or nothing. Pushing only what fits would put a frame's opening bytes
+  // on the wire without its close, which every peer here reads as a checksum
+  // failure rather than as a gap -- and the ESP32 panics past a threshold of
+  // those. Callers streaming rather than framing can still chunk to TxFree().
+  [[nodiscard]] Outcome Send(const char *str);
+  [[nodiscard]] Outcome Send(const uint8_t *data, size_t len);
   // nullopt when the ring is empty.
   [[nodiscard]] std::optional<uint8_t> ReadByte();
   void FlushRx();

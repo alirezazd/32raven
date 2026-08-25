@@ -235,24 +235,36 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::SetBaudRate(
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const char *str) {
-  Send((const uint8_t *)str, strlen(str));
+Outcome Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(
+    const char *str) {
+  return Send((const uint8_t *)str, strlen(str));
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
           size_t RxRingSize>
-void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(const uint8_t *data,
-                                                           size_t len) {
-  for (size_t i = 0; i < len; i++) {
-    // Non-blocking: drop if full
-    if (!tx_buffer_.Push(data[i])) {
-      tx_drop_bytes_ = tx_drop_bytes_ + 1;
-    }
+Outcome Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::Send(
+    const uint8_t *data, size_t len) {
+  if (data == nullptr) {
+    return Outcome::kInvalid;
   }
+  if (len == 0) {
+    return Outcome::kOk;
+  }
+
+  // TxFree only ever grows underneath this -- the TX interrupt pops, it never
+  // pushes -- so a stale read refuses a frame that would have fit rather than
+  // admitting one that would not.
+  if (len > TxFree()) {
+    tx_drop_bytes_ = tx_drop_bytes_ + len;
+    return Outcome::kRejected;
+  }
+
+  tx_buffer_.PushBlock(data, len);
 
   if (!tx_busy_) {
     FlushTx();
   }
+  return Outcome::kOk;
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,
@@ -405,7 +417,9 @@ void Uart<Inst, TxBufferSize, RxDmaSize, RxRingSize>::HandleDmaError(
     msg[16 - i] = hex[isr_flags & 0xF];
     isr_flags >>= 4;
   }
-  Send(msg);
+  // Discarded: this runs from the DMA error ISR on a link that has just
+  // faulted, and there is nothing left to tell if telling it also fails.
+  (void)Send(msg);
 }
 
 template <UartInstance Inst, size_t TxBufferSize, size_t RxDmaSize,

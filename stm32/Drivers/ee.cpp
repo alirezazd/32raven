@@ -259,9 +259,9 @@ std::optional<EE::JedecId> EE::ReadJedecId() const {
   uint8_t tx[4] = {kCmdReadJedecId, 0xFFu, 0xFFu, 0xFFu};
   uint8_t rx[4] = {};
   CsLow();
-  const SpiStatus status = spi_->TxRx(tx, rx, sizeof(tx));
+  const Outcome status = spi_->TxRx(tx, rx, sizeof(tx));
   CsHigh();
-  if (status != SpiStatus::kOk) {
+  if (status != Outcome::kOk) {
     return std::nullopt;
   }
 
@@ -277,9 +277,9 @@ std::optional<uint8_t> EE::ReadStatus() const {
   uint8_t tx[2] = {kCmdReadStatusRegister1, 0xFFu};
   uint8_t rx[2] = {};
   CsLow();
-  const SpiStatus status = spi_->TxRx(tx, rx, sizeof(tx));
+  const Outcome status = spi_->TxRx(tx, rx, sizeof(tx));
   CsHigh();
-  if (status != SpiStatus::kOk) {
+  if (status != Outcome::kOk) {
     return std::nullopt;
   }
   return rx[1];
@@ -292,9 +292,9 @@ bool EE::WriteStatus(uint8_t status) {
 
   uint8_t cmd[2] = {kCmdWriteStatusRegister1, status};
   CsLow();
-  const SpiStatus write_status = spi_->WriteBytes(cmd);
+  const Outcome write_status = spi_->WriteBytes(cmd);
   CsHigh();
-  if (write_status != SpiStatus::kOk) {
+  if (write_status != Outcome::kOk) {
     return false;
   }
 
@@ -348,9 +348,9 @@ bool EE::WriteEnable() const {
 
   const uint8_t cmd[] = {kCmdWriteEnable};
   CsLow();
-  const SpiStatus cmd_status = spi_->WriteBytes(cmd);
+  const Outcome cmd_status = spi_->WriteBytes(cmd);
   CsHigh();
-  if (cmd_status != SpiStatus::kOk) {
+  if (cmd_status != Outcome::kOk) {
     return false;
   }
 
@@ -378,11 +378,11 @@ bool EE::ReadRaw(uint32_t address, void *dst, size_t len) const {
   // Both halves run even when the first fails: short-circuiting here would
   // change what the part sees on the wire between the good and bad paths.
   CsLow();
-  const SpiStatus cmd_status = spi_->WriteBytes(cmd);
-  const SpiStatus data_status =
+  const Outcome cmd_status = spi_->WriteBytes(cmd);
+  const Outcome data_status =
       spi_->ReadBytes(std::span{static_cast<uint8_t *>(dst), len});
   CsHigh();
-  return cmd_status == SpiStatus::kOk && data_status == SpiStatus::kOk;
+  return cmd_status == Outcome::kOk && data_status == Outcome::kOk;
 }
 
 bool EE::IsErased(uint32_t address, size_t len) const {
@@ -438,9 +438,9 @@ bool EE::EraseSector(uint32_t address) {
   };
 
   CsLow();
-  const SpiStatus cmd_status = spi_->WriteBytes(cmd);
+  const Outcome cmd_status = spi_->WriteBytes(cmd);
   CsHigh();
-  return cmd_status == SpiStatus::kOk && WaitWhileBusy();
+  return cmd_status == Outcome::kOk && WaitWhileBusy();
 }
 
 bool EE::EraseRange(uint32_t begin, uint32_t end) {
@@ -483,10 +483,10 @@ bool EE::PageProgram(uint32_t address, const uint8_t *src, size_t len) {
 
   // Both halves run even when the first fails: see ReadRaw.
   CsLow();
-  const SpiStatus cmd_status = spi_->WriteBytes(cmd);
-  const SpiStatus data_status = spi_->WriteBytes(std::span{src, len});
+  const Outcome cmd_status = spi_->WriteBytes(cmd);
+  const Outcome data_status = spi_->WriteBytes(std::span{src, len});
   CsHigh();
-  return cmd_status == SpiStatus::kOk && data_status == SpiStatus::kOk &&
+  return cmd_status == Outcome::kOk && data_status == Outcome::kOk &&
          WaitWhileBusy();
 }
 

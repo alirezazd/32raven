@@ -112,9 +112,8 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
 
   // 2. TX Flushing (RingBuffer -> UART)
   // Send in bounded chunks to keep this path deterministic, and never pop more
-  // than the UART can take: Send drops per byte, and these bytes have already
-  // left tx_rb_, so an overrun costs a frame its middle rather than costing a
-  // whole packet -- which reaches the ESP32 as a CRC failure, not a gap.
+  // than the UART can take: these bytes have already left tx_rb_, and Send is
+  // all or nothing, so a chunk it refuses is a chunk nobody still holds.
   uint8_t tx_chunk[64];
   size_t room = tx_budget < sizeof(tx_chunk) ? tx_budget : sizeof(tx_chunk);
   const size_t tx_free = uart.TxFree();
@@ -127,7 +126,8 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
     tx_chunk[n++] = tx_byte;
   }
   if (n > 0) {
-    uart.Send(tx_chunk, n);
+    // Cannot be refused: room was clamped to TxFree above.
+    (void)uart.Send(tx_chunk, n);
   }
 }
 
@@ -259,15 +259,18 @@ void FcLink::SendLog(const char *format, ...) {
       uint8_t byte = 0;
       uint8_t chunk[64];
       size_t n = 0;
+      // Unguarded and discarded, unlike Poll's drain: this is the last thing
+      // that runs, so a chunk the ring cannot take is one nobody will send
+      // later either. Whatever does fit is still worth more than stopping.
       while (tx_rb_.Pop(byte)) {
         chunk[n++] = byte;
         if (n == sizeof(chunk)) {
-          uart.Send(chunk, n);
+          (void)uart.Send(chunk, n);
           n = 0;
         }
       }
       if (n > 0) {
-        uart.Send(chunk, n);
+        (void)uart.Send(chunk, n);
       }
       // Panic masks the TX interrupt and writes the UART raw, so bytes still
       // pending here would splice mid-packet into the panic stream.
