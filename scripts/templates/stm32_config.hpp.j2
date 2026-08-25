@@ -385,7 +385,7 @@ inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
 inline constexpr LogService::Config kLogServiceConfig = {
     .prealloc_mb = {{ log_service.prealloc_mb }}u,
 {% for name in ["rc_input", "battery", "esc_telemetry", "gps", "imu_health",
-                "crsf_link", "logger_status"] %}
+                "crsf_link", "system_health", "logger_status"] %}
 {% set topic = log_service.topics[name] %}
     .{{ name }} = {
         .period = {{ topic.period_ms }}u * 1000u,

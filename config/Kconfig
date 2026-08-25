@@ -3306,6 +3306,18 @@ config STM32_LOG_TOPIC_CRSF_LINK_PERIOD_MS
       to 0 to disable. Faster than PX4's nearest equivalent on purpose: a
       dropout is sub-second, so a slower sample cannot show one.
 
+config STM32_LOG_TOPIC_SYSTEM_HEALTH_PERIOD_MS
+    int "System health period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Per-UART transport faults: bytes dropped for a full TX ring, and TX/RX
+      DMA errors, for the ESP32, GPS and receiver links. SPI2's share rides in
+      imu_health instead, with the burst path that suffers it. Set to 0 to
+      disable. These are since-boot totals, so the period bounds only how
+      precisely a reader can place a fault in time, not whether it is caught.
+      PX4: telemetry_status 1000 ms.
+
 config STM32_LOG_TOPIC_LOGGER_STATUS_PERIOD_MS
     int "Logger status period (ms)"
     range 0 60000

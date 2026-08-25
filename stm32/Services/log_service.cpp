@@ -218,16 +218,17 @@ struct __attribute__((packed)) ImuHealthRecord {
   uint32_t overruns;
   uint32_t dma_start_fails;
   uint32_t spi_errors;
+  uint32_t spi_timeouts;
   uint32_t parse_fails;
   uint32_t dropped_records;
   uint32_t missed_samples;
 };
-static_assert(sizeof(ImuHealthRecord) == 45);
+static_assert(sizeof(ImuHealthRecord) == 49);
 constexpr char kFmtImuHealth[] =
     "imu_health:uint64_t timestamp;uint32_t publish_count;"
     "uint32_t path_faults;uint32_t overruns;uint32_t dma_start_fails;"
-    "uint32_t spi_errors;uint32_t parse_fails;uint32_t dropped_records;"
-    "uint32_t missed_samples;";
+    "uint32_t spi_errors;uint32_t spi_timeouts;uint32_t parse_fails;"
+    "uint32_t dropped_records;uint32_t missed_samples;";
 
 struct __attribute__((packed)) CrsfLinkRecord {
   MsgHeader hdr;
@@ -259,6 +260,31 @@ struct __attribute__((packed)) LoggerRecord {
   uint32_t write_errors;
 };
 static_assert(sizeof(LoggerRecord) == 21);
+// The UART half of SharedState::SystemHealth. SPI2's share rides in
+// imu_health, where the burst path that suffers it already reports; these
+// three have no such owner, so they get a topic of their own.
+struct __attribute__((packed)) SystemHealthRecord {
+  MsgHeader hdr;
+  uint16_t msg_id;
+  uint64_t timestamp;
+  uint32_t fc_tx_drops;
+  uint32_t fc_tx_dma_errors;
+  uint32_t fc_rx_dma_errors;
+  uint32_t gps_tx_drops;
+  uint32_t gps_tx_dma_errors;
+  uint32_t gps_rx_dma_errors;
+  uint32_t rc_tx_drops;
+  uint32_t rc_tx_dma_errors;
+  uint32_t rc_rx_dma_errors;
+};
+static_assert(sizeof(SystemHealthRecord) == 49);
+constexpr char kFmtSystemHealth[] =
+    "system_health:uint64_t timestamp;uint32_t fc_tx_drops;"
+    "uint32_t fc_tx_dma_errors;uint32_t fc_rx_dma_errors;"
+    "uint32_t gps_tx_drops;uint32_t gps_tx_dma_errors;"
+    "uint32_t gps_rx_dma_errors;uint32_t rc_tx_drops;"
+    "uint32_t rc_tx_dma_errors;uint32_t rc_rx_dma_errors;";
+
 constexpr char kFmtLogger[] =
     "logger_status:uint64_t timestamp;uint32_t dropped_bytes;"
     "uint32_t write_errors;";
@@ -268,7 +294,8 @@ constexpr char kFmtLogger[] =
 // is in the file at all. Built rather than listed for that reason.
 template <typename T>
 constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery,
-                              T esc, T gps, T imu_health, T crsf, T logger) {
+                              T esc, T gps, T imu_health, T crsf,
+                              T system_health, T logger) {
   std::array<T, LogService::kTopicCount> out{};
   size_t at = 0;
   if constexpr (LogService::kRawImuLogEnabled) {
@@ -281,16 +308,19 @@ constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery,
   out[at++] = gps;
   out[at++] = imu_health;
   out[at++] = crsf;
+  out[at++] = system_health;
   out[at++] = logger;
   return out;
 }
 
 constexpr auto kFormats = MakeTopicTable<const char *>(
     kFmtSensorGyroFifo, kFmtSensorAccelFifo, kFmtRc, kFmtBattery,
-    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtCrsfLink, kFmtLogger);
+    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtCrsfLink,
+    kFmtSystemHealth, kFmtLogger);
 constexpr auto kTopicNames = MakeTopicTable<const char *>(
     "sensor_gyro_fifo", "sensor_accel_fifo", "rc_input", "battery",
-    "esc_telemetry", "gps", "imu_health", "crsf_link", "logger_status");
+    "esc_telemetry", "gps", "imu_health", "crsf_link", "system_health",
+    "logger_status");
 
 // Returns the index from "LOGnnnnn.ULG", or 0 for any other name.
 uint32_t LogFileIndex(const char *name) {
@@ -331,9 +361,9 @@ void LogService::Init(const Config &cfg, SharedState &blackboard,
   // subscription tables use. Drift here silently mislabels a topic.
   slow_configs_ = {
       cfg_.rc_input,   cfg_.battery,   cfg_.esc_telemetry, cfg_.gps,
-      cfg_.imu_health, cfg_.crsf_link, cfg_.logger_status,
+      cfg_.imu_health, cfg_.crsf_link, cfg_.system_health,  cfg_.logger_status,
   };
-  static_assert(kSlowTopicCount == 7,
+  static_assert(kSlowTopicCount == 8,
                 "slow_configs_ above lists one entry per scheduled topic");
   initialized_ = true;
 
@@ -643,7 +673,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
   constexpr size_t kWorstCaseBytes =
       sizeof(RcRecord) + sizeof(BatteryRecord) + sizeof(EscTelemetryRecord) +
       sizeof(GpsRecord) + sizeof(ImuHealthRecord) + sizeof(CrsfLinkRecord) +
-      sizeof(LoggerRecord);
+      sizeof(SystemHealthRecord) + sizeof(LoggerRecord);
   static_assert(kWorstCaseBytes < kStagingBytes);
   if (dma_busy_ && (kStagingBytes - fill_len_) < kWorstCaseBytes) {
     return;
@@ -723,6 +753,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         const SpiFaults &spi = blackboard_->GetSystemHealth().imu_spi;
         rec.dma_start_fails = spi.start_refused;
         rec.spi_errors = spi.dma_errors;
+        rec.spi_timeouts = spi.timeouts;
         rec.parse_fails = imu.parse_fails;
         rec.dropped_records = imu.dropped_records;
         rec.missed_samples = imu.missed_samples;
@@ -742,6 +773,22 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         rec.downlink_rssi_dbm = link.downlink_rssi_dbm;
         rec.downlink_link_quality = link.downlink_link_quality;
         rec.downlink_snr_db = link.downlink_snr_db;
+        AppendToStaging(&rec, sizeof(rec));
+        break;
+      }
+      case kMsgSystemHealth: {
+        const SystemHealth &health = blackboard_->GetSystemHealth();
+        SystemHealthRecord rec = MakeRecord<SystemHealthRecord>(
+            kMsgSystemHealth, Stamp64(health.timestamp_us));
+        rec.fc_tx_drops = health.fc_uart.tx_drops;
+        rec.fc_tx_dma_errors = health.fc_uart.tx_dma_errors;
+        rec.fc_rx_dma_errors = health.fc_uart.rx_dma_errors;
+        rec.gps_tx_drops = health.gps_uart.tx_drops;
+        rec.gps_tx_dma_errors = health.gps_uart.tx_dma_errors;
+        rec.gps_rx_dma_errors = health.gps_uart.rx_dma_errors;
+        rec.rc_tx_drops = health.rc_uart.tx_drops;
+        rec.rc_tx_dma_errors = health.rc_uart.tx_dma_errors;
+        rec.rc_rx_dma_errors = health.rc_uart.rx_dma_errors;
         AppendToStaging(&rec, sizeof(rec));
         break;
       }

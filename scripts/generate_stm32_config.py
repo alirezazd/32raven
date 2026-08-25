@@ -1655,6 +1655,7 @@ LOG_TOPICS = (
     "gps",
     "imu_health",
     "crsf_link",
+    "system_health",
     "logger_status",
 )
 
