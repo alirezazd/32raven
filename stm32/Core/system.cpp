@@ -129,7 +129,8 @@ void System::PublishSystemHealth(uint32_t now_us) {
       .gps_uart = to_faults(GpsUart()),
       .rc_uart = to_faults(RcUart()),
       .imu_spi = {.start_refused = spi.start_refused,
-                  .dma_errors = spi.dma_errors},
+                  .dma_errors = spi.dma_errors,
+                  .timeouts = spi.timeouts},
   });
 }
 

@@ -198,8 +198,9 @@ struct UartFaults {
 struct SpiFaults {
   uint32_t start_refused = 0;
   uint32_t dma_errors = 0;
+  uint32_t timeouts = 0;
 
-  uint32_t Total() const { return start_refused + dma_errors; }
+  uint32_t Total() const { return start_refused + dma_errors + timeouts; }
 };
 
 // Transport faults, per bus. Totals since boot, so a reader takes the delta

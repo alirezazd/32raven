@@ -5,6 +5,54 @@
 
 #include "error_code.hpp"
 #include "panic.hpp"
+#include "system.hpp"
+
+namespace {
+
+// Every wait here is one byte time or less -- 0.4 us on both buses at their
+// 21 MHz -- so either deadline is only ever reached by a part that has stopped
+// answering. They differ by who is waiting.
+
+// The byte-banged transfers, all from the main loop: the EEPROM's, and the
+// ICM's register access before DMA takes over. Three orders under the watchdog
+// window that the EEPROM's boot transfers run before arming.
+constexpr uint32_t kFlagTimeoutUs = 1000;
+
+// The DMA paths, all from an ISR -- the ICM's watermark EXTI starts a burst
+// and the DMA interrupts end it. A stall blocks the interrupt for this long,
+// so it buys margin over a byte time and nothing more: a tenth of a control
+// tick, where a millisecond would cost two.
+constexpr uint32_t kIsrFlagTimeoutUs = 50;
+
+// Counts on the way out so a caller that discards the result still leaves the
+// fault behind in the bus's own tally.
+//
+// The timer is resolved once rather than per iteration: reaching it through
+// the singleton costs a re-test of the static's init guard, and this loop is
+// tight enough that the guard would outweigh the read it protects.
+template <typename Pred>
+bool SpinUntil(volatile uint32_t &timeouts, uint32_t timeout_us, Pred done) {
+  const TimeBase &time = System::GetInstance().Time();
+  const uint32_t start = time.Micros();
+  while (!done()) {
+    if ((time.Micros() - start) > timeout_us) {
+      timeouts = timeouts + 1;
+      return false;
+    }
+  }
+  return true;
+}
+
+// Every caller is an ISR, so this takes the interrupt deadline rather than
+// being handed one.
+inline void DmaDisableAndWait(volatile uint32_t &timeouts,
+                              DMA_Stream_TypeDef *s) {
+  s->CR &= ~DMA_SxCR_EN;
+  (void)SpinUntil(timeouts, kIsrFlagTimeoutUs,
+                  [s] { return (s->CR & DMA_SxCR_EN) == 0; });
+}
+
+}  // namespace
 
 template <SpiInstance Inst>
 void Spi<Inst>::Init(const SpiConfig &config) {
@@ -84,8 +132,8 @@ void Spi<Inst>::EnableIrqs(uint32_t priority)
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
-  if (len == 0) return;
+SpiStatus Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
+  if (len == 0) return SpiStatus::kOk;
 
   SPI_TypeDef *spi = Hw();
   const uint8_t *tx_ptr = tx;
@@ -97,14 +145,18 @@ void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
   }
 
   while (i < len) {
-    while (!(spi->SR & SPI_SR_TXE)) {
-    };
+    if (!SpinUntil(timeouts_, kFlagTimeoutUs,
+                   [spi] { return (spi->SR & SPI_SR_TXE) != 0; })) {
+      return SpiStatus::kTxeTimeout;
+    }
 
     // Drive 0xFF when transmit-only so the receiver sees idle MOSI.
     *reinterpret_cast<volatile uint8_t *>(&spi->DR) = tx_ptr ? *tx_ptr++ : 0xFF;
 
-    while (!(spi->SR & SPI_SR_RXNE)) {
-    };
+    if (!SpinUntil(timeouts_, kFlagTimeoutUs,
+                   [spi] { return (spi->SR & SPI_SR_RXNE) != 0; })) {
+      return SpiStatus::kRxneTimeout;
+    }
 
     // Reading DR clears RXNE.
     uint8_t d = *reinterpret_cast<volatile uint8_t *>(&spi->DR);
@@ -115,7 +167,9 @@ void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
   }
 
   // Wait for BSY before the caller deasserts CS.
-  while (spi->SR & SPI_SR_BSY) {
+  if (!SpinUntil(timeouts_, kFlagTimeoutUs,
+                 [spi] { return (spi->SR & SPI_SR_BSY) == 0; })) {
+    return SpiStatus::kBsyTimeout;
   }
 
   if (spi->SR & SPI_SR_OVR) {
@@ -123,23 +177,17 @@ void Spi<Inst>::TxRx(const uint8_t *tx, uint8_t *rx, size_t len) {
     tmp = spi->DR;
     tmp = spi->SR;
   }
+  return SpiStatus::kOk;
 }
 
 template <SpiInstance Inst>
-uint8_t Spi<Inst>::TxRxByte(uint8_t tx) {
-  uint8_t rx = 0;
-  TxRx(&tx, &rx, 1);
-  return rx;
+SpiStatus Spi<Inst>::WriteBytes(std::span<const uint8_t> tx) {
+  return TxRx(tx.data(), nullptr, tx.size());
 }
 
 template <SpiInstance Inst>
-void Spi<Inst>::WriteBytes(std::span<const uint8_t> tx) {
-  TxRx(tx.data(), nullptr, tx.size());
-}
-
-template <SpiInstance Inst>
-void Spi<Inst>::ReadBytes(std::span<uint8_t> rx) {
-  TxRx(nullptr, rx.data(), rx.size());
+SpiStatus Spi<Inst>::ReadBytes(std::span<uint8_t> rx) {
+  return TxRx(nullptr, rx.data(), rx.size());
 }
 
 template <SpiInstance Inst>
@@ -167,21 +215,16 @@ void Spi<Inst>::Enable() {
 template <SpiInstance Inst>
 void Spi<Inst>::Disable() {
   SPI_TypeDef *spi = Hw();
-  // Drain in-flight frame before clearing SPE.
-  while (spi->SR & SPI_SR_BSY) {
-  }
+  // Drain in-flight frame before clearing SPE. Giving up on a bus that never
+  // goes idle still clears SPE, which is the recovery anyway.
+  (void)SpinUntil(timeouts_, kFlagTimeoutUs,
+                  [spi] { return (spi->SR & SPI_SR_BSY) == 0; });
   spi->CR1 &= ~SPI_CR1_SPE;
 
   // Read DR then SR to clear OVR.
   volatile uint32_t tmp __attribute__((unused));
   tmp = spi->DR;
   tmp = spi->SR;
-}
-
-static inline void DmaDisableAndWait(DMA_Stream_TypeDef *s) {
-  s->CR &= ~DMA_SxCR_EN;
-  while (s->CR & DMA_SxCR_EN) {
-  }
 }
 
 template <SpiInstance Inst>
@@ -208,10 +251,21 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
 
   SPI_TypeDef *spi = Hw();
 
-  // Drain stale RX so DMA starts on a clean DR; then clear OVR.
-  while (spi->SR & SPI_SR_RXNE) {
+  // Drain stale RX so DMA starts on a clean DR; then clear OVR. Draining is
+  // the predicate's own side effect, so a DR that refills forever is what the
+  // deadline catches. SpinUntil counts that, which leaves start_refused_
+  // meaning "asked while busy" and nothing else.
+  const bool drained = SpinUntil(timeouts_, kIsrFlagTimeoutUs, [spi] {
+    if ((spi->SR & SPI_SR_RXNE) == 0) {
+      return true;
+    }
     volatile uint32_t tmp = spi->DR;
     (void)tmp;
+    return false;
+  });
+  if (!drained) {
+    busy_ = false;
+    return false;
   }
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp = spi->DR;
@@ -239,8 +293,8 @@ bool Spi<Inst>::StartTxRxDma(const uint8_t *tx, uint8_t *rx, size_t len,
                        DMA_HIFCR_CDMEIF4 | DMA_HIFCR_CFEIF4;
   }
 
-  DmaDisableAndWait(rx_stream);
-  DmaDisableAndWait(tx_stream);
+  DmaDisableAndWait(timeouts_, rx_stream);
+  DmaDisableAndWait(timeouts_, tx_stream);
 
   // Drop SPI DMA requests while reconfiguring streams.
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
@@ -333,13 +387,16 @@ void Spi<Inst>::OnRxDmaTcIrq()
   }
 
   // RX TC fires when the last byte hits memory, but SPI may still be shifting.
-  while (spi->SR & SPI_SR_BSY) {
-  }
+  // This runs in the DMA ISR, so tear the transfer down rather than hold the
+  // interrupt -- and report it, because the tail of the frame never shifted.
+  const bool shifted_out =
+      SpinUntil(timeouts_, kIsrFlagTimeoutUs,
+                [spi] { return (spi->SR & SPI_SR_BSY) == 0; });
 
   spi->CR2 &= ~(SPI_CR2_RXDMAEN | SPI_CR2_TXDMAEN);
 
-  DmaDisableAndWait(rx_stream);
-  DmaDisableAndWait(tx_stream);
+  DmaDisableAndWait(timeouts_, rx_stream);
+  DmaDisableAndWait(timeouts_, tx_stream);
 
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp = spi->DR;
@@ -353,7 +410,7 @@ void Spi<Inst>::OnRxDmaTcIrq()
   cb = cb_;
 
   if (cb) {
-    cb(true);
+    cb(shifted_out);
   }
 }
 
@@ -388,8 +445,8 @@ void Spi<Inst>::HandleDmaError()
     dma->HIFCR = high_clear_flags;
   }
 
-  DmaDisableAndWait(rx_stream);
-  DmaDisableAndWait(tx_stream);
+  DmaDisableAndWait(timeouts_, rx_stream);
+  DmaDisableAndWait(timeouts_, tx_stream);
 
   if (spi->SR & SPI_SR_OVR) {
     volatile uint32_t tmp = spi->DR;

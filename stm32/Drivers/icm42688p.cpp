@@ -589,8 +589,8 @@ void Icm42688p::PublishTemperature(uint32_t now_us) {
 // Every burst, unconditionally: `timestamp_us` is the stall window Sentinel
 // measures, and stm32_config.hpp asserts that window against this rate.
 void Icm42688p::PublishHealth(uint32_t now_us) {
-  // Summed rather than counted separately: a fifth counter read before these
-  // four can report a total smaller than the parts printed beside it.
+  // Summed rather than counted separately: a standalone total, read before
+  // the parts, can come out smaller than the parts printed beside it.
   const uint32_t overruns = overrun_cnt_.load(std::memory_order_relaxed);
   const Spi2::Faults bus = Spi2::GetInstance().GetFaults();
   const uint32_t dma_start_fails = bus.start_refused;
@@ -599,7 +599,8 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
   blackboard_->UpdateImuHealth(ImuHealth{
       .timestamp_us = now_us,
       .publish_count = publish_cnt_.load(std::memory_order_relaxed),
-      .path_faults = overruns + dma_start_fails + spi_errors + parse_fails,
+      .path_faults =
+          overruns + dma_start_fails + spi_errors + bus.timeouts + parse_fails,
       .overruns = overruns,
       .parse_fails = parse_fails,
       .invalid_samples = invalid_sample_cnt_.load(std::memory_order_relaxed),
@@ -937,7 +938,10 @@ void Icm42688p::WriteReg(Reg reg, uint8_t val) {
   auto &spi = *spi_;
   uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(reg) & 0x7F), val};
   CsLow();
-  spi.WriteBytes(tx);
+  // Discarded: register access has no failure path to thread this through,
+  // and the bus keeps the count regardless. A part dead enough to matter is
+  // rejected by CheckWhoAmI before any of these run.
+  (void)spi.WriteBytes(tx);
   CsHigh();
 }
 uint8_t Icm42688p::ReadReg(Reg reg) {
@@ -945,7 +949,8 @@ uint8_t Icm42688p::ReadReg(Reg reg) {
   uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(reg) | 0x80), 0x00};
   uint8_t rx[2] = {0, 0};
   CsLow();
-  spi.TxRx(tx, rx, 2);
+  // Discarded for the same reason as WriteReg.
+  (void)spi.TxRx(tx, rx, 2);
   CsHigh();
   return rx[1];
 }

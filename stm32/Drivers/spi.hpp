@@ -26,6 +26,15 @@ enum class SpiPolarity : uint8_t { kLow = 0, kHigh = 1 };
 enum class SpiPhase : uint8_t { k1Edge = 0, k2Edge = 1 };
 enum class SpiBitOrder : uint8_t { kMsbFirst = 0, kLsbFirst = 1 };
 
+// Which status flag stopped answering. Anything but kOk means the transfer was
+// abandoned part-way, so rx holds only the bytes that arrived before it.
+enum class SpiStatus : uint8_t {
+  kOk = 0,
+  kTxeTimeout,
+  kRxneTimeout,
+  kBsyTimeout,
+};
+
 struct SpiConfig {
   SpiPolarity polarity;
   SpiPhase phase;
@@ -41,10 +50,12 @@ class Spi {
     return instance;
   }
 
-  void TxRx(const uint8_t *tx, uint8_t *rx, size_t len);
-  uint8_t TxRxByte(uint8_t tx);
-  void WriteBytes(std::span<const uint8_t> tx);
-  void ReadBytes(std::span<uint8_t> rx);
+  // Discarding is legitimate -- the bus tallies the timeout either way -- but
+  // only the callsite knows whether a truncated command is survivable, so it
+  // has to say so.
+  [[nodiscard]] SpiStatus TxRx(const uint8_t *tx, uint8_t *rx, size_t len);
+  [[nodiscard]] SpiStatus WriteBytes(std::span<const uint8_t> tx);
+  [[nodiscard]] SpiStatus ReadBytes(std::span<uint8_t> rx);
 
   void SetPrescaler(SpiPrescaler rate);
   void EnableIrqs(uint32_t priority)
@@ -53,16 +64,20 @@ class Spi {
   bool IsInitialized() const { return initialized_; }
 
   // Since-boot bus faults. Counted here rather than by the device, because
-  // both are the bus's own events -- a refused start is this bus busy, and a
-  // transfer error is this bus's DMA. The device reads them back for its own
-  // path summary, so there is one count with two readers.
+  // each is the bus's own event -- a refused start is this bus busy, a
+  // transfer error is this bus's DMA, and a timeout is this bus's status flag
+  // never arriving. The device reads them back for its own path summary, so
+  // there is one count with two readers.
   struct Faults {
     uint32_t start_refused = 0;
     uint32_t dma_errors = 0;
+    uint32_t timeouts = 0;
   };
 
   Faults GetFaults() const {
-    return Faults{.start_refused = start_refused_, .dma_errors = dma_errors_};
+    return Faults{.start_refused = start_refused_,
+                  .dma_errors = dma_errors_,
+                  .timeouts = timeouts_};
   }
 
   bool Busy() const
@@ -103,9 +118,11 @@ class Spi {
 
   bool initialized_ = false;
   volatile bool busy_ = false;
-  // Both are incremented from ISR context or against an in-flight transfer.
+  // All three are incremented from ISR context or against an in-flight
+  // transfer.
   volatile uint32_t start_refused_ = 0;
   volatile uint32_t dma_errors_ = 0;
+  volatile uint32_t timeouts_ = 0;
   const uint8_t *tx_ = nullptr;
   uint8_t *rx_ = nullptr;
   uint16_t len_ = 0;
