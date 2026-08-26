@@ -81,7 +81,6 @@ void M10Service::ProcessByte(uint8_t byte) {
       accumulate(byte);
       ctx.payload_idx = 0;
       if (ctx.len > M10ParserContext::kMaxPayloadSize) {
-        ctx.oversize_len_count++;
         parse_ = M10Parse::kSync1;
       } else if (ctx.len == 0) {
         parse_ = M10Parse::kCkA;
@@ -123,12 +122,9 @@ void M10Service::ProcessByte(uint8_t byte) {
   }
 }
 
-// Checksum has passed; the frame is whole. Anything unrecognised still counts
-// as received -- the rate is what says the link is healthy, not the mix.
+// Checksum has passed; the frame is whole.
 void M10Service::DispatchFrame() {
   M10ParserContext &ctx = ctx_;
-  ctx.frame_ok_count++;
-
   if (ctx.cls != UBX::kClsNav) {
     return;
   }

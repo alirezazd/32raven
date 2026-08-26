@@ -114,8 +114,6 @@ struct M10ParserContext {
   bool cov_ready = false;
 
   uint32_t checksum_failures = 0;
-  uint32_t oversize_len_count = 0;
-  uint32_t frame_ok_count = 0;
 
   M10ParserContext(M10PVTData &pvt, M10DOPData &dop, M10COVData &cov,
                    bool &flag)
@@ -150,9 +148,6 @@ class M10Service {
   // blackboard, where TelemetryPublisher tells a new fix from a re-read one by
   // its stamp.
   void Poll();
-
-  uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }
-  uint32_t GetFrameOkCount() const { return ctx_.frame_ok_count; }
 
  private:
   friend class System;
