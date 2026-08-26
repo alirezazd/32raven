@@ -261,9 +261,9 @@ struct __attribute__((packed)) LoggerRecord {
   uint32_t write_errors;
 };
 static_assert(sizeof(LoggerRecord) == 21);
-// The UART half of SharedState::SystemHealth. SPI2's share rides in
-// imu_health, where the burst path that suffers it already reports; these
-// three have no such owner, so they get a topic of their own.
+// The serial links, transport and protocol both. SPI2's share rides in
+// imu_health, where the burst path that suffers it already reports; the rest
+// have no such owner, so they get a topic of their own.
 struct __attribute__((packed)) SystemHealthRecord {
   MsgHeader hdr;
   uint16_t msg_id;
@@ -282,12 +282,19 @@ struct __attribute__((packed)) SystemHealthRecord {
   uint32_t rc_tx_dma_errors;
   uint32_t rc_rx_dma_errors;
   uint32_t rc_checksum_failures;
+  // USART3, which is receive-only and never in SystemHealth: EscTelemetry
+  // drives the peripheral itself, so both halves are counted in its record.
+  uint32_t esc_rx_drop_bytes;
+  uint32_t esc_rx_dma_errors;
+  uint32_t esc_uart_errors;
+  uint32_t esc_crc_errors;
+  uint32_t esc_unassigned_frames;
   // ADC1's own, which no link above it can see: a conversion that never came
   // back leaves the battery reading simply unchanged.
   uint32_t batt_adc_timeouts;
   uint32_t batt_adc_overruns;
 };
-static_assert(sizeof(SystemHealthRecord) == 69);
+static_assert(sizeof(SystemHealthRecord) == 89);
 constexpr char kFmtSystemHealth[] =
     "system_health:uint64_t timestamp;uint32_t fc_tx_drops;"
     "uint32_t fc_tx_dma_errors;uint32_t fc_rx_dma_errors;"
@@ -295,8 +302,10 @@ constexpr char kFmtSystemHealth[] =
     "uint32_t gps_tx_dma_errors;uint32_t gps_rx_dma_errors;"
     "uint32_t gps_checksum_failures;uint32_t rc_tx_drops;"
     "uint32_t rc_tx_dma_errors;uint32_t rc_rx_dma_errors;"
-    "uint32_t rc_checksum_failures;uint32_t batt_adc_timeouts;"
-    "uint32_t batt_adc_overruns;";
+    "uint32_t rc_checksum_failures;uint32_t esc_rx_drop_bytes;"
+    "uint32_t esc_rx_dma_errors;uint32_t esc_uart_errors;"
+    "uint32_t esc_crc_errors;uint32_t esc_unassigned_frames;"
+    "uint32_t batt_adc_timeouts;uint32_t batt_adc_overruns;";
 
 constexpr char kFmtLogger[] =
     "logger_status:uint64_t timestamp;uint32_t dropped_bytes;"
@@ -806,6 +815,12 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         rec.rc_tx_dma_errors = health.rc_uart.tx_dma_errors;
         rec.rc_rx_dma_errors = health.rc_uart.rx_dma_errors;
         rec.rc_checksum_failures = blackboard_->GetCrsfLink().checksum_failures;
+        const EscTelemetryData &esc_faults = blackboard_->GetEscTelemetry();
+        rec.esc_rx_drop_bytes = esc_faults.rx_drop_bytes;
+        rec.esc_rx_dma_errors = esc_faults.rx_dma_error_count;
+        rec.esc_uart_errors = esc_faults.uart_error_count;
+        rec.esc_crc_errors = esc_faults.crc_error_count;
+        rec.esc_unassigned_frames = esc_faults.unassigned_frame_count;
         rec.batt_adc_timeouts = health.batt_adc.timeouts;
         rec.batt_adc_overruns = health.batt_adc.overruns;
         AppendToStaging(&rec, sizeof(rec));
