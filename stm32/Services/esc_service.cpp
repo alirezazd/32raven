@@ -34,16 +34,29 @@ float EscService::DshotToThrust(uint16_t value) {
                             DShotCodec::kThrottleMin);
 }
 
-bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust) {
-  return WriteMotors({ThrustToDshot(thrust[0]), ThrustToDshot(thrust[1]),
-                      ThrustToDshot(thrust[2]), ThrustToDshot(thrust[3])});
+namespace {
+
+// A frame with fewer motors than TIM1 has channels leaves the spare ones
+// configured and idle, which is what DShotCodec::kMotorStop encodes.
+DShotCodec::MotorValues ThrustToDshotValues(
+    const multirotor_mixer::MotorThrust &thrust) {
+  DShotCodec::MotorValues values{};
+  values.fill(DShotCodec::kMotorStop);
+  for (uint8_t i = 0; i < common_config::kAirframeMotorCount; ++i) {
+    values[i] = EscService::ThrustToDshot(thrust[i]);
+  }
+  return values;
 }
 
-bool EscService::WriteMotorsThrust(const std::array<float, 4> &thrust,
+}  // namespace
+
+bool EscService::WriteMotorsThrust(const multirotor_mixer::MotorThrust &thrust) {
+  return WriteMotors(ThrustToDshotValues(thrust));
+}
+
+bool EscService::WriteMotorsThrust(const multirotor_mixer::MotorThrust &thrust,
                                    uint32_t now_us) {
-  return WriteMotors({ThrustToDshot(thrust[0]), ThrustToDshot(thrust[1]),
-                      ThrustToDshot(thrust[2]), ThrustToDshot(thrust[3])},
-                     now_us);
+  return WriteMotors(ThrustToDshotValues(thrust), now_us);
 }
 
 void EscService::Init(const Config &cfg, DShotCodec &codec,

@@ -5,6 +5,40 @@ mainmenu "32Raven Configuration"
 # both firmwares, so a change here moves both sides together.
 menu "Common"
 
+choice
+    prompt "Airframe"
+    default COMMON_AIRFRAME_QUAD_X
+    help
+      The physical frame. Motor count, the mix matrix and the airframe ID
+      reported to the ground station all derive from this one answer, so the
+      two firmwares cannot describe different aircraft -- which is the point
+      of it living here rather than under STM32 with the mixer.
+
+      More than four motors is not a config change. TIM1 has four compare
+      channels and DShot drives all of them from a single burst-DMA
+      transfer, so a larger frame needs a second timer and a second stream
+      started in lockstep with the first; two bursts arriving at different
+      times reads as a yaw bias.
+
+config COMMON_AIRFRAME_QUAD_X
+    bool "Quad X"
+    help
+      Four motors on the diagonals. M1 front-right, M2 back-right, M3
+      back-left, M4 front-left, matching Betaflight's mixerQuadX numbering.
+      PX4 airframe 4001.
+
+config COMMON_AIRFRAME_QUAD_PLUS
+    bool "Quad +"
+    help
+      Four motors on the axes. M1 front, M2 right, M3 back, M4 left. Roll
+      and pitch are each produced by two motors rather than four, so per-axis
+      authority is lower than Quad X for the same headroom and the rate gains
+      do not carry over. PX4 airframe 5001.
+
+      Untested on this aircraft.
+
+endchoice
+
 menu "FcLink"
 
 choice

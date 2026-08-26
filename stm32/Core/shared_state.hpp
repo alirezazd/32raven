@@ -11,6 +11,7 @@
 
 #include "flight_mode.hpp"
 #include "message.hpp"
+#include "common_config.hpp"
 #include "stm32_limits.hpp"
 
 // POD (Plain Old Data) Sensor Packets
@@ -120,7 +121,8 @@ struct EscTelemetryData {
   // Newest frame across the motors, which is this bus's heartbeat: a peer
   // gone silent stops moving it while every other field keeps its last value.
   uint32_t timestamp_us = 0;
-  std::array<EscTelemetryMotorData, 4> motors{};
+  std::array<EscTelemetryMotorData, common_config::kAirframeMotorCount>
+      motors{};
   uint8_t valid_mask = 0;
   uint32_t frame_count = 0;
   uint32_t crc_error_count = 0;

@@ -220,7 +220,9 @@ void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
   msg.valid_mask = data.valid_mask;
   msg.timestamp_us = data.timestamp_us;
 
-  for (uint8_t i = 0; i < message::kEscTelemetryMotorCount; ++i) {
+  static_assert(common_config::kAirframeMotorCount <=
+                message::kEscTelemetryMotorCount);
+  for (uint8_t i = 0; i < common_config::kAirframeMotorCount; ++i) {
     const EscTelemetryMotorData &src = data.motors[i];
     msg.rpm[i] = src.rpm;
     msg.electrical_rpm[i] = src.electrical_rpm;

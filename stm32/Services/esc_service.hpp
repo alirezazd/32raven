@@ -5,9 +5,12 @@
 
 #include <cstdint>
 
+#include "common_config.hpp"
 #include "dshot_codec.hpp"
 #include "esc_telemetry.hpp"
+#include "multirotor_mixer.hpp"
 #include "shared_state.hpp"
+#include "stm32_limits.hpp"
 
 class EscService {
  public:
@@ -47,8 +50,10 @@ class EscService {
 
   // Overloads taking normalized thrust [0, 1] per motor — the units mixers /
   // controllers produce. Per-motor ThrustToDshot, then WriteMotors.
-  [[nodiscard]] bool WriteMotorsThrust(const std::array<float, 4> &thrust);
-  [[nodiscard]] bool WriteMotorsThrust(const std::array<float, 4> &thrust,
+  [[nodiscard]] bool WriteMotorsThrust(
+      const multirotor_mixer::MotorThrust &thrust);
+  [[nodiscard]] bool WriteMotorsThrust(
+      const multirotor_mixer::MotorThrust &thrust,
                                        uint32_t now_us);
 
   // Map normalized thrust [0, 1] → DShot wire units. 0 → kMotorStop (motor

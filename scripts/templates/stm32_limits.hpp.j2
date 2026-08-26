@@ -22,6 +22,10 @@ inline constexpr uint16_t kIcm42688pMaxWatermarkRecords = {{ max_watermark_recor
    raw IMU pair is the one topic set pushed per FIFO read instead of scheduled,
    and with it off the log carries scheduled records only. #}
 inline constexpr bool kLogRawImuEnabled = {{ log_raw_imu | cpp_bool }};
+{# TIM1's compare channels, which is the ceiling on motors DShot can drive
+   from one burst. Not a tunable and not derived from the frame -- the frame
+   is asserted against it. #}
+inline constexpr uint8_t kDshotChannelCount = {{ dshot_channel_count }};
 inline constexpr uint32_t kDshotMinPeriodTicks = {{ dshot_min_period_ticks }};
 inline constexpr uint32_t kDshotMaxPeriodTicks = {{ dshot_max_period_ticks }};
 

@@ -737,7 +737,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         // until the record carries all four (#33).
         EscTelemetryRecord rec =
             MakeRecord<EscTelemetryRecord>(kMsgEscTelemetry, now64);
-        for (int m = 0; m < 4; ++m) {
+        for (int m = 0; m < common_config::kAirframeMotorCount; ++m) {
           rec.rpm[m] = esc.motors[m].rpm;
           rec.voltage[m] = esc.motors[m].voltage;
           rec.current[m] = esc.motors[m].current.value_or(kMissingFloat);

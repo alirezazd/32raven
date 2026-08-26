@@ -6,9 +6,14 @@
 #include <array>
 #include <cstdint>
 
+#include "common_config.hpp"
+#include "stm32_limits.hpp"
+
 class DShotCodec {
  public:
-  static constexpr uint8_t kMotorCount = 4;
+  static constexpr uint8_t kMotorCount = stm32_limits::kDshotChannelCount;
+  static_assert(common_config::kAirframeMotorCount <= kMotorCount,
+                "frame has more motors than TIM1 has compare channels");
   static constexpr uint16_t kCommandMax = 47;
   static constexpr uint16_t kMotorStop = 0;
   static constexpr uint16_t kThrottleMin = 48;

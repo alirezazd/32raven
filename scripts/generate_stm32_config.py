@@ -296,6 +296,10 @@ DSHOT_TIM1_MODE_CHOICES = {
     "STM32_DSHOT_TIM1_MODE_600": "DShotMode::kDshot600",
 }
 
+# TIM1 has four capture/compare channels; DShot drives one motor per
+# channel from a single burst-DMA transfer.
+DSHOT_CHANNEL_COUNT = 4
+
 # ---- System clock choice maps --------------------------------------------
 # The Rcc enum classes are hand-written in stm32/Drivers/rcc.hpp
 # (matching the SPI / UART pattern: enum values are HAL register bits, so the
@@ -1340,6 +1344,7 @@ def _limits_context(
         "dshot_min_period_ticks": DSHOT_MIN_PERIOD_TICKS,
         "dshot_max_period_ticks": DSHOT_MAX_PERIOD_TICKS,
         "usb_cdc_string_descriptor_bytes": _usb_string_descriptor_bytes(kconf),
+        "dshot_channel_count": DSHOT_CHANNEL_COUNT,
     }
 
 

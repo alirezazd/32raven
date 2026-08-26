@@ -82,7 +82,7 @@ class DShotTim1 {
   void StartOutputsOnce();
   bool StartTransfer(const uint16_t *buf, uint32_t count_words);
 
-  static constexpr uint8_t kMotors = 4;
+  static constexpr uint8_t kMotors = stm32_limits::kDshotChannelCount;
 
   // Well under AM32's ~0.5 s silence-to-reboot, well over any real gap.
   static constexpr uint32_t kKeepAliveSilenceUs = 100000u;

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "common_config.hpp"
 #include "error_code.hpp"
 #include "esp_log.h"
 #include "mavlink.hpp"
@@ -21,10 +22,6 @@ extern "C" {
 namespace {
 
 constexpr const char *kTag = "mavlink";
-// PX4 airframe ID reported as SYS_AUTOSTART. The heartbeat hardcodes
-// MAV_TYPE_QUADROTOR, so any other value would describe an airframe the
-// same link contradicts a second later.
-constexpr uint32_t kSysAutostartQuadX = 4001;
 constexpr uint16_t kFcConfigRequestAttempts = 100;
 constexpr uint16_t kFcConfigRequestRetryPeriodMs = 50;
 
@@ -492,7 +489,8 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeFixedParam(
       encoded.value = 0.0f;
       return encoded;
     case param_detail::ParamKey::kSysAutostart:
-      encoded.value = static_cast<float>(kSysAutostartQuadX);
+      encoded.value =
+          static_cast<float>(common_config::kAirframeSysAutostart);
       return encoded;
     case param_detail::ParamKey::kRcChanCnt:
       encoded.value = static_cast<float>(message::kRcCalibrationChannelCount);

@@ -7,12 +7,14 @@
 #include <cstdint>
 #include <optional>
 
+#include "common_config.hpp"
 #include "ring_buffer.hpp"
 #include "shared_state.hpp"
+#include "stm32_limits.hpp"
 
 class EscTelemetry {
  public:
-  static constexpr uint8_t kMotorCount = 4;
+  static constexpr uint8_t kMotorCount = common_config::kAirframeMotorCount;
 
   // Fixed by the KISS protocol, not by this board. 8N1, so ten bit times per
   // byte; a timeout at or below one frame time expires mid-reply every time.

@@ -10,12 +10,16 @@
 # ]
 # ///
 
-"""Generate libs/common_config.hpp, included by both firmwares.
+"""Generate common_config.hpp, included by both firmwares.
 
-Run (normally invoked by the top-level CMake, which owns this output):
+The top-level CMake owns this output and writes it under the binary dir, not
+the source tree. Naming a path inside libs/ puts a stale copy ahead of the
+generated one on the include path, since libs/ is searched first.
+
+Run:
   uv run --quiet --script scripts/generate_common_config.py \
       --kconfig config/Kconfig --config config/32raven.config \
-      --out libs/common_config.hpp
+      --out build/Ninja/generated/common_config.hpp
 """
 
 from __future__ import annotations
@@ -56,6 +60,36 @@ FCLINK_BAUD_CHOICES = {
 }
 
 
+# Keyed on the frame, so a new one cannot arrive with half its facts. The
+# enumerator name is the geometry the mixer selects; sys_autostart is the PX4
+# airframe the ground station is told, and the two must describe one aircraft.
+AIRFRAMES = {
+    "COMMON_AIRFRAME_QUAD_X": {
+        "name": "kQuadX",
+        "motor_count": 4,
+        "sys_autostart": 4001,
+    },
+    "COMMON_AIRFRAME_QUAD_PLUS": {
+        "name": "kQuadPlus",
+        "motor_count": 4,
+        "sys_autostart": 5001,
+    },
+}
+
+
+def airframe_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    selected = choice_value(
+        kconf, {sym: sym for sym in AIRFRAMES}
+    )
+    frame = AIRFRAMES[selected]
+    return {
+        "names": [f["name"] for f in AIRFRAMES.values()],
+        "name": frame["name"],
+        "motor_count": frame["motor_count"],
+        "sys_autostart": frame["sys_autostart"],
+    }
+
+
 def fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     exchange_interval_ms = sym_int(kconf, "COMMON_FCLINK_EXCHANGE_INTERVAL_MS")
     return {
@@ -74,7 +108,10 @@ def template_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     and a second hand-built copy of this dict would go stale the next time a
     key is added here.
     """
-    return {"fclink": fclink_context(kconf)}
+    return {
+        "airframe": airframe_context(kconf),
+        "fclink": fclink_context(kconf),
+    }
 
 
 def main() -> int:

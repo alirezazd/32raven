@@ -32,13 +32,16 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
+#include <type_traits>
 
+#include "common_config.hpp"
 #include "shared_state.hpp"
 
 namespace multirotor_mixer {
 
 // Per-motor normalized thrust output, [0, 1]. Caller scales to DShot units.
-using MotorThrust = std::array<float, 4>;
+using MotorThrust = std::array<float, common_config::kAirframeMotorCount>;
 
 // Mix() output. `applied_torque` {τR,τP,τY}_eff is the body torque actually
 // projected through the mixer after saturation rescale: equals commanded in
@@ -73,7 +76,8 @@ struct Inputs {
 //   Roll +1 (right wing down): right motors (M1, M2) slow; left
 //     motors (M3, M4) speed up — left side lifts, right side dips.
 struct QuadX {
-  static constexpr float kFactors[4][3] = {
+  static constexpr uint8_t kMotors = 4;
+  static constexpr float kFactors[kMotors][3] = {
       // R    P    Y
       {-1, +1, +1},  // M1 front-right (CCW prop)
       {-1, -1, -1},  // M2 back-right  (CW  prop)
@@ -81,6 +85,32 @@ struct QuadX {
       {+1, +1, -1},  // M4 front-left  (CW  prop)
   };
 };
+
+// Quad+ mix matrix, same conventions. Motors sit on the axes rather than the
+// diagonals, so each of roll and pitch is produced by two motors instead of
+// four: the zero column entries are the two motors on the perpendicular axis,
+// which have no moment about it. Yaw still uses all four, so its authority is
+// unchanged while roll and pitch authority halves for the same headroom --
+// which is why the rate gains do not carry over from QuadX.
+struct QuadPlus {
+  static constexpr uint8_t kMotors = 4;
+  static constexpr float kFactors[kMotors][3] = {
+      // R    P    Y
+      { 0, +1, +1},  // M1 front (CCW prop)
+      {-1,  0, -1},  // M2 right (CW  prop)
+      { 0, -1, +1},  // M3 back  (CCW prop)
+      {+1,  0, -1},  // M4 left  (CW  prop)
+  };
+};
+
+// The frame Mix() allocates for. Selecting a geometry the airframe does not
+// name is what the count check below catches -- the tables are per-geometry,
+// so a frame arriving without one cannot silently reuse another's.
+using Frame = std::conditional_t<
+    common_config::kAirframe == common_config::Airframe::kQuadPlus, QuadPlus,
+    QuadX>;
+static_assert(Frame::kMotors == common_config::kAirframeMotorCount,
+              "selected airframe is not the geometry Mix() applies");
 
 // Instance member of System (not a singleton) — pure logic, no hardware.
 class Mixer {

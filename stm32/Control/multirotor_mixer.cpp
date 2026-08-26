@@ -130,9 +130,9 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   float yaw[4];
   float thrust_z[4];
   for (int i = 0; i < 4; ++i) {
-    roll[i] = QuadX::kFactors[i][0];
-    pitch[i] = QuadX::kFactors[i][1];
-    yaw[i] = QuadX::kFactors[i][2];
+    roll[i] = Frame::kFactors[i][0];
+    pitch[i] = Frame::kFactors[i][1];
+    yaw[i] = Frame::kFactors[i][2];
     thrust_z[i] = 1.0f;
   }
 
@@ -178,9 +178,9 @@ MixOutput Mixer::Mix(const Inputs &in) const {
   float p_applied = 0.0f;
   float y_applied = 0.0f;
   for (int i = 0; i < 4; ++i) {
-    r_applied += QuadX::kFactors[i][0] * out.motors[i];
-    p_applied += QuadX::kFactors[i][1] * out.motors[i];
-    y_applied += QuadX::kFactors[i][2] * out.motors[i];
+    r_applied += Frame::kFactors[i][0] * out.motors[i];
+    p_applied += Frame::kFactors[i][1] * out.motors[i];
+    y_applied += Frame::kFactors[i][2] * out.motors[i];
   }
   out.applied_torque = {r_applied * 0.25f, p_applied * 0.25f,
                         y_applied * 0.25f};

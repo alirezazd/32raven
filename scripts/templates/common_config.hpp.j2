@@ -7,6 +7,19 @@
 
 namespace common_config {
 
+{# The frame, named once for both firmwares: the STM32 picks a mix matrix
+   from it and the ESP32 reports it as SYS_AUTOSTART, so a build cannot
+   describe one aircraft to the pilot and another to the mixer. #}
+enum class Airframe : uint8_t {
+{% for name in airframe.names %}
+  {{ name }},
+{% endfor %}
+};
+
+inline constexpr Airframe kAirframe = Airframe::{{ airframe.name }};
+inline constexpr uint8_t kAirframeMotorCount = {{ airframe.motor_count }};
+inline constexpr uint32_t kAirframeSysAutostart = {{ airframe.sys_autostart }}u;
+
 inline constexpr uint32_t kFcLinkBaud = {{ fclink.baud }}u;
 
 {# ms is authored; us is derived here so the pair cannot drift apart. #}
