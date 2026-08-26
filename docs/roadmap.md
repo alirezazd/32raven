@@ -375,6 +375,18 @@ on the STM32 and Doctor takes the reporting: the fact joins the logger counters 
 already carries, and Doctor is what turns "mandatory at boot, absent now" into something a GCS
 sees rather than a tone nobody is standing next to.
 
+#### The same shape, on the other storage
+
+A failed parameter save is as silent as a failed log write, and for a simpler reason: nothing
+reads the answer. `EE::Read` and `EE::Write` return `bool`, `EeConfigStorage` propagates it, and
+`RcReceiver::SaveCalibration` returns it -- to no caller anywhere in the tree. So an RC
+calibration, an RC map or an accel calibration that did not reach the EEPROM is discovered on the
+next boot, as settings that quietly reverted.
+
+Card conditions and parameter-write conditions want the same answer, which is why they belong
+together: a `bool` at the call that suffered it is more precise than any counter, and it reaches
+nobody. Give the outcome a reader before adding any instrument beside it.
+
 #### Constraint
 
 Doctor reports to MAVLink and the logs, **not to the OLED**. The display stays a bench tool and
