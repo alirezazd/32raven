@@ -218,12 +218,10 @@ void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
   msg.rx_dma_error_count = data.rx_dma_error_count;
   msg.uart_error_count = data.uart_error_count;
   msg.valid_mask = data.valid_mask;
+  msg.timestamp_us = data.timestamp_us;
 
   for (uint8_t i = 0; i < message::kEscTelemetryMotorCount; ++i) {
     const EscTelemetryMotorData &src = data.motors[i];
-    if (src.timestamp_us > msg.timestamp_us) {
-      msg.timestamp_us = src.timestamp_us;
-    }
     msg.rpm[i] = src.rpm;
     msg.electrical_rpm[i] = src.electrical_rpm;
     msg.voltage_centivolts[i] =
