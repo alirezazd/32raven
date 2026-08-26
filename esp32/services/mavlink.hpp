@@ -89,6 +89,11 @@ class Mavlink {
     } else if constexpr (std::is_same_v<T, message::RcChannelsMsg>) {
       UpdateCache(rc_channels_, value, now_ms);
     } else if constexpr (std::is_same_v<T, message::SystemStatusMsg>) {
+      // Before the cache, which is what the comparison is against. Driven by
+      // arrival rather than by the SYS_STATUS schedule: a transition the GCS
+      // link was down for is still worth queueing, and one frame in must not
+      // become one announcement per frame out.
+      ReportSensorHealthChanges(value);
       UpdateCache(system_status_, value, now_ms);
     } else if constexpr (std::is_same_v<T, message::VehicleStatusMsg>) {
       UpdateCache(vehicle_status_, value, now_ms);
@@ -347,6 +352,12 @@ class Mavlink {
   CachedValue<message::AttitudeMsg> attitude_{};
   CachedValue<message::RcChannelsMsg> rc_channels_{};
   CachedValue<message::SystemStatusMsg> system_status_{};
+  // Edge detection for ReportSensorHealthChanges. Held apart from the cache
+  // because that one is also written by staleness, which is a change in what
+  // is known rather than in what the vehicle reported.
+  uint32_t last_sensor_health_ = 0;
+  uint32_t last_sensor_present_ = 0;
+  bool sensor_health_seen_ = false;
   CachedValue<message::VehicleStatusMsg> vehicle_status_{};
   CachedValue<message::EscTelemetryMsg> esc_telemetry_{};
 
@@ -374,6 +385,11 @@ class Mavlink {
   void QueueStatusText(const char *text, uint8_t severity = MAV_SEVERITY_INFO);
   void NotifyGcsIssue(const char *text,
                       uint8_t severity = MAV_SEVERITY_WARNING);
+  // SYS_STATUS carries health as a live bitmap, so a fault the GCS blinked
+  // past leaves no trace there. This turns each edge into a STATUSTEXT, which
+  // a ground station keeps and timestamps -- the record the bitmap cannot be
+  // without lying about what it means.
+  void ReportSensorHealthChanges(const message::SystemStatusMsg &status);
   bool SendStatusTextFrameNow(const StatusText &status,
                               bool require_link_enabled);
   std::optional<TxFrameState> StartQueuedTxWorkFrame();

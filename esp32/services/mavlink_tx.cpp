@@ -3,6 +3,7 @@
 
 #include <mavlink.h>
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -86,6 +87,21 @@ uint32_t MapSystemSensorFlagsToMavlink(uint32_t flags) {
   return mavlink_flags;
 }
 
+// Keyed on the 32Raven flags rather than MAVLink's, because the IMU occupies
+// two MAVLink bits and one fault announced twice reads as two faults.
+struct SensorLabel {
+  uint32_t flag;
+  const char *name;
+};
+
+constexpr std::array<SensorLabel, 5> kSensorLabels = {{
+    {message::kSystemSensorFlagImu, "IMU"},
+    {message::kSystemSensorFlagGps, "GPS"},
+    {message::kSystemSensorFlagBattery, "Battery"},
+    {message::kSystemSensorFlagRcReceiver, "RC receiver"},
+    {message::kSystemSensorFlagEsc, "ESC"},
+}};
+
 int8_t NormalizeBatteryRemaining(int8_t battery_remaining) {
   if (battery_remaining < 0) {
     return -1;
@@ -126,6 +142,42 @@ void Mavlink::NotifyGcsIssue(const char *text, uint8_t severity) {
 
   QueueStatusText(text, severity);
   Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+}
+
+void Mavlink::ReportSensorHealthChanges(
+    const message::SystemStatusMsg &status) {
+  const uint32_t present = status.sensor_present_flags;
+  const uint32_t health = status.sensor_health_flags & present;
+
+  // The first frame is a baseline, not five announcements: a sensor that came
+  // up unhealthy has nothing to have transitioned from.
+  if (!sensor_health_seen_) {
+    sensor_health_seen_ = true;
+    last_sensor_health_ = health;
+    last_sensor_present_ = present;
+    return;
+  }
+
+  // Only sensors present in both frames. One appearing or disappearing is a
+  // change in what exists, which sensors_present already carries.
+  const uint32_t changed =
+      (health ^ last_sensor_health_) & present & last_sensor_present_;
+  last_sensor_health_ = health;
+  last_sensor_present_ = present;
+
+  for (const SensorLabel &label : kSensorLabels) {
+    if ((changed & label.flag) == 0u) {
+      continue;
+    }
+    const bool healthy = (health & label.flag) != 0u;
+    char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
+    std::snprintf(text, sizeof(text), "%s %s", label.name,
+                  healthy ? "recovered" : "unhealthy");
+    // Queued rather than announced: the health window is a second wide with no
+    // tolerance, so a tone per edge would sound for faults the vehicle flies
+    // straight through. Severity is what a ground station filters on.
+    QueueStatusText(text, healthy ? MAV_SEVERITY_INFO : MAV_SEVERITY_WARNING);
+  }
 }
 
 void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
