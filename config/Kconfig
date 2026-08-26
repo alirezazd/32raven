@@ -1749,9 +1749,23 @@ config STM32_USB_PRODUCT
 
 endmenu
 
-menu "IMU (ICM42688P)"
-
 menu "SPI"
+
+menu "SPI1 (EEPROM flash)"
+
+config STM32_EE_SPI1_MAX_SCK_HZ
+    int "Maximum SCK frequency (Hz)"
+    range 100000 42000000
+    default 21000000
+    help
+      Fastest SCK the external flash backing EEPROM emulation is driven at.
+      The build picks the slowest SPI1 prescaler that stays at or under this
+      from the live APB2 clock, so changing the clock tree keeps the bus
+      inside the part's rating instead of silently rescaling it.
+
+endmenu
+
+menu "SPI2 (IMU)"
 
 config STM32_IMU_SPI_MAX_SCK_HZ
     int "Maximum SCK frequency (Hz)"
@@ -1763,6 +1777,328 @@ config STM32_IMU_SPI_MAX_SCK_HZ
       slowest SPI2 prescaler at or under this value from the live APB1 clock.
 
 endmenu
+
+endmenu
+
+menu "UART"
+
+# USART3 is absent on purpose: KISS ESC telemetry is 115200 8N1 and the ESC
+# cannot negotiate, so the port has nothing to configure.
+
+menu "USART1 (FcLink)"
+
+comment "Baud rate and parity live under Common -> FcLink"
+
+# No word length or stop bits: the ESP32 driver opens this port at 8N1 and
+# takes no configuration for either, so a knob could only be turned to a
+# framing the other end cannot match -- surfacing as a handshake that never
+# completes. Word length is derived from the shared parity symbol.
+
+# No direction mode: FcLink is bidirectional by definition, so half-duplex is
+# not a setting of it. No hardware flow control either -- backpressure here is
+# TelemetryPublisher deciding what to publish, and RTS/CTS would put a stall of
+# unbounded length inside a main-loop pass that is budgeted. Both are spelled
+# out in the generated header.
+
+choice
+    prompt "Oversampling"
+    default STM32_FCLINK_UART_OVERSAMPLING_16
+    help
+      USART1 oversampling mode for the STM32 side of FcLink.
+
+config STM32_FCLINK_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_FCLINK_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+endmenu
+
+menu "USART2 (M10 GPS)"
+
+config STM32_GPS_M10_UART_ENABLED
+    bool "Enable module UART1"
+    default y
+    help
+      Keep the M10 UART1 interface enabled after configuration. Disable this
+      only if you intentionally want the module to stop speaking over the
+      STM32 link after boot.
+
+choice
+    prompt "UART baud rate"
+    default STM32_GPS_M10_BAUD_115200
+    help
+      UART2 baud rate used for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_BAUD_9600
+    bool "9600"
+
+config STM32_GPS_M10_BAUD_19200
+    bool "19200"
+
+config STM32_GPS_M10_BAUD_38400
+    bool "38400"
+
+config STM32_GPS_M10_BAUD_57600
+    bool "57600"
+
+config STM32_GPS_M10_BAUD_115200
+    bool "115200"
+
+config STM32_GPS_M10_BAUD_230400
+    bool "230400"
+
+config STM32_GPS_M10_BAUD_460800
+    bool "460800"
+
+config STM32_GPS_M10_BAUD_921600
+    bool "921600"
+
+endchoice
+
+choice
+    prompt "Word length"
+    default STM32_GPS_M10_UART_WORD_LENGTH_8BITS
+    help
+      UART2 word length for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_GPS_M10_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_GPS_M10_UART_STOP_BITS_1
+    help
+      UART2 stop-bit configuration for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_GPS_M10_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_GPS_M10_UART_PARITY_NONE
+    help
+      UART2 parity mode for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_PARITY_NONE
+    bool "None"
+
+config STM32_GPS_M10_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_GPS_M10_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_GPS_M10_UART_MODE_TX_RX
+    help
+      UART2 direction mode for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_MODE_RX
+    bool "RX"
+
+config STM32_GPS_M10_UART_MODE_TX
+    bool "TX"
+
+config STM32_GPS_M10_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE
+    help
+      UART2 hardware flow control for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_GPS_M10_UART_OVERSAMPLING_16
+    help
+      UART2 oversampling mode for the STM32 to M10 GPS connection.
+
+config STM32_GPS_M10_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_GPS_M10_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+config STM32_GPS_M10_ACK_TIMEOUT_US
+    int "ACK timeout (us)"
+    range 1 10000000
+    default 100000
+    help
+      Timeout used while waiting for UBX ACK responses from the M10 module.
+
+endmenu
+
+menu "USART6 (RC Receiver)"
+
+choice
+    prompt "UART baud rate"
+    default STM32_RC_RECEIVER_UART_BAUD_420000
+    help
+      UART6 baud rate used for the STM32 to RC receiver connection.
+      Use the HappyModel EP1 CRSF default unless you have explicitly
+      reconfigured the receiver output rate.
+
+config STM32_RC_RECEIVER_UART_BAUD_115200
+    bool "115200"
+
+config STM32_RC_RECEIVER_UART_BAUD_400000
+    bool "400000"
+
+config STM32_RC_RECEIVER_UART_BAUD_416666
+    bool "416666"
+
+config STM32_RC_RECEIVER_UART_BAUD_420000
+    bool "420000"
+
+config STM32_RC_RECEIVER_UART_BAUD_460800
+    bool "460800"
+
+config STM32_RC_RECEIVER_UART_BAUD_921600
+    bool "921600"
+
+endchoice
+
+choice
+    prompt "Word length"
+    default STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS
+    help
+      UART6 word length for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS
+    bool "8 bits"
+
+config STM32_RC_RECEIVER_UART_WORD_LENGTH_9BITS
+    bool "9 bits"
+
+endchoice
+
+choice
+    prompt "Stop bits"
+    default STM32_RC_RECEIVER_UART_STOP_BITS_1
+    help
+      UART6 stop-bit configuration for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_STOP_BITS_1
+    bool "1"
+
+config STM32_RC_RECEIVER_UART_STOP_BITS_2
+    bool "2"
+
+endchoice
+
+choice
+    prompt "Parity"
+    default STM32_RC_RECEIVER_UART_PARITY_NONE
+    help
+      UART6 parity mode for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_PARITY_NONE
+    bool "None"
+
+config STM32_RC_RECEIVER_UART_PARITY_EVEN
+    bool "Even"
+
+config STM32_RC_RECEIVER_UART_PARITY_ODD
+    bool "Odd"
+
+endchoice
+
+choice
+    prompt "Mode"
+    default STM32_RC_RECEIVER_UART_MODE_TX_RX
+    help
+      UART6 direction mode for the STM32 RC receiver connection.
+      Keep TX/RX enabled so the port is ready if receiver-side telemetry
+      is added later.
+
+config STM32_RC_RECEIVER_UART_MODE_RX
+    bool "RX"
+
+config STM32_RC_RECEIVER_UART_MODE_TX
+    bool "TX"
+
+config STM32_RC_RECEIVER_UART_MODE_TX_RX
+    bool "TX/RX"
+
+endchoice
+
+choice
+    prompt "Hardware flow control"
+    default STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE
+    help
+      UART6 hardware flow control for the STM32 RC receiver connection.
+      CRSF receivers normally use no hardware flow control.
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE
+    bool "None"
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS
+    bool "RTS"
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_CTS
+    bool "CTS"
+
+config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS_CTS
+    bool "RTS/CTS"
+
+endchoice
+
+choice
+    prompt "Oversampling"
+    default STM32_RC_RECEIVER_UART_OVERSAMPLING_16
+    help
+      UART6 oversampling mode for the STM32 RC receiver connection.
+
+config STM32_RC_RECEIVER_UART_OVERSAMPLING_16
+    bool "16"
+
+config STM32_RC_RECEIVER_UART_OVERSAMPLING_8
+    bool "8"
+
+endchoice
+
+endmenu
+
+endmenu
+
+
+menu "IMU (ICM42688P)"
+
 
 menu "Clock"
 
@@ -2091,152 +2427,6 @@ endmenu
 
 menu "GPS (M10)"
 
-menu "UART"
-
-config STM32_GPS_M10_UART_ENABLED
-    bool "Enable module UART1"
-    default y
-    help
-      Keep the M10 UART1 interface enabled after configuration. Disable this
-      only if you intentionally want the module to stop speaking over the
-      STM32 link after boot.
-
-choice
-    prompt "UART baud rate"
-    default STM32_GPS_M10_BAUD_115200
-    help
-      UART2 baud rate used for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_BAUD_9600
-    bool "9600"
-
-config STM32_GPS_M10_BAUD_19200
-    bool "19200"
-
-config STM32_GPS_M10_BAUD_38400
-    bool "38400"
-
-config STM32_GPS_M10_BAUD_57600
-    bool "57600"
-
-config STM32_GPS_M10_BAUD_115200
-    bool "115200"
-
-config STM32_GPS_M10_BAUD_230400
-    bool "230400"
-
-config STM32_GPS_M10_BAUD_460800
-    bool "460800"
-
-config STM32_GPS_M10_BAUD_921600
-    bool "921600"
-
-endchoice
-
-choice
-    prompt "Word length"
-    default STM32_GPS_M10_UART_WORD_LENGTH_8BITS
-    help
-      UART2 word length for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_UART_WORD_LENGTH_8BITS
-    bool "8 bits"
-
-config STM32_GPS_M10_UART_WORD_LENGTH_9BITS
-    bool "9 bits"
-
-endchoice
-
-choice
-    prompt "Stop bits"
-    default STM32_GPS_M10_UART_STOP_BITS_1
-    help
-      UART2 stop-bit configuration for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_UART_STOP_BITS_1
-    bool "1"
-
-config STM32_GPS_M10_UART_STOP_BITS_2
-    bool "2"
-
-endchoice
-
-choice
-    prompt "Parity"
-    default STM32_GPS_M10_UART_PARITY_NONE
-    help
-      UART2 parity mode for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_UART_PARITY_NONE
-    bool "None"
-
-config STM32_GPS_M10_UART_PARITY_EVEN
-    bool "Even"
-
-config STM32_GPS_M10_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
-
-choice
-    prompt "Mode"
-    default STM32_GPS_M10_UART_MODE_TX_RX
-    help
-      UART2 direction mode for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_UART_MODE_RX
-    bool "RX"
-
-config STM32_GPS_M10_UART_MODE_TX
-    bool "TX"
-
-config STM32_GPS_M10_UART_MODE_TX_RX
-    bool "TX/RX"
-
-endchoice
-
-choice
-    prompt "Hardware flow control"
-    default STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE
-    help
-      UART2 hardware flow control for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_UART_HW_FLOW_CONTROL_NONE
-    bool "None"
-
-config STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS
-    bool "RTS"
-
-config STM32_GPS_M10_UART_HW_FLOW_CONTROL_CTS
-    bool "CTS"
-
-config STM32_GPS_M10_UART_HW_FLOW_CONTROL_RTS_CTS
-    bool "RTS/CTS"
-
-endchoice
-
-choice
-    prompt "Oversampling"
-    default STM32_GPS_M10_UART_OVERSAMPLING_16
-    help
-      UART2 oversampling mode for the STM32 to M10 GPS connection.
-
-config STM32_GPS_M10_UART_OVERSAMPLING_16
-    bool "16"
-
-config STM32_GPS_M10_UART_OVERSAMPLING_8
-    bool "8"
-
-endchoice
-
-config STM32_GPS_M10_ACK_TIMEOUT_US
-    int "ACK timeout (us)"
-    range 1 10000000
-    default 100000
-    help
-      Timeout used while waiting for UBX ACK responses from the M10 module.
-
-endmenu
 
 menu "Protocols"
 
@@ -2582,20 +2772,6 @@ endif
 
 endmenu
 
-menu "EEPROM (SPI1 flash)"
-
-config STM32_EE_SPI1_MAX_SCK_HZ
-    int "Maximum SCK frequency (Hz)"
-    range 100000 42000000
-    default 21000000
-    help
-      Fastest SCK the external flash backing EEPROM emulation is driven at.
-      The build picks the slowest SPI1 prescaler that stays at or under this
-      from the live APB2 clock, so changing the clock tree keeps the bus
-      inside the part's rating instead of silently rescaling it.
-
-
-endmenu
 
 menu "DShot TIM1"
 
@@ -2824,36 +3000,6 @@ config STM32_FCLINK_TOPIC_USB_STATUS_MAX_SILENCE_MS
 
 endmenu
 
-menu "UART"
-
-comment "Baud rate and parity live under Common -> FcLink"
-
-# No word length or stop bits: the ESP32 driver opens this port at 8N1 and
-# takes no configuration for either, so a knob could only be turned to a
-# framing the other end cannot match -- surfacing as a handshake that never
-# completes. Word length is derived from the shared parity symbol.
-
-# No direction mode: FcLink is bidirectional by definition, so half-duplex is
-# not a setting of it. No hardware flow control either -- backpressure here is
-# TelemetryPublisher deciding what to publish, and RTS/CTS would put a stall of
-# unbounded length inside a main-loop pass that is budgeted. Both are spelled
-# out in the generated header.
-
-choice
-    prompt "Oversampling"
-    default STM32_FCLINK_UART_OVERSAMPLING_16
-    help
-      USART1 oversampling mode for the STM32 side of FcLink.
-
-config STM32_FCLINK_UART_OVERSAMPLING_16
-    bool "16"
-
-config STM32_FCLINK_UART_OVERSAMPLING_8
-    bool "8"
-
-endchoice
-
-endmenu
 
 endmenu
 
@@ -2897,136 +3043,6 @@ endmenu
 
 menu "RC Receiver"
 
-menu "UART"
-
-choice
-    prompt "UART baud rate"
-    default STM32_RC_RECEIVER_UART_BAUD_420000
-    help
-      UART6 baud rate used for the STM32 to RC receiver connection.
-      Use the HappyModel EP1 CRSF default unless you have explicitly
-      reconfigured the receiver output rate.
-
-config STM32_RC_RECEIVER_UART_BAUD_115200
-    bool "115200"
-
-config STM32_RC_RECEIVER_UART_BAUD_400000
-    bool "400000"
-
-config STM32_RC_RECEIVER_UART_BAUD_416666
-    bool "416666"
-
-config STM32_RC_RECEIVER_UART_BAUD_420000
-    bool "420000"
-
-config STM32_RC_RECEIVER_UART_BAUD_460800
-    bool "460800"
-
-config STM32_RC_RECEIVER_UART_BAUD_921600
-    bool "921600"
-
-endchoice
-
-choice
-    prompt "Word length"
-    default STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS
-    help
-      UART6 word length for the STM32 RC receiver connection.
-
-config STM32_RC_RECEIVER_UART_WORD_LENGTH_8BITS
-    bool "8 bits"
-
-config STM32_RC_RECEIVER_UART_WORD_LENGTH_9BITS
-    bool "9 bits"
-
-endchoice
-
-choice
-    prompt "Stop bits"
-    default STM32_RC_RECEIVER_UART_STOP_BITS_1
-    help
-      UART6 stop-bit configuration for the STM32 RC receiver connection.
-
-config STM32_RC_RECEIVER_UART_STOP_BITS_1
-    bool "1"
-
-config STM32_RC_RECEIVER_UART_STOP_BITS_2
-    bool "2"
-
-endchoice
-
-choice
-    prompt "Parity"
-    default STM32_RC_RECEIVER_UART_PARITY_NONE
-    help
-      UART6 parity mode for the STM32 RC receiver connection.
-
-config STM32_RC_RECEIVER_UART_PARITY_NONE
-    bool "None"
-
-config STM32_RC_RECEIVER_UART_PARITY_EVEN
-    bool "Even"
-
-config STM32_RC_RECEIVER_UART_PARITY_ODD
-    bool "Odd"
-
-endchoice
-
-choice
-    prompt "Mode"
-    default STM32_RC_RECEIVER_UART_MODE_TX_RX
-    help
-      UART6 direction mode for the STM32 RC receiver connection.
-      Keep TX/RX enabled so the port is ready if receiver-side telemetry
-      is added later.
-
-config STM32_RC_RECEIVER_UART_MODE_RX
-    bool "RX"
-
-config STM32_RC_RECEIVER_UART_MODE_TX
-    bool "TX"
-
-config STM32_RC_RECEIVER_UART_MODE_TX_RX
-    bool "TX/RX"
-
-endchoice
-
-choice
-    prompt "Hardware flow control"
-    default STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE
-    help
-      UART6 hardware flow control for the STM32 RC receiver connection.
-      CRSF receivers normally use no hardware flow control.
-
-config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_NONE
-    bool "None"
-
-config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS
-    bool "RTS"
-
-config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_CTS
-    bool "CTS"
-
-config STM32_RC_RECEIVER_UART_HW_FLOW_CONTROL_RTS_CTS
-    bool "RTS/CTS"
-
-endchoice
-
-choice
-    prompt "Oversampling"
-    default STM32_RC_RECEIVER_UART_OVERSAMPLING_16
-    help
-      UART6 oversampling mode for the STM32 RC receiver connection.
-
-config STM32_RC_RECEIVER_UART_OVERSAMPLING_16
-    bool "16"
-
-config STM32_RC_RECEIVER_UART_OVERSAMPLING_8
-    bool "8"
-
-endchoice
-
-endmenu
 
 menu "CRSF Telemetry"
 
