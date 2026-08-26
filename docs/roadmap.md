@@ -243,7 +243,8 @@ trusts a frozen number — the freshness test lands with the detector, not after
 Betaflight offers `DROP_IT`, `AUTO_LANDING` against a tuned `failsafe_throttle`, and GPS
 rescue. This airframe has no barometer and no position controller, so a timed descent would be
 an invented constant with nothing closing the loop on it. Disarm is the honest action today;
-autoland belongs behind an altitude backbone. Make it a knob either way — all three reference
+autoland belongs behind an altitude backbone, and #50 is what all four conditions become once
+that backbone and a position estimate exist. Make it a knob either way — all three reference
 stacks parameterise it.
 
 #### Both links have to be considered together
@@ -378,6 +379,82 @@ sees rather than a tone nobody is standing next to.
 
 Doctor reports to MAVLink and the logs, **not to the OLED**. The display stays a bench tool and
 flight state stays off it.
+
+### #50 — The four failsafe conditions, once there is somewhere to go — 🧊 DEFERRED
+
+#15 decides the policy for an aircraft with no altitude source and no position: detect, then
+disarm. This item is what those same four conditions become once autoland and return-to-home
+exist, and it is deferred because the prerequisites are hard rather than because the policy is
+unclear. Sentinel stays the owner (#16); what changes is what its conditions are allowed to ask
+for.
+
+**Four things have to exist first, and all four are gates, not sequencing.** #46 for an altitude
+source, without which a descent is a timed throttle and an invented constant. #27 for position
+and velocity, without which there is no home vector to fly. #45 for heading, since yaw currently
+wanders by design and nothing can hold a course. #49 for a fix worth trusting, because RTH
+consumes GPS as a *flight input* rather than as a display field.
+
+#### What each condition becomes
+
+- **RC loss** is the case RTH was invented for: the operator is still there and the link may
+  come back. Detection is unchanged from #15 -- a timeout against `RcData::timestamp_us`, since
+  CRSF carries no receiver-asserted failsafe bit. The action changes, and so does the recovery
+  rule: a link that flaps must not toggle the aircraft between returning and manual, so handing
+  control back wants Betaflight's shape -- sustained clean frames plus a deliberate pilot
+  action, not the first good packet.
+- **FcLink loss** is where RTH is most right and least helped: the GCS has no picture, and
+  Sentinel has to run the whole manoeuvre on the STM32 with the companion gone. But it is only a
+  failsafe *together with* RC loss. A live transmitter and a dead FcLink is a pilot with full
+  authority, and treating that as an emergency takes the aircraft away from someone flying it.
+- **GPS loss** is the difficult one, because it is the input the response runs on. Lost before a
+  failsafe, RTH is simply unavailable and the fallback is landing where it stands. Lost *during*
+  one, the manoeuvre has to degrade mid-flight rather than continue against a dead-reckoned
+  position. This is also where #49's integrity messages stop being diagnostics: a fix that is
+  absent is safe, and a fix that is *lying* flies the aircraft somewhere. A spoofed position
+  reports excellent `hAcc`, so accuracy fields cannot detect it and NAV-STATUS and SEC-SIG
+  become flight inputs.
+- **Low battery** is the only one that is a continuous function rather than an edge, and the
+  only one that must be able to *preempt* the others. Returning costs energy, so a threshold
+  that triggers RTH too late strands the aircraft further from home than landing would have.
+  That makes the return threshold a function of distance-to-home rather than a fixed voltage --
+  a point-of-no-return calculation -- with a second, lower threshold that lands immediately
+  wherever it is. `BatteryData::current` is an `optional`, so on a board without current sense
+  there is no mAh integration and the estimate degrades to voltage under load, which sags with
+  throttle and reads worst exactly while climbing.
+
+#### Arbitration is the part none of the four items owns
+
+Conditions overlap, and their preferred actions contradict: RC loss asks to return, low battery
+asks to land now, GPS loss says returning is not possible. Four independent handlers each acting
+on their own condition is the failure mode -- what is needed is one ranked resolution evaluated
+every pass, which is how PX4 models it.
+
+Ranking the actions by severity makes "most severe wins" a property of the type rather than a
+chain of conditionals, and each condition reports what it *wants* rather than doing anything:
+
+```cpp
+enum class FailsafeAction : uint8_t { kNone, kWarn, kReturn, kLand, kDisarm };
+```
+
+The resolution has to latch downward. An aircraft that entered land-now must not be talked back
+into returning by a battery reading that recovered when the throttle dropped -- which it will,
+since that sag is what triggered it.
+
+#### Two things it needs that do not exist
+
+- **A mode Sentinel can command.** Autoland and RTH are flight modes, and the cascade in
+  `states.cpp` is what flies the aircraft. If Sentinel executes the manoeuvre itself there are
+  two things commanding motors, which is the duplication #19 exists to prevent. Sentinel selects
+  the mode and holds the authority to; the mode flies.
+- **A home position, captured at arm.** No home means no RTH regardless of which condition
+  fired, so it is a pre-arm check rather than a runtime one. That is the point where #48 stops
+  being a bench convenience: a degraded fix at arming time is currently harmless because nothing
+  navigates, and the moment this item lands it decides whether the aircraft has anywhere to
+  return to.
+
+#15's `_manual_control_lost_at_arming` rule carries over unchanged -- RC absent at arming must
+not count as a loss until RC has been seen once -- and gains a sibling, since the same argument
+applies to a home position that was never captured.
 
 ### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
 
@@ -1097,6 +1174,11 @@ a stream the raw IMU pair dominates at ~328 KB/s whenever it is enabled.
 | SharedState | `uptime_ms`, `loop_counter` |
 | `CrsfLinkData` | `active_antenna` |
 
+**The `GpsData` row is a moving target.** #49 drops the `posCov*` floats and adds `sAcc`,
+`headAcc` and the NED velocities, so the set worth recording changes shape before this lands.
+Four of the DOP fields are also zero on every build until that item enables NAV-DOP, and
+recording a zero DOP is worse than recording nothing.
+
 **The estimate is not recorded at all.** The raw FIFO topics carry the full-rate truth, so what
 is missing is PX4's pair, through the scheduler rather than pushed: `vehicle_angular_velocity`
 at 20 ms and `vehicle_attitude` at 50 ms, in PX4's field order and units. Both live in
@@ -1262,11 +1344,80 @@ so both firmwares. That is plumbing. The interlocks are the work:
 sticks is harmless because nothing can arm behind them. A stick gesture removes that guarantee,
 so link-loss policy has to exist before this lands, not after.
 
+### #49 — Match PX4's UBX message set, and use it to decide the fix is trustworthy — 🟢 SUPPORTING
+
+**NAV-DOP is disabled and four DOP fields are plumbed anyway.** `stm32_config.hpp` renders
+`.nav_dop = false`, so `kIdNavDop` never dispatches, `dop_data_` is never written, and the
+`gDOP`/`pDOP`/`hDOP`/`vDOP` that `BuildGpsData` copies out of it are structurally zero. MAVLink
+survives it -- `mavlink_tx.cpp` sends `UINT16_MAX` for a zero DOP, which is the wire's word for
+unknown. The log does not: `GpsRecord.hdop` writes `0` every 100 ms, and `0.00` reads as a
+*perfect* fix in any viewer, which is worse than the field being absent. Turning the message on
+is a one-line config change; everything downstream is already built for it.
+
+**The enabled set is close to inverted against PX4's.** Comparison is against the `u_blox10`
+path in `PX4-GPSDrivers/src/ubx.cpp`, which is the same receiver generation.
+
+| Message | PX4 | 32Raven |
+| --- | --- | --- |
+| NAV-PVT | yes | yes |
+| NAV-DOP | yes | **no** |
+| NAV-STATUS | yes | no |
+| MON-RF | yes | no |
+| SEC-SIG | yes, non-fatal on NAK | no |
+| RXM-COR | yes | no |
+| NAV-SAT | only when satellite info is asked for | no |
+| NAV-COV | **no** | yes |
+| NAV-EOE | **no** | yes |
+
+PX4 also explicitly writes zero to NAV-TIMEGPS and RXM-SFRBX, because another firmware may have
+left them enabled in the receiver's non-volatile config. Receiver bandwidth is something it
+reclaims, not merely something it declines to spend.
+
+**The covariance goes.** `NAV_COV` does not appear anywhere in PX4's driver -- not unused,
+absent -- and `sensor_gps` carries no covariance field for it to land in. EKF2 builds R from
+three scalars instead: `pos_noise = max(hacc, EKF2_GPS_P_NOISE)` and
+`vel_var = sq(max(sacc, EKF2_GPS_V_NOISE, 0.01f))`, one isotropic variance across all three
+velocity axes. It computes `pdop` as `sqrt(hdop² + vdop²)` rather than reading the receiver's.
+So the three `posCov*` floats `GpsData` carries are for a shape no reference estimator consumes,
+at 640 B/s on a 11.5 kB/s line.
+
+**What replaces them is already parsed and thrown away.** `M10PVTData` holds `sAcc`, `headAcc`
+and `velN`/`velE`/`velD`; `GpsData` keeps none of the five. `sAcc` is exactly the field PX4's
+velocity R comes from, and `vel`/`hdg` are derived from `gSpeed`/`headMot`, which are planar --
+vertical velocity is not recoverable from what is kept, and an estimator fusing GPS velocity
+needs it. Add those five plus `hAcc`/`vAcc`, drop `posCov*`, and the struct gets smaller while
+saying more.
+
+**NAV-EOE stays, and is ours on purpose.** PX4 sets `_use_nav_pvt` and publishes straight off
+NAV-PVT, so it never needs an epoch barrier. `M10Service` joins several messages and uses EOE
+plus a matching `iTOW` to publish the set atomically -- 12 B/epoch for a guarantee PX4 does not
+need because it does not join. That reasoning holds only while the join has more than one
+message in it: drop NAV-COV while NAV-DOP is still off and the epoch is NAV-PVT alone, at which
+point EOE is pure overhead. The two changes are one change.
+
+**The integrity half is the point.** NAV-STATUS, MON-RF and SEC-SIG are where PX4's jamming,
+spoofing, AGC and noise fields come from, and 32Raven has no equivalent for any of them. They
+describe whether the fix can be *believed*, which is a different question from the accuracy
+fields describing how precise it claims to be -- a spoofed position reports excellent `hAcc`.
+That distinction is what #48 needs and does not currently have: `num_sats` and `fix_type` say a
+fix exists, DOP says the geometry is good, and only these say the signal is real. A receiver
+under a jammer degrades in a way DOP alone will not show.
+
+Budget, at the 100 ms measurement rate: the current PVT+COV+EOE set costs 1760 B/s of a
+11.5 kB/s line. PVT+DOP+EOE costs 1380 B/s, leaving room for the integrity messages at a
+divided rate -- PX4 runs NAV-SAT at every tenth epoch for the same reason.
+
+Sequencing: the message-set and `GpsData` changes are independent of everything and can land
+alone. #33 records the new fields once they exist. #48 cannot pick a threshold until #33 has put
+real numbers on a card, and should be rewritten against integrity state rather than DOP alone
+once the messages arrive. #27 and #45 are what eventually consume `sAcc` and the NED velocities.
+
 ### #48 — Decide whether GPS quality gates arming — 🟢 SUPPORTING
 
 `hDOP` is plumbed end to end and read by nobody as a condition: `M10Service` publishes it,
 `TelemetryPublisher` puts it on the wire, and `Mavlink` re-emits it as `eph`. Nothing compares it
-against anything. Sentinel's arm path takes no view of GPS at all.
+against anything. Sentinel's arm path takes no view of GPS at all. It is also zero on every
+build, because NAV-DOP is not enabled -- #49 has to land before any of this can be written.
 
 The decision is not the comparison, it is what a bad number is allowed to do. A quad that
 refuses to arm indoors because it cannot see satellites is broken for the bench, and this
@@ -1283,7 +1434,8 @@ aircraft spends most of its life there — so a hard gate is wrong on the curren
 - **The threshold cannot be picked from the datasheet.** DOP under an open sky and DOP beside a
   building differ by more than any published figure predicts, so this wants numbers off the
   actual card before a constant is written down — which is #33's job, since `hDOP` is among the
-  18 `GpsData` fields the log does not record.
+  18 `GpsData` fields the log does not record, and #49's, since it is among the fields the
+  receiver is not asked to send.
 
 Whatever it becomes, it is a Sentinel condition and not a check in the GPS driver: #16 owns the
 arm decision, and a second component holding a veto is the shape #19 exists to prevent.
