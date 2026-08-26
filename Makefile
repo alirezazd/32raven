@@ -133,6 +133,8 @@ esp32: configure
 
 stm32: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target stm32
+	@printf "\n"
+	$(RUN) uv run --quiet --script tools/stm32_size.py --elf "$(BUILD_DIR)/stm32/32Raven_stm32.elf"
 
 stm32-debug: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target stm32-debug
