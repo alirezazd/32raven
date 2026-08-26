@@ -82,7 +82,7 @@ class EscTelemetry {
   // Wire units convert here rather than at parse time, so `samples_` stays the
   // shape the frames arrive in and only the published view carries volts.
   EscTelemetryData BuildEscTelemetryData() const;
-  void PublishIfChanged();
+  void PublishIfChanged(uint32_t now_us);
 
   EscTelemetry() = default;
   ~EscTelemetry() = default;

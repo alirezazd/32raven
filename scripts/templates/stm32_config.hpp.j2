@@ -26,7 +26,7 @@
 #include "sensor_cal_service.hpp"
 #include "sentinel.hpp"
 #include "spi.hpp"
-#include "stat_publisher.hpp"
+#include "telemetry_publisher.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "uart_soft.hpp"
@@ -91,9 +91,9 @@ inline const std::array kGpioDefault = {
 {% endfor %}
 };
 
-{# Field order here is the struct's, not the schedule's: StatPublisher owns
+{# Field order here is the struct's, not the schedule's: TelemetryPublisher owns
    the topic order, flattening these into the array the scheduler walks. #}
-inline constexpr StatPublisher::Config kStatPublisherConfig = {
+inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
     .fclink_max_frames_per_poll = {{ fclink.topics.max_frames_per_poll }}u,
     .crsf_max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
 {% for name in ["system_status", "vehicle_status", "esc_telemetry",
@@ -106,7 +106,7 @@ inline constexpr StatPublisher::Config kStatPublisherConfig = {
     },
 {% endfor %}
 {# Authored under RC Receiver -> CRSF Telemetry, because they describe that
-   link's content; scheduled here, because StatPublisher owns every cadence. #}
+   link's content; scheduled here, because TelemetryPublisher owns every cadence. #}
 {% for name in ["heartbeat", "gps", "battery"] %}
 {% set topic = rc_receiver.crsf[name] %}
     .crsf_{{ name }} = {

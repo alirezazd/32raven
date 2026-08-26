@@ -22,13 +22,33 @@ FcLink &FcLink::GetInstance() {
   return instance;
 }
 
-void FcLink::Init(const AppContext *ctx, Uart1 &uart) {
+void FcLink::Init(const AppContext *ctx, Uart1 &uart, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kFcLinkReinit);
   }
   initialized_ = true;
   ctx_ = ctx;
   uart_ = &uart;
+  blackboard_ = &blackboard;
+}
+
+void FcLink::NoteValidFrame() {
+  if (blackboard_ == nullptr) {
+    return;
+  }
+  FcLinkData next = blackboard_->GetFcLink();
+  next.timestamp_us = ctx_->now_us;
+  blackboard_->UpdateFcLink(next);
+}
+
+void FcLink::NoteChecksumFailure() {
+  checksum_failures_ = checksum_failures_ + 1u;
+  if (blackboard_ == nullptr) {
+    return;
+  }
+  FcLinkData next = blackboard_->GetFcLink();
+  next.checksum_failures = checksum_failures_;
+  blackboard_->UpdateFcLink(next);
 }
 
 void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
@@ -80,8 +100,7 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
       case RxState::kCrc2:
         rx_pkt_internal_.crc |= ((uint16_t)byte << 8);
 
-        if (message::IsPacketValid(rx_pkt_internal_.id,
-                                   rx_pkt_internal_.payload, rx_len_)) {
+        {
           // Rebuild header+payload to recompute CRC over the wire format.
           uint8_t check_buf[sizeof(message::Header) + message::kMaxPayload];
           message::Header *h = (message::Header *)check_buf;
@@ -93,8 +112,15 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
             memcpy(check_buf + sizeof(message::Header),
                    rx_pkt_internal_.payload, rx_len_);
 
+          // Ahead of the id/len check, not behind it: corruption lands in the
+          // id as readily as the payload, and a frame rejected as unknown
+          // would leave the fault that caused it uncounted.
           if (checksum::XModem(std::span{check_buf}.first(
-                  sizeof(message::Header) + rx_len_)) == rx_pkt_internal_.crc) {
+                  sizeof(message::Header) + rx_len_)) != rx_pkt_internal_.crc) {
+            NoteChecksumFailure();
+          } else if (message::IsPacketValid(rx_pkt_internal_.id,
+                                            rx_pkt_internal_.payload,
+                                            rx_len_)) {
             message::Packet pkt;
             pkt.header.id = rx_pkt_internal_.id;
             pkt.header.len = rx_len_;
@@ -102,6 +128,7 @@ void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
             if (rx_len_ > 0)
               memcpy(pkt.payload, rx_pkt_internal_.payload, rx_len_);
 
+            NoteValidFrame();
             CommandHandler::GetInstance().Dispatch(*ctx_, pkt);
           }
         }

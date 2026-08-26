@@ -9,6 +9,7 @@
 
 #include "outcome.hpp"
 #include "ring_buffer.hpp"
+#include "shared_state.hpp"
 #include "stm32f4xx.h"
 
 enum class UartInstance { kUart1, kUart2, kUart6 };
@@ -92,18 +93,10 @@ class Uart {
   size_t TxPending() const { return tx_buffer_.Available(); }
 
   // Since-boot totals; SharedState::SystemHealth documents how to read them.
-  struct Faults {
-    uint32_t tx_drops = 0;
-    uint32_t tx_dma_errors = 0;
-    uint32_t rx_dma_errors = 0;
-
-    uint32_t Total() const { return tx_drops + tx_dma_errors + rx_dma_errors; }
-  };
-
-  Faults GetFaults() const {
-    return Faults{.tx_drops = tx_drop_bytes_,
-                  .tx_dma_errors = tx_dma_err_,
-                  .rx_dma_errors = rx_dma_err_};
+  UartFaults GetFaults() const {
+    return UartFaults{.tx_drops = tx_drop_bytes_,
+                      .tx_dma_errors = tx_dma_err_,
+                      .rx_dma_errors = rx_dma_err_};
   }
 
   // Called from ISR

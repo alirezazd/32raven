@@ -224,7 +224,7 @@ arm, holding stale sticks stops being harmless.
 #### Detection is a timestamp away
 
 Freshness is derived at read time from `RcData::timestamp_us`, and each consumer picks its own
-bound. `StatPublisher` uses 1.5 s because it only has to answer "is the GCS being shown a live
+bound. `TelemetryPublisher` uses 1.5 s because it only has to answer "is the GCS being shown a live
 link". The control path needs its own age test against the same field, not a new detector.
 
 Betaflight triggers at 150 ms and PX4 at 500 ms, and recovery wants the opposite hysteresis
@@ -291,7 +291,7 @@ failsafe conditions, FcLink peer loss, and the watchdog.
 
 #### The conditions still live in a telemetry builder
 
-`StatPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
+`TelemetryPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
 moving detection into Sentinel is *relocating* that computation rather than writing a second
 copy of it. `Sentinel::Supervise` is the slot, and carries the `TODO(#15)` naming the three.
 
@@ -339,7 +339,7 @@ the line anywhere else and conditions like IMU health become ambiguous — with 
 describes the IMU's condition and Sentinel decides whether that condition grounds the aircraft.
 Doctor being wrong must be harmless, which is what allows it to live across a link that can die.
 
-It does not duplicate `StatPublisher`, which reports STM32-local health because only the STM32
+It does not duplicate `TelemetryPublisher`, which reports STM32-local health because only the STM32
 can see it. Doctor adds what only the ESP32 can see — heap, task stack headroom at run time
 rather than only through `esp32_stack_check.py` statically, WiFi, flash, transport link stats —
 and correlates across FcLink. FreeRTOS makes it a task with a real priority, unlike #16.
@@ -370,7 +370,7 @@ cheap trigger is `StartFlight`: it runs at the one moment the answer changes a d
 a single command with no data phase.
 
 Doctor cannot ask the question itself, since only the STM32 touches the card. So the probe stays
-on the STM32 and Doctor takes the reporting: the fact joins the logger counters `StatPublisher`
+on the STM32 and Doctor takes the reporting: the fact joins the logger counters `TelemetryPublisher`
 already carries, and Doctor is what turns "mandatory at boot, absent now" into something a GCS
 sees rather than a tone nobody is standing next to.
 
@@ -573,7 +573,7 @@ running — has no detector at all.
 
 #### Nothing watches whether the control loop runs
 
-`StatPublisher::BuildSystemStatusMsg` sets `msg.flags = kSystemStatusFlagLoopAlive`
+`TelemetryPublisher::BuildSystemStatusMsg` sets `msg.flags = kSystemStatusFlagLoopAlive`
 unconditionally, and the ESP32 gates `MAV_STATE_CRITICAL` on that bit. A SystemStatus frame
 needs only the main tick, and `msg.loop_counter` is the main tick's own count — so a wedged
 control loop leaves every indicator on the ground green. The IWDG misses it too: the main loop
@@ -913,7 +913,7 @@ The IMU path already answers this, layer for layer:
   `EscTelemetryData::rpm`, which has one writer (#19) and keeps it. KISS telemetry stays the
   volts/amps/temp source and its slow rpm becomes the cross-check on the fast one.
 - **Consumers read the blackboard, nothing holds a `DShotTim1 *`.** The RPM filter (#23) in
-  PendSV, the desync detector (#12) in Sentinel, `stat_publisher` if the wire wants it. The
+  PendSV, the desync detector (#12) in Sentinel, `telemetry_publisher` if the wire wants it. The
   struct's timestamp is load-bearing from day one: it is what lets the filter fade a stale
   notch the way Betaflight's `rpm_filter_fade_range_hz` does.
 
@@ -1116,7 +1116,7 @@ PX4's single per-ESC `esc_errorcount`), `consumption_mah` and `electrical_rpm`. 
 134 bytes and ~3 KB/s, so cost is not what is holding it.
 
 **`error_code` is absent because nothing produces it**, not because the logger skips it: it is
-hardcoded to `kOk` in `StatPublisher`, so recording it today would write a constant.
+hardcoded to `kOk` in `TelemetryPublisher`, so recording it today would write a constant.
 `failsafe_flags` only carries the IMU bit until #15 defines the rest.
 
 **The ULog facilities the writer does not use yet**, each of which turns data into something a
@@ -1180,7 +1180,7 @@ a wiring change or a board change -- a driver, a blackboard fact with its own ti
 Landing on SPI2 costs more than a chip select. `SystemHealth::imu_spi` is named for the single
 device on that bus, and `ImuHealth::path_faults` folds every fault SPI2 counts into the IMU's
 own total — a second tenant makes a magnetometer's timeouts read as the IMU's, in the blackbox
-and in StatPublisher's sensor health bit alike. Sharing the bus means splitting that record by
+and in TelemetryPublisher's sensor health bit alike. Sharing the bus means splitting that record by
 device first, which is cheaper to decide here than to discover from a log that blames the wrong
 part.
 
@@ -1265,7 +1265,7 @@ so link-loss policy has to exist before this lands, not after.
 ### #48 — Decide whether GPS quality gates arming — 🟢 SUPPORTING
 
 `hDOP` is plumbed end to end and read by nobody as a condition: `M10Service` publishes it,
-`StatPublisher` puts it on the wire, and `Mavlink` re-emits it as `eph`. Nothing compares it
+`TelemetryPublisher` puts it on the wire, and `Mavlink` re-emits it as `eph`. Nothing compares it
 against anything. Sentinel's arm path takes no view of GPS at all.
 
 The decision is not the comparison, it is what a bad number is allowed to do. A quad that

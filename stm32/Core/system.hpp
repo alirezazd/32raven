@@ -28,7 +28,7 @@
 #include "sensor_cal_service.hpp"
 #include "sentinel.hpp"
 #include "shared_state.hpp"
-#include "stat_publisher.hpp"
+#include "telemetry_publisher.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
 #include "watchdog.hpp"
@@ -85,7 +85,7 @@ class System {
     kRateController,
     kAttitudeController,
     kSentinel,
-    kStatPublisher,
+    kTelemetryPublisher,
     kSdio,
     kLogService,
     kMscService,
@@ -133,7 +133,9 @@ class System {
   ResetCause GetResetCause() const { return reset_cause_; }
   FcLink &FcLinkSvc() { return FcLink::GetInstance(); }
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
-  StatPublisher &StatPubSvc() { return StatPublisher::GetInstance(); }
+  TelemetryPublisher &TelemetryPubSvc() {
+    return TelemetryPublisher::GetInstance();
+  }
 
  private:
   void InitComponent(Component c);

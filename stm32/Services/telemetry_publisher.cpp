@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
-#include "stat_publisher.hpp"
+#include "telemetry_publisher.hpp"
 
 #include <array>
 #include <cmath>
@@ -10,11 +10,11 @@
 
 #include "crsf_link_service.hpp"
 #include "error_code.hpp"
+#include "fc_link.hpp"
 #include "message.hpp"
 #include "shared_state.hpp"
 #include "slot_stagger.hpp"
 #include "stm32_config.hpp"
-#include "fc_link.hpp"
 
 namespace {
 
@@ -28,47 +28,53 @@ constexpr uint32_t kRcFreshTimeoutUs = 1500000u;
 // and is recovered should not blink the health bit on its way back.
 constexpr uint32_t kImuFreshTimeoutUs = 100000u;
 
+// AM32 emits telemetry per commutation, so a running motor stamps this far
+// faster. Sized for an idle disarmed ESC that still answers, not for the
+// frame rate: below the fault window there would be nothing to compare.
+constexpr uint32_t kEscFreshTimeoutUs = 1000000u;
+
 // Flattened in FcLinkTopic order -- the scheduler indexes this by the
 // enumerator, so a row inserted out of order silently reschedules the wrong
 // stream.
-constexpr std::array<TopicConfig, StatPublisher::kFcLinkTopicCount>
+constexpr std::array<TopicConfig, TelemetryPublisher::kFcLinkTopicCount>
     kFcLinkTopicConfigs = {{
-        kStatPublisherConfig.system_status,
-        kStatPublisherConfig.vehicle_status,
-        kStatPublisherConfig.esc_telemetry,
-        kStatPublisherConfig.rc_channels,
-        kStatPublisherConfig.usb_status,
-        kStatPublisherConfig.gps,
-        kStatPublisherConfig.attitude,
+        kTelemetryPublisherConfig.system_status,
+        kTelemetryPublisherConfig.vehicle_status,
+        kTelemetryPublisherConfig.esc_telemetry,
+        kTelemetryPublisherConfig.rc_channels,
+        kTelemetryPublisherConfig.usb_status,
+        kTelemetryPublisherConfig.gps,
+        kTelemetryPublisherConfig.attitude,
     }};
 
 // In CrsfLinkService::TelemetryTopic order, on the same terms.
-constexpr std::array<TopicConfig, StatPublisher::kCrsfTopicCount>
+constexpr std::array<TopicConfig, TelemetryPublisher::kCrsfTopicCount>
     kCrsfTopicConfigs = {{
-        kStatPublisherConfig.crsf_heartbeat,
-        kStatPublisherConfig.crsf_gps,
-        kStatPublisherConfig.crsf_battery,
+        kTelemetryPublisherConfig.crsf_heartbeat,
+        kTelemetryPublisherConfig.crsf_gps,
+        kTelemetryPublisherConfig.crsf_battery,
     }};
 
 constexpr uint32_t kFcLinkPeriodsUs[] = {
-    kStatPublisherConfig.system_status.period,
-    kStatPublisherConfig.vehicle_status.period,
-    kStatPublisherConfig.esc_telemetry.period,
-    kStatPublisherConfig.rc_channels.period,
-    kStatPublisherConfig.usb_status.period,
-    kStatPublisherConfig.gps.period,
-    kStatPublisherConfig.attitude.period,
+    kTelemetryPublisherConfig.system_status.period,
+    kTelemetryPublisherConfig.vehicle_status.period,
+    kTelemetryPublisherConfig.esc_telemetry.period,
+    kTelemetryPublisherConfig.rc_channels.period,
+    kTelemetryPublisherConfig.usb_status.period,
+    kTelemetryPublisherConfig.gps.period,
+    kTelemetryPublisherConfig.attitude.period,
 };
 
 constexpr uint32_t kCrsfPeriodsUs[] = {
-    kStatPublisherConfig.crsf_heartbeat.period,
-    kStatPublisherConfig.crsf_gps.period,
-    kStatPublisherConfig.crsf_battery.period,
+    kTelemetryPublisherConfig.crsf_heartbeat.period,
+    kTelemetryPublisherConfig.crsf_gps.period,
+    kTelemetryPublisherConfig.crsf_battery.period,
 };
 
-static_assert(std::size(kFcLinkPeriodsUs) == StatPublisher::kFcLinkTopicCount,
+static_assert(std::size(kFcLinkPeriodsUs) ==
+                  TelemetryPublisher::kFcLinkTopicCount,
               "a FcLinkTopic has no period here, so its offset goes unchecked");
-static_assert(std::size(kCrsfPeriodsUs) == StatPublisher::kCrsfTopicCount,
+static_assert(std::size(kCrsfPeriodsUs) == TelemetryPublisher::kCrsfTopicCount,
               "a TelemetryTopic has no period here, so its offset goes "
               "unchecked");
 
@@ -92,12 +98,12 @@ static_assert(kCrsfStaggerUs != 0,
 
 }  // namespace
 
-StatPublisher &StatPublisher::GetInstance() {
-  static StatPublisher instance;
+TelemetryPublisher &TelemetryPublisher::GetInstance() {
+  static TelemetryPublisher instance;
   return instance;
 }
 
-uint16_t StatPublisher::BatteryVoltageMv(const BatteryData &battery) {
+uint16_t TelemetryPublisher::BatteryVoltageMv(const BatteryData &battery) {
   if (battery.voltage <= 0.0f) {
     return 0;
   }
@@ -108,7 +114,7 @@ uint16_t StatPublisher::BatteryVoltageMv(const BatteryData &battery) {
                                  : static_cast<uint16_t>(voltage_mv);
 }
 
-int16_t StatPublisher::BatteryCurrentCa(const BatteryData &battery) {
+int16_t TelemetryPublisher::BatteryCurrentCa(const BatteryData &battery) {
   // -1 already means "no pack" here and is also MAVLink's unknown, which the
   // ESP32 forwards into SYS_STATUS and BATTERY_STATUS unchanged.
   if (battery.voltage <= 0.0f || !battery.current.has_value()) {
@@ -125,7 +131,7 @@ int16_t StatPublisher::BatteryCurrentCa(const BatteryData &battery) {
   return static_cast<int16_t>(current_ca);
 }
 
-int8_t StatPublisher::BatteryRemainingPct(const BatteryData &battery) {
+int8_t TelemetryPublisher::BatteryRemainingPct(const BatteryData &battery) {
   if (battery.voltage <= 0.0f) {
     return -1;
   }
@@ -137,7 +143,7 @@ int8_t StatPublisher::BatteryRemainingPct(const BatteryData &battery) {
 // the reader owns the window, so a missed publish widens it rather than
 // corrupting it. The counter only grows, so this never writes what the control
 // tick is concurrently adding to.
-uint16_t StatPublisher::ComputeControlLoopLoad() {
+uint16_t TelemetryPublisher::ComputeControlLoopLoad() {
   const uint32_t busy = blackboard_->GetControlLoopLoad().busy_cycles;
   const uint32_t now = TimeBase::Cycles();
   const uint32_t window = now - load_window_start_cycles_;
@@ -152,7 +158,7 @@ uint16_t StatPublisher::ComputeControlLoopLoad() {
   return static_cast<uint16_t>(per_mille > 1000u ? 1000u : per_mille);
 }
 
-message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
+message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
     uint32_t now_us, uint16_t load) const {
   const SharedState &blackboard = *blackboard_;
   const GpsData &gps = blackboard.GetGps();
@@ -165,7 +171,7 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   const ImuHealth &imu = blackboard.GetImuHealth();
   if (imu.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagImu;
-    if (imu.path_faults == 0u &&
+    if (IsHealthy(FaultSource::kImu) &&
         (now_us - imu.timestamp_us) <= kImuFreshTimeoutUs) {
       sensors_health |= message::kSystemSensorFlagImu;
     }
@@ -174,21 +180,23 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   if (gps.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagGps;
     if ((now_us - gps.timestamp_us) <= kGpsFreshTimeoutUs &&
-        gps.fix_type >= 2u && gps_link_.healthy) {
+        gps.fix_type >= 2u && IsHealthy(FaultSource::kGps)) {
       sensors_health |= message::kSystemSensorFlagGps;
     }
   }
 
   if (battery.voltage > 0.0f) {
     sensors_present |= message::kSystemSensorFlagBattery;
-    if ((now_us - battery.timestamp_us) <= kBatteryFreshTimeoutUs) {
+    if ((now_us - battery.timestamp_us) <= kBatteryFreshTimeoutUs &&
+        IsHealthy(FaultSource::kBattery)) {
       sensors_health |= message::kSystemSensorFlagBattery;
     }
   }
 
   if (rc.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagRcReceiver;
-    if ((now_us - rc.timestamp_us) <= kRcFreshTimeoutUs && crsf_link_.healthy) {
+    if ((now_us - rc.timestamp_us) <= kRcFreshTimeoutUs &&
+        IsHealthy(FaultSource::kRc)) {
       sensors_health |= message::kSystemSensorFlagRcReceiver;
     }
   }
@@ -196,7 +204,8 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   const EscTelemetryData &esc = blackboard.GetEscTelemetry();
   if (esc.valid_mask != 0u) {
     sensors_present |= message::kSystemSensorFlagEsc;
-    if (esc.rx_dma_error_count == 0u && esc.uart_error_count == 0u) {
+    if ((now_us - esc.timestamp_us) <= kEscFreshTimeoutUs &&
+        IsHealthy(FaultSource::kEsc)) {
       sensors_health |= message::kSystemSensorFlagEsc;
     }
   }
@@ -214,14 +223,13 @@ message::SystemStatusMsg StatPublisher::BuildSystemStatusMsg(
   msg.batt_voltage = BatteryVoltageMv(battery);
   msg.batt_current = BatteryCurrentCa(battery);
   msg.batt_remaining = BatteryRemainingPct(battery);
-  msg.boot_state = static_cast<uint8_t>(loop_running
-                                            ? message::BootState::kReady
-                                            : message::BootState::kBooting);
+  msg.boot_state = static_cast<uint8_t>(
+      loop_running ? message::BootState::kReady : message::BootState::kBooting);
   msg.flags = message::kSystemStatusFlagLoopAlive;
   return msg;
 }
 
-message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() const {
+message::VehicleStatusMsg TelemetryPublisher::BuildVehicleStatusMsg() const {
   message::VehicleStatusMsg msg{};
   msg.armed_state = static_cast<uint8_t>(blackboard_->IsArmed()
                                              ? message::ArmedState::kArmed
@@ -231,7 +239,7 @@ message::VehicleStatusMsg StatPublisher::BuildVehicleStatusMsg() const {
   return msg;
 }
 
-message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg() const {
+message::UsbStatusMsg TelemetryPublisher::BuildUsbStatusMsg() const {
   const UsbStatusData &usb = blackboard_->GetUsbStatus();
 
   uint8_t flags = 0u;
@@ -258,38 +266,38 @@ message::UsbStatusMsg StatPublisher::BuildUsbStatusMsg() const {
   };
 }
 
-StatPublisher::Outcome StatPublisher::PublishSystemStatus(StatPublisher &self,
-                                                          uint32_t now_us) {
-  self.fclink_svc_->SendSystemStatus(self.BuildSystemStatusMsg(
-      now_us, self.ComputeControlLoopLoad()));
-  return Outcome::kSent;
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishSystemStatus(
+    TelemetryPublisher &self, uint32_t now_us) {
+  self.fclink_svc_->SendSystemStatus(
+      self.BuildSystemStatusMsg(now_us, self.ComputeControlLoopLoad()));
+  return PublishResult::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishVehicleStatus(
-    StatPublisher &self, uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishVehicleStatus(
+    TelemetryPublisher &self, uint32_t now_us) {
   (void)self;
   (void)now_us;
   self.fclink_svc_->SendVehicleStatus(self.BuildVehicleStatusMsg());
-  return Outcome::kSent;
+  return PublishResult::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishEscTelemetry(StatPublisher &self,
-                                                          uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishEscTelemetry(
+    TelemetryPublisher &self, uint32_t now_us) {
   (void)self;
   (void)now_us;
   const EscTelemetryData &esc = self.blackboard_->GetEscTelemetry();
   if (esc.valid_mask == 0u) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
   self.fclink_svc_->SendEscTelemetry(esc);
-  return Outcome::kSent;
+  return PublishResult::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
-                                                        uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishRcChannels(
+    TelemetryPublisher &self, uint32_t now_us) {
   const RcData &rc = self.blackboard_->GetRc();
   if (rc.timestamp_us == 0u) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   // The two frames age independently, so each is judged against its own
@@ -312,7 +320,7 @@ StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
                          flags == self.rc_sent_flags_;
   if (unchanged && !self.fclink_.scheduler.SilenceExpired(
                        static_cast<size_t>(FcLinkTopic::kRcChannels), now_us)) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   message::RcChannelsMsg msg{};
@@ -329,11 +337,11 @@ StatPublisher::Outcome StatPublisher::PublishRcChannels(StatPublisher &self,
   self.rc_sent_timestamp_us_ = rc.timestamp_us;
   self.rc_sent_flags_ = flags;
   self.have_rc_channels_ = true;
-  return Outcome::kSent;
+  return PublishResult::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
-                                                       uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishUsbStatus(
+    TelemetryPublisher &self, uint32_t now_us) {
   // Only a USB bench session has anything to report -- outside one the
   // port is detached and every field reads zero. The silence is load bearing:
   // it is what the ESP32 times out on to learn the session never opened, so
@@ -343,7 +351,7 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
     // Drop the snapshot with it, or a session that reopens onto identical
     // values would have its first report suppressed as unchanged.
     self.have_usb_status_ = false;
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   // One compare: MspService stamps the Blackboard only when something moved.
@@ -352,17 +360,17 @@ StatPublisher::Outcome StatPublisher::PublishUsbStatus(StatPublisher &self,
       self.have_usb_status_ && usb.timestamp_us == self.usb_sent_timestamp_us_;
   if (unchanged && !self.fclink_.scheduler.SilenceExpired(
                        static_cast<size_t>(FcLinkTopic::kUsbStatus), now_us)) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   self.fclink_svc_->SendPacket(message::MsgId::kUsbStatus,
-                                  self.BuildUsbStatusMsg());
+                               self.BuildUsbStatusMsg());
   self.usb_sent_timestamp_us_ = usb.timestamp_us;
   self.have_usb_status_ = true;
-  return Outcome::kSent;
+  return PublishResult::kSent;
 }
 
-message::GpsData StatPublisher::BuildGpsMsg() const {
+message::GpsData TelemetryPublisher::BuildGpsMsg() const {
   const GpsData &gps = blackboard_->GetGps();
   message::GpsData msg{};
   msg.year = gps.year;
@@ -392,7 +400,7 @@ message::GpsData StatPublisher::BuildGpsMsg() const {
   return msg;
 }
 
-message::AttitudeMsg StatPublisher::BuildAttitudeMsg() const {
+message::AttitudeMsg TelemetryPublisher::BuildAttitudeMsg() const {
   const EstimatorState &estimate = blackboard_->GetEstimate();
   const Eigen::Quaternionf &q = estimate.attitude_world_to_body;
   return message::AttitudeMsg{
@@ -404,33 +412,33 @@ message::AttitudeMsg StatPublisher::BuildAttitudeMsg() const {
   };
 }
 
-StatPublisher::Outcome StatPublisher::PublishGps(StatPublisher &self,
-                                                 uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishGps(
+    TelemetryPublisher &self, uint32_t now_us) {
   const GpsData &gps = self.blackboard_->GetGps();
   if (gps.timestamp_us == 0u) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   // The receiver stamps only on a new PVT, so a resent fix would read as a
   // position re-observed rather than re-read.
-  const bool unchanged = self.have_gps_ &&
-                         gps.timestamp_us == self.gps_sent_timestamp_us_;
+  const bool unchanged =
+      self.have_gps_ && gps.timestamp_us == self.gps_sent_timestamp_us_;
   if (unchanged && !self.fclink_.scheduler.SilenceExpired(
                        static_cast<size_t>(FcLinkTopic::kGps), now_us)) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   self.fclink_svc_->SendPacket(message::MsgId::kGpsData, self.BuildGpsMsg());
   self.gps_sent_timestamp_us_ = gps.timestamp_us;
   self.have_gps_ = true;
-  return Outcome::kSent;
+  return PublishResult::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishAttitude(StatPublisher &self,
-                                                      uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishAttitude(
+    TelemetryPublisher &self, uint32_t now_us) {
   const EstimatorState &estimate = self.blackboard_->GetEstimate();
   if (estimate.timestamp_us == 0u) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   // The control tick writes this faster than the link can carry it, so the
@@ -441,54 +449,52 @@ StatPublisher::Outcome StatPublisher::PublishAttitude(StatPublisher &self,
       estimate.timestamp_us == self.attitude_sent_timestamp_us_;
   if (unchanged && !self.fclink_.scheduler.SilenceExpired(
                        static_cast<size_t>(FcLinkTopic::kAttitude), now_us)) {
-    return Outcome::kSkipped;
+    return PublishResult::kSkipped;
   }
 
   self.fclink_svc_->SendPacket(message::MsgId::kAttitude,
                                self.BuildAttitudeMsg());
   self.attitude_sent_timestamp_us_ = estimate.timestamp_us;
   self.have_attitude_ = true;
-  return Outcome::kSent;
+  return PublishResult::kSent;
 }
 
-StatPublisher::Outcome StatPublisher::PublishCrsfTopic(
-    StatPublisher &self, uint32_t now_us,
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfTopic(
+    TelemetryPublisher &self, uint32_t now_us,
     CrsfLinkService::TelemetryTopic topic) {
   const bool silence_expired =
       self.crsf_.scheduler.SilenceExpired(static_cast<size_t>(topic), now_us);
-  switch (
-      self.crsf_svc_->SendTelemetry(topic, silence_expired, now_us)) {
+  switch (self.crsf_svc_->SendTelemetry(topic, silence_expired, now_us)) {
     case CrsfLinkService::TelemetryResult::kSent:
-      return Outcome::kSent;
+      return PublishResult::kSent;
     case CrsfLinkService::TelemetryResult::kSkipped:
-      return Outcome::kSkipped;
+      return PublishResult::kSkipped;
     case CrsfLinkService::TelemetryResult::kBlocked:
     default:
-      return Outcome::kBlocked;
+      return PublishResult::kBlocked;
   }
 }
 
-StatPublisher::Outcome StatPublisher::PublishCrsfHeartbeat(
-    StatPublisher &self, uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfHeartbeat(
+    TelemetryPublisher &self, uint32_t now_us) {
   return PublishCrsfTopic(self, now_us,
                           CrsfLinkService::TelemetryTopic::kHeartbeat);
 }
 
-StatPublisher::Outcome StatPublisher::PublishCrsfGps(StatPublisher &self,
-                                                     uint32_t now_us) {
-  return PublishCrsfTopic(self, now_us,
-                          CrsfLinkService::TelemetryTopic::kGps);
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfGps(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us, CrsfLinkService::TelemetryTopic::kGps);
 }
 
-StatPublisher::Outcome StatPublisher::PublishCrsfBattery(StatPublisher &self,
-                                                         uint32_t now_us) {
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfBattery(
+    TelemetryPublisher &self, uint32_t now_us) {
   return PublishCrsfTopic(self, now_us,
                           CrsfLinkService::TelemetryTopic::kBattery);
 }
 
-void StatPublisher::Init(const Config &cfg, SharedState &blackboard,
-                         FcLink &fclink, CrsfLinkService &crsf,
-                         uint32_t now_us) {
+void TelemetryPublisher::Init(const Config &cfg, SharedState &blackboard,
+                              FcLink &fclink, CrsfLinkService &crsf,
+                              uint32_t now_us) {
   cfg_ = cfg;
   blackboard_ = &blackboard;
   fclink_svc_ = &fclink;
@@ -501,9 +507,9 @@ void StatPublisher::Init(const Config &cfg, SharedState &blackboard,
 }
 
 template <size_t N>
-void StatPublisher::PollGroup(Group<N> &group,
-                              const std::array<Publish, N> &publishers,
-                              uint8_t budget, uint32_t now_us) {
+void TelemetryPublisher::PollGroup(Group<N> &group,
+                                   const std::array<Publish, N> &publishers,
+                                   uint8_t budget, uint32_t now_us) {
   size_t sent = 0;
   while (sent < budget) {
     const std::optional<size_t> due = group.scheduler.NextDue(now_us);
@@ -512,20 +518,20 @@ void StatPublisher::PollGroup(Group<N> &group,
     }
 
     switch (publishers[*due](*this, now_us)) {
-      case Outcome::kSent:
+      case PublishResult::kSent:
         group.scheduler.MarkSent(*due, now_us);
         ++sent;
         break;
-      case Outcome::kSkipped:
+      case PublishResult::kSkipped:
         group.scheduler.Skip(*due, now_us);
         break;
-      case Outcome::kBlocked:
+      case PublishResult::kBlocked:
         return;
     }
   }
 }
 
-void StatPublisher::UpdateLinkHealth(uint32_t now_us) {
+void TelemetryPublisher::UpdateFaultWindows(uint32_t now_us) {
   if ((now_us - last_link_window_us_) < kLinkErrorWindowUs) {
     return;
   }
@@ -533,33 +539,41 @@ void StatPublisher::UpdateLinkHealth(uint32_t now_us) {
 
   const SystemHealth &health = blackboard_->GetSystemHealth();
 
-  const uint32_t gps_total = health.gps_uart.Total();
-  gps_link_.healthy = gps_total == gps_link_.last_total;
-  gps_link_.last_total = gps_total;
+  // Ordered by FaultSource. Transport plus the parser above it, because a peer
+  // emitting garbage over a flawless UART is not healthy. The last three come
+  // pre-summed: path_faults already folds the IMU's bus in beside its parser,
+  // the ESC owns its transport, and nothing frames an ADC reading.
+  const std::array<uint32_t, std::to_underlying(FaultSource::kCount)> totals = {
+      blackboard_->GetImuHealth().path_faults,
+      health.gps_uart.Total() + blackboard_->GetGps().checksum_failures,
+      health.rc_uart.Total() + blackboard_->GetCrsfLink().checksum_failures,
+      blackboard_->GetEscTelemetry().Total(),
+      health.batt_adc.Total(),
+  };
 
-  const uint32_t crsf_total = health.rc_uart.Total();
-  crsf_link_.healthy = crsf_total == crsf_link_.last_total;
-  crsf_link_.last_total = crsf_total;
+  for (size_t i = 0; i < totals.size(); ++i) {
+    fault_windows_[i].healthy = totals[i] == fault_windows_[i].last_total;
+    fault_windows_[i].last_total = totals[i];
+  }
 }
 
-void StatPublisher::Poll(uint32_t now_us) {
+void TelemetryPublisher::Poll(uint32_t now_us) {
   if (!initialized_) {
     return;
   }
 
-  UpdateLinkHealth(now_us);
+  UpdateFaultWindows(now_us);
 
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {
       PublishSystemStatus, PublishVehicleStatus, PublishEscTelemetry,
-      PublishRcChannels,   PublishUsbStatus,
-      PublishGps,          PublishAttitude,
+      PublishRcChannels,   PublishUsbStatus,     PublishGps,
+      PublishAttitude,
   };
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
       PublishCrsfHeartbeat,
       PublishCrsfGps,
       PublishCrsfBattery,
   };
-
 
   PollGroup(fclink_, kFcLinkPublishers, cfg_.fclink_max_frames_per_poll,
             now_us);

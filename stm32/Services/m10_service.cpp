@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
-#include <optional>
-
 #include "m10_service.hpp"
+
+#include <optional>
 
 #include "m10_reg.hpp"
 #include "shared_state.hpp"
@@ -106,7 +106,7 @@ void M10Service::ProcessByte(uint8_t byte) {
       if (ctx.ck_a == ctx.ck_a_calc) {
         parse_ = M10Parse::kCkB;
       } else {
-        ctx.checksum_fail_count++;
+        ctx.checksum_failures++;
         parse_ = M10Parse::kSync1;
       }
       break;
@@ -115,7 +115,7 @@ void M10Service::ProcessByte(uint8_t byte) {
       ctx.ck_b = byte;
       parse_ = M10Parse::kSync1;
       if (ctx.ck_b != ctx.ck_b_calc) {
-        ctx.checksum_fail_count++;
+        ctx.checksum_failures++;
         break;
       }
       DispatchFrame();
@@ -222,11 +222,21 @@ GpsData M10Service::BuildGpsData() const {
   data.posCovNN = cov_data_.posCovNN;
   data.posCovEE = cov_data_.posCovEE;
   data.posCovDD = cov_data_.posCovDD;
+  data.checksum_failures = ctx_.checksum_failures;
   return data;
 }
 
 void M10Service::PublishIfNew() {
-  if (!new_data_) {
+  if (blackboard_ == nullptr) {
+    return;
+  }
+
+  // A frame that only failed its checksum advances nothing else, so gating on
+  // new_data_ alone would freeze the count exactly while it matters.
+  // BuildGpsData carries the last PVT's stamp either way, so freshness still
+  // says no fix has arrived.
+  if (!new_data_ &&
+      ctx_.checksum_failures == blackboard_->GetGps().checksum_failures) {
     return;
   }
 

@@ -39,7 +39,8 @@ int main(void) {
   app.esc_config_state = &esc_config_state;
   app.msc_state = &msc_state;
   System::GetInstance().GetCommandHandler().Init();
-  System::GetInstance().FcLinkSvc().Init(&app, Uart1::GetInstance());
+  System::GetInstance().FcLinkSvc().Init(&app, Uart1::GetInstance(),
+                                         System::GetInstance().Blackboard());
 
   app.now_us = app.sys->Time().Micros();
   sm.Start(idle_state);

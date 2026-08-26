@@ -590,7 +590,7 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
   // Summed rather than counted separately: a standalone total, read before
   // the parts, can come out smaller than the parts printed beside it.
   const uint32_t overruns = overrun_cnt_.load(std::memory_order_relaxed);
-  const Spi2::Faults bus = Spi2::GetInstance().GetFaults();
+  const SpiFaults bus = Spi2::GetInstance().GetFaults();
   const uint32_t dma_start_fails = bus.start_refused;
   const uint32_t spi_errors = bus.dma_errors;
   const uint32_t parse_fails = parse_fail_cnt_.load(std::memory_order_relaxed);

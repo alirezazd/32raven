@@ -2629,7 +2629,7 @@ menu "FcLink"
 
 menu "Telemetry topics"
 
-# StatPublisher schedules each topic on its own period; priority only orders
+# TelemetryPublisher schedules each topic on its own period; priority only orders
 # the ones that come due on the same poll.
 
 config STM32_FCLINK_TOPIC_MAX_FRAMES_PER_POLL
@@ -2637,7 +2637,7 @@ config STM32_FCLINK_TOPIC_MAX_FRAMES_PER_POLL
     range 1 8
     default 2
     help
-      Upper bound on FcLink telemetry frames StatPublisher emits in one poll.
+      Upper bound on FcLink telemetry frames TelemetryPublisher emits in one poll.
       Caps the burst when several topics come due together, at the cost of
       deferring the losers to the next poll.
 
@@ -2765,7 +2765,7 @@ config STM32_FCLINK_TOPIC_RC_CHANNELS_MAX_SILENCE_MS
     range 0 60000
     default 1000
     help
-      Longest StatPublisher may suppress unchanged RC data before sending it
+      Longest TelemetryPublisher may suppress unchanged RC data before sending it
       anyway. Without this the stream stops dead when the receiver goes quiet,
       leaving the ESP32 unable to tell held channels from a dead link. Set to
       0 to suppress indefinitely.
@@ -2793,7 +2793,7 @@ config STM32_FCLINK_TOPIC_USB_STATUS_MAX_SILENCE_MS
     range 0 60000
     default 300
     help
-      Longest StatPublisher may suppress an unchanged USB status before
+      Longest TelemetryPublisher may suppress an unchanged USB status before
       sending it anyway. This is what keeps the configurator UI from flapping
       to "no USB" on a healthy but idle port.
 
@@ -2810,7 +2810,7 @@ comment "Baud rate and parity live under Common -> FcLink"
 
 # No direction mode: FcLink is bidirectional by definition, so half-duplex is
 # not a setting of it. No hardware flow control either -- backpressure here is
-# StatPublisher deciding what to publish, and RTS/CTS would put a stall of
+# TelemetryPublisher deciding what to publish, and RTS/CTS would put a stall of
 # unbounded length inside a main-loop pass that is budgeted. Both are spelled
 # out in the generated header.
 

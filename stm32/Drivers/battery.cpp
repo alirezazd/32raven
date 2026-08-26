@@ -158,11 +158,21 @@ void Battery::StartConversion(uint32_t now_us) {
 
 // True when the result landed and the next conversion may start.
 bool Battery::CollectConversion(uint32_t now_us) {
-  if ((ADC1->SR & ADC_SR_EOC) == 0u) {
+  const uint32_t sr = ADC1->SR;
+  if ((sr & ADC_SR_EOC) == 0u) {
     // A conversion is ~5 us against a ~1 ms call period, so an unfinished one
     // means a stopped ADC rather than a slow one.
     if (static_cast<uint32_t>(now_us - conversion_start_us_) >=
         cfg_.adc_timeout_us) {
+      // An overrun arrives here too: it stops EOC for good, so it is a
+      // timeout whose cause the peripheral named. Counting it apart is what
+      // separates a dead ADC from the single-conversion contract breaking.
+      // StartConversion's SR write clears it, so each event counts once.
+      if ((sr & ADC_SR_OVR) != 0u) {
+        faults_.overruns++;
+      } else {
+        faults_.timeouts++;
+      }
       conversion_in_flight_ = false;
       sample_active_ = false;
     }

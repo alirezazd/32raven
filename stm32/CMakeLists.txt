@@ -178,7 +178,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/four_way_service.cpp
     Drivers/esc_bootloader.cpp
     Services/sentinel.cpp
-    Services/stat_publisher.cpp
+    Services/telemetry_publisher.cpp
     Services/fc_link.cpp
     Services/command_handler.cpp
     Core/panic.cpp

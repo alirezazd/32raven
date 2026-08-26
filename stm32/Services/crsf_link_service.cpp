@@ -195,7 +195,6 @@ void CrsfLinkService::PollRx(uint32_t now_us, size_t byte_budget) {
     ++count;
     (void)ProcessCrsfByte(byte.value(), now_us);
   }
-
 }
 
 void CrsfLinkService::PollCommands() {
@@ -353,6 +352,7 @@ bool CrsfLinkService::ParseLinkStatisticsFrame(const uint8_t *payload,
       .downlink_rssi_dbm = payload[7],
       .downlink_link_quality = payload[8],
       .downlink_snr_db = static_cast<int8_t>(payload[9]),
+      .checksum_failures = checksum_failures_,
   });
   return true;
 }
@@ -385,8 +385,8 @@ bool CrsfLinkService::ParseRcChannelsFrame(const uint8_t *payload,
   }
 
   // Link quality rides its own frame and its own blackboard entry now, so the
-  // channels carry nothing about the link; StatPublisher joins them on the way
-  // out with each side's freshness judged separately.
+  // channels carry nothing about the link; TelemetryPublisher joins them on the
+  // way out with each side's freshness judged separately.
   msg.link_quality = 0;
   msg.flags = 0;
   rc_receiver_->ProcessRawState(msg, now_us);
@@ -407,6 +407,16 @@ bool CrsfLinkService::FinishCrsfFrame(uint32_t now_us) {
   const uint8_t actual_crc =
       checksum::Dvbs2(std::span{crsf_frame_}.subspan(2u, payload_len + 1u));
   if (actual_crc != expected_crc) {
+    // A frame that arrived whole and failed its own checksum: the UART saw
+    // nothing wrong, so this is the only place it can be counted.
+    checksum_failures_ = checksum_failures_ + 1u;
+    // Onto the published record rather than waiting for the next
+    // LINK_STATISTICS frame, which a receiver failing every CRC never sends.
+    if (blackboard_ != nullptr) {
+      CrsfLinkData next = blackboard_->GetCrsfLink();
+      next.checksum_failures = checksum_failures_;
+      blackboard_->UpdateCrsfLink(next);
+    }
     return false;
   }
 

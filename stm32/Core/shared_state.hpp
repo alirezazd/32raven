@@ -87,6 +87,8 @@ struct GpsData {
   float posCovNN;       // Position covariance North-North [m²]
   float posCovEE;       // Position covariance East-East [m²]
   float posCovDD;       // Position covariance Down-Down [m²]
+
+  uint32_t checksum_failures = 0;  // UBX frames that failed their own Fletcher
 };
 
 struct BatteryData {
@@ -115,6 +117,9 @@ struct EscTelemetryMotorData {
 };
 
 struct EscTelemetryData {
+  // Newest frame across the motors, which is this bus's heartbeat: a peer
+  // gone silent stops moving it while every other field keeps its last value.
+  uint32_t timestamp_us = 0;
   std::array<EscTelemetryMotorData, 4> motors{};
   uint8_t valid_mask = 0;
   uint32_t frame_count = 0;
@@ -123,6 +128,12 @@ struct EscTelemetryData {
   uint32_t rx_drop_bytes = 0;
   uint32_t rx_dma_error_count = 0;
   uint32_t uart_error_count = 0;
+
+  // frame_count is throughput, not a fault, and is the one counter left out.
+  uint32_t Total() const {
+    return crc_error_count + unassigned_frame_count + rx_drop_bytes +
+           rx_dma_error_count + uart_error_count;
+  }
 };
 
 // Written on every burst, so `timestamp_us` doubles as the sample path's
@@ -181,10 +192,10 @@ struct RcData {
   uint16_t throttle_us = 0;
 };
 
-// CRSF LINK_STATISTICS (0x14). Its own frame, so its own timestamp -- on the
-// channels' it could read as fresh as the sticks while being arbitrarily old.
-// The driver's Uart::Faults, restated here so the blackboard does not pull the
-// UART template into every translation unit that reads it.
+// Since-boot tallies counted by the bus itself: the device reads them back for
+// its own path summary, System folds them into the record below. Free-standing
+// rather than nested in Uart<Inst>, whose nested types are distinct per
+// instance -- Uart1's and Uart2's could not then share one field type.
 struct UartFaults {
   uint32_t tx_drops = 0;
   uint32_t tx_dma_errors = 0;
@@ -193,7 +204,6 @@ struct UartFaults {
   uint32_t Total() const { return tx_drops + tx_dma_errors + rx_dma_errors; }
 };
 
-// The driver's Spi::Faults, restated for the same reason.
 struct SpiFaults {
   uint32_t start_refused = 0;
   uint32_t dma_errors = 0;
@@ -202,16 +212,26 @@ struct SpiFaults {
   uint32_t Total() const { return start_refused + dma_errors + timeouts; }
 };
 
-// Transport faults, per bus. Totals since boot, so a reader takes the delta
-// over its own window -- compared against zero they latch on the first
-// transient and never clear. StatPublisher reduces them to sensor health bits;
-// the log keeps the split, which is where which fault it was actually matters.
+// Conversions the ADC never handed back. Mutually exclusive: an overrun is a
+// timeout whose cause the peripheral named, so the two sum without overlap.
+struct AdcFaults {
+  uint32_t timeouts = 0;
+  uint32_t overruns = 0;
+
+  uint32_t Total() const { return timeouts + overruns; }
+};
+
+// Transport faults, per bus. The parser above each one counts its own failures
+// in that peer's record, so a reader wanting a whole path sums the two halves
+// itself. Totals since boot: compared against zero they latch on the first
+// transient and never clear.
 struct SystemHealth {
   uint32_t timestamp_us = 0;
   UartFaults fc_uart{};   // UART1 -- the ESP32
   UartFaults gps_uart{};  // UART2 -- the M10
   UartFaults rc_uart{};   // UART6 -- the CRSF receiver
   SpiFaults imu_spi{};    // SPI2 -- the ICM42688P
+  AdcFaults batt_adc{};   // ADC1 -- the voltage/current divider
 };
 
 struct CrsfLinkData {
@@ -226,6 +246,14 @@ struct CrsfLinkData {
   uint8_t downlink_rssi_dbm = 0;
   uint8_t downlink_link_quality = 0;
   int8_t downlink_snr_db = 0;
+  uint32_t checksum_failures = 0;  // CRSF frames that failed their own CRC-8
+};
+
+// The link to the ESP32. Published by FcLink, which owns the parser above
+// UART1; UART1's own faults stay in SystemHealth with the other transports.
+struct FcLinkData {
+  uint32_t timestamp_us = 0;       // last packet that passed its CRC
+  uint32_t checksum_failures = 0;  // arrived whole, failed CRC-16
 };
 
 // The USB bench session. Two writers, never concurrent: MspService in ESC
@@ -252,6 +280,7 @@ class SharedState {
   void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
   void UpdateRc(const RcData &data) { rc_ = data; }
   void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
+  void UpdateFcLink(const FcLinkData &data) { fc_link_ = data; }
   void UpdateSystemHealth(const SystemHealth &data) { system_health_ = data; }
   // Written from the TIM5 interrupt. Milliseconds in one word so the store
   // cannot be observed torn, which a 64-bit microsecond count would be.
@@ -279,6 +308,7 @@ class SharedState {
   const EscTelemetryData &GetEscTelemetry() const { return esc_; }
   const RcData &GetRc() const { return rc_; }
   const CrsfLinkData &GetCrsfLink() const { return crsf_link_; }
+  const FcLinkData &GetFcLink() const { return fc_link_; }
   const SystemHealth &GetSystemHealth() const { return system_health_; }
   // Monotonic since boot; wraps at 49.7 days rather than TIM2's 71.6 min.
   uint32_t UptimeMs() const { return uptime_ms_; }
@@ -316,6 +346,7 @@ class SharedState {
   EscTelemetryData esc_{};
   RcData rc_{};
   CrsfLinkData crsf_link_{};
+  FcLinkData fc_link_{};
   SystemHealth system_health_{};
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};

@@ -113,7 +113,7 @@ struct M10ParserContext {
   bool dop_ready = false;
   bool cov_ready = false;
 
-  uint32_t checksum_fail_count = 0;
+  uint32_t checksum_failures = 0;
   uint32_t oversize_len_count = 0;
   uint32_t frame_ok_count = 0;
 
@@ -147,11 +147,10 @@ class M10Service {
   const M10COVData &GetCOV() const { return cov_data_; }
 
   // Drains the receiver, parses, and publishes a completed epoch to the
-  // blackboard, where StatPublisher tells a new fix from a re-read one by its
-  // stamp.
+  // blackboard, where TelemetryPublisher tells a new fix from a re-read one by
+  // its stamp.
   void Poll();
 
-  uint32_t GetChecksumFailCount() const { return ctx_.checksum_fail_count; }
   uint32_t GetOversizeLenCount() const { return ctx_.oversize_len_count; }
   uint32_t GetFrameOkCount() const { return ctx_.frame_ok_count; }
 

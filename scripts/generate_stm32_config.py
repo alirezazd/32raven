@@ -1666,7 +1666,7 @@ def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     `max_silence` mirrors `period` and `priority` is uniform: this scheduler
     emits every due topic instead of choosing one, and never suppresses an
     unchanged payload, so neither field is read. They are emitted so the
-    TopicConfig this renders is the same shape StatPublisher's is.
+    TopicConfig this renders is the same shape TelemetryPublisher's is.
     """
     topics = {
         name: {
@@ -1898,7 +1898,7 @@ def _attitude_controller_context(
 def _fclink_topic_context(
     kconf: kconfiglib.Kconfig, key: str, *, max_silence: bool = False
 ) -> dict[str, object]:
-    """One StatPublisher topic; key picks the prefix.
+    """One TelemetryPublisher topic; key picks the prefix.
 
     Only topics whose publisher suppresses unchanged payloads carry a
     max-silence knob; the rest emit zero, which means "never times out".

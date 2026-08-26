@@ -8,6 +8,7 @@
 #include <span>
 
 #include "outcome.hpp"
+#include "shared_state.hpp"
 #include "stm32f4xx.h"
 
 enum class SpiInstance { kSpi1, kSpi2 };
@@ -60,16 +61,10 @@ class Spi {
   // transfer error is this bus's DMA, and a timeout is this bus's status flag
   // never arriving. The device reads them back for its own path summary, so
   // there is one count with two readers.
-  struct Faults {
-    uint32_t start_refused = 0;
-    uint32_t dma_errors = 0;
-    uint32_t timeouts = 0;
-  };
-
-  Faults GetFaults() const {
-    return Faults{.start_refused = start_refused_,
-                  .dma_errors = dma_errors_,
-                  .timeouts = timeouts_};
+  SpiFaults GetFaults() const {
+    return SpiFaults{.start_refused = start_refused_,
+                     .dma_errors = dma_errors_,
+                     .timeouts = timeouts_};
   }
 
   bool Busy() const

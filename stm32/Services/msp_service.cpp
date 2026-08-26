@@ -539,7 +539,7 @@ bool MspService::BuildReply(uint16_t command) {
 
     case kMspStatus: {
       // Presence, not liveness: MSP has one bit per sensor and this is the
-      // same test stat_publisher's sensors_present uses. A path that has
+      // same test telemetry_publisher's sensors_present uses. A path that has
       // stalled since it last published still reads present here.
       uint16_t sensors = 0;
       if (blackboard_->GetImuHealth().timestamp_us != 0u) {

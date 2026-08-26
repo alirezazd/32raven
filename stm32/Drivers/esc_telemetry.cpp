@@ -153,7 +153,7 @@ void EscTelemetry::Poll(uint32_t now_us) {
     frame_len_ = 0;
   }
 
-  PublishIfChanged();
+  PublishIfChanged(now_us);
 }
 
 EscTelemetryData EscTelemetry::BuildEscTelemetryData() const {
@@ -187,13 +187,25 @@ EscTelemetryData EscTelemetry::BuildEscTelemetryData() const {
   return out;
 }
 
-void EscTelemetry::PublishIfChanged() {
-  if (blackboard_ == nullptr ||
-      frame_count_ == blackboard_->GetEscTelemetry().frame_count) {
+void EscTelemetry::PublishIfChanged(uint32_t now_us) {
+  if (blackboard_ == nullptr) {
     return;
   }
 
-  blackboard_->UpdateEscTelemetry(BuildEscTelemetryData());
+  const EscTelemetryData &published = blackboard_->GetEscTelemetry();
+  EscTelemetryData next = BuildEscTelemetryData();
+  // Faults move without frame_count following them: a peer emitting only
+  // corrupt frames advances nothing else, so gating on frame_count alone
+  // would freeze the very counters a reader windows against.
+  if (next.frame_count == published.frame_count &&
+      next.Total() == published.Total()) {
+    return;
+  }
+
+  // Stamped on the change rather than on the frame, so it answers "is this
+  // bus doing anything" -- which a peer sending only garbage still is.
+  next.timestamp_us = now_us;
+  blackboard_->UpdateEscTelemetry(next);
 }
 
 void EscTelemetry::OnUartInterrupt() {

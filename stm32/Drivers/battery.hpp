@@ -52,6 +52,10 @@ class Battery {
   // inside this one.
   void Poll(uint32_t now_us);
 
+  // Counted here because Battery programs ADC1 itself: there is no bus driver
+  // to own them.
+  AdcFaults GetAdcFaults() const { return faults_; }
+
  private:
   friend class System;
   void Init(const Config &cfg, SharedState &blackboard);
@@ -76,6 +80,8 @@ class Battery {
 
   Config cfg_{};
   SharedState *blackboard_ = nullptr;
+  AdcFaults faults_{};
+
   uint32_t last_sample_us_ = 0;
   uint32_t last_integrator_us_ = 0;
   uint32_t conversion_start_us_ = 0;

@@ -14,7 +14,7 @@ class FcLink {
  public:
   static FcLink &GetInstance();
 
-  void Init(const AppContext *ctx, Uart1 &uart);
+  void Init(const AppContext *ctx, Uart1 &uart, SharedState &blackboard);
 
   // Min RX byte budget per Poll to drain one max-sized packet. Smaller
   // budgets stall: frames arriving faster than rx_budget/frame_size per
@@ -53,6 +53,13 @@ class FcLink {
 
   const AppContext *ctx_ = nullptr;
   Uart1 *uart_ = nullptr;
+  SharedState *blackboard_ = nullptr;
+
+  // Both publish FcLinkData. Only a frame that passed its CRC moves the
+  // stamp: it is the peer's heartbeat, and garbage is not the peer being
+  // heard from.
+  void NoteValidFrame();
+  void NoteChecksumFailure();
 
   // RX Parsing State
   enum class RxState { kMagic1, kMagic2, kId, kLen, kPayload, kCrc1, kCrc2 };
@@ -65,6 +72,8 @@ class FcLink {
     uint8_t payload[message::kMaxPayload];
     uint16_t crc;
   } rx_pkt_internal_;
+
+  uint32_t checksum_failures_ = 0;
 
   // TX Buffer
   static constexpr size_t kTxBufSize = 512;

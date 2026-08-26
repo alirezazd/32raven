@@ -189,7 +189,7 @@ static void MainTick(AppContext &ctx) {
   UsbCdc::GetInstance().Poll(micros());
 
   // Ahead of System::Poll so a fix parsed here reaches the blackboard before
-  // StatPublisher reads it, rather than a pass later.
+  // TelemetryPublisher reads it, rather than a pass later.
   ctx.sys->GpsSvc().Poll();
 
   ctx.sys->Poll(micros());

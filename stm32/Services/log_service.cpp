@@ -37,12 +37,11 @@ void ClearDirEntry(FILINFO &info) { info.fname[0] = '\0'; }
 
 void LogSdFailure(FcLink &fc_link, const char *what, int res) {
   const Sdio::Stats &s = Sdio::GetInstance().GetStats();
-  fc_link.SendLog(
-      "sd: %s failed (%d) cto=%lu ccrc=%lu dto=%lu dcrc=%lu", what, res,
-      static_cast<unsigned long>(s.cmd_timeouts),
-      static_cast<unsigned long>(s.cmd_crc_errors),
-      static_cast<unsigned long>(s.data_timeouts),
-      static_cast<unsigned long>(s.data_crc_errors));
+  fc_link.SendLog("sd: %s failed (%d) cto=%lu ccrc=%lu dto=%lu dcrc=%lu", what,
+                  res, static_cast<unsigned long>(s.cmd_timeouts),
+                  static_cast<unsigned long>(s.cmd_crc_errors),
+                  static_cast<unsigned long>(s.data_timeouts),
+                  static_cast<unsigned long>(s.data_crc_errors));
 }
 
 // ULog wire format (docs.px4.io/main/en/dev_log/ulog_file_format): every
@@ -86,9 +85,9 @@ struct __attribute__((packed)) SensorFifoRecord {
 };
 // The format message declares these widths by hand, and a reader trusts it
 // over the bytes: padding here would shift every field after it.
-static_assert(sizeof(SensorFifoRecord) ==
-              sizeof(MsgHeader) + 2u + 8u + 8u + 4u + 4u + 4u + 1u +
-                  (3u * kImuMaxSamples * 4u));
+static_assert(sizeof(SensorFifoRecord) == sizeof(MsgHeader) + 2u + 8u + 8u +
+                                              4u + 4u + 4u + 1u +
+                                              (3u * kImuMaxSamples * 4u));
 constexpr size_t DecimalDigits(uint32_t value) {
   size_t digits = 1;
   for (; value >= 10u; value /= 10u) {
@@ -110,8 +109,8 @@ constexpr std::string_view kFifoAxes[] = {"x", "y", "z"};
 constexpr size_t kFifoAxesLen = [] {
   size_t len = 0;
   for (std::string_view axis : kFifoAxes) {
-    len += kFifoOpen.size() + DecimalDigits(kImuMaxSamples) + kFifoClose.size() +
-           axis.size() + 1u;
+    len += kFifoOpen.size() + DecimalDigits(kImuMaxSamples) +
+           kFifoClose.size() + axis.size() + 1u;
   }
   return len;
 }();
@@ -267,23 +266,35 @@ struct __attribute__((packed)) SystemHealthRecord {
   MsgHeader hdr;
   uint16_t msg_id;
   uint64_t timestamp;
+  // Grouped per link, each ending in its protocol half, so a peer sending
+  // corrupt frames over a clean UART is separable from one whose wire fails.
   uint32_t fc_tx_drops;
   uint32_t fc_tx_dma_errors;
   uint32_t fc_rx_dma_errors;
+  uint32_t fc_checksum_failures;
   uint32_t gps_tx_drops;
   uint32_t gps_tx_dma_errors;
   uint32_t gps_rx_dma_errors;
+  uint32_t gps_checksum_failures;
   uint32_t rc_tx_drops;
   uint32_t rc_tx_dma_errors;
   uint32_t rc_rx_dma_errors;
+  uint32_t rc_checksum_failures;
+  // ADC1's own, which no link above it can see: a conversion that never came
+  // back leaves the battery reading simply unchanged.
+  uint32_t batt_adc_timeouts;
+  uint32_t batt_adc_overruns;
 };
-static_assert(sizeof(SystemHealthRecord) == 49);
+static_assert(sizeof(SystemHealthRecord) == 69);
 constexpr char kFmtSystemHealth[] =
     "system_health:uint64_t timestamp;uint32_t fc_tx_drops;"
     "uint32_t fc_tx_dma_errors;uint32_t fc_rx_dma_errors;"
-    "uint32_t gps_tx_drops;uint32_t gps_tx_dma_errors;"
-    "uint32_t gps_rx_dma_errors;uint32_t rc_tx_drops;"
-    "uint32_t rc_tx_dma_errors;uint32_t rc_rx_dma_errors;";
+    "uint32_t fc_checksum_failures;uint32_t gps_tx_drops;"
+    "uint32_t gps_tx_dma_errors;uint32_t gps_rx_dma_errors;"
+    "uint32_t gps_checksum_failures;uint32_t rc_tx_drops;"
+    "uint32_t rc_tx_dma_errors;uint32_t rc_rx_dma_errors;"
+    "uint32_t rc_checksum_failures;uint32_t batt_adc_timeouts;"
+    "uint32_t batt_adc_overruns;";
 
 constexpr char kFmtLogger[] =
     "logger_status:uint64_t timestamp;uint32_t dropped_bytes;"
@@ -293,9 +304,9 @@ constexpr char kFmtLogger[] =
 // Both tables are indexed by MsgId, so the raw IMU pair leads them only when it
 // is in the file at all. Built rather than listed for that reason.
 template <typename T>
-constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery,
-                              T esc, T gps, T imu_health, T crsf,
-                              T system_health, T logger) {
+constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
+                              T gps, T imu_health, T crsf, T system_health,
+                              T logger) {
   std::array<T, LogService::kTopicCount> out{};
   size_t at = 0;
   if constexpr (LogService::kRawImuLogEnabled) {
@@ -315,8 +326,8 @@ constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery,
 
 constexpr auto kFormats = MakeTopicTable<const char *>(
     kFmtSensorGyroFifo, kFmtSensorAccelFifo, kFmtRc, kFmtBattery,
-    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtCrsfLink,
-    kFmtSystemHealth, kFmtLogger);
+    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtCrsfLink, kFmtSystemHealth,
+    kFmtLogger);
 constexpr auto kTopicNames = MakeTopicTable<const char *>(
     "sensor_gyro_fifo", "sensor_accel_fifo", "rc_input", "battery",
     "esc_telemetry", "gps", "imu_health", "crsf_link", "system_health",
@@ -361,7 +372,7 @@ void LogService::Init(const Config &cfg, SharedState &blackboard,
   // subscription tables use. Drift here silently mislabels a topic.
   slow_configs_ = {
       cfg_.rc_input,   cfg_.battery,   cfg_.esc_telemetry, cfg_.gps,
-      cfg_.imu_health, cfg_.crsf_link, cfg_.system_health,  cfg_.logger_status,
+      cfg_.imu_health, cfg_.crsf_link, cfg_.system_health, cfg_.logger_status,
   };
   static_assert(kSlowTopicCount == 8,
                 "slow_configs_ above lists one entry per scheduled topic");
@@ -413,8 +424,7 @@ void LogService::PrepareNextFile() {
     // FatFs cannot detect a looped cluster chain, so a corrupted directory
     // scans forever; the cap turns that hang into a diagnosable fault.
     if (++scanned > kMaxRootScanEntries) {
-      fc_link_->SendLog(
-          "sd: root scan runaway at '%s'", info.fname);
+      fc_link_->SendLog("sd: root scan runaway at '%s'", info.fname);
       Panic(ErrorCode::Stm32::kSdCardCorrupted);
     }
     const uint32_t index = LogFileIndex(info.fname);
@@ -700,8 +710,8 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
       }
       case kMsgBattery: {
         const BatteryData &bat = blackboard_->GetBattery();
-        BatteryRecord rec = MakeRecord<BatteryRecord>(
-            kMsgBattery, Stamp64(bat.timestamp_us));
+        BatteryRecord rec =
+            MakeRecord<BatteryRecord>(kMsgBattery, Stamp64(bat.timestamp_us));
         rec.voltage = bat.voltage;
         rec.current = bat.current.value_or(kMissingFloat);
         rec.mah_drawn = bat.mah_drawn.value_or(kMissingFloat);
@@ -714,8 +724,8 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         // Four motors, four stamps, one slot: picking one dates the record
         // by a motor the reader cannot identify, so this stays on poll time
         // until the record carries all four (#33).
-        EscTelemetryRecord rec = MakeRecord<EscTelemetryRecord>(
-            kMsgEscTelemetry, now64);
+        EscTelemetryRecord rec =
+            MakeRecord<EscTelemetryRecord>(kMsgEscTelemetry, now64);
         for (int m = 0; m < 4; ++m) {
           rec.rpm[m] = esc.motors[m].rpm;
           rec.voltage[m] = esc.motors[m].voltage;
@@ -728,8 +738,8 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
       }
       case kMsgGps: {
         const GpsData &gps = blackboard_->GetGps();
-        GpsRecord rec = MakeRecord<GpsRecord>(
-            kMsgGps, Stamp64(gps.timestamp_us));
+        GpsRecord rec =
+            MakeRecord<GpsRecord>(kMsgGps, Stamp64(gps.timestamp_us));
         rec.lat_1e7 = gps.lat;
         rec.lon_1e7 = gps.lon;
         rec.alt_mm = gps.alt;
@@ -780,15 +790,21 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         const SystemHealth &health = blackboard_->GetSystemHealth();
         SystemHealthRecord rec = MakeRecord<SystemHealthRecord>(
             kMsgSystemHealth, Stamp64(health.timestamp_us));
+        // Transports from health, parsers from the peer each belongs to.
         rec.fc_tx_drops = health.fc_uart.tx_drops;
         rec.fc_tx_dma_errors = health.fc_uart.tx_dma_errors;
         rec.fc_rx_dma_errors = health.fc_uart.rx_dma_errors;
+        rec.fc_checksum_failures = blackboard_->GetFcLink().checksum_failures;
         rec.gps_tx_drops = health.gps_uart.tx_drops;
         rec.gps_tx_dma_errors = health.gps_uart.tx_dma_errors;
         rec.gps_rx_dma_errors = health.gps_uart.rx_dma_errors;
+        rec.gps_checksum_failures = blackboard_->GetGps().checksum_failures;
         rec.rc_tx_drops = health.rc_uart.tx_drops;
         rec.rc_tx_dma_errors = health.rc_uart.tx_dma_errors;
         rec.rc_rx_dma_errors = health.rc_uart.rx_dma_errors;
+        rec.rc_checksum_failures = blackboard_->GetCrsfLink().checksum_failures;
+        rec.batt_adc_timeouts = health.batt_adc.timeouts;
+        rec.batt_adc_overruns = health.batt_adc.overruns;
         AppendToStaging(&rec, sizeof(rec));
         break;
       }
@@ -983,10 +999,9 @@ void LogService::StopFlight() {
   if (close_res != FR_OK) {
     LogSdFailure(*fc_link_, "finalize close", close_res);
   }
-  fc_link_->SendLog(
-      "sd: %s closed (%lu KB, %lu dropped)", file_name_,
-      static_cast<unsigned long>(final_bytes >> 10),
-      static_cast<unsigned long>(stats_.dropped_bytes));
+  fc_link_->SendLog("sd: %s closed (%lu KB, %lu dropped)", file_name_,
+                    static_cast<unsigned long>(final_bytes >> 10),
+                    static_cast<unsigned long>(stats_.dropped_bytes));
 
   PrepareNextFile();
 }

@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 #include "crsf_link_service.hpp"
 #include "topic_scheduler.hpp"
@@ -31,7 +32,7 @@ struct VehicleStatusMsg;
 // panic packet fire at their trigger site, carrying data that exists only at
 // that moment; GPS publishes on PVT arrival, where scheduling could only delay
 // a sample that is already fresh.
-class StatPublisher {
+class TelemetryPublisher {
  public:
   struct Config {
     uint8_t fclink_max_frames_per_poll = 1;
@@ -52,30 +53,52 @@ class StatPublisher {
   static constexpr size_t kFcLinkTopicCount = 7u;
   static constexpr size_t kCrsfTopicCount = CrsfLinkService::kTopicCount;
 
-  static StatPublisher &GetInstance();
+  static TelemetryPublisher &GetInstance();
 
   void Poll(uint32_t now_us);
 
  private:
   friend class System;
 
-  void Init(const Config &cfg, SharedState &blackboard,
-            FcLink &fclink, CrsfLinkService &crsf, uint32_t now_us);
+  void Init(const Config &cfg, SharedState &blackboard, FcLink &fclink,
+            CrsfLinkService &crsf, uint32_t now_us);
 
-  // Transport faults belong to the link that owns the UART, so each folds into
+  // Faults belong to the sensor whose path suffered them, so each folds into
   // that sensor's health bit rather than getting a field of its own. FcLink's
   // own UART is absent on purpose: a report about FcLink's transport only
   // arrives over FcLink when it was not needed.
-  struct LinkHealth {
+  //
+  // Every counter behind these is a since-boot total that nothing resets, so
+  // the window is what keeps `onboard_control_sensors_health` meaning what
+  // MAVLink says it means -- an error now, not an error ever. A ground station
+  // that wants "degraded this session" holds that itself; it sees every frame,
+  // where the vehicle would have to lie in all of them to say the same thing.
+  struct FaultWindow {
     uint32_t last_total = 0;
     bool healthy = true;
   };
 
-  // Long enough that a single retried DMA error does not hold a link unhealthy
-  // across a whole GCS refresh, short enough to still catch a repeating fault.
+  // Indexes fault_windows_. Every sensor that counts a fault appears; the
+  // window is only half of each bit, which also has to be fresh.
+  enum class FaultSource : uint8_t {
+    kImu,
+    kGps,
+    kRc,
+    kEsc,
+    kBattery,
+    kCount,
+  };
+
+  // Long enough that a single retried DMA error does not hold a sensor
+  // unhealthy across a whole GCS refresh, short enough to still catch a
+  // repeating fault.
   static constexpr uint32_t kLinkErrorWindowUs = 1000000u;
 
-  void UpdateLinkHealth(uint32_t now_us);
+  void UpdateFaultWindows(uint32_t now_us);
+  // Only the window: the sensor's own bit also has to be fresh.
+  bool IsHealthy(FaultSource source) const {
+    return fault_windows_[std::to_underlying(source)].healthy;
+  }
 
   // The .cpp's config array is built in this order and indexed by it.
   enum class FcLinkTopic : uint8_t {
@@ -91,18 +114,19 @@ class StatPublisher {
 
   static_assert(static_cast<size_t>(FcLinkTopic::kCount) == kFcLinkTopicCount);
 
+  // Parallel to CrsfLinkService::TelemetryResult, and named apart from the
+  // shared ::Outcome that reaches this header through uart.hpp.
   // kBlocked ends the group's poll rather than trying the next topic: a
   // refusal means that group's link is full, which the next topic on it would
   // only meet as well. Groups are polled separately, so it says nothing about
   // the other link.
-  enum class Outcome : uint8_t {
+  enum class PublishResult : uint8_t {
     kSent,
     kSkipped,
     kBlocked,
   };
 
-  using Publish = Outcome (*)(StatPublisher &self,
-                              uint32_t now_us);
+  using Publish = PublishResult (*)(TelemetryPublisher &self, uint32_t now_us);
 
   // A scheduler and the deadlines it owns. Groups are independent by
   // construction: separate ladders, separate staggers, separate budgets, so
@@ -113,10 +137,10 @@ class StatPublisher {
     std::array<TopicState, N> states{};
   };
 
-  StatPublisher() = default;
-  ~StatPublisher() = default;
-  StatPublisher(const StatPublisher &) = delete;
-  StatPublisher &operator=(const StatPublisher &) = delete;
+  TelemetryPublisher() = default;
+  ~TelemetryPublisher() = default;
+  TelemetryPublisher(const TelemetryPublisher &) = delete;
+  TelemetryPublisher &operator=(const TelemetryPublisher &) = delete;
 
   static uint16_t BatteryVoltageMv(const BatteryData &battery);
   static int16_t BatteryCurrentCa(const BatteryData &battery);
@@ -129,30 +153,31 @@ class StatPublisher {
   message::GpsData BuildGpsMsg() const;
   message::AttitudeMsg BuildAttitudeMsg() const;
 
-  static Outcome PublishSystemStatus(StatPublisher &self,
-                                     uint32_t now_us);
-  static Outcome PublishVehicleStatus(StatPublisher &self,
-                                      uint32_t now_us);
-  static Outcome PublishEscTelemetry(StatPublisher &self,
-                                     uint32_t now_us);
-  static Outcome PublishRcChannels(StatPublisher &self,
-                                   uint32_t now_us);
-  static Outcome PublishUsbStatus(StatPublisher &self,
-                                  uint32_t now_us);
-  static Outcome PublishGps(StatPublisher &self, uint32_t now_us);
-  static Outcome PublishAttitude(StatPublisher &self, uint32_t now_us);
+  static PublishResult PublishSystemStatus(TelemetryPublisher &self,
+                                           uint32_t now_us);
+  static PublishResult PublishVehicleStatus(TelemetryPublisher &self,
+                                            uint32_t now_us);
+  static PublishResult PublishEscTelemetry(TelemetryPublisher &self,
+                                           uint32_t now_us);
+  static PublishResult PublishRcChannels(TelemetryPublisher &self,
+                                         uint32_t now_us);
+  static PublishResult PublishUsbStatus(TelemetryPublisher &self,
+                                        uint32_t now_us);
+  static PublishResult PublishGps(TelemetryPublisher &self, uint32_t now_us);
+  static PublishResult PublishAttitude(TelemetryPublisher &self,
+                                       uint32_t now_us);
 
   // CrsfLinkService owns the payloads and the change detection; the silence
   // bound is the scheduler's, so it is passed in rather than duplicated there.
-  static Outcome PublishCrsfTopic(StatPublisher &self,
-                                  uint32_t now_us,
-                                  CrsfLinkService::TelemetryTopic topic);
-  static Outcome PublishCrsfHeartbeat(StatPublisher &self,
+  static PublishResult PublishCrsfTopic(TelemetryPublisher &self,
+                                        uint32_t now_us,
+                                        CrsfLinkService::TelemetryTopic topic);
+  static PublishResult PublishCrsfHeartbeat(TelemetryPublisher &self,
+                                            uint32_t now_us);
+  static PublishResult PublishCrsfGps(TelemetryPublisher &self,
                                       uint32_t now_us);
-  static Outcome PublishCrsfGps(StatPublisher &self,
-                                uint32_t now_us);
-  static Outcome PublishCrsfBattery(StatPublisher &self,
-                                    uint32_t now_us);
+  static PublishResult PublishCrsfBattery(TelemetryPublisher &self,
+                                          uint32_t now_us);
 
   // Emit whichever topics of one group are due, up to `budget` frames.
   template <size_t N>
@@ -164,8 +189,8 @@ class StatPublisher {
   FcLink *fclink_svc_ = nullptr;
   CrsfLinkService *crsf_svc_ = nullptr;
   uint32_t last_link_window_us_ = 0;
-  LinkHealth gps_link_{};
-  LinkHealth crsf_link_{};
+  std::array<FaultWindow, std::to_underlying(FaultSource::kCount)>
+      fault_windows_{};
   Group<kFcLinkTopicCount> fclink_{};  // -> UART1, the ESP32
   Group<kCrsfTopicCount> crsf_{};      // -> UART6, the receiver
   bool initialized_ = false;

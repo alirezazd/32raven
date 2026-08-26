@@ -56,7 +56,7 @@ constexpr std::array<System::Component,
         System::Component::kRateController,
         System::Component::kAttitudeController,
         System::Component::kSentinel,
-        System::Component::kStatPublisher,
+        System::Component::kTelemetryPublisher,
         System::Component::kSdio,
         System::Component::kLogService,
         System::Component::kMscService,
@@ -114,23 +114,13 @@ void System::Init() {
 // The one place that already knows which UART serves which peer, so the
 // mapping stays here rather than in every consumer of the record.
 void System::PublishSystemHealth(uint32_t now_us) {
-  const auto to_faults = [](const auto &uart) {
-    const auto f = uart.GetFaults();
-    return UartFaults{.tx_drops = f.tx_drops,
-                      .tx_dma_errors = f.tx_dma_errors,
-                      .rx_dma_errors = f.rx_dma_errors};
-  };
-
-  const Spi2::Faults spi = Spi2::GetInstance().GetFaults();
-
   blackboard_.UpdateSystemHealth(SystemHealth{
       .timestamp_us = now_us,
-      .fc_uart = to_faults(FcUart()),
-      .gps_uart = to_faults(GpsUart()),
-      .rc_uart = to_faults(RcUart()),
-      .imu_spi = {.start_refused = spi.start_refused,
-                  .dma_errors = spi.dma_errors,
-                  .timeouts = spi.timeouts},
+      .fc_uart = FcUart().GetFaults(),
+      .gps_uart = GpsUart().GetFaults(),
+      .rc_uart = RcUart().GetFaults(),
+      .imu_spi = Spi2::GetInstance().GetFaults(),
+      .batt_adc = Batt().GetAdcFaults(),
   });
 }
 
@@ -138,7 +128,7 @@ void System::Poll(uint32_t now_us) {
   PublishSystemHealth(now_us);
   SentinelSvc().Supervise(now_us);
   Batt().Poll(now_us);
-  StatPubSvc().Poll(now_us);
+  TelemetryPubSvc().Poll(now_us);
   // Last, so what the publisher just queued goes out on this pass.
   FcLinkSvc().Poll();
 }
@@ -222,9 +212,9 @@ void System::InitComponent(Component c) {
           kSensorCalConfig, blackboard_, Icm42688p::GetInstance(),
           FcLink::GetInstance());
       break;
-    case Component::kStatPublisher:
-      StatPublisher::GetInstance().Init(
-          kStatPublisherConfig, blackboard_, FcLink::GetInstance(),
+    case Component::kTelemetryPublisher:
+      TelemetryPublisher::GetInstance().Init(
+          kTelemetryPublisherConfig, blackboard_, FcLink::GetInstance(),
           crsf_link_service_, TimeBase::GetInstance().Micros());
       break;
     case Component::kLed:
