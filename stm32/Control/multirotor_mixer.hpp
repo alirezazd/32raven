@@ -53,11 +53,11 @@ struct MixOutput {
 // All signs follow the aerospace right-hand rule about NED body axes
 // (X = forward, Y = right, Z = down):
 //   +roll_torque  → right wing down (rotates +Y_right toward +Z_down)
-//   +pitch_torque → nose down       (rotates +X_fwd  toward +Z_down)
+//   +pitch_torque → nose up         (rotates +X_fwd  toward -Z_up)
 //   +yaw_torque   → nose right      (rotates +X_fwd  toward +Y_right)
 struct Inputs {
   float roll_torque;   // [-1, +1]  body X — right wing down = +
-  float pitch_torque;  // [-1, +1]  body Y — nose down       = +
+  float pitch_torque;  // [-1, +1]  body Y — nose up         = +
   float yaw_torque;    // [-1, +1]  body Z — nose right      = +
   float thrust;        // [ 0, +1]  collective along body -Z (up)
 };
@@ -65,8 +65,8 @@ struct Inputs {
 // QuadX mix matrix. Rows = motors (M1..M4), cols = (roll, pitch, yaw).
 // Throttle column is implicit +1 for every motor.
 // Sign convention (all NED):
-//   Pitch +1 (nose down): front motors (M1, M4) slow; back motors
-//     (M2, M3) speed up — tail lifts, nose dips.
+//   Pitch +1 (nose up): front motors (M1, M4) speed up; back motors
+//     (M2, M3) slow — nose lifts, tail dips.
 //   Yaw  +1 (nose right): CCW props (M1, M3) speed up; CW props
 //     (M2, M4) slow down. Faster CCW prop → more CW reaction torque
 //     on the body (Newton's 3rd) → body yaws right.
