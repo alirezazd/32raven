@@ -3320,6 +3320,46 @@ config STM32_RC_RECEIVER_CRSF_TEMPERATURE_MAX_SILENCE_MS
 
 endmenu
 
+menu "GPS Time"
+
+config STM32_RC_RECEIVER_CRSF_GPS_TIME_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 10000
+    help
+      Interval between CRSF GPS time frames sent back to the radio. Set to 0
+      to disable GPS time telemetry on the RC receiver link.
+
+      EdgeTX makes this the handset's clock rather than a display field: it
+      calls rtcAdjust on the frame when Adjust RTC is enabled, which is why a
+      slow period is enough and why an unresolved or stale date is withheld
+      instead of sent as zeroes.
+
+config STM32_RC_RECEIVER_CRSF_GPS_TIME_PRIORITY
+    int "Priority"
+    range 0 15
+    default 2
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win. Lowest of the CRSF topics: a clock that
+      arrives a poll late is still the right clock.
+
+config STM32_RC_RECEIVER_CRSF_GPS_TIME_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default n
+    help
+      Off by design. The seconds field moves every second, so change
+      suppression can never fire and only costs a payload comparison.
+
+config STM32_RC_RECEIVER_CRSF_GPS_TIME_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 0
+    help
+      Unused while send-on-change is off, since nothing is being suppressed.
+
+endmenu
+
 endmenu
 
 menu "Channel Mapping"

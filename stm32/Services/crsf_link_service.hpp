@@ -25,6 +25,7 @@ class CrsfLinkService {
     kAttitude,
     kRpm,
     kTemperature,
+    kGpsTime,
     kCount,
   };
 

@@ -57,6 +57,7 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kCrsfTopicCount>
         kTelemetryPublisherConfig.crsf_attitude,
         kTelemetryPublisherConfig.crsf_rpm,
         kTelemetryPublisherConfig.crsf_temperature,
+        kTelemetryPublisherConfig.crsf_gps_time,
     }};
 
 constexpr uint32_t kFcLinkPeriodsUs[] = {
@@ -77,6 +78,7 @@ constexpr uint32_t kCrsfPeriodsUs[] = {
     kTelemetryPublisherConfig.crsf_attitude.period,
     kTelemetryPublisherConfig.crsf_rpm.period,
     kTelemetryPublisherConfig.crsf_temperature.period,
+    kTelemetryPublisherConfig.crsf_gps_time.period,
 };
 
 static_assert(std::size(kFcLinkPeriodsUs) ==
@@ -524,6 +526,12 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfTemperature(
                           CrsfLinkService::TelemetryTopic::kTemperature);
 }
 
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfGpsTime(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
+                          CrsfLinkService::TelemetryTopic::kGpsTime);
+}
+
 void TelemetryPublisher::Init(const Config &cfg, SharedState &blackboard,
                               FcLink &fclink, CrsfLinkService &crsf,
                               uint32_t now_us) {
@@ -604,7 +612,7 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
       PublishCrsfHeartbeat,   PublishCrsfGps,      PublishCrsfBattery,
       PublishCrsfFlightMode,  PublishCrsfAttitude, PublishCrsfRpm,
-      PublishCrsfTemperature,
+      PublishCrsfTemperature, PublishCrsfGpsTime,
   };
 
   PollGroup(fclink_, kFcLinkPublishers, cfg_.fclink_max_frames_per_poll,

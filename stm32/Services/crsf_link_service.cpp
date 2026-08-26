@@ -32,6 +32,7 @@ constexpr uint8_t kCrsfFrameTypeRpm = 0x0Cu;
 constexpr uint8_t kCrsfFrameTypeTemperature = 0x0Du;
 constexpr uint8_t kCrsfFrameTypeAttitude = 0x1Eu;
 constexpr uint8_t kCrsfFrameTypeFlightMode = 0x21u;
+constexpr uint8_t kCrsfFrameTypeGpsTime = 0x03u;
 constexpr uint8_t kCrsfAddressFlightController = 0xC8u;
 constexpr uint8_t kCrsfAddressReceiver = 0xECu;
 constexpr uint8_t kCrsfAddressTransmitter = 0xEEu;
@@ -54,6 +55,7 @@ constexpr uint8_t kTemperaturePayloadSize =
     1u + (2u * common_config::kAirframeMotorCount);
 // Longest name, the disarmed marker, and the terminator.
 constexpr uint8_t kFlightModePayloadSize = 6u;
+constexpr uint8_t kGpsTimePayloadSize = 9u;
 // Source 0 is the airframe as a whole, which is what a per-motor list is --
 // the alternative numbering identifies one physical sensor per frame.
 constexpr uint8_t kCrsfSensorSourceAirframe = 0u;
@@ -215,6 +217,23 @@ uint8_t EncodeFlightModePayload(FlightMode mode, bool armed,
   return len;
 }
 
+// EdgeTX turns this into the handset's clock, not just a display field:
+// crossfire.cpp splits the frame into a date and a time record, and
+// telemetry_sensors.cpp calls rtcAdjust on the second when Adjust RTC is on.
+// It decodes the year as `year - 2000` into a uint8, so a full four-digit year
+// is required and an unresolved date must never reach it.
+void EncodeGpsTimePayload(const GpsData &gps,
+                          uint8_t payload[kGpsTimePayloadSize]) {
+  StoreBe16(payload + 0u, gps.year);
+  payload[2] = gps.month;
+  payload[3] = gps.day;
+  payload[4] = gps.hour;
+  payload[5] = gps.min;
+  payload[6] = gps.sec;
+  // GpsData keeps whole seconds; the handset's decoder reads no further.
+  StoreBe16(payload + 7u, 0u);
+}
+
 void EncodeBatteryPayload(const BatteryData &battery,
                           uint8_t payload[kBatteryPayloadSize]) {
   // De-facto EdgeTX CRSF battery encoding for cross-stack compatibility.
@@ -337,6 +356,7 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
   static_assert(kRpmPayloadSize <= kMaxTelemetryPayload);
   static_assert(kTemperaturePayloadSize <= kMaxTelemetryPayload);
   static_assert(kFlightModePayloadSize <= kMaxTelemetryPayload);
+  static_assert(kGpsTimePayloadSize <= kMaxTelemetryPayload);
 
   if (blackboard_ == nullptr) {
     return std::nullopt;
@@ -410,6 +430,19 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
       frame.type = kCrsfFrameTypeTemperature;
       frame.len = kTemperaturePayloadSize;
       EncodeTemperaturePayload(esc, frame.payload.data());
+      return frame;
+    }
+    case TelemetryTopic::kGpsTime: {
+      const GpsData &gps = blackboard_->GetGps();
+      // Setting a clock from a stale fix is worse than not setting it, and a
+      // year of zero underflows the handset's `year - 2000`.
+      if (gps.year == 0 || gps.timestamp_us == 0 ||
+          (now_us - gps.timestamp_us) > cfg_.gps_fresh_timeout_us) {
+        return std::nullopt;
+      }
+      frame.type = kCrsfFrameTypeGpsTime;
+      frame.len = kGpsTimePayloadSize;
+      EncodeGpsTimePayload(gps, frame.payload.data());
       return frame;
     }
     case TelemetryTopic::kCount:

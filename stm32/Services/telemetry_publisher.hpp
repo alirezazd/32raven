@@ -51,6 +51,7 @@ class TelemetryPublisher {
     TopicConfig crsf_attitude{};
     TopicConfig crsf_rpm{};
     TopicConfig crsf_temperature{};
+    TopicConfig crsf_gps_time{};
   };
 
   // Public only so the .cpp's config tables can be sized by them.
@@ -185,6 +186,8 @@ class TelemetryPublisher {
   static PublishResult PublishCrsfAttitude(TelemetryPublisher &self,
                                     uint32_t now_us);
   static PublishResult PublishCrsfRpm(TelemetryPublisher &self,
+                                    uint32_t now_us);
+  static PublishResult PublishCrsfGpsTime(TelemetryPublisher &self,
                                     uint32_t now_us);
   static PublishResult PublishCrsfTemperature(TelemetryPublisher &self,
                                     uint32_t now_us);
