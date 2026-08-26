@@ -61,10 +61,6 @@ class Icm42688p {
       bool hires;
     } fifo;
 
-    struct Recovery {
-      uint32_t fault_led_period_ms;
-    } recovery;
-
     // Per-board chip-frame → body-NED axis remap, applied inside this driver
     // and nowhere else, so no downstream code re-flips axes.
     // Each component picks a chip axis (0=X, 1=Y, 2=Z) and optional sign.

@@ -1728,15 +1728,6 @@ config STM32_IMU_SPI_MAX_SCK_HZ
       the range here refuses anything above that, and the build picks the
       slowest SPI2 prescaler at or under this value from the live APB1 clock.
 
-
-config STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS
-    int "Recovery fault LED period (ms)"
-    range 20 5000
-    default 200
-    help
-      Blink period for the fault LED indication while IMU recovery or panic
-      handling is active.
-
 endmenu
 
 menu "Clock"

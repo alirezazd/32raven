@@ -9,8 +9,6 @@
 #include "stm32_config.hpp"
 #include "system.hpp"
 
-static uint32_t g_fault_led_last_toggle_us = 0;
-
 static uint32_t g_main_tick_counter = 0;
 static ControlLoopLoad g_control_loop_load{};
 
@@ -202,17 +200,6 @@ static void MainTick(AppContext &ctx) {
 
   g_main_tick_counter++;
   ctx.sys->Blackboard().UpdateMainTickCount(g_main_tick_counter);
-
-  if (ctx.sys->Blackboard().GetImuHealth().path_faults != 0) {
-    const uint32_t current_us = micros();
-    const uint32_t fault_led_period_us =
-        MillisToMicros(kIcm42688pConfig.recovery.fault_led_period_ms);
-
-    if ((current_us - g_fault_led_last_toggle_us) >= fault_led_period_us) {
-      ctx.sys->Led().Toggle();
-      g_fault_led_last_toggle_us = current_us;
-    }
-  }
 
   ctx.sys->CrsfLinkSvc().PollRx(micros());
   ctx.sys->EscSvc().Poll(micros());

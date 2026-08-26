@@ -209,9 +209,6 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .hold_last = {{ icm42688p.fifo.hold_last | cpp_bool }},
         .hires = {{ icm42688p.fifo.hires | cpp_bool }},
     },
-    .recovery = {
-        .fault_led_period_ms = {{ icm42688p.recovery.fault_led_period_ms }},
-    },
 {# Chip-frame -> body-NED axis remap. Identity: this board mounts the
    ICM-42688P with its native axes already aligned to body-NED (chip
    +X = body North, +Y = body East, +Z = body Down). The single

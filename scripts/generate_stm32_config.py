@@ -2082,11 +2082,6 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "hold_last": sym_bool(kconf, "STM32_IMU_FIFO_HOLD_LAST"),
             "hires": sym_bool(kconf, "STM32_IMU_FIFO_HIRES_EN"),
         },
-        "recovery": {
-            "fault_led_period_ms": sym_int(
-                kconf, "STM32_IMU_RECOVERY_FAULT_LED_PERIOD_MS"
-            ),
-        },
     }
 
 
