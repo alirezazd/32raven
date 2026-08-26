@@ -61,7 +61,14 @@ class Spi {
   // transfer error is this bus's DMA, and a timeout is this bus's status flag
   // never arriving. The device reads them back for its own path summary, so
   // there is one count with two readers.
-  SpiFaults GetFaults() const {
+  // SPI2 only, because the other instance cannot fill the record: both DMA
+  // counters move exclusively in transfers that are themselves SPI2-only, so
+  // the EEPROM bus would report two clean counters where it means two absent
+  // ones. Its blocking path still counts timeouts, and can hand them back
+  // through a narrower accessor if anything ever asks.
+  SpiFaults GetFaults() const
+    requires(Inst == SpiInstance::kSpi2)
+  {
     return SpiFaults{.start_refused = start_refused_,
                      .dma_errors = dma_errors_,
                      .timeouts = timeouts_};
