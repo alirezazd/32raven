@@ -9,7 +9,9 @@
 #include <span>
 
 #include "checksum.hpp"
+#include "common_config.hpp"
 #include "error_code.hpp"
+#include "math/attitude_euler.hpp"
 #include "panic.hpp"
 #include "rc_receiver.hpp"
 #include "shared_state.hpp"
@@ -26,6 +28,10 @@ constexpr uint8_t kCrsfFrameTypeBattery = 0x08u;
 constexpr uint8_t kCrsfFrameTypeLinkStatistics = 0x14u;
 constexpr uint8_t kCrsfFrameTypeRcChannelsPacked = 0x16u;
 constexpr uint8_t kCrsfFrameTypeDirectCommand = 0x32u;
+constexpr uint8_t kCrsfFrameTypeRpm = 0x0Cu;
+constexpr uint8_t kCrsfFrameTypeTemperature = 0x0Du;
+constexpr uint8_t kCrsfFrameTypeAttitude = 0x1Eu;
+constexpr uint8_t kCrsfFrameTypeFlightMode = 0x21u;
 constexpr uint8_t kCrsfAddressFlightController = 0xC8u;
 constexpr uint8_t kCrsfAddressReceiver = 0xECu;
 constexpr uint8_t kCrsfAddressTransmitter = 0xEEu;
@@ -40,6 +46,17 @@ constexpr uint8_t kCrsfMaxFrameLength = 62u;
 constexpr uint8_t kGpsPayloadSize = 15u;
 constexpr uint8_t kHeartbeatPayloadSize = 2u;
 constexpr uint8_t kBatteryPayloadSize = 8u;
+constexpr uint8_t kAttitudePayloadSize = 6u;
+// A source byte, then one entry per motor: 24-bit RPM, 16-bit deci-Celsius.
+constexpr uint8_t kRpmPayloadSize =
+    1u + (3u * common_config::kAirframeMotorCount);
+constexpr uint8_t kTemperaturePayloadSize =
+    1u + (2u * common_config::kAirframeMotorCount);
+// Longest name, the disarmed marker, and the terminator.
+constexpr uint8_t kFlightModePayloadSize = 6u;
+// Source 0 is the airframe as a whole, which is what a per-motor list is --
+// the alternative numbering identifies one physical sensor per frame.
+constexpr uint8_t kCrsfSensorSourceAirframe = 0u;
 
 uint8_t CrsfCommandCrc8(const uint8_t *data, std::size_t len) {
   uint8_t crc = 0;
@@ -131,6 +148,71 @@ void EncodeGpsPayload(const GpsData &gps, uint8_t payload[kGpsPayloadSize]) {
 
 void EncodeHeartbeatPayload(uint8_t payload[kHeartbeatPayloadSize]) {
   StoreBe16(payload, kCrsfAddressFlightController);
+}
+
+int16_t ClampI16(float value) {
+  if (value > 32767.0f) return 32767;
+  if (value < -32768.0f) return -32768;
+  return static_cast<int16_t>(value);
+}
+
+void EncodeAttitudePayload(const EstimatorState &estimate,
+                           uint8_t payload[kAttitudePayloadSize]) {
+  constexpr float kRadToUnits = 10000.0f;
+  const math::EulerZyx euler =
+      math::EulerZyxFromQuaternion(estimate.attitude_world_to_body);
+  // Pitch first, then roll: CRSF's order, not the roll-pitch-yaw the rest of
+  // this codebase writes.
+  StoreBe16(payload + 0u,
+            static_cast<uint16_t>(ClampI16(euler.pitch * kRadToUnits)));
+  StoreBe16(payload + 2u,
+            static_cast<uint16_t>(ClampI16(euler.roll * kRadToUnits)));
+  StoreBe16(payload + 4u,
+            static_cast<uint16_t>(ClampI16(euler.yaw * kRadToUnits)));
+}
+
+// A motor the ESCs have not answered for reports zero rather than being left
+// out: the list is positional, so a short one renumbers every motor after it.
+void EncodeRpmPayload(const EscTelemetryData &esc,
+                      uint8_t payload[kRpmPayloadSize]) {
+  payload[0] = kCrsfSensorSourceAirframe;
+  for (uint8_t i = 0; i < common_config::kAirframeMotorCount; ++i) {
+    const bool valid = (esc.valid_mask & (1u << i)) != 0u;
+    const uint32_t rpm = valid ? esc.motors[i].rpm : 0u;
+    StoreBe24(payload + 1u + (3u * i), rpm & 0x00FFFFFFu);
+  }
+}
+
+void EncodeTemperaturePayload(const EscTelemetryData &esc,
+                              uint8_t payload[kTemperaturePayloadSize]) {
+  payload[0] = kCrsfSensorSourceAirframe;
+  for (uint8_t i = 0; i < common_config::kAirframeMotorCount; ++i) {
+    const bool valid = (esc.valid_mask & (1u << i)) != 0u;
+    // Deci-Celsius on the wire; AM32 reports whole degrees.
+    const int16_t deci_c =
+        valid ? static_cast<int16_t>(esc.motors[i].temperature_c * 10) : 0;
+    StoreBe16(payload + 1u + (2u * i), static_cast<uint16_t>(deci_c));
+  }
+}
+
+// EdgeTX renders this as the FM field, so it is the one status the pilot reads
+// without looking away from the aircraft. Betaflight's vocabulary, because
+// that is what the handset's users already know how to read.
+uint8_t EncodeFlightModePayload(FlightMode mode, bool armed,
+                                uint8_t payload[kFlightModePayloadSize]) {
+  const char *name = (mode == FlightMode::kStabilize) ? "STAB" : "ACRO";
+  uint8_t len = 0;
+  while (name[len] != '\0') {
+    payload[len] = static_cast<uint8_t>(name[len]);
+    len++;
+  }
+  // Betaflight's disarmed markers are '*' ready, '!' arming blocked. Nothing
+  // here can say blocked yet, so the honest answer is the one it can prove.
+  if (!armed) {
+    payload[len++] = static_cast<uint8_t>('*');
+  }
+  payload[len++] = 0u;
+  return len;
 }
 
 void EncodeBatteryPayload(const BatteryData &battery,
@@ -251,6 +333,10 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
   static_assert(kHeartbeatPayloadSize <= kMaxTelemetryPayload);
   static_assert(kGpsPayloadSize <= kMaxTelemetryPayload);
   static_assert(kBatteryPayloadSize <= kMaxTelemetryPayload);
+  static_assert(kAttitudePayloadSize <= kMaxTelemetryPayload);
+  static_assert(kRpmPayloadSize <= kMaxTelemetryPayload);
+  static_assert(kTemperaturePayloadSize <= kMaxTelemetryPayload);
+  static_assert(kFlightModePayloadSize <= kMaxTelemetryPayload);
 
   if (blackboard_ == nullptr) {
     return std::nullopt;
@@ -285,6 +371,45 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
       frame.type = kCrsfFrameTypeBattery;
       frame.len = kBatteryPayloadSize;
       EncodeBatteryPayload(battery, frame.payload.data());
+      return frame;
+    }
+    case TelemetryTopic::kFlightMode: {
+      frame.type = kCrsfFrameTypeFlightMode;
+      frame.len = EncodeFlightModePayload(blackboard_->GetFlightMode(),
+                                          blackboard_->IsArmed(),
+                                          frame.payload.data());
+      return frame;
+    }
+    case TelemetryTopic::kAttitude: {
+      const EstimatorState &estimate = blackboard_->GetEstimate();
+      if (estimate.timestamp_us == 0) {
+        return std::nullopt;
+      }
+      frame.type = kCrsfFrameTypeAttitude;
+      frame.len = kAttitudePayloadSize;
+      EncodeAttitudePayload(estimate, frame.payload.data());
+      return frame;
+    }
+    case TelemetryTopic::kRpm: {
+      const EscTelemetryData &esc = blackboard_->GetEscTelemetry();
+      // valid_mask, not the stamp: the mask is what says a motor answered,
+      // and it clears per motor where the stamp is one number for all four.
+      if (esc.valid_mask == 0u) {
+        return std::nullopt;
+      }
+      frame.type = kCrsfFrameTypeRpm;
+      frame.len = kRpmPayloadSize;
+      EncodeRpmPayload(esc, frame.payload.data());
+      return frame;
+    }
+    case TelemetryTopic::kTemperature: {
+      const EscTelemetryData &esc = blackboard_->GetEscTelemetry();
+      if (esc.valid_mask == 0u) {
+        return std::nullopt;
+      }
+      frame.type = kCrsfFrameTypeTemperature;
+      frame.len = kTemperaturePayloadSize;
+      EncodeTemperaturePayload(esc, frame.payload.data());
       return frame;
     }
     case TelemetryTopic::kCount:

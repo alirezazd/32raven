@@ -21,6 +21,10 @@ class CrsfLinkService {
     kHeartbeat,
     kGps,
     kBattery,
+    kFlightMode,
+    kAttitude,
+    kRpm,
+    kTemperature,
     kCount,
   };
 
@@ -82,9 +86,9 @@ class CrsfLinkService {
     kReceiverCancelBind,
   };
 
-  // TODO(#11): add native telemetry frames as data lands and give each a
-  // topic in TelemetryPublisher's CRSF group: flight mode 0x21, attitude 0x1E,
-  // baro/vario 0x09/0x07, temps 0x0D, voltages/cell 0x0E, rpm 0x0C.
+  // TODO(#11): baro 0x09 and vario 0x07 join when the DPS310 lands. Cells
+  // 0x0E stays out while only pack voltage is sensed: a per-cell split of it
+  // reads as a balanced pack however far one cell has sagged.
   std::optional<TelemetryFrame> PrepareTelemetryTopic(TelemetryTopic topic,
                                                       uint32_t now_us) const;
   bool PayloadChanged(TelemetryTopic topic, const TelemetryFrame &frame) const;

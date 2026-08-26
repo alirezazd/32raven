@@ -3142,6 +3142,168 @@ config STM32_RC_RECEIVER_CRSF_BATTERY_MAX_SILENCE_MS
 
 endmenu
 
+menu "Flight Mode"
+
+config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 500
+    help
+      Interval between CRSF flight mode frames sent back to the radio. Set to 0 to
+      disable flight mode telemetry on the RC receiver link.
+
+      The armed/disarmed state and current mode as a short string, which
+      EdgeTX renders as the FM telemetry field. Betaflight's vocabulary,
+      so a handset's logical switches written for one work on the other.
+
+config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_PRIORITY
+    int "Priority"
+    range 0 15
+    default 12
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default y
+    help
+      Suppress repeated CRSF flight mode frames when the encoded payload has not
+      changed since the last send. A keepalive resend still occurs when the
+      max-silence window expires.
+
+config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 2000
+    help
+      Longest time the scheduler may suppress unchanged CRSF flight mode telemetry
+      before forcing a resend. Set to 0 to only send flight mode data when the
+      payload changes.
+
+endmenu
+
+menu "Attitude"
+
+config STM32_RC_RECEIVER_CRSF_ATTITUDE_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 200
+    help
+      Interval between CRSF attitude frames sent back to the radio. Set to 0 to
+      disable attitude telemetry on the RC receiver link.
+
+      Pitch, roll and yaw in radians. The control loop writes the estimate far
+      faster than this link can carry it, so the period is a decimation.
+
+config STM32_RC_RECEIVER_CRSF_ATTITUDE_PRIORITY
+    int "Priority"
+    range 0 15
+    default 6
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+config STM32_RC_RECEIVER_CRSF_ATTITUDE_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default y
+    help
+      Suppress repeated CRSF attitude frames when the encoded payload has not
+      changed since the last send. A keepalive resend still occurs when the
+      max-silence window expires.
+
+config STM32_RC_RECEIVER_CRSF_ATTITUDE_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 2000
+    help
+      Longest time the scheduler may suppress unchanged CRSF attitude telemetry
+      before forcing a resend. Set to 0 to only send attitude data when the
+      payload changes.
+
+endmenu
+
+menu "RPM"
+
+config STM32_RC_RECEIVER_CRSF_RPM_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 500
+    help
+      Interval between CRSF RPM frames sent back to the radio. Set to 0 to
+      disable RPM telemetry on the RC receiver link.
+
+      Per-motor RPM from ESC telemetry. Worth having on the radio because a
+      handset can fire a voice callout on it, which beats a screen nobody is
+      looking at mid-flight.
+
+config STM32_RC_RECEIVER_CRSF_RPM_PRIORITY
+    int "Priority"
+    range 0 15
+    default 8
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+config STM32_RC_RECEIVER_CRSF_RPM_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default y
+    help
+      Suppress repeated CRSF RPM frames when the encoded payload has not
+      changed since the last send. A keepalive resend still occurs when the
+      max-silence window expires.
+
+config STM32_RC_RECEIVER_CRSF_RPM_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 5000
+    help
+      Longest time the scheduler may suppress unchanged CRSF RPM telemetry
+      before forcing a resend. Set to 0 to only send RPM data when the
+      payload changes.
+
+endmenu
+
+menu "Temperature"
+
+config STM32_RC_RECEIVER_CRSF_TEMPERATURE_PERIOD_MS
+    int "Period (ms)"
+    range 0 60000
+    default 1000
+    help
+      Interval between CRSF temperature frames sent back to the radio. Set to 0 to
+      disable temperature telemetry on the RC receiver link.
+
+      Per-motor ESC temperature in tenths of a degree. The condition it exists
+      to catch is derating, which is gradual and easy to miss.
+
+config STM32_RC_RECEIVER_CRSF_TEMPERATURE_PRIORITY
+    int "Priority"
+    range 0 15
+    default 7
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win.
+
+config STM32_RC_RECEIVER_CRSF_TEMPERATURE_SEND_ON_CHANGE
+    bool "Prefer send on change"
+    default y
+    help
+      Suppress repeated CRSF temperature frames when the encoded payload has not
+      changed since the last send. A keepalive resend still occurs when the
+      max-silence window expires.
+
+config STM32_RC_RECEIVER_CRSF_TEMPERATURE_MAX_SILENCE_MS
+    int "Max silence (ms)"
+    range 0 60000
+    default 5000
+    help
+      Longest time the scheduler may suppress unchanged CRSF temperature telemetry
+      before forcing a resend. Set to 0 to only send temperature data when the
+      payload changes.
+
+endmenu
+
 endmenu
 
 menu "Channel Mapping"

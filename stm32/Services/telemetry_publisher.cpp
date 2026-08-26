@@ -53,6 +53,10 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kCrsfTopicCount>
         kTelemetryPublisherConfig.crsf_heartbeat,
         kTelemetryPublisherConfig.crsf_gps,
         kTelemetryPublisherConfig.crsf_battery,
+        kTelemetryPublisherConfig.crsf_flight_mode,
+        kTelemetryPublisherConfig.crsf_attitude,
+        kTelemetryPublisherConfig.crsf_rpm,
+        kTelemetryPublisherConfig.crsf_temperature,
     }};
 
 constexpr uint32_t kFcLinkPeriodsUs[] = {
@@ -69,6 +73,10 @@ constexpr uint32_t kCrsfPeriodsUs[] = {
     kTelemetryPublisherConfig.crsf_heartbeat.period,
     kTelemetryPublisherConfig.crsf_gps.period,
     kTelemetryPublisherConfig.crsf_battery.period,
+    kTelemetryPublisherConfig.crsf_flight_mode.period,
+    kTelemetryPublisherConfig.crsf_attitude.period,
+    kTelemetryPublisherConfig.crsf_rpm.period,
+    kTelemetryPublisherConfig.crsf_temperature.period,
 };
 
 static_assert(std::size(kFcLinkPeriodsUs) ==
@@ -492,6 +500,30 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfBattery(
                           CrsfLinkService::TelemetryTopic::kBattery);
 }
 
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfFlightMode(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
+                          CrsfLinkService::TelemetryTopic::kFlightMode);
+}
+
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfAttitude(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
+                          CrsfLinkService::TelemetryTopic::kAttitude);
+}
+
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfRpm(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
+                          CrsfLinkService::TelemetryTopic::kRpm);
+}
+
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfTemperature(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
+                          CrsfLinkService::TelemetryTopic::kTemperature);
+}
+
 void TelemetryPublisher::Init(const Config &cfg, SharedState &blackboard,
                               FcLink &fclink, CrsfLinkService &crsf,
                               uint32_t now_us) {
@@ -570,9 +602,9 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
       PublishAttitude,
   };
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
-      PublishCrsfHeartbeat,
-      PublishCrsfGps,
-      PublishCrsfBattery,
+      PublishCrsfHeartbeat,   PublishCrsfGps,      PublishCrsfBattery,
+      PublishCrsfFlightMode,  PublishCrsfAttitude, PublishCrsfRpm,
+      PublishCrsfTemperature,
   };
 
   PollGroup(fclink_, kFcLinkPublishers, cfg_.fclink_max_frames_per_poll,

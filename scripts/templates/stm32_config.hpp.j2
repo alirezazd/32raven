@@ -107,7 +107,8 @@ inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
 {% endfor %}
 {# Authored under RC Receiver -> CRSF Telemetry, because they describe that
    link's content; scheduled here, because TelemetryPublisher owns every cadence. #}
-{% for name in ["heartbeat", "gps", "battery"] %}
+{% for name in ["heartbeat", "gps", "battery", "flight_mode",
+                "attitude", "rpm", "temperature"] %}
 {% set topic = rc_receiver.crsf[name] %}
     .crsf_{{ name }} = {
         .period = {{ topic.period_ms }}u * 1000u,
@@ -307,6 +308,10 @@ inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
         false,
         {{ rc_receiver.crsf.gps.send_on_change | cpp_bool }},
         {{ rc_receiver.crsf.battery.send_on_change | cpp_bool }},
+        {{ rc_receiver.crsf.flight_mode.send_on_change | cpp_bool }},
+        {{ rc_receiver.crsf.attitude.send_on_change | cpp_bool }},
+        {{ rc_receiver.crsf.rpm.send_on_change | cpp_bool }},
+        {{ rc_receiver.crsf.temperature.send_on_change | cpp_bool }},
     },
 };
 

@@ -2206,6 +2206,14 @@ def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             },
             "gps": _crsf_periodic_msg_context(kconf, "gps"),
             "battery": _crsf_periodic_msg_context(kconf, "battery"),
+            "flight_mode": _crsf_periodic_msg_context(
+                kconf, "flight_mode"
+            ),
+            "attitude": _crsf_periodic_msg_context(kconf, "attitude"),
+            "rpm": _crsf_periodic_msg_context(kconf, "rpm"),
+            "temperature": _crsf_periodic_msg_context(
+                kconf, "temperature"
+            ),
         },
     }
 

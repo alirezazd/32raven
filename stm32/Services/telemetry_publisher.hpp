@@ -47,6 +47,10 @@ class TelemetryPublisher {
     TopicConfig crsf_heartbeat{};
     TopicConfig crsf_gps{};
     TopicConfig crsf_battery{};
+    TopicConfig crsf_flight_mode{};
+    TopicConfig crsf_attitude{};
+    TopicConfig crsf_rpm{};
+    TopicConfig crsf_temperature{};
   };
 
   // Public only so the .cpp's config tables can be sized by them.
@@ -176,6 +180,14 @@ class TelemetryPublisher {
                                             uint32_t now_us);
   static PublishResult PublishCrsfGps(TelemetryPublisher &self,
                                       uint32_t now_us);
+  static PublishResult PublishCrsfFlightMode(TelemetryPublisher &self,
+                                    uint32_t now_us);
+  static PublishResult PublishCrsfAttitude(TelemetryPublisher &self,
+                                    uint32_t now_us);
+  static PublishResult PublishCrsfRpm(TelemetryPublisher &self,
+                                    uint32_t now_us);
+  static PublishResult PublishCrsfTemperature(TelemetryPublisher &self,
+                                    uint32_t now_us);
   static PublishResult PublishCrsfBattery(TelemetryPublisher &self,
                                           uint32_t now_us);
 
