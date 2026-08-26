@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
+#include "math/attitude_euler.hpp"
 #include "msp_service.hpp"
 
-#include <cmath>
 #include <cstring>
 #include <optional>
 #include <span>
@@ -557,17 +557,11 @@ bool MspService::BuildReply(uint16_t command) {
     }
 
     case kMspAttitude: {
-      const Eigen::Quaternionf &q =
-          blackboard_->GetEstimate().attitude_world_to_body;
-      const float sinr = 2.0f * ((q.w() * q.x()) + (q.y() * q.z()));
-      const float cosr = 1.0f - (2.0f * ((q.x() * q.x()) + (q.y() * q.y())));
-      const float roll = std::atan2(sinr, cosr);
-      float sinp = 2.0f * ((q.w() * q.y()) - (q.z() * q.x()));
-      sinp = (sinp > 1.0f) ? 1.0f : ((sinp < -1.0f) ? -1.0f : sinp);
-      const float pitch = std::asin(sinp);
-      const float siny = 2.0f * ((q.w() * q.z()) + (q.x() * q.y()));
-      const float cosy = 1.0f - (2.0f * ((q.y() * q.y()) + (q.z() * q.z())));
-      const float yaw = std::atan2(siny, cosy);
+      const math::EulerZyx euler = math::EulerZyxFromQuaternion(
+          blackboard_->GetEstimate().attitude_world_to_body);
+      const float roll = euler.roll;
+      const float pitch = euler.pitch;
+      const float yaw = euler.yaw;
 
       constexpr float rad_to_decidegrees = 572.9578f;
       constexpr float rad_to_degrees = 57.29578f;
