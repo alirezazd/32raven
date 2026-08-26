@@ -79,7 +79,11 @@ set(COMMON_CONFIG_GENERATOR
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_common_config.py")
 set(COMMON_CONFIG_TEMPLATE
     "${CMAKE_CURRENT_SOURCE_DIR}/scripts/templates/common_config.hpp.j2")
-set(COMMON_CONFIG_HPP "${CMAKE_CURRENT_SOURCE_DIR}/libs/common_config.hpp")
+# Generated into the build tree, never the source tree: a header that is
+# regenerated on every configure has no business being editable in place, and
+# both firmwares take this directory on their include path.
+set(GENERATED_COMMON_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(COMMON_CONFIG_HPP "${GENERATED_COMMON_DIR}/common_config.hpp")
 
 set(_FMT_COMMON_CMD)
 if(CLANG_FORMAT_EXECUTABLE)
@@ -107,9 +111,6 @@ add_custom_target(generate_common_config DEPENDS ${COMMON_CONFIG_HPP})
 file(GLOB_RECURSE LINT_LIB_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/libs/*.hpp")
-# Appears mid-build the first time, which would change the glob result and force
-# a CMake re-run. The lint stamps name it directly in DEPENDS instead.
-list(REMOVE_ITEM LINT_LIB_SOURCE_FILES "${COMMON_CONFIG_HPP}")
 
 file(GLOB_RECURSE LINT_ESP32_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/esp32/*.cpp"
@@ -183,6 +184,7 @@ function(_add_stm32_target name build_type)
             -DCMAKE_TOOLCHAIN_FILE:FILEPATH=${_STM32_TC}
             -DCMAKE_BUILD_TYPE=${build_type}
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+            -DGENERATED_COMMON_DIR=${GENERATED_COMMON_DIR}
     COMMAND ${CMAKE_COMMAND} --build ${CMAKE_CURRENT_BINARY_DIR}/${name} ${_CFG_ARG}
     VERBATIM
   )

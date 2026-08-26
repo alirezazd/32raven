@@ -71,12 +71,7 @@ EXEMPT_PATTERNS = (
     "stm32/Core/system_stm32f4xx.c",
     # Machine-generated: the generator owns the contents, header included.
     "esp32/ui/assets/bitmap/*",
-    "stm32/Drivers/stm32_config.hpp",
-    "stm32/Drivers/stm32_limits.hpp",
     "stm32/Drivers/ee_schema.hpp",
-    "esp32/main/esp32_config.hpp",
-    "esp32/main/esp32_limits.hpp",
-    "libs/common_config.hpp",
 )
 
 # Header lines are matched, not compared, so reformatting or a different year

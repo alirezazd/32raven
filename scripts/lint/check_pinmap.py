@@ -24,6 +24,7 @@ Run:
 
 from __future__ import annotations
 
+import argparse
 import pathlib
 import re
 import sys
@@ -40,8 +41,12 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 # emitted by generate_stm32_config.py from PINMAP_ENTRIES. Hand-edited pin
 # entries no longer exist — adding a new pin means adding to PINMAP_ENTRIES
 # and a Kconfig knob, never editing this file's parsed source list.
-STM32_CONFIG_HPP = REPO_ROOT / "stm32" / "Drivers" / "stm32_config.hpp"
-DECL_SOURCES = (STM32_CONFIG_HPP,)
+# The build passes --config, because the header is generated into whichever
+# binary dir asked for it; the default is where a repo-root build puts it, so
+# running this by hand still works.
+DEFAULT_STM32_CONFIG_HPP = (
+    REPO_ROOT / "build" / "Ninja" / "stm32" / "generated" / "stm32_config.hpp"
+)
 SEARCH_DIRS = [
     REPO_ROOT / "stm32" / "Core",
     REPO_ROOT / "stm32" / "Drivers",
@@ -165,10 +170,22 @@ def parse_companion_consts(paths: tuple[pathlib.Path, ...]) -> set[str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config", type=pathlib.Path, default=DEFAULT_STM32_CONFIG_HPP
+    )
+    args = parser.parse_args()
+    if not args.config.is_file():
+        print(f"generated config not found: {args.config}", file=sys.stderr)
+        return 1
+
+    decl_sources = (args.config,)
     db = PinConstraints.load_default()
-    decls = parse_board_pin_decls(DECL_SOURCES)
-    declared = {d.name for d in decls} | parse_companion_consts(DECL_SOURCES)
-    rendered = find_referenced_names(SEARCH_DIRS)
+    decls = parse_board_pin_decls(decl_sources)
+    declared = {d.name for d in decls} | parse_companion_consts(decl_sources)
+    # The generated header both declares the pins and references them, so its
+    # directory joins the search: dropping it would report every pin unused.
+    rendered = find_referenced_names([*SEARCH_DIRS, args.config.parent])
     referenced = rendered | find_referenced_names(TEMPLATE_DIRS)
 
     errors = 0

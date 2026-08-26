@@ -72,13 +72,7 @@ CLEAN_DIRS := \
 
 CLEAN_FILES := \
 	config/32raven.config.old \
-	config/defconfig \
-	esp32/main/esp32_config.hpp \
-	esp32/main/esp32_limits.hpp \
-	stm32/Drivers/stm32_config.hpp \
-	stm32/Drivers/stm32_limits.hpp \
-	stm32/Drivers/ee_schema.hpp \
-	libs/common_config.hpp
+	config/defconfig
 
 .PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs doctor install-deps
 
@@ -147,10 +141,6 @@ format-cpp:
 	@$(RUN) bash -lc 'set -euo pipefail; \
 		command -v clang-format >/dev/null; \
 		rg --files esp32 stm32 -g "*.cpp" -g "*.hpp" \
-		  | grep -vxF "esp32/main/esp32_config.hpp" \
-		  | grep -vxF "stm32/Drivers/stm32_config.hpp" \
-		  | grep -vxF "stm32/Drivers/stm32_limits.hpp" \
-		  | grep -vxF "stm32/Drivers/ee_schema.hpp" \
 		  | while IFS= read -r file; do \
 		      clang-format -i "$$file"; \
 		    done'

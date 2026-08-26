@@ -47,14 +47,6 @@ esp32/sdkconfig.old
 # Local build configuration
 user_config.cmake
 
-# Generated headers (scripts/generate_*.py, driven by config/Kconfig)
-libs/common_config.hpp
-esp32/main/esp32_config.hpp
-esp32/main/esp32_limits.hpp
-stm32/Drivers/stm32_config.hpp
-stm32/Drivers/stm32_limits.hpp
-stm32/Drivers/ee_schema.hpp
-
 # Stray in-source CMake output (the real configure goes to build/). CMakeFiles/
 # and cmake_install.cmake are already ignored above; this covers the Makefile a
 # top-level in-source `cmake` would drop next to the cubemx CMakeLists.
