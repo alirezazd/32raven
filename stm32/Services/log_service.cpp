@@ -219,15 +219,17 @@ struct __attribute__((packed)) ImuHealthRecord {
   uint32_t spi_errors;
   uint32_t spi_timeouts;
   uint32_t parse_fails;
+  uint32_t invalid_samples;
   uint32_t dropped_records;
   uint32_t missed_samples;
 };
-static_assert(sizeof(ImuHealthRecord) == 49);
+static_assert(sizeof(ImuHealthRecord) == 53);
 constexpr char kFmtImuHealth[] =
     "imu_health:uint64_t timestamp;uint32_t publish_count;"
     "uint32_t path_faults;uint32_t overruns;uint32_t dma_start_fails;"
     "uint32_t spi_errors;uint32_t spi_timeouts;uint32_t parse_fails;"
-    "uint32_t dropped_records;uint32_t missed_samples;";
+    "uint32_t invalid_samples;uint32_t dropped_records;"
+    "uint32_t missed_samples;";
 
 struct __attribute__((packed)) CrsfLinkRecord {
   MsgHeader hdr;
@@ -765,6 +767,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         rec.spi_errors = spi.dma_errors;
         rec.spi_timeouts = spi.timeouts;
         rec.parse_fails = imu.parse_fails;
+        rec.invalid_samples = imu.invalid_samples;
         rec.dropped_records = imu.dropped_records;
         rec.missed_samples = imu.missed_samples;
         AppendToStaging(&rec, sizeof(rec));
