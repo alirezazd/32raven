@@ -428,6 +428,9 @@ void Mavlink::CompleteFrame(TxFrameState &frame, uint32_t now_ms) {
 
 Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
                                                    uint32_t now_ms) {
+  // Must equal QGCMAVLink::FirmwareClass32Raven in the ground station, which
+  // is where the value is claimed -- MAV_AUTOPILOT has no vendor range, so
+  // nothing but agreement between the two repos keeps 200 ours.
   constexpr uint8_t mav_autopilot_32raven = 200;
 
   // `have_data` latches on the first report and never clears, so without this
