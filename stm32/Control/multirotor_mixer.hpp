@@ -22,18 +22,14 @@
 //     RateController::CommitTorque drains integrators by the commanded-vs-
 //     applied gap. (Projection math: see MixOutput / Mix().)
 //   - Disarmed -> all outputs 0.
-// Frame convention (looking down from above, body Z points down):
-//   M1 = front-right (CCW prop)
-//   M2 = back-right  (CW)
-//   M3 = back-left   (CCW)
-//   M4 = front-left  (CW)
-// Matches Betaflight `mixerQuadX` numbering.
+// Frame convention: the generated common_config::kAirframeMotors record --
+// motor placement and spin in DShot channel order, from which the mix factors
+// are derived (see the note above the Mixer class).
 
 #pragma once
 
 #include <array>
 #include <cstdint>
-#include <type_traits>
 
 #include "common_config.hpp"
 #include "shared_state.hpp"
@@ -65,52 +61,22 @@ struct Inputs {
   float thrust;        // [ 0, +1]  collective along body -Z (up)
 };
 
-// QuadX mix matrix. Rows = motors (M1..M4), cols = (roll, pitch, yaw).
-// Throttle column is implicit +1 for every motor.
-// Sign convention (all NED):
-//   Pitch +1 (nose up): front motors (M1, M4) speed up; back motors
-//     (M2, M3) slow — nose lifts, tail dips.
-//   Yaw  +1 (nose right): CCW props (M1, M3) speed up; CW props
-//     (M2, M4) slow down. Faster CCW prop → more CW reaction torque
-//     on the body (Newton's 3rd) → body yaws right.
-//   Roll +1 (right wing down): right motors (M1, M2) slow; left
-//     motors (M3, M4) speed up — left side lifts, right side dips.
-struct QuadX {
-  static constexpr uint8_t kMotors = 4;
-  static constexpr float kFactors[kMotors][3] = {
-      // R    P    Y
-      {-1, +1, +1},  // M1 front-right (CCW prop)
-      {-1, -1, -1},  // M2 back-right  (CW  prop)
-      {+1, -1, +1},  // M3 back-left   (CCW prop)
-      {+1, +1, -1},  // M4 front-left  (CW  prop)
-  };
-};
-
-// Quad+ mix matrix, same conventions. Motors sit on the axes rather than the
-// diagonals, so each of roll and pitch is produced by two motors instead of
-// four: the zero column entries are the two motors on the perpendicular axis,
-// which have no moment about it. Yaw still uses all four, so its authority is
-// unchanged while roll and pitch authority halves for the same headroom --
-// which is why the rate gains do not carry over from QuadX.
-struct QuadPlus {
-  static constexpr uint8_t kMotors = 4;
-  static constexpr float kFactors[kMotors][3] = {
-      // R    P    Y
-      { 0, +1, +1},  // M1 front (CCW prop)
-      {-1,  0, -1},  // M2 right (CW  prop)
-      { 0, -1, +1},  // M3 back  (CCW prop)
-      {+1,  0, -1},  // M4 left  (CW  prop)
-  };
-};
-
-// The frame Mix() allocates for. Selecting a geometry the airframe does not
-// name is what the count check below catches -- the tables are per-geometry,
-// so a frame arriving without one cannot silently reuse another's.
-using Frame = std::conditional_t<
-    common_config::kAirframe == common_config::Airframe::kQuadPlus, QuadPlus,
-    QuadX>;
-static_assert(Frame::kMotors == common_config::kAirframeMotorCount,
-              "selected airframe is not the geometry Mix() applies");
+// The frame Mix() allocates for is the generated airframe record,
+// common_config::kAirframeMotors: each motor's placement and spin in DShot
+// channel order, with the (roll, pitch, yaw) factors derived from them by the
+// generator (mix_factors in scripts/generate_common_config.py). The throttle
+// column is implicit +1 for every motor. Sign convention (all NED):
+//   Pitch +1 (nose up): front motors speed up; back motors slow -- nose
+//     lifts, tail dips.
+//   Yaw  +1 (nose right): CCW props speed up; CW props slow down. Faster CCW
+//     prop -> more CW reaction torque on the body (Newton's 3rd) -> body
+//     yaws right.
+//   Roll +1 (right wing down): right motors slow; left motors speed up --
+//     left side lifts, right side dips.
+// The quad-X preset is Betaflight's mixerQuadX numbering (M1 front-right
+// CCW, M2 back-right CW, M3 back-left CCW, M4 front-left CW); quad-+ puts the
+// motors on the axes, so roll and pitch are each produced by two motors
+// rather than four and the rate gains do not carry over.
 
 // Instance member of System (not a singleton) — pure logic, no hardware.
 class Mixer {

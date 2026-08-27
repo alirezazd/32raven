@@ -113,32 +113,17 @@ Deferred rather than supporting because it rewrites the receive hot path on both
 it once the ESC configurator work has been confirmed on hardware, so that a misbehaving bench
 session has one candidate cause instead of two.
 
-### #10 — Derive the motor count from the airframe — 🧊 DEFERRED
+### #10 — More than four motors — 🧊 DEFERRED
 
-The airframe is one physical fact declared in two places that cannot see each other: the ESP32
-fixes `kMavlinkSysAutostart` at 4001 and hardcodes `MAV_TYPE_QUADROTOR`; the STM32 references
-`QuadX::kFactors` directly in `multirotor_mixer.cpp`.
-
-No damage today, because neither side can be pointed at anything but an X quad. It becomes real
-the moment either gains a geometry selection — two sources for one truth, on two MCUs that flash
-independently. One airframe choice in Kconfig, with motor count *and* geometry derived from it,
-rather than a standalone motor-count integer that can disagree with the frame it describes.
-
-Three things resist a motor count that is not 4:
-
-- **TIM1 has four compare channels.** DShot is one burst-DMA transfer per bit, `DCR` configured
-  with base `CCR1` and length 4, so all four motors are driven from one stream and stay
-  perfectly synchronised. Six motors needs TIM8 and a second DMA stream, with both bursts
-  started together — two frames arriving at different times reads as a yaw bias.
-- **`MotorThrust = std::array<float, 4>`** threads through `Mix`, `MixOutput`,
-  `EscService::WriteMotorsThrust`, and back into the rate controller's anti-windup.
-- **The literal 4 is written five times** with nothing checking that they agree:
-  `dshot_codec.hpp`, `esc_telemetry.hpp`, `dshot_tim1.hpp` (`kMotors`), and
-  `multirotor_mixer.hpp` twice.
+**TIM1 has four compare channels**, and that is the whole of what remains. DShot is one
+burst-DMA transfer per bit, `DCR` configured with base `CCR1` and length 4, so all four motors
+are driven from one stream and stay perfectly synchronised. Six motors needs TIM8 and a second
+DMA stream with both bursts started together — two frames arriving at different times reads as
+a yaw bias. `stm32_limits::kDshotChannelCount` is the ceiling every consumer already asserts
+against, so a sixth motor is a driver problem rather than a scattered-constant problem.
 
 Fewer than four motors is cheap — leave the unused channels configured and idle. Deferred
-because no non-quad airframe is planned; unifying the declaration is the half worth doing first
-if the mixer is being touched anyway.
+because no non-quad airframe is planned.
 
 ### #11 — Warn the pilot when an ESC starts derating — 🎯 CRITICAL
 

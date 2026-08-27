@@ -3,6 +3,7 @@
 
 {{ autogen_warning }}#pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace common_config {
@@ -19,6 +20,38 @@ enum class Airframe : uint8_t {
 inline constexpr Airframe kAirframe = Airframe::{{ airframe.name }};
 inline constexpr uint8_t kAirframeMotorCount = {{ airframe.motor_count }};
 inline constexpr uint32_t kAirframeSysAutostart = {{ airframe.sys_autostart }}u;
+
+{# One record per motor, DShot channel order. Placement and spin stay in
+   generate_common_config.py, where the factors are derived from them; only
+   what Mix() reads is emitted, so nothing here can drift from the geometry
+   that produced it. #}
+// The airframe's mix factors in DShot channel order (M1..): what the
+// allocator applies per axis, derived from each motor's placement by the
+// generator -- roll = -y (right motors slow for right wing down), pitch = +x
+// (front motors speed up for nose up), yaw = +1 for a prop turning
+// counter-clockwise seen from above (its drag reaction turns the body right).
+struct AirframeMotor {
+  float roll;   // +roll = right wing down
+  float pitch;  // +pitch = nose up
+  float yaw;    // +yaw = nose right
+};
+
+{# std::array wraps a C array, so the outer pair of braces is doubled (a
+   single brace would hand the first row to the inner array by elision). #}
+inline constexpr std::array<AirframeMotor, kAirframeMotorCount> kAirframeMotors = {{ '{{' }}
+{% for m in airframe.motors %}
+    { {{ m.roll }}f, {{ m.pitch }}f, {{ m.yaw }}f },  // M{{ loop.index }} {{ m.name }}
+{% endfor %}
+{{ '}}' }};
+
+// Reciprocal squared norm of each factor column, {roll, pitch, yaw}. Mix()
+// recovers the torque it actually delivered by projecting the motor vector
+// onto each column, and an orthogonal projection divides by this. Not the
+// motor count: a quad-+ drives roll and pitch with two motors rather than
+// four, so those columns are half the length a quad-X's are.
+inline constexpr std::array<float, 3> kAirframeAxisInvNormSq = {
+{% for v in airframe.axis_inv_norm_sq %}    {{ v }}f,
+{% endfor %}};
 
 inline constexpr uint32_t kFcLinkBaud = {{ fclink.baud }}u;
 

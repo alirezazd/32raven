@@ -5,7 +5,9 @@ each thing actually means at the stick. Sorted by how much you'd feel it during
 flight; pick from the top.
 
 For context, what the current mixer **does** today:
-- 4×3 hardcoded QuadX allocation (roll/pitch/yaw torque → 4 motors)
+- 4×3 allocation from the generated airframe record
+  (`common_config::kAirframeMotors`: roll/pitch/yaw torque → 4 motors,
+  quad-X or quad-+)
 - Proportional saturation rescale on the upper clamp (`range > 1` → scale axes down)
 - Idle floor + upper clamp `[idle, 1]`
 - Disarmed → zeros
@@ -123,8 +125,9 @@ unidirectional DShot.
 
 ## Skipped (Tier 3 — not needed at this stage)
 
-- **Multi-geometry (hex, octo, Y6, +, V-tail, VTOL)** — we're a quad-X.
-  Hardcoded matrix is fine until there's a second airframe.
+- **Multi-geometry (hex, octo, Y6, V-tail, VTOL)** — we're a quad-X; the
+  generated airframe record already carries quad-+. More than four motors
+  needs a second DShot timer stream first (roadmap #10).
 - **Pseudo-inverse allocation** — required when there are more motors than
   DOFs (hex/octo). N/A for a quad.
 - **Reverse motor / 3D mode** — bidirectional DShot for inverted flight.
