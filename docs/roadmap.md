@@ -1284,6 +1284,37 @@ tenant with its own feed and its own fit, sharing only the reporting and the one
 interlock. The part's internal SET/RESET degauss is what removes the sensor's own offset drift
 and is a separate step from the vehicle's iron.
 
+### #51 — Per-cell voltage, sensed rather than divided — 🟢 SUPPORTING
+
+`Battery::EstimatePercentage` divides pack voltage by `STM32_BATTERY_CELL_COUNT` and maps the
+result linearly between the empty and full cell thresholds. That is the only per-cell figure the
+aircraft has, it never leaves the function, and it is wrong in two independent ways.
+
+**It cannot see imbalance.** One cell sagging is the failure that ruins packs and costs thrust,
+and it is exactly the failure a divided average hides: five healthy cells carry the mean while
+the sixth collapses. The number looks best when the pack is worst.
+
+**The map is linear and the discharge curve is not.** A lithium cell is flat through the middle
+of its range, so a straight line between two thresholds moves the percentage too slowly there
+and too quickly at both ends. Under load it reads low as well, since the sag is current, not
+charge -- `filtered_voltage_v_` smooths the noise, not the offset.
+
+Sensing it needs a balance-lead tap: one divider per cell into an ADC network, or a dedicated
+front end. That is a board change, not firmware, which is why the estimate stands in the
+meantime rather than being deleted.
+
+Three things unblock together when it lands:
+
+- **CRSF `0x0E` CELLS**, which EdgeTX renders per cell. Sending the divided figure would draw a
+  perfectly balanced pack however far one cell had gone, so it stays unsent until the reading is
+  real -- an encoder is a few lines once it is.
+- **A battery failsafe that trips on imbalance**, not only on pack voltage. #50 treats low
+  battery as a continuous condition against distance-to-home; a single dying cell is a different
+  condition with a different answer, and today nothing can express it.
+- **A state of charge worth the name.** `EscTelemetryData::consumption_mah` already carries
+  integrated charge wherever the ESCs have a shunt, which is a better basis than voltage under
+  load; the two together beat either alone.
+
 ### #46 — Barometer, DPS310 — 🟢 SUPPORTING
 
 There is no altitude source, which is why #15 cannot offer a rescue descent and why the airframe
@@ -1300,6 +1331,13 @@ estimate, not a bench procedure.
 Its own temperature reading matters more than it looks: pressure output is temperature-
 compensated by coefficients read from the part at boot, so a driver that skips them reports
 plausible nonsense rather than failing.
+
+**Two CRSF frames wait on this and on #27**, and are worth landing with the driver rather than
+after it, since the handset is the only display this aircraft has in flight. `0x09`
+BARO_ALTITUDE carries altitude, which is the ground reference above -- a raw pressure reading
+sent as altitude is wrong by the day's weather. `0x07` VARIO carries climb rate, which is not a
+reading at all but a derivative, so it comes from the estimator or it comes from differentiating
+noise. The encoders are a few lines each; the part they wait on is the number being meaningful.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 

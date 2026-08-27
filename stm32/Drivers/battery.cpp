@@ -264,6 +264,11 @@ void Battery::PublishSample(uint32_t now_us, uint16_t voltage_raw,
                   .percentage = EstimatePercentage(filtered_voltage_v_)});
 }
 
+// An estimate, and not a close one (#51). The divide assumes a balanced pack,
+// so a single sagging cell stays hidden behind five healthy ones; the linear
+// map between the two thresholds fits a discharge curve that is flat through
+// the middle; and under load the reading is sag, not charge. Fit to warn on,
+// not to plan a flight around.
 uint8_t Battery::EstimatePercentage(float voltage_v) const {
   const float cell_voltage_mv =
       (voltage_v * kMilli) / static_cast<float>(cfg_.cell_count);
