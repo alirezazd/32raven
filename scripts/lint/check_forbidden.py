@@ -126,9 +126,9 @@ STATE_MACHINES = (
 
 # A driver or service names what it needs in Init and holds the reference.
 # Reaching the System singleton instead hides the dependency from the
-# signature, gives every one of them the whole board's surface, and leaves
-# nothing for the SIL to substitute. The state machines are outside this --
-# sequencing is what they do, and AppContext is how they do it.
+# signature and gives every one of them the whole board's surface. The state
+# machines are outside this -- sequencing is what they do, and AppContext is
+# how they do it.
 COMPONENT_OWNERS = (
     "stm32/Drivers/",
     "stm32/Services/",
