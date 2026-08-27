@@ -383,7 +383,8 @@ flight state stays off it.
 disarm. This item is what those same four conditions become once autoland and return-to-home
 exist, and it is deferred because the prerequisites are hard rather than because the policy is
 unclear. Sentinel stays the owner (#16); what changes is what its conditions are allowed to ask
-for.
+for, and #52 is where the asking lands -- the vehicle states a procedure needs in order to be
+sequenced rather than run from inside the safety authority.
 
 **Four things have to exist first, and all four are gates, not sequencing.** #46 for an altitude
 source, without which a descent is a timed throttle and an invented constant. #27 for position
@@ -1509,3 +1510,58 @@ that risk rather than removing it.
 
 Pairs with #25: a rotated mount invalidates the stored accel calibration as well, so the two
 land together or not at all.
+
+### #52 — The vehicle states a failsafe procedure needs — 🧊 DEFERRED
+
+Today the state machine has four states and only two of them fly: `Idle` and `Armed`, with
+`EscConfig` and `Msc` as bench modes that suspend the cascade. That is enough while every
+failsafe procedure is "disarm", because a disarm is not sequencing -- Sentinel writes
+`armed_`, `ArmedState::OnStep` sees it and transitions to `Idle`, and no new state was needed
+to express it.
+
+`Sentinel::RcLinkPhase` is deliberately not a fifth state. Its three phases -- `kUp`, `kGuard`,
+`kRecovering` -- change how much the RC input is believed, not what the vehicle does: `kGuard`
+flies the pilot's last frame exactly as `kUp` does, and `kRecovering` is an arming interlock on
+a vehicle already sitting disarmed. Conditions and hysteresis are Sentinel's (#16); behaviour is
+the state machine's.
+
+**That stops being enough the moment a procedure has somewhere to go.** A descent or a return is
+sequencing by definition: it sources setpoints from something other than the pilot, for a
+bounded time, with its own exit rules. Running that from inside Sentinel would make the safety
+authority a flight-mode sequencer, which is the one thing #16 says it must not become.
+
+#### The states, and what each one changes
+
+- **`Failsafe`** -- entered on a condition Sentinel raises while armed, exited when the pilot
+  takes the aircraft back. It is the parent, not a behaviour: what it *does* is whichever
+  procedure the condition selected, and #50 decides that mapping per condition.
+- **`ReturnHome`** -- setpoints from a navigator against the home vector. Gated on #27 for
+  position and #45 for heading, since a course cannot be held by an estimator that lets yaw
+  wander by design.
+- **`Landing`** -- a controlled descent, which means closed-loop on altitude (#46). The open-loop
+  version was written and deleted during #15's work: a fixed throttle and a timer is not a
+  landing, and shipping it under that name is worse than dropping honestly.
+
+#### What has to be decided when they land
+
+**Who transitions.** Sentinel decides *that* a failsafe applies; the state machine decides what
+running it looks like. The request has to be explicit -- a blackboard field the machine reads,
+the way `armed_` already works -- rather than Sentinel calling `ReqTransition`, or the layering
+inverts again.
+
+**Where setpoints come from.** `ControlTickFlightLoop` reads `RcData` directly today. A
+navigator-driven state needs that source switchable at one point, not patched per stick: a
+procedure that reached some readers and not others would fly a blend of the pilot's last frame
+and the procedure's.
+
+**How the pilot takes it back.** Betaflight requires sustained clean frames *plus* a deliberate
+stick or switch action, because a link that flaps must not toggle the aircraft between
+returning and manual. `RcLinkPhase::kRecovering` already carries the first half.
+
+**What `IControlTickState` means for them.** `Idle` and `Armed` implement it and the bench states
+do not, which is what `IsControlLoopRunning()` reports. Every state here flies, so all of them
+implement it -- and `kArmBlockNotIdle`, currently derived as "control loop running and not
+armed", needs re-deriving once more than one flying state is disarmed-and-armable.
+
+Deferred behind the same four gates as #50 -- #46, #27, #45, #49 -- because a procedure with no
+altitude, position, heading or trusted fix has nothing to sequence.

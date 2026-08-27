@@ -417,6 +417,12 @@ inline constexpr Sentinel::Config kSentinelConfig = {
     .imu_fault_window_us = {{ sentinel.fault_window_ms }}u * 1000u,
     .imu_stall_timeout_us = {{ sentinel.stall_timeout_ms }}u * 1000u,
     .test_throttle_silence_us = {{ sentinel.test_throttle_silence_ms }}u * 1000u,
+    .arm_rc_channel = {{ sentinel.arm_rc_channel }}u,
+    .arm_range_min_us = {{ sentinel.arm_range_min_us }}u,
+    .arm_range_max_us = {{ sentinel.arm_range_max_us }}u,
+    .rc_loss_timeout_us = {{ sentinel.rc_loss_timeout_ms }}u * 1000u,
+    .failsafe_guard_us = {{ sentinel.failsafe_guard_ms }}u * 1000u,
+    .failsafe_recovery_us = {{ sentinel.failsafe_recovery_ms }}u * 1000u,
 };
 {# The stall window is bounded at both ends and only one end is checkable.
    Below: PublishHealth stamps ImuHealth on every burst, unconditionally, so
@@ -550,7 +556,7 @@ inline constexpr Ahrs::Config kAhrsConfig = {
    RcData::channels holds only the enabled channels. #}
 // Index into RcData::channels, which is compacted to the enabled channels --
 // not the transmitter's channel number. Derived from
-// CONFIG_STM32_FLIGHT_MODE_RC_CHANNEL, which the generator refuses unless
+// CONFIG_STM32_RC_MAP_MODE, which the generator refuses unless
 // that channel is enabled.
 inline constexpr std::size_t kFlightModeChannelSlot = {{ flight_mode.slot }};
 inline constexpr std::uint16_t kFlightModeThresholdUs = {{ flight_mode.threshold_us }};

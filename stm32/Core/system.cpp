@@ -125,8 +125,10 @@ void System::PublishSystemHealth(uint32_t now_us) {
 }
 
 void System::Poll(uint32_t now_us) {
-  PublishSystemHealth(now_us);
+  // First, and roadmap #16 requires it stay first: a failsafe skipped under
+  // load is a failsafe that does not exist.
   SentinelSvc().Supervise(now_us);
+  PublishSystemHealth(now_us);
   Batt().Poll(now_us);
   TelemetryPubSvc().Poll(now_us);
   // Last, so what the publisher just queued goes out on this pass.
@@ -208,9 +210,9 @@ void System::InitComponent(Component c) {
                      FcLink::GetInstance());
       break;
     case Component::kSensorCalService:
-      SensorCalService::GetInstance().Init(
-          kSensorCalConfig, blackboard_, Icm42688p::GetInstance(),
-          FcLink::GetInstance());
+      SensorCalService::GetInstance().Init(kSensorCalConfig, blackboard_,
+                                           Icm42688p::GetInstance(),
+                                           FcLink::GetInstance());
       break;
     case Component::kTelemetryPublisher:
       TelemetryPublisher::GetInstance().Init(

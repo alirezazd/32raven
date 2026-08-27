@@ -3392,6 +3392,76 @@ config STM32_RC_MAP_THROTTLE
     help
       1-based RC channel used for throttle input.
 
+config STM32_RC_MAP_ARM
+    int "Arm switch channel (0 = no RC arming)"
+    range 0 16
+    default 6
+    help
+      1-based RC channel carrying the arm switch, numbered the way the
+      transmitter numbers it: AUX1 is channel 5 on most radios. 0 leaves
+      arming reachable only over FcLink, which is the bench path.
+
+      Wider range than the four axes above because this one is read raw --
+      calibration stops at the axes, and a switch has nothing to calibrate.
+      Defaults to 6 rather than 5 because the mode switch already holds 5.
+      The build refuses a channel that collides with that or with any axis:
+      one stick both flying and arming the aircraft is not a configuration
+      worth booting.
+
+config STM32_RC_MAP_ARM_MIN_US
+    int "Arm window low bound (us)"
+    depends on STM32_RC_MAP_ARM != 0
+    range 900 2100
+    default 1750
+    help
+      The switch requests arm while its pulse width is inside [low, high],
+      inclusive. A window rather than a threshold because it is the only shape
+      that can select a three-position switch's middle detent, and because it
+      expresses a reversed switch without a separate polarity knob. Betaflight
+      ranges its aux channels the same way; PX4 uses a threshold and pays for
+      it with a separate polarity sign.
+
+      ELRS sends 191, 992 or 1792 ticks, which this firmware's tick-to-us
+      conversion lands on exactly 1000, 1500 and 2000 us, so the default
+      window takes the high detent with 250 us of clearance from centre.
+
+config STM32_RC_MAP_ARM_MAX_US
+    int "Arm window high bound (us)"
+    depends on STM32_RC_MAP_ARM != 0
+    range 900 2100
+    default 2100
+    help
+      Upper bound of the arm window, inclusive. The build refuses a window
+      that is empty, inverted, or that spans the whole travel -- the last
+      would request arm at every stick position the receiver can report.
+
+config STM32_RC_MAP_MODE
+    int "Mode switch channel"
+    range 1 16
+    default 5
+    help
+      1-based RC channel carrying the Acro/Stabilize switch, numbered the
+      way the transmitter numbers it: AUX1 is channel 5 on most radios.
+
+      Read raw like the arm switch above, and like it the build refuses a
+      channel already taken -- one switch cannot both select a mode and arm
+      the aircraft.
+
+config STM32_RC_MAP_MODE_THRESHOLD_US
+    int "Stabilize threshold (us)"
+    range 900 2100
+    default 1250
+    help
+      Pulse width at or above which the switch selects Stabilize; below it
+      selects Acro. A threshold rather than a window because the choice is
+      between two modes, not between asking and not asking.
+
+      The link is CRSF, so switch positions are discrete, not analogue: ELRS
+      sends 191, 992 or 1792, which this firmware's tick-to-us conversion
+      lands on exactly 1000, 1500 and 2000 us. 1250 sits midway between the
+      first two detents, so no position is ever near the comparison. 1500
+      would sit exactly on a 3-position switch's centre.
+
 endmenu
 endmenu
 
@@ -3644,6 +3714,59 @@ config STM32_SENTINEL_TEST_THROTTLE_SILENCE_MS
       gone rather than the slider standing still. Short enough that a host
       that dies mid-spin does not leave motors running, long enough to survive
       a configurator that pauses between polls.
+
+menu "Failsafe"
+
+config STM32_SENTINEL_RC_LOSS_TIMEOUT_MS
+    int "RC silence before the signal counts as lost (ms)"
+    range 50 5000
+    default 500
+    help
+      Silence from the receiver before the link is called lost. This starts
+      the guard below; it is not by itself a disarm. CRSF carries
+      no receiver-asserted failsafe bit and ExpressLRS signals loss by
+      stopping frames, so a timeout is the only detector available.
+
+      PX4's COM_RC_LOSS_T is 500 ms. Betaflight holds the last valid frame
+      for 300 ms before calling the signal lost, then runs its stage-one
+      guard on top of that.
+
+      Counted from the last frame whichever link carried it, so a dead
+      transmitter and a dead companion relaying RC are one condition -- the
+      receiver goes silent either way and the wire cannot say which. Silence
+      before the first frame ever arrives is not loss: arming over FcLink
+      with no transmitter powered on has to keep working.
+
+config STM32_SENTINEL_FAILSAFE_GUARD_MS
+    int "Stage-one guard before the vehicle disarms (ms)"
+    range 0 10000
+    default 1500
+    help
+      Time the vehicle keeps flying on the pilot's last frame after the
+      signal is called lost, during which a link that comes back is simply
+      resumed. Betaflight's failsafe_delay, same 1.5 s default.
+
+      This is the knob that stops a brief dropout from ending the flight. It
+      is also the window an aircraft spends flying blind, so raising it trades
+      a longer glitch tolerance for a longer uncommanded flight.
+
+      The guard expiring disarms, which in the air means the vehicle drops --
+      Betaflight's shipped default too, since an auto-landing without an
+      altitude source is a fixed throttle and a stopwatch. #50 is where that
+      changes.
+
+config STM32_SENTINEL_FAILSAFE_RECOVERY_MS
+    int "Valid RC needed before re-arming (ms)"
+    range 0 10000
+    default 500
+    help
+      After a failsafe has disarmed the vehicle, how long RC must stream
+      cleanly before arming is allowed again. Betaflight's
+      failsafe_recovery_delay, same 500 ms default, and the reason is the
+      same: an intermittent link that returns for one frame must not re-arm
+      an aircraft on the ground with a switch still held on.
+
+endmenu
 
 endmenu
 
@@ -4011,26 +4134,6 @@ config STM32_PILOT_THROTTLE_MIN_MILLI
 endmenu
 
 menu "Flight Mode"
-
-config STM32_FLIGHT_MODE_RC_CHANNEL
-    int "Mode switch RC channel"
-    range 1 16
-    default 5
-    help
-      RC channel carrying the Acro/Stabilize switch, numbered the way the
-      transmitter numbers it: AUX1 is channel 5 on most radios.
-
-config STM32_FLIGHT_MODE_THRESHOLD_US
-    int "Stabilize threshold (us)"
-    range 900 2100
-    default 1250
-    help
-      Pulse width at or above which the switch selects Stabilize; below it
-      selects Acro. The link is CRSF, so switch positions are discrete, not
-      analogue: ELRS sends 191, 992 or 1792, which this firmware's tick-to-us
-      conversion lands on exactly 1000, 1500 and 2000 us. 1250 sits midway
-      between the first two detents, so no position is ever near the
-      comparison. 1500 would sit exactly on a 3-position switch's centre.
 
 config STM32_PILOT_ACRO_MAX_RATE_ROLL_PITCH_MILLI
     int "Acro roll/pitch max rate (rad/s, x1000)"

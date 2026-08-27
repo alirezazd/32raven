@@ -26,6 +26,7 @@ from kconfig_gen import (
     autogen_warning,
     choice_value,
     cpp_string_literal,
+    sym,
     sym_bool,
     sym_hex_literal,
     sym_int,
@@ -1161,6 +1162,65 @@ def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:
     return rendered
 
 
+def _validate_switch_channels(
+    kconf: kconfiglib.Kconfig, rc_map: dict[str, int]
+) -> None:
+    """Reject a switch that shares a channel or a window that cannot be left.
+
+    Both switches are read raw off `channels_raw`, so nothing downstream would
+    notice one sitting on a stick: the aircraft would simply arm, or change
+    mode, when the pilot flew. Every rejection names what it collided with,
+    because the value on its own does not say which entry is wrong.
+    """
+    mode_channel = sym_int(kconf, "STM32_RC_MAP_MODE")
+    for axis, axis_channel in rc_map.items():
+        if mode_channel == axis_channel:
+            raise ValueError(
+                f"CONFIG_STM32_RC_MAP_MODE={mode_channel} is already "
+                f"CONFIG_STM32_RC_MAP_{axis.upper()}; flying the aircraft "
+                f"would change its mode"
+            )
+
+    channel = sym_int(kconf, "STM32_RC_MAP_ARM")
+    if channel == 0:
+        return
+
+    for axis, axis_channel in rc_map.items():
+        if channel == axis_channel:
+            raise ValueError(
+                f"CONFIG_STM32_RC_MAP_ARM={channel} is already "
+                f"CONFIG_STM32_RC_MAP_{axis.upper()}; one channel cannot both "
+                f"fly and arm the aircraft"
+            )
+
+    if channel == mode_channel:
+        raise ValueError(
+            f"CONFIG_STM32_RC_MAP_ARM={channel} is already "
+            f"CONFIG_STM32_RC_MAP_MODE; selecting a mode would arm"
+        )
+
+    low = sym_int(kconf, "STM32_RC_MAP_ARM_MIN_US")
+    high = sym_int(kconf, "STM32_RC_MAP_ARM_MAX_US")
+    if low >= high:
+        raise ValueError(
+            f"CONFIG_STM32_RC_MAP_ARM_MIN_US={low} must be below "
+            f"CONFIG_STM32_RC_MAP_ARM_MAX_US={high}; an empty or "
+            f"inverted window can never be entered, so the vehicle never arms"
+        )
+
+    # The knobs' own bounds. A window covering them holds the request true at
+    # every position the switch has, which is an aircraft that arms as soon as
+    # its interlocks clear rather than when its pilot asks.
+    span_low = sym(kconf, "STM32_RC_MAP_ARM_MIN_US").ranges[0][0]
+    span_high = sym(kconf, "STM32_RC_MAP_ARM_MAX_US").ranges[0][1]
+    if low <= int(span_low.str_value) and high >= int(span_high.str_value):
+        raise ValueError(
+            f"CONFIG_STM32_RC_MAP_ARM_MIN_US={low} and "
+            f"CONFIG_STM32_RC_MAP_ARM_MAX_US={high} span the whole "
+            f"travel, so the switch requests arm in every position"
+        )
+
+
 def _validate(kconf: kconfiglib.Kconfig) -> None:
     _validate_pinmap(kconf)
 
@@ -1170,6 +1230,8 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             "CONFIG_STM32_RC_MAP_ROLL/PITCH/YAW/THROTTLE must be a unique "
             "mapping of channels 1..4"
         )
+
+    _validate_switch_channels(kconf, rc_map)
 
     # Both AHRS gates ramp from full weight down to zero across the span
     # between their two thresholds. An inverted pair reads to the runtime as no
@@ -1293,8 +1355,8 @@ def _flight_mode_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "stabilize_max_tilt_rad": f"{tilt_rad:.6f}f",
         # The knob is numbered the way a transmitter numbers channels; the
         # array is not.
-        "slot": sym_int(kconf, "STM32_FLIGHT_MODE_RC_CHANNEL") - 1,
-        "threshold_us": sym_int(kconf, "STM32_FLIGHT_MODE_THRESHOLD_US"),
+        "slot": sym_int(kconf, "STM32_RC_MAP_MODE") - 1,
+        "threshold_us": sym_int(kconf, "STM32_RC_MAP_MODE_THRESHOLD_US"),
     }
 
 
@@ -1712,6 +1774,21 @@ def _sentinel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             f"lengthen the window."
         )
 
+    # The window is hidden when no arm channel is mapped, and a hidden int
+    # symbol has no value at all rather than its default -- so the window
+    # follows the channel into absence instead of the generator reading an
+    # empty string as a number. Nothing downstream reads it: SuperviseRc
+    # short-circuits on the channel before the bounds are ever compared.
+    arm_channel = sym_int(kconf, "STM32_RC_MAP_ARM")
+    arm_window = (
+        (
+            sym_int(kconf, "STM32_RC_MAP_ARM_MIN_US"),
+            sym_int(kconf, "STM32_RC_MAP_ARM_MAX_US"),
+        )
+        if arm_channel != 0
+        else (0, 0)
+    )
+
     return {
         "loss_threshold_samples": threshold,
         "loss_window_ms": window_ms,
@@ -1728,6 +1805,16 @@ def _sentinel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         ),
         "test_throttle_silence_ms": sym_int(
             kconf, "STM32_SENTINEL_TEST_THROTTLE_SILENCE_MS"
+        ),
+        "arm_rc_channel": arm_channel,
+        "arm_range_min_us": arm_window[0],
+        "arm_range_max_us": arm_window[1],
+        "rc_loss_timeout_ms": sym_int(
+            kconf, "STM32_SENTINEL_RC_LOSS_TIMEOUT_MS"
+        ),
+        "failsafe_guard_ms": sym_int(kconf, "STM32_SENTINEL_FAILSAFE_GUARD_MS"),
+        "failsafe_recovery_ms": sym_int(
+            kconf, "STM32_SENTINEL_FAILSAFE_RECOVERY_MS"
         ),
     }
 

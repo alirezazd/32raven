@@ -50,8 +50,10 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   // Mixer and ESC both read the blackboard's armed flag, which Sentinel is
   // the only writer of: Mix() returns all zeros until armed, and the ESC
   // layer checks again at the wire as defense in depth.
-  // No tx_online check yet — disarmed mixer + disarmed ESC means worst
-  // case is harmlessly computing zeros from stale RC.
+  // No freshness check here on purpose: Sentinel owns how long stale RC may
+  // keep flying, and its stage-one guard deliberately flies the pilot's last
+  // frame so a dropout shorter than the guard costs nothing. Past the guard
+  // it disarms, and that reaches the mixer above.
   constexpr float fast_dt_sec = kControlLoopDtSec;
   constexpr float max_rate_roll_pitch = kPilotAcroMaxRateRollPitch;
   constexpr float max_rate_yaw = kPilotAcroMaxRateYaw;

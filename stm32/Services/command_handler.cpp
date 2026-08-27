@@ -191,23 +191,17 @@ static void OnCalibrateGyro(const AppContext &ctx, const message::Packet &pkt) {
       message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kWarning)});
 }
 
-// Privileged: directly toggle ESC + Mixer arm state, bypassing any future
-// arming state machine. Trust model matches kReboot/kBootload (gated only by
-// FCLink access). Used by test fixtures to drive non-zero mixer outputs
-// without physical RC stick gestures.
+// Privileged only in that FcLink access is the whole gate, as for kReboot and
+// kBootload -- it bypasses nothing. Sentinel answers this request against the
+// same interlocks the arm switch faces, and owns the refusal, so this end just
+// forwards it. Its use is the bench, where there is no transmitter to arm with.
 static void OnPrivilegedArm(const AppContext &ctx, const message::Packet &pkt) {
   if (!message::IsPayloadLengthValid(message::MsgId::kPrivilegedArm,
                                      pkt.header.len)) {
     return;
   }
   const auto &req = message::PayloadAs<message::PrivilegedArmMsg>(pkt);
-  // Sentinel owns the interlocks and the transition; this end only turns a
-  // refusal back into something the operator can hear.
-  if (!ctx.sys->SentinelSvc().RequestArm(ctx, req.armed != 0u)) {
-    ctx.sys->FcLinkSvc().SendPacket(
-        message::MsgId::kTone, message::ToneMsg{.tone = static_cast<uint8_t>(
-                                                    message::Tone::kWarning)});
-  }
+  ctx.sys->SentinelSvc().RequestArm(req.armed != 0u);
 }
 
 // Revoke before grant: UsbCdc refuses to swap class descriptors while
