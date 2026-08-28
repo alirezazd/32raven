@@ -37,6 +37,16 @@ class MspService {
 
   void Poll(uint32_t now_us);
 
+  // The one writer of SharedState::usb_: this service already holds the CDC
+  // driver and the four-way service, so it is where all three sources meet
+  // without something reaching sideways. Stamps only on a real change.
+  //
+  // Public for the state that owned the session to call on its way out: Poll
+  // is the only other caller and it stops running when that state does, so
+  // the last record published would otherwise be the pre-teardown one -- a
+  // port still claimed by a host that has gone.
+  void PublishUsbStatus(uint32_t now_us);
+
   // Latched: the ESP32 reconciles it against its own state, having been told
   // what this side believes via kUsbStatus.
   void SetEscConfigMode(bool enabled);
@@ -86,11 +96,6 @@ class MspService {
   bool SendReply(bool ok);
   void RevokeEscConfigMode();
   void Reset() { parse_ = Parse::kIdle; }
-
-  // The one writer of SharedState::usb_: this service already holds the CDC
-  // driver and the four-way service, so it is where all three sources meet
-  // without something reaching sideways. Stamps only on a real change.
-  void PublishUsbStatus(uint32_t now_us);
 
   // MSP is little-endian on the wire regardless of host byte order.
   uint8_t *ReplyBuf() { return &frame_[kV2HeaderBytes]; }

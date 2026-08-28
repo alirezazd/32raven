@@ -77,6 +77,7 @@ class ServiceState : public IState<AppContext> {
   const char *Name() const override { return "Service"; }
 
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 };
 
@@ -85,6 +86,7 @@ class ProgramState : public IState<AppContext> {
   const char *Name() const override { return "Program"; }
 
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 
 };
@@ -94,6 +96,7 @@ class EscConfigState : public IState<AppContext> {
   const char *Name() const override { return "EscConfig"; }
 
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 
  private:
@@ -168,6 +171,7 @@ class UsbLogState : public IState<AppContext> {
   const char *Name() const override { return "UsbLog"; }
 
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 
  private:

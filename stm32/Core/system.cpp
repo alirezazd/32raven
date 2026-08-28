@@ -10,6 +10,7 @@
 #include "dshot_tim1.hpp"
 #include "error_code.hpp"
 #include "gpio.hpp"
+#include "i2c.hpp"
 #include "irq_priority.hpp"
 #include "led.hpp"
 #include "panic.hpp"
@@ -51,6 +52,7 @@ constexpr std::array<System::Component,
         System::Component::kUart2,
         System::Component::kM10,
         System::Component::kIcm42688p,
+        System::Component::kI2c1,
         System::Component::kMultirotorMixer,
         System::Component::kAhrs,
         System::Component::kRateController,
@@ -269,6 +271,9 @@ void System::InitComponent(Component c) {
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi2::GetInstance(),
                                     EE::GetInstance(), kIcm42688pConfig,
                                     blackboard_);
+      break;
+    case Component::kI2c1:
+      I2c1::GetInstance().Init(kI2c1Config);
       break;
     case Component::kMultirotorMixer:
       mixer_.Init(kMultirotorMixerConfig, blackboard_);

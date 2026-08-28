@@ -8,6 +8,12 @@ struct IState {
   virtual ~IState() = default;
   virtual const char *Name() const = 0;
   virtual void OnEnter(Context &ctx) { (void)ctx; }
+  // Runs on the way out, before the successor's OnEnter. Defaulted so only a
+  // state with something to release has to say so: a state that owns a
+  // resource for exactly its own lifetime -- a claimed USB port, a granted
+  // session -- can hand it back here rather than leaving whichever state
+  // comes next to know it should.
+  virtual void OnExit(Context &ctx) { (void)ctx; }
   virtual void OnStep(Context &ctx) = 0;
 };
 
@@ -51,6 +57,7 @@ class StateMachine {
  private:
   void TransitionTo(IState<Context> &target) {
     if (current_ == &target) return;  // ignore self transition
+    if (current_) current_->OnExit(ctx_);
     current_ = &target;
     current_->OnEnter(ctx_);
   }

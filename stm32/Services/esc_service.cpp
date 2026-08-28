@@ -79,13 +79,19 @@ void EscService::Init(const Config &cfg, DShotCodec &codec,
 }
 
 void EscService::Poll(uint32_t now_us) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
-  }
-
   if (telemetry_ != nullptr) {
     telemetry_->Poll(now_us);
     CheckEscFirmware();
+  }
+
+  // Armed, the control loop owns the wire, so a burst still standing from
+  // before the arm is abandoned rather than paused. Paused is not an option in
+  // either direction: these frames are written from the main tick while the
+  // loop writes thrust from the control tick, and WriteMotors refuses outright
+  // while a command stands -- so leaving one active would cut the motors for
+  // the rest of the flight.
+  if (command_.active && blackboard_->IsArmed()) {
+    command_ = PendingCommand{};
   }
 
   if (command_.active &&
@@ -223,9 +229,6 @@ bool EscService::SendIdleFrame(uint32_t now_us) {
 }
 
 void EscService::SetTestThrottle(const std::array<float, 4> &thrust) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
-  }
   if (blackboard_->IsArmed()) {
     return;
   }
@@ -261,31 +264,12 @@ uint8_t EscService::MotorPoles() const {
   return 0;
 }
 
-// Sentinel owns the decision and the flag; this is only the ESC-side half of
-// the transition. Called with the blackboard already reading disarmed on the
-// way down, so the stop frames cannot race a control-loop motor write.
-void EscService::OnArmedChanged(bool armed) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
-  }
-
-  command_ = PendingCommand{};
-  test_values_.fill(DShotCodec::kMotorStop);
-  if (!armed) {
-    (void)StopAll();
-  }
-}
-
 bool EscService::WriteMotors(const DShotCodec::MotorValues &motor) {
   return WriteMotors(motor, System::GetInstance().Time().Micros());
 }
 
 bool EscService::WriteMotors(const DShotCodec::MotorValues &motor,
                              uint32_t now_us) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
-  }
-
   // Re-read rather than trusted: this is the last stage before the wire, so a
   // missed transition upstream still cannot reach a motor.
   if (!blackboard_->IsArmed() || command_.active) {
@@ -305,10 +289,6 @@ bool EscService::StopAll() {
 }
 
 bool EscService::StopAll(uint32_t now_us) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
-  }
-
   const DShotCodec::MotorValues stop = {
       DShotCodec::kMotorStop,
       DShotCodec::kMotorStop,
@@ -320,10 +300,6 @@ bool EscService::StopAll(uint32_t now_us) {
 
 bool EscService::QueueCommand(DshotCommand command, uint8_t motor_index,
                               bool telemetry) {
-  if (!initialized_) {
-    Panic(ErrorCode::Stm32::kEscServiceInitFailed);
-  }
-
   const uint16_t value = std::to_underlying(command);
   if (blackboard_->IsArmed() || command_.active ||
       value > DShotCodec::kCommandMax) {

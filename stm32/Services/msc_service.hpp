@@ -21,6 +21,10 @@ class MscService {
  public:
   void Poll(uint32_t now_us);
 
+  // Public for the same reason as MspService::PublishUsbStatus: the state
+  // that held the session publishes this record on its way out.
+  void PublishUsbStatus(uint32_t now_us);
+
   // Refuses while armed. Enabling hands the card to the host; disabling
   // remounts it and preallocates the next log.
   void SetMscMode(bool enabled);
@@ -59,7 +63,6 @@ class MscService {
   };
   static_assert(sizeof(Csw) == 13);
 
-  void PublishUsbStatus(uint32_t now_us);
   void ResetBot();
   void HandleCbw();
   void ReplyFixed(std::span<const uint8_t> data);

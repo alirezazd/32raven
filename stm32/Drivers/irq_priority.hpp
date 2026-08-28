@@ -56,6 +56,10 @@ inline constexpr uint32_t kUart2Dma =
     Of(Tier::kSensorTelemetry);  // DMA1 Stream5/6
 inline constexpr uint32_t kUart6Dma =
     Of(Tier::kSensorTelemetry);  // DMA2 Stream1/6
+inline constexpr uint32_t kI2c1Event =
+    Of(Tier::kSensorTelemetry);  // I2C1 sensor bus, event vector
+inline constexpr uint32_t kI2c1Error =
+    Of(Tier::kSensorTelemetry);  // I2C1 sensor bus, error vector
 
 // Motors
 inline constexpr uint32_t kDshotTim1Dma = Of(Tier::kDshotDma);  // DMA2 Stream5

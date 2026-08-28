@@ -104,6 +104,7 @@ enum class Stm32 : uint32_t {
   kFcLinkReinit,
   kSensorCalServiceReinit,
   kSdCardGeometry,
+  kEscOutputStalled,
 };
 
 enum class Esp32 : uint32_t {

@@ -43,7 +43,6 @@ class EscService {
             SharedState &blackboard);
   void Poll(uint32_t now_us);
 
-  void OnArmedChanged(bool armed);
   [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor);
   [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor,
                                  uint32_t now_us);

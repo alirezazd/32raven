@@ -29,6 +29,7 @@
 inline constexpr uint16_t kArmBlockNotIdle = 1u << 0;
 inline constexpr uint16_t kArmBlockSwitchNotCycled = 1u << 1;
 inline constexpr uint16_t kArmBlockRcLoss = 1u << 2;
+inline constexpr uint16_t kArmBlockLowBattery = 1u << 3;
 
 // How much the RC link is currently trusted. Deliberately not called a
 // failsafe *state*: none of these change what the vehicle does. kGuard flies
@@ -104,6 +105,10 @@ class Sentinel {
     // Clean RC required before arming is allowed again, so an intermittent
     // link cannot re-arm on a switch nobody moved.
     uint32_t failsafe_recovery_us;
+    // Pack millivolts below which arming is refused; 0 disables. Ground-only
+    // by design: in the air the same reading sags with throttle, and acting
+    // on it there is #50's landing, not a cut.
+    uint32_t arm_battery_min_mv;
   };
 
   // Every arm request on the board lands here -- the privileged command and
@@ -121,20 +126,24 @@ class Sentinel {
   friend class System;
 
   void Init(const Config &cfg, SharedState &blackboard, EscService &esc,
-            RateController &rate_controller, Icm42688p &imu,
-            FcLink &fc_link);
+            RateController &rate_controller, Icm42688p &imu, FcLink &fc_link);
 
   // Weighs the driver's counters against the thresholds it deliberately does
   // not know, and answers per the arm state.
   void SuperviseImu(uint32_t now_us);
+  // Watches the one failure a stop frame cannot answer: the DShot path
+  // refusing every write.
+  void SuperviseEscOutput(uint32_t now_us);
   void SuperviseTestThrottle(uint32_t now_us);
   void RecoverStalledImu(uint32_t now_us);
   // Halts when disarmed; armed, raises the failsafe flag and remembers the
   // code so the halt still happens once the aircraft is down.
   void RaiseImuFault(ErrorCode::Stm32 code);
 
-  // The one place a refused arm becomes something the operator can hear.
-  void AnnounceArmRefusal();
+  // Every refusal and the bench cut sound the same for now: the bitmask can
+  // say which interlock said no, but nothing the pilot can hear distinguishes
+  // them yet.
+  void EmitWarning();
 
   // The RC half of Supervise: link loss, then the arm switch. Takes the
   // blockers raised outside it so the published set is written once, by the
@@ -143,6 +152,7 @@ class Sentinel {
   // Advances the link phase and, when the guard runs out, disarms. Returns
   // the phase it settled on, so the caller reads it once.
   RcLinkPhase StepRcLink(uint32_t now_us, bool link_ok);
+  uint16_t BatteryBlocker() const;
 
   Config cfg_{};
   SharedState *blackboard_ = nullptr;
@@ -157,24 +167,20 @@ class Sentinel {
   uint32_t last_missed_samples_ = 0;
   uint32_t last_fault_window_us_ = 0;
   uint32_t last_path_faults_ = 0;
+  uint32_t last_esc_window_us_ = 0;
+  uint32_t last_esc_drops_ = 0;
   uint32_t high_loss_consec_ = 0;
   // 0 means no throttle is standing, so a stale stamp from a previous
   // session can never cut the next one on its first pass.
   uint32_t last_host_us_ = 0;
   uint32_t last_msp_requests_ = 0;
-  // Aged instead of rc.timestamp_us itself. A published stamp compared against
-  // a clock that wraps every 71.6 minutes reads fresh again once the true age
-  // passes the wrap, so loss is latched off an observed change instead.
-  uint32_t last_rc_stamp_ = 0;
-  uint32_t rc_change_us_ = 0;
-  bool rc_ever_seen_ = false;
-  // Stamped on every phase change; only kGuard reads it back, to age itself
-  // out against the guard.
   // Refused until the first Supervise has computed a real set, so a request
   // that beats the supervisor to the first pass is answered by the interlock
   // rather than by a word nobody has written yet.
   uint16_t arm_blockers_ = kArmBlockNotIdle;
   RcLinkPhase rc_link_phase_ = RcLinkPhase::kUp;
+  // Stamped on every phase change; only kGuard reads it back, to age itself
+  // out against the guard.
   uint32_t rc_link_entered_us_ = 0;
   // Restarted by every frame that arrives while the link is judged bad, so
   // recovery measures a clean stretch rather than a single lucky frame.

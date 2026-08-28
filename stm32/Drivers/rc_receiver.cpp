@@ -143,7 +143,7 @@ void RcReceiver::RecomputeFromRaw(RcData &out) const {
   out.yaw_us = 0;
   out.throttle_us = 0;
 
-  if (out.timestamp_us == 0) {
+  if (out.timestamp_us == 0u) {
     return;
   }
 
@@ -190,7 +190,11 @@ void RcReceiver::ProcessRawState(const message::RcChannelsMsg &msg,
   }
 
   RcData next = blackboard_->GetRc();
-  next.timestamp_us = now_us;
+  // Local arrival time, not anything the transmitter sent, which is what
+  // makes the published stamp ageable by a reader. Zero is reserved for "no
+  // frame yet", so the one microsecond per wrap that lands on it borrows the
+  // next and the sentinel stays exact.
+  next.timestamp_us = (now_us == 0u) ? 1u : now_us;
   for (std::size_t i = 0; i < message::kRcChannelCount; ++i) {
     next.channels_raw[i] = msg.channels[i];
   }

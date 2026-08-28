@@ -69,6 +69,7 @@ inline constexpr uint32_t GPIO_PULLDOWN = 0x00000002u;
 
 // Alternate functions (value = AF index)
 inline constexpr uint32_t GPIO_AF1_TIM1 = 1u;
+inline constexpr uint32_t GPIO_AF4_I2C1 = 4u;
 inline constexpr uint32_t GPIO_AF5_SPI1 = 5u;
 inline constexpr uint32_t GPIO_AF5_SPI2 = 5u;
 inline constexpr uint32_t GPIO_AF7_USART1 = 7u;

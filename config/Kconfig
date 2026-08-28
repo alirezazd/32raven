@@ -1402,6 +1402,42 @@ endmenu
 
 endmenu
 
+menu "I2C"
+
+menu "I2C1 (sensors)"
+
+# The only I2C this package can offer: I2C2 lives on PB10/PB11 (IMU interrupt,
+# ESC telemetry RX) and I2C3 needs PC9, which is SDIO_D1 with no alternative.
+# PB8/PB9 are the default so PB6/PB7 stay free as USART1's alternate pair.
+
+choice
+    prompt "SCL pin"
+    default STM32_I2C1_SCL_PIN_PB8
+
+config STM32_I2C1_SCL_PIN_PB8
+    bool "PB8 (AF4)"
+
+config STM32_I2C1_SCL_PIN_PB6
+    bool "PB6 (AF4)"
+
+endchoice
+
+choice
+    prompt "SDA pin"
+    default STM32_I2C1_SDA_PIN_PB9
+
+config STM32_I2C1_SDA_PIN_PB9
+    bool "PB9 (AF4)"
+
+config STM32_I2C1_SDA_PIN_PB7
+    bool "PB7 (AF4)"
+
+endchoice
+
+endmenu
+
+endmenu
+
 menu "IMU (ICM42688P)"
 
 # IMU data-ready interrupt: routed to an EXTI line. The NVIC IRQn is
@@ -2096,6 +2132,37 @@ endmenu
 
 endmenu
 
+
+menu "I2C"
+
+menu "I2C1 (sensors)"
+
+# No mode knob: standard vs fast mode is implied by the clock -- the driver
+# programs fast-mode timing above 100 kHz and standard-mode at it, so a
+# separate switch could only contradict the number next to it.
+
+config STM32_I2C1_SCL_HZ
+    int "SCL clock (Hz)"
+    range 100000 400000
+    default 400000
+    help
+      Bus clock for the sensor I2C. Every intended tenant (DPS310, MMC5983MA,
+      VL53-class TOF) is rated for fast mode, so 400 kHz is the default; drop
+      it only for marginal wiring.
+
+config STM32_I2C1_TRANSFER_TIMEOUT_US
+    int "Transfer timeout (us)"
+    range 1000 1000000
+    default 30000
+    help
+      Deadline on a single transfer, enforced from the consumer's poll. A
+      floor, not a ceiling: a transfer whose wire time at the configured
+      clock cannot fit gets a deadline computed from its own length, so no
+      combination of these two knobs aborts a healthy transfer mid-flight.
+
+endmenu
+
+endmenu
 
 menu "IMU (ICM42688P)"
 
@@ -3714,6 +3781,21 @@ config STM32_SENTINEL_TEST_THROTTLE_SILENCE_MS
       gone rather than the slider standing still. Short enough that a host
       that dies mid-spin does not leave motors running, long enough to survive
       a configurator that pauses between polls.
+
+config STM32_SENTINEL_ARM_CELL_MIN_MV
+    int "Lowest resting cell voltage that may arm (mV)"
+    range 0 4400
+    default 3700
+    help
+      A pack below this per-cell voltage refuses to arm. A resting figure,
+      not a loaded one: on the ground the filtered reading is the pack's
+      open-circuit voltage, so this asks whether a flight can be finished,
+      not whether the motors can be started. Must sit between the empty and
+      full cell voltages under Peripherals -> Battery Monitor. 0 disables
+      the check, which a bench with no pack connected needs.
+
+      Ground-only by design. In the air the same reading sags with throttle
+      and recovers when it drops; acting on it there is #50's landing.
 
 menu "Failsafe"
 

@@ -209,8 +209,6 @@ static void MainTick(AppContext &ctx) {
   ctx.sys->LogSvc().Poll(micros());
   ctx.sys->SensorCalSvc().Poll(micros());
 
-  ctx.sys->MspSvc().Poll(micros());
-
   ctx.sys->CrsfLinkSvc().PollCommands();
 }
 
@@ -220,8 +218,6 @@ void ArmedState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
 
 void IdleState::OnEnter(AppContext &ctx) {
   EnterFlightLoop(ctx, this);
-  // Idempotent: this entry is the disarm edge when a flight just ended.
-  ctx.sys->LogSvc().StopFlight();
   ctx.sys->Led().Set(false);
 }
 
@@ -250,12 +246,22 @@ void ArmedState::OnEnter(AppContext &ctx) {
   ctx.sys->Led().Set(true);
 }
 
+void ArmedState::OnExit(AppContext &ctx) { ctx.sys->LogSvc().StopFlight(); }
+
 void ArmedState::OnStep(AppContext &ctx) {
   StepFlightLoop(ctx);
 
   if (!ctx.sys->Blackboard().IsArmed()) {
     ctx.sm->ReqTransition(*ctx.idle_state);
   }
+}
+
+// The grant is revoked from FcLink, which runs after this state's last MSP
+// poll, so the record that poll published still claims a port the host has
+// already given up. Nothing polls MSP once this state ends, making here the
+// only place the correction can be made.
+void EscConfigState::OnExit(AppContext &ctx) {
+  ctx.sys->MspSvc().PublishUsbStatus(ctx.sys->Time().Micros());
 }
 
 void EscConfigState::OnEnter(AppContext &ctx) {
@@ -287,6 +293,11 @@ void EscConfigState::OnStep(AppContext &ctx) {
   if (!ctx.sys->MspSvc().EscConfigGranted()) {
     ctx.sm->ReqTransition(*ctx.idle_state);
   }
+}
+
+// As EscConfigState::OnExit, for the record MscService keeps.
+void MscState::OnExit(AppContext &ctx) {
+  ctx.sys->MscSvc().PublishUsbStatus(ctx.sys->Time().Micros());
 }
 
 void MscState::OnEnter(AppContext &ctx) {

@@ -75,9 +75,6 @@ void MscService::Init(UsbCdc &usb, LogService &log, SharedState &blackboard,
 }
 
 void MscService::SetMscMode(bool enabled) {
-  if (!initialized_) {
-    return;
-  }
   if (enabled && blackboard_->IsArmed()) {
     enabled = false;
   }

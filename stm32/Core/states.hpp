@@ -21,6 +21,7 @@ struct IdleState : public IState<AppContext>, public IControlTickState {
 struct ArmedState : public IState<AppContext>, public IControlTickState {
   const char *Name() const override { return "Armed"; }
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
   void OnControlTick(AppContext &ctx) override;
 };
@@ -28,6 +29,7 @@ struct ArmedState : public IState<AppContext>, public IControlTickState {
 struct EscConfigState : public IState<AppContext> {
   const char *Name() const override { return "EscConfig"; }
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 
  private:
@@ -36,5 +38,6 @@ struct EscConfigState : public IState<AppContext> {
 struct MscState : public IState<AppContext> {
   const char *Name() const override { return "Msc"; }
   void OnEnter(AppContext &ctx) override;
+  void OnExit(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
 };

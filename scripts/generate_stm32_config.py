@@ -352,8 +352,8 @@ RCC_VOLTAGE_SCALE_CHOICES = _rcc_choices(
 class _SignalPin:
     """Peripheral pin constrained by the silicon AF table.
 
-    GPIO programming for AF pins is fixed by peripheral function:
-      mode = AF_PP, speed = VERY_HIGH.
+    GPIO programming for AF pins follows the peripheral: speed = VERY_HIGH,
+    `mode` is push-pull unless the protocol itself is open-drain (I2C).
     `pull` defaults to NOPULL but can be overridden for protocol-specific
     idle states (e.g. ESC telemetry RX is a single-wire idle-high line).
     """
@@ -362,6 +362,7 @@ class _SignalPin:
     signal: str
     choice_options: dict[str, str]
     pull: str = "nopull"
+    mode: str = "af_pp"
 
 
 @dataclass(frozen=True)
@@ -436,6 +437,11 @@ _GPIO_PULL_MAP = {
     "nopull": "GPIO_NOPULL",
     "pullup": "GPIO_PULLUP",
     "pulldown": "GPIO_PULLDOWN",
+}
+
+_GPIO_AF_MODE_MAP = {
+    "af_pp": "GPIO_MODE_AF_PP",
+    "af_od": "GPIO_MODE_AF_OD",
 }
 
 _GPIO_SPEED_MAP = {
@@ -742,6 +748,29 @@ PINMAP_ENTRIES: tuple = (
         speed="very_high",
         active_low=True,
     ),
+    # I2C1 (sensor bus: barometer, magnetometer, TOF). Both signals AF4 and
+    # open-drain by protocol; weak internal pull-ups keep the bus idle-high
+    # with nothing fitted -- the sensor modules bring the real resistors.
+    _SignalPin(
+        board_const="kI2c1Scl",
+        signal="I2C1_SCL",
+        choice_options={
+            "STM32_I2C1_SCL_PIN_PB8": "PB8",
+            "STM32_I2C1_SCL_PIN_PB6": "PB6",
+        },
+        pull="pullup",
+        mode="af_od",
+    ),
+    _SignalPin(
+        board_const="kI2c1Sda",
+        signal="I2C1_SDA",
+        choice_options={
+            "STM32_I2C1_SDA_PIN_PB9": "PB9",
+            "STM32_I2C1_SDA_PIN_PB7": "PB7",
+        },
+        pull="pullup",
+        mode="af_od",
+    ),
     # IMU data-ready interrupt (ICM42688P INT pin → STM32 EXTI input).
     # PCB routes to PB10 → EXTI15_10_IRQn.
     _ExtiPin(
@@ -934,6 +963,11 @@ def _validate_pinmap_entry(
                 f"is not a valid AF combo per ST data. Valid pins for "
                 f"{entry.signal}: {valid}"
             )
+        if entry.mode not in _GPIO_AF_MODE_MAP:
+            raise ValueError(
+                f"pinmap {entry.board_const}: invalid _SignalPin mode "
+                f"'{entry.mode}'"
+            )
         return
 
     if not db.is_valid_pin(pin_name):
@@ -1106,7 +1140,7 @@ def _pinmap_context(kconf: kconfiglib.Kconfig) -> list[dict[str, object]]:
         if isinstance(entry, _SignalPin):
             af = db.af_for(pin_name, entry.signal)
             assert af is not None, "validate-bypass: missing AF for signal pin"
-            gpio_mode = "GPIO_MODE_AF_PP"
+            gpio_mode = _GPIO_AF_MODE_MAP[entry.mode]
             gpio_pull = _GPIO_PULL_MAP[entry.pull]
             gpio_speed = "GPIO_SPEED_FREQ_VERY_HIGH"
         elif isinstance(entry, _GpioPin):
@@ -1261,6 +1295,15 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
         raise ValueError(
             "CONFIG_STM32_BATTERY_CELL_EMPTY_MV must be lower than "
             "CONFIG_STM32_BATTERY_CELL_FULL_MV"
+        )
+    arm_cell_min_mv = sym_int(kconf, "STM32_SENTINEL_ARM_CELL_MIN_MV")
+    if arm_cell_min_mv != 0 and not (
+        cell_empty_mv < arm_cell_min_mv < cell_full_mv
+    ):
+        raise ValueError(
+            "CONFIG_STM32_SENTINEL_ARM_CELL_MIN_MV must sit strictly between "
+            "CONFIG_STM32_BATTERY_CELL_EMPTY_MV and "
+            "CONFIG_STM32_BATTERY_CELL_FULL_MV, or be 0 to disable the check"
         )
 
     # Checked even when TP1 is disabled: the pair is written either way, and
@@ -1816,6 +1859,10 @@ def _sentinel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "failsafe_recovery_ms": sym_int(
             kconf, "STM32_SENTINEL_FAILSAFE_RECOVERY_MS"
         ),
+        # Per cell in the menu, where the number means something to a pilot;
+        # a pack figure on the board, where one comparison is all it costs.
+        "arm_battery_min_mv": sym_int(kconf, "STM32_SENTINEL_ARM_CELL_MIN_MV")
+        * sym_int(kconf, "STM32_BATTERY_CELL_COUNT"),
     }
 
 
@@ -2107,6 +2154,15 @@ def _ee_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {"spi1_prescaler": prescaler}
 
 
+def _i2c1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "scl_hz": sym_int(kconf, "STM32_I2C1_SCL_HZ"),
+        "transfer_timeout_us": sym_int(
+            kconf, "STM32_I2C1_TRANSFER_TIMEOUT_US"
+        ),
+    }
+
+
 def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     # Knobs of the procedure, not of the part: the symbols keep their IMU names,
     # but SensorCalService consumes them and nothing in the driver reads them.
@@ -2315,6 +2371,7 @@ def _runtime_context(
         "led": {"active_low": sym_bool(kconf, "STM32_LED_ACTIVE_LOW")},
         "dshot_tim1": _dshot_tim1_context(kconf),
         "ee": _ee_context(kconf),
+        "i2c1": _i2c1_context(kconf),
         "rcc": _rcc_context(kconf),
         "flight_mode": _flight_mode_context(kconf),
         "timebase": _timebase_context(kconf),

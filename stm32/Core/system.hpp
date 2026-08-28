@@ -80,6 +80,7 @@ class System {
     kUart2,
     kM10,
     kIcm42688p,
+    kI2c1,
     kMultirotorMixer,
     kAhrs,
     kRateController,

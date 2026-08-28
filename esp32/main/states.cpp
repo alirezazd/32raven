@@ -49,25 +49,18 @@ struct MenuTarget {
 // acts on an awake screen; a long press always acts.
 static bool CycleOnButton(AppContext &ctx, const char *from,
                           const MenuTarget &press,
-                          const MenuTarget &long_press,
-                          void (*on_exit)(AppContext &) = nullptr) {
+                          const MenuTarget &long_press) {
   auto &button = ctx.sys->Button();
   button.Poll();
 
   if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
     ESP_LOGI(kTag, "%s -> %s (press)", from, press.name);
-    if (on_exit != nullptr) {
-      on_exit(ctx);
-    }
     ctx.sm->ReqTransition(press.state);
     return true;
   }
   if (button.ConsumeLongPress()) {
     ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "%s -> %s (long press)", from, long_press.name);
-    if (on_exit != nullptr) {
-      on_exit(ctx);
-    }
     ctx.sm->ReqTransition(long_press.state);
     return true;
   }
@@ -93,10 +86,6 @@ void ServingState::OnEnter(AppContext &ctx) {
   // plugged in, with no user action required.
   ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
   ctx.sys->Mavlink().SetTelemetryLink(true);
-  // The STM32 keeps streaming FC link packets while Service/Program modes are not
-  // polling them, so resume in a fresh resync state instead of parsing stale
-  // buffered bytes as fatal corruption.
-  ctx.sys->FcLink().ResetRxState();
   ctx.sys->StopNetwork();
   ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, kServingBreatheMs);
 }
@@ -165,6 +154,11 @@ void ServiceState::OnEnter(AppContext &ctx) {
   ctx.sys->Tcp().CloseDataRx();
 }
 
+// This page never drains FcLink, so the STM32's stream has been piling up
+// unparsed the whole time. Handed on as a resync rather than as a buffer the
+// next page would read as fatal corruption. Program is the other such page.
+void ServiceState::OnExit(AppContext &ctx) { ctx.sys->FcLink().ResetRxState(); }
+
 void ServiceState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "Service", {*ctx.esc_config_state, "EscConfig"},
                     {*ctx.serving_state, "Serving"})) {
@@ -202,6 +196,9 @@ void ProgramState::OnEnter(AppContext &ctx) {
   ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
   ctx.sys->Led().Off();
 }
+
+// As ServiceState::OnExit, and the STM32 may also just have been rebooted.
+void ProgramState::OnExit(AppContext &ctx) { ctx.sys->FcLink().ResetRxState(); }
 
 void ProgramState::OnStep(AppContext &ctx) {
   auto &button = ctx.sys->Button();
@@ -302,6 +299,11 @@ static void DropUsbMode(AppContext &ctx) {
 }
 
 // EscConfig State
+// Every way out, including giving up on the grant: an STM32 that opened the
+// port after the last retry is otherwise left holding it with nobody to say
+// the session is over.
+void EscConfigState::OnExit(AppContext &ctx) { DropUsbMode(ctx); }
+
 void EscConfigState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering EscConfig");
   ctx.sys->Ui().SetAppState(Ui::AppState::kEscConfig);
@@ -312,7 +314,6 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   ctx.sys->Mavlink().SetTelemetryLink(true);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
   ctx.sys->StopNetwork();
-  ctx.sys->FcLink().ResetRxState();
   warned_armed_ = false;
   stream_seen_ = false;
   activity_.Reset(0);
@@ -322,8 +323,7 @@ void EscConfigState::OnEnter(AppContext &ctx) {
 
 void EscConfigState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "EscConfig", {*ctx.service_state, "Service"},
-                    {*ctx.serving_state, "Serving"},
-                    DropUsbMode)) {
+                    {*ctx.serving_state, "Serving"})) {
     return;
   }
 
@@ -373,13 +373,15 @@ void EscConfigState::OnStep(AppContext &ctx) {
 }
 
 // UsbLog State
+// As EscConfigState::OnExit.
+void UsbLogState::OnExit(AppContext &ctx) { DropUsbMode(ctx); }
+
 void UsbLogState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering UsbLog");
   ctx.sys->Ui().SetAppState(Ui::AppState::kUsbLog);
   ctx.sys->Mavlink().SetTelemetryLink(false);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
   ctx.sys->StopNetwork();
-  ctx.sys->FcLink().ResetRxState();
   stream_seen_ = false;
   activity_.Reset(0);
   grant_.Begin(ctx.now_ms);
@@ -388,8 +390,7 @@ void UsbLogState::OnEnter(AppContext &ctx) {
 
 void UsbLogState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "UsbLog", {*ctx.mavlink_usb_state, "MavlinkUsb"},
-                    {*ctx.service_state, "Service"},
-                    DropUsbMode)) {
+                    {*ctx.service_state, "Service"})) {
     return;
   }
 
@@ -429,7 +430,6 @@ void WifiLogState::OnEnter(AppContext &ctx) {
   ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
   ctx.sys->Mavlink().SetTelemetryLink(false);
   ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
-  ctx.sys->FcLink().ResetRxState();
   // Best effort: a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().CloseDataRx();

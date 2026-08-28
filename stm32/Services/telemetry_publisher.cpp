@@ -598,10 +598,6 @@ void TelemetryPublisher::UpdateFaultWindows(uint32_t now_us) {
 }
 
 void TelemetryPublisher::Poll(uint32_t now_us) {
-  if (!initialized_) {
-    return;
-  }
-
   UpdateFaultWindows(now_us);
 
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {

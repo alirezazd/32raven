@@ -185,6 +185,10 @@ struct EstimatorState {
 };
 
 struct RcData {
+  // Local arrival time of the last frame; 0 until the first one arrives. The
+  // distinction is load-bearing rather than cosmetic: aged against a clock,
+  // zero reads as the whole uptime of staleness, and a reader that skips the
+  // check refuses to arm a bench board whose transmitter is simply off.
   uint32_t timestamp_us = 0;
   // As the receiver reported them; calibration stops at the four axes below.
   std::array<uint16_t, message::kRcChannelCount> channels_raw{};

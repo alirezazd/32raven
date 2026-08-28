@@ -116,6 +116,12 @@ void MspService::Init(const Config &cfg, UsbCdc &usb,
 void MspService::RevokeEscConfigMode() {
   esc_config_granted_ = false;
   four_way_->Exit();
+  // The session's own teardown, rather than left for the next one to inherit:
+  // a half-parsed frame kept here would splice onto the first bytes the next
+  // host sends, and a test throttle outliving the host that set it is a
+  // vehicle whose motors answer to nobody.
+  Reset();
+  esc_->ClearTestThrottle();
   usb_->SetAttached(false);
 }
 
@@ -131,10 +137,6 @@ void MspService::SetEscConfigMode(bool enabled) {
 }
 
 void MspService::Poll(uint32_t now_us) {
-  if (!initialized_) {
-    return;
-  }
-
   // A bus reset ends the session even if the host never sent cmd_InterfaceExit.
   // Latched four-way would route the next session's MSP probes into a parser
   // that only recognises 0x2F.

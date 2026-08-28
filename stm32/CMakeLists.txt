@@ -152,6 +152,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 
     Drivers/dshot_tim1.cpp
     Drivers/spi.cpp
+    Drivers/i2c.cpp
     Drivers/button.cpp
     Drivers/uart.cpp
     Drivers/uart_soft.cpp
