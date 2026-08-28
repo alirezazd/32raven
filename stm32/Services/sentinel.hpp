@@ -30,6 +30,7 @@ inline constexpr uint16_t kArmBlockNotIdle = 1u << 0;
 inline constexpr uint16_t kArmBlockSwitchNotCycled = 1u << 1;
 inline constexpr uint16_t kArmBlockRcLoss = 1u << 2;
 inline constexpr uint16_t kArmBlockLowBattery = 1u << 3;
+inline constexpr uint16_t kArmBlockThrottleHigh = 1u << 4;
 
 // How much the RC link is currently trusted. Deliberately not called a
 // failsafe *state*: none of these change what the vehicle does. kGuard flies
@@ -109,6 +110,10 @@ class Sentinel {
     // by design: in the air the same reading sags with throttle, and acting
     // on it there is #50's landing, not a cut.
     uint32_t arm_battery_min_mv;
+    // Calibrated throttle above which arming is refused; 0 disables. A
+    // backstop behind the handset's own idle condition, for the transmitter
+    // that was never told to carry one.
+    uint16_t arm_throttle_max_us;
   };
 
   // Every arm request on the board lands here -- the privileged command and

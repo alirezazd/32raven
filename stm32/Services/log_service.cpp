@@ -21,6 +21,10 @@ namespace {
 
 // Far above any real root directory, far below forever.
 constexpr uint32_t kMaxRootScanEntries = 4096;
+// Freeing runs one at a time until the preallocation fits. Bounded so a card
+// whose free space never coalesces gives up rather than erasing every flight
+// on it.
+constexpr uint8_t kMaxLoopFrees = 8;
 
 // A time budget: preallocation walks the FAT a sector at a time over SDIO.
 // 32 GB at the 32 KB-cluster default builds a 4 MB table; the same card cut
@@ -425,6 +429,10 @@ void LogService::PrepareNextFile() {
   }
   uint32_t scanned = 0;
   FSIZE_t max_size = 0;
+  // Rounded up per file: the FAT hands out whole clusters, so a byte count
+  // would under-report against the free-cluster figure it is compared with.
+  const uint32_t cluster_bytes = fs_.csize * Sdio::kBlockBytes;
+  uint32_t log_clusters = 0;
   FRESULT read_res = FR_OK;
   while (true) {
     ClearDirEntry(info);
@@ -439,6 +447,11 @@ void LogService::PrepareNextFile() {
       Panic(ErrorCode::Stm32::kSdCardCorrupted);
     }
     const uint32_t index = LogFileIndex(info.fname);
+    if (index == 0u) {
+      continue;
+    }
+    log_clusters += static_cast<uint32_t>((info.fsize + cluster_bytes - 1u) /
+                                          cluster_bytes);
     if (index > max_index) {
       max_index = index;
       max_size = info.fsize;
@@ -465,11 +478,31 @@ void LogService::PrepareNextFile() {
     Panic(ErrorCode::Stm32::kSdCardCorrupted);
   }
 
-  const FRESULT expand_res = f_expand(&file_, bytes, 1);
+  FRESULT expand_res = f_expand(&file_, bytes, 1);
+
+  // FR_DENIED is no contiguous run this large, which is a full card rather
+  // than a broken one. Each log was preallocated contiguously and the files
+  // were written in order, so freeing the oldest tends to coalesce with what
+  // is already free below it -- hence retrying rather than freeing one run
+  // and assuming it fits.
+  for (uint8_t attempt = 0; expand_res == FR_DENIED && cfg_.loop_recording &&
+                            attempt < kMaxLoopFrees;
+       ++attempt) {
+    if (attempt == 0u) {
+      ReportUnaccountedSpace(log_clusters);
+    }
+    const uint32_t freed = DeleteOldestLog();
+    if (freed == 0u) {
+      break;
+    }
+    fc_link_->SendLog("sd: freed LOG%05lu.ULG for room",
+                      static_cast<unsigned long>(freed));
+    expand_res = f_expand(&file_, bytes, 1);
+  }
+  FormatLogName(max_index + 1u);  // DeleteOldestLog borrows the name buffer
+
   if (expand_res != FR_OK) {
     // The zero-length file stays: its name marks where the sequence stopped.
-    // FR_DENIED means no contiguous run this large: a full card, not a
-    // broken one.
     f_close(&file_);
     LogSdFailure(*fc_link_, "prealloc", expand_res);
     Panic(expand_res == FR_DENIED ? ErrorCode::Stm32::kSdCardFull
@@ -507,6 +540,67 @@ void LogService::AdoptOpenFile(FSIZE_t bytes) {
       fs_.database + (static_cast<LBA_t>(file_.obj.sclust - 2u) * fs_.csize);
   file_capacity_bytes_ = static_cast<uint32_t>(bytes);
   file_ready_ = true;
+}
+
+uint32_t LogService::DeleteOldestLog() {
+  DIR dir{};
+  FILINFO info{};
+  uint32_t oldest = 0;
+  if (f_opendir(&dir, "/") != FR_OK) {
+    return 0;
+  }
+  uint32_t scanned = 0;
+  while (true) {
+    ClearDirEntry(info);
+    if (f_readdir(&dir, &info) != FR_OK || info.fname[0] == '\0') {
+      break;
+    }
+    if (++scanned > kMaxRootScanEntries) {
+      break;
+    }
+    const uint32_t index = LogFileIndex(info.fname);
+    if (index != 0u && (oldest == 0u || index < oldest)) {
+      oldest = index;
+    }
+  }
+  f_closedir(&dir);
+
+  if (oldest == 0u) {
+    return 0;
+  }
+  FormatLogName(oldest);
+  return (f_unlink(file_name_) == FR_OK) ? oldest : 0u;
+}
+
+// Every log run came from this service's own f_expand, so the card should be
+// free space plus logs and nothing else. Any gap is space the FAT calls used
+// that no directory entry claims -- an f_expand cut short by a power loss,
+// which strands its run behind a zero-length name. Reported rather than
+// swept: the bitmap a sweep needs does not fit in this part's RAM, and the
+// card reaches a host that can do it properly over MSC.
+//
+// Worth saying out loud because loop recording would otherwise hide it: a
+// card mostly full of stranded runs still deletes and records, just with the
+// retention quietly collapsed to whatever the remaining space allows.
+void LogService::ReportUnaccountedSpace(uint32_t log_clusters) {
+  DWORD free_clusters = 0;
+  FATFS *fs = nullptr;
+  if (f_getfree("", &free_clusters, &fs) != FR_OK) {
+    return;
+  }
+  const uint32_t data_clusters = fs->n_fatent - 2u;
+  const uint32_t accounted = free_clusters + log_clusters;
+  if (accounted >= data_clusters) {
+    return;
+  }
+  const uint32_t cluster_bytes = fs->csize * Sdio::kBlockBytes;
+  const uint32_t stranded_mb = static_cast<uint32_t>(
+      (static_cast<uint64_t>(data_clusters - accounted) * cluster_bytes) >> 20);
+  if (stranded_mb == 0u) {
+    return;
+  }
+  fc_link_->SendLog("sd: %lu MB stranded, not in any log -- run fsck",
+                    static_cast<unsigned long>(stranded_mb));
 }
 
 // A preallocation from a boot that never armed: full size, no ULog magic. It

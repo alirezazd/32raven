@@ -3589,6 +3589,18 @@ endmenu
 
 menu "Log Service"
 
+config STM32_LOG_LOOP_RECORDING
+    bool "Overwrite the oldest flight when the card is full"
+    default y
+    help
+      When a preallocation finds no room, delete the oldest log and try
+      again rather than refusing to record. A full card then costs the
+      oldest flight instead of the next one, which is the trade a vehicle
+      wants: ArduPilot and Betaflight both erase rather than stop.
+
+      Turn this off to keep every flight, accepting that the board panics
+      once the card fills.
+
 config STM32_LOG_PREALLOC_MB
     int "Blackbox log preallocation (MB)"
     range 16 1024
@@ -3796,6 +3808,23 @@ config STM32_SENTINEL_ARM_CELL_MIN_MV
 
       Ground-only by design. In the air the same reading sags with throttle
       and recovers when it drops; acting on it there is #50's landing.
+
+config STM32_SENTINEL_ARM_THROTTLE_MAX_US
+    int "Highest throttle that may arm (us)"
+    range 0 2100
+    default 1100
+    help
+      Calibrated throttle above this refuses to arm, so a stick left up
+      cannot start the motors. 0 disables the check.
+
+      A backstop rather than the primary interlock: the handset should also
+      be told to arm only at idle, and it is the one that can refuse before
+      the request is ever sent. This catches the cases the handset cannot --
+      a model config edited or restored wrongly, or a different transmitter
+      whose arm switch does not carry the same condition.
+
+      Throttle reads 0 until the first frame, so a bench arming over FcLink
+      with no transmitter powered on is unaffected.
 
 menu "Failsafe"
 

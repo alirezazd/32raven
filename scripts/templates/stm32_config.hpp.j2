@@ -393,6 +393,7 @@ inline constexpr EscTelemetry::Config kEscTelemetryConfig = {
 
 inline constexpr LogService::Config kLogServiceConfig = {
     .prealloc_mb = {{ log_service.prealloc_mb }}u,
+    .loop_recording = {{ log_service.loop_recording | cpp_bool }},
 {% for name in ["rc_input", "battery", "esc_telemetry", "gps", "imu_health",
                 "crsf_link", "system_health", "logger_status"] %}
 {% set topic = log_service.topics[name] %}
@@ -430,6 +431,7 @@ inline constexpr Sentinel::Config kSentinelConfig = {
     .failsafe_guard_us = {{ sentinel.failsafe_guard_ms }}u * 1000u,
     .failsafe_recovery_us = {{ sentinel.failsafe_recovery_ms }}u * 1000u,
     .arm_battery_min_mv = {{ sentinel.arm_battery_min_mv }}u,
+    .arm_throttle_max_us = {{ sentinel.arm_throttle_max_us }}u,
 };
 {# The stall window is bounded at both ends and only one end is checkable.
    Below: PublishHealth stamps ImuHealth on every burst, unconditionally, so

@@ -200,6 +200,14 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
   if (mapped && fresh && arm_switch_blocked_) {
     blockers |= kArmBlockSwitchNotCycled;
   }
+  // Not gated on freshness: a stale reading that is high blocks, which is the
+  // safe direction, and a stale one that is low is already answered by the
+  // link blocker above. Zero is the never-seen value and passes, which is
+  // what keeps arming over FcLink with no transmitter working.
+  if (cfg_.arm_throttle_max_us != 0u &&
+      rc.throttle_us > cfg_.arm_throttle_max_us) {
+    blockers |= kArmBlockThrottleHigh;
+  }
   arm_blockers_ = blockers;
 
   // Cleared wherever the switch is not asking, so the next time it is counts

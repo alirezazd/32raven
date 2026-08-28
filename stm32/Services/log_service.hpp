@@ -59,6 +59,9 @@ class LogService {
   // carried to keep one TopicConfig shape across both schedulers.
   struct Config {
     uint32_t prealloc_mb;
+    // Give up the oldest flight rather than the next one when the card has
+    // no room left for a preallocation.
+    bool loop_recording;
     TopicConfig rc_input{};
     TopicConfig battery{};
     TopicConfig esc_telemetry{};
@@ -114,6 +117,11 @@ class LogService {
 
   void PrepareNextFile();
   bool TryReuseEmptyLog(uint32_t index, FSIZE_t bytes);
+  // Unlinks the lowest-numbered log, returning its index, or 0 when the card
+  // holds none to give up.
+  uint32_t DeleteOldestLog();
+  // Says how much of the card the FAT calls used that no log accounts for.
+  void ReportUnaccountedSpace(uint32_t log_clusters);
   void FormatLogName(uint32_t index);
   void AdoptOpenFile(FSIZE_t bytes);
   uint64_t Now64(uint32_t now_us);

@@ -1788,6 +1788,7 @@ def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
     return {
         "prealloc_mb": sym_int(kconf, "STM32_LOG_PREALLOC_MB"),
+        "loop_recording": sym_bool(kconf, "STM32_LOG_LOOP_RECORDING"),
         "topics": topics,
     }
 
@@ -1863,6 +1864,9 @@ def _sentinel_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         # a pack figure on the board, where one comparison is all it costs.
         "arm_battery_min_mv": sym_int(kconf, "STM32_SENTINEL_ARM_CELL_MIN_MV")
         * sym_int(kconf, "STM32_BATTERY_CELL_COUNT"),
+        "arm_throttle_max_us": sym_int(
+            kconf, "STM32_SENTINEL_ARM_THROTTLE_MAX_US"
+        ),
     }
 
 
