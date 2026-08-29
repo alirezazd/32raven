@@ -273,7 +273,7 @@ void System::InitComponent(Component c) {
                                     blackboard_);
       break;
     case Component::kI2c1:
-      I2c1::GetInstance().Init(kI2c1Config);
+      I2c1::GetInstance().Init(kI2c1Config, GPIO::GetInstance());
       break;
     case Component::kMultirotorMixer:
       mixer_.Init(kMultirotorMixerConfig, blackboard_);

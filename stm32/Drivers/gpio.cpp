@@ -173,3 +173,9 @@ void GPIO::WritePin(GPIO_TypeDef *port, uint16_t pin, bool state) {
 bool GPIO::ReadPin(GPIO_TypeDef *port, uint16_t pin) {
   return (port->IDR & pin) != 0;
 }
+
+void GPIO::SetPinMode(GPIO_TypeDef *port, uint16_t pin, uint32_t mode) {
+  const uint32_t shift = static_cast<uint32_t>(__builtin_ctz(pin)) * 2u;
+  port->MODER =
+      (port->MODER & ~(0x3u << shift)) | (DecodeMode(mode).base << shift);
+}

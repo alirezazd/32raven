@@ -62,35 +62,26 @@ constexpr uint32_t kGracefulStopUs = 30;
 constexpr uint32_t kRecoverHalfPeriodUs = 5;  // ~100 kHz recovery clocking
 constexpr uint32_t kRecoverStretchUs = 20;
 
-bool SclHigh() {
-  return (board::kI2c1Scl.port->IDR & board::kI2c1Scl.pin) != 0u;
+bool SclHigh(GPIO &gpio) {
+  return gpio.ReadPin(board::kI2c1Scl.port, board::kI2c1Scl.pin);
 }
 
-bool SdaHigh() {
-  return (board::kI2c1Sda.port->IDR & board::kI2c1Sda.pin) != 0u;
+bool SdaHigh(GPIO &gpio) {
+  return gpio.ReadPin(board::kI2c1Sda.port, board::kI2c1Sda.pin);
 }
 
-bool LinesIdle() { return SclHigh() && SdaHigh(); }
-
-// `pin` is a BoardPin mask, not an index: MODER is the one register here
-// addressed by position, so it is the one place the mask has to be converted.
-void PinMode(GPIO_TypeDef *port, uint16_t pin, uint32_t moder_bits) {
-  const uint32_t shift = static_cast<uint32_t>(__builtin_ctz(pin)) * 2u;
-  port->MODER = (port->MODER & ~(0x3u << shift)) | (moder_bits << shift);
-}
-
-constexpr uint32_t kModerOutput = 0x1u;
-constexpr uint32_t kModerAf = 0x2u;
+bool LinesIdle(GPIO &gpio) { return SclHigh(gpio) && SdaHigh(gpio); }
 
 }  // namespace
 
 template <I2cInstance Inst, size_t BufSize>
-void I2c<Inst, BufSize>::Init(const I2cConfig &config) {
+void I2c<Inst, BufSize>::Init(const I2cConfig &config, GPIO &gpio) {
   if (initialized_) {
     return;
   }
   initialized_ = true;
   cfg_ = config;
+  gpio_ = &gpio;
 
   if constexpr (Inst == I2cInstance::kI2c1) {
     RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
@@ -106,7 +97,7 @@ void I2c<Inst, BufSize>::Init(const I2cConfig &config) {
   // BUSY latched with both lines reading high is the analog-filter lockup
   // (ES0182): the filter cannot be disabled on this part, and only the
   // manual waveform flushes it -- SWRST alone does not.
-  if ((Hw()->SR2 & I2C_SR2_BUSY) != 0u && LinesIdle()) {
+  if ((Hw()->SR2 & I2C_SR2_BUSY) != 0u && LinesIdle(*gpio_)) {
     RecoverBus();
     ConfigureHw();
   }
@@ -145,41 +136,42 @@ void I2c<Inst, BufSize>::ConfigureHw() {
 
 template <I2cInstance Inst, size_t BufSize>
 void I2c<Inst, BufSize>::MaybeRecoverBus() {
-  if (!SdaHigh()) {
+  if (!SdaHigh(*gpio_)) {
     RecoverBus();
   }
 }
 
 template <I2cInstance Inst, size_t BufSize>
 void I2c<Inst, BufSize>::RecoverBus() {
-  // Borrow the pins as GPIO (the uart_soft precedent): AFR keeps AF4 and
-  // OTYPER/PUPDR keep their open-drain-with-pull programming from
-  // kGpioDefault; only MODER moves between AF and plain output. PE goes
+  // Borrow the pins from the peripheral: SetPinMode moves MODER only, so AFR
+  // keeps AF4 and OTYPER/PUPDR keep the open-drain-with-pull programming
+  // kGpioDefault gave them -- which is also what makes driving these lines
+  // safe, since a push-pull pin would fight a slave holding one low. PE goes
   // off first so the peripheral is not driving what we are about to.
   I2C_TypeDef *hw = Hw();
   hw->CR1 = 0;
 
-  GPIO_TypeDef *scl_port = board::kI2c1Scl.port;
-  GPIO_TypeDef *sda_port = board::kI2c1Sda.port;
-  const uint32_t scl_bit = board::kI2c1Scl.pin;
-  const uint32_t sda_bit = board::kI2c1Sda.pin;
+  GPIO &gpio = *gpio_;
+  const board::BoardPin &scl = board::kI2c1Scl;
+  const board::BoardPin &sda = board::kI2c1Sda;
   const TimeBase &time = System::GetInstance().Time();
 
-  scl_port->BSRR = scl_bit;  // never drive a claimed-low edge: release first
-  sda_port->BSRR = sda_bit;
-  PinMode(scl_port, board::kI2c1Scl.pin, kModerOutput);
-  PinMode(sda_port, board::kI2c1Sda.pin, kModerOutput);
+  // Never drive a claimed-low edge: release both before taking the pins.
+  gpio.WritePin(scl.port, scl.pin, true);
+  gpio.WritePin(sda.port, sda.pin, true);
+  gpio.SetPinMode(scl.port, scl.pin, GPIO_MODE_OUTPUT_OD);
+  gpio.SetPinMode(sda.port, sda.pin, GPIO_MODE_OUTPUT_OD);
 
   // Up to 9 clocks walks a slave out of whatever bit of whatever byte it
   // died in: 8 data bits plus its ACK slot. Zero iterations when SDA is
   // already free -- the filter-flush caller only needs the STOP below.
-  for (uint8_t pulse = 0; pulse < 9u && !SdaHigh(); ++pulse) {
-    scl_port->BSRR = scl_bit << 16u;
+  for (uint8_t pulse = 0; pulse < 9u && !SdaHigh(gpio); ++pulse) {
+    gpio.WritePin(scl.port, scl.pin, false);
     time.DelayMicros(kRecoverHalfPeriodUs);
-    scl_port->BSRR = scl_bit;
+    gpio.WritePin(scl.port, scl.pin, true);
     // A slave may stretch mid-recovery. SCL shorted low never rises; the
     // bound turns that into a counted failure instead of a boot hang.
-    (void)SpinFor(kRecoverStretchUs, [] { return SclHigh(); });
+    (void)SpinFor(kRecoverStretchUs, [&gpio] { return SclHigh(gpio); });
     time.DelayMicros(kRecoverHalfPeriodUs);
   }
 
@@ -187,17 +179,17 @@ void I2c<Inst, BufSize>::RecoverBus() {
   // listener resets its frame state. SDA must fall while SCL is low first,
   // or the fall itself would read as a START. This exact waveform is also
   // ST's flush for the analog-filter lockup.
-  scl_port->BSRR = scl_bit << 16u;
+  gpio.WritePin(scl.port, scl.pin, false);
   time.DelayMicros(kRecoverHalfPeriodUs);
-  sda_port->BSRR = sda_bit << 16u;
+  gpio.WritePin(sda.port, sda.pin, false);
   time.DelayMicros(kRecoverHalfPeriodUs);
-  scl_port->BSRR = scl_bit;
+  gpio.WritePin(scl.port, scl.pin, true);
   time.DelayMicros(kRecoverHalfPeriodUs);
-  sda_port->BSRR = sda_bit;
+  gpio.WritePin(sda.port, sda.pin, true);
   time.DelayMicros(kRecoverHalfPeriodUs);
 
-  PinMode(scl_port, board::kI2c1Scl.pin, kModerAf);
-  PinMode(sda_port, board::kI2c1Sda.pin, kModerAf);
+  gpio.SetPinMode(scl.port, scl.pin, GPIO_MODE_AF_OD);
+  gpio.SetPinMode(sda.port, sda.pin, GPIO_MODE_AF_OD);
   recoveries_ = recoveries_ + 1;
 }
 
@@ -314,7 +306,8 @@ void I2c<Inst, BufSize>::AbortStuckTransfer() {
   }
 
   ConfigureHw();
-  if (!SdaHigh() || ((hw->SR2 & I2C_SR2_BUSY) != 0u && LinesIdle())) {
+  if (!SdaHigh(*gpio_) ||
+      ((hw->SR2 & I2C_SR2_BUSY) != 0u && LinesIdle(*gpio_))) {
     RecoverBus();
     ConfigureHw();
   }

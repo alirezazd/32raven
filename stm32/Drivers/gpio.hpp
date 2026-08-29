@@ -90,6 +90,11 @@ class GPIO {
 
   void WritePin(GPIO_TypeDef *port, uint16_t pin, bool state);
   bool ReadPin(GPIO_TypeDef *port, uint16_t pin);
+  // Only the MODER field of a GPIO_MODE_* macro: OTYPER, PUPDR, OSPEEDR and
+  // AFR keep what Init programmed. For a pin borrowed from its peripheral and
+  // handed back -- rewriting the rest would mean restating a configuration
+  // that already has one source, and the two would drift.
+  void SetPinMode(GPIO_TypeDef *port, uint16_t pin, uint32_t mode);
 
  private:
   friend class System;

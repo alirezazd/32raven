@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 
+#include "gpio.hpp"
 #include "outcome.hpp"
 #include "stm32f4xx.h"
 
@@ -76,7 +77,7 @@ class I2c {
 
  private:
   friend class System;
-  void Init(const I2cConfig &config);
+  void Init(const I2cConfig &config, GPIO &gpio);
 
   I2c() = default;
   ~I2c() = default;
@@ -113,6 +114,9 @@ class I2c {
 
   bool initialized_ = false;
   I2cConfig cfg_{};
+  // Every pin access in the recovery waveform goes through it: the mask this
+  // driver holds is an index nowhere but MODER, and GPIO owns that conversion.
+  GPIO *gpio_ = nullptr;
 
   uint8_t tx_buf_[BufSize];
   uint8_t rx_buf_[BufSize];
