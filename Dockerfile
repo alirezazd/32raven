@@ -40,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libusb-1.0-0 \
       ripgrep \
       clang-format \
+      clang-tidy \
       ca-certificates \
       bash \
       bash-completion \
