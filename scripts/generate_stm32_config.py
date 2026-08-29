@@ -968,6 +968,18 @@ def _validate_pinmap_entry(
                 f"pinmap {entry.board_const}: invalid _SignalPin mode "
                 f"'{entry.mode}'"
             )
+        # Enforced here because the firmware cannot: `BoardPin` holds a
+        # `GPIO_TypeDef *`, which is a cast from an integer and so never a
+        # constant expression, so `kGpioDefault` cannot be constexpr and no
+        # static_assert can read the row that programs the pin. This entry is
+        # the source both the row and the driver depend on.
+        if entry.signal.startswith("I2C") and entry.mode != "af_od":
+            raise ValueError(
+                f"pinmap {entry.board_const}: {entry.signal} must be 'af_od', "
+                f"not '{entry.mode}'. I2c::RecoverBus drives this pin low to "
+                f"clock a wedged slave off the bus, which a push-pull pin "
+                f"turns into a short against whoever is holding the line."
+            )
         return
 
     if not db.is_valid_pin(pin_name):
