@@ -63,17 +63,19 @@ constexpr uint32_t kRecoverHalfPeriodUs = 5;  // ~100 kHz recovery clocking
 constexpr uint32_t kRecoverStretchUs = 20;
 
 bool SclHigh() {
-  return (board::kI2c1Scl.port->IDR & (1u << board::kI2c1Scl.pin)) != 0u;
+  return (board::kI2c1Scl.port->IDR & board::kI2c1Scl.pin) != 0u;
 }
 
 bool SdaHigh() {
-  return (board::kI2c1Sda.port->IDR & (1u << board::kI2c1Sda.pin)) != 0u;
+  return (board::kI2c1Sda.port->IDR & board::kI2c1Sda.pin) != 0u;
 }
 
 bool LinesIdle() { return SclHigh() && SdaHigh(); }
 
+// `pin` is a BoardPin mask, not an index: MODER is the one register here
+// addressed by position, so it is the one place the mask has to be converted.
 void PinMode(GPIO_TypeDef *port, uint16_t pin, uint32_t moder_bits) {
-  const uint32_t shift = static_cast<uint32_t>(pin) * 2u;
+  const uint32_t shift = static_cast<uint32_t>(__builtin_ctz(pin)) * 2u;
   port->MODER = (port->MODER & ~(0x3u << shift)) | (moder_bits << shift);
 }
 
@@ -159,8 +161,8 @@ void I2c<Inst, BufSize>::RecoverBus() {
 
   GPIO_TypeDef *scl_port = board::kI2c1Scl.port;
   GPIO_TypeDef *sda_port = board::kI2c1Sda.port;
-  const uint32_t scl_bit = 1u << board::kI2c1Scl.pin;
-  const uint32_t sda_bit = 1u << board::kI2c1Sda.pin;
+  const uint32_t scl_bit = board::kI2c1Scl.pin;
+  const uint32_t sda_bit = board::kI2c1Sda.pin;
   const TimeBase &time = System::GetInstance().Time();
 
   scl_port->BSRR = scl_bit;  // never drive a claimed-low edge: release first
