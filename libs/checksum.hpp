@@ -47,6 +47,28 @@ inline uint16_t XModemUpdate(uint16_t crc, uint8_t byte) {
   return crc;
 }
 
+// Fletcher-8, init 0. Used by UBX frames over everything between the sync
+// pair and the checksum pair. The only two-byte result here, so it keeps a
+// struct where the others return a scalar -- packing it into a uint16_t would
+// make every caller unpack it again to compare the halves separately.
+struct Fletcher8 {
+  uint8_t ck_a;
+  uint8_t ck_b;
+};
+
+inline void Fletcher8Update(Fletcher8 &ck, uint8_t byte) {
+  ck.ck_a = static_cast<uint8_t>(ck.ck_a + byte);
+  ck.ck_b = static_cast<uint8_t>(ck.ck_b + ck.ck_a);
+}
+
+[[nodiscard]] inline Fletcher8 Fletcher8Of(std::span<const uint8_t> bytes) {
+  Fletcher8 ck{.ck_a = 0, .ck_b = 0};
+  for (const uint8_t byte : bytes) {
+    Fletcher8Update(ck, byte);
+  }
+  return ck;
+}
+
 // CRC-16/ARC, poly 0xA001 reflected, init 0. An ESC config session runs two
 // CRC16s that are not interchangeable: XModem above for the host's four-way
 // frames, this one for the bytes past the flight controller.

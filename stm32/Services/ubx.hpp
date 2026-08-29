@@ -3,29 +3,11 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 
-// The UBX wire format: the frame checksum, and the NAV payloads M10Service
-// decodes as one packed struct per message, each pinned to its UBX payload
-// length. Kept free of every other include so the SIL can serialize the same
-// bytes from the same definitions.
-
-struct UbxChecksum {
-  uint8_t ck_a;
-  uint8_t ck_b;
-};
-
-// Fletcher-8 over everything between the sync bytes and the checksum itself.
-inline UbxChecksum ComputeUbxChecksum(const uint8_t *data, size_t len) {
-  uint8_t ck_a = 0;
-  uint8_t ck_b = 0;
-  for (size_t i = 0; i < len; i++) {
-    ck_a = static_cast<uint8_t>(ck_a + data[i]);
-    ck_b = static_cast<uint8_t>(ck_b + ck_a);
-  }
-  return UbxChecksum{.ck_a = ck_a, .ck_b = ck_b};
-}
+// The UBX NAV payloads M10Service decodes, one packed struct per message, each
+// pinned to its UBX payload length. Kept free of every other include so the SIL
+// can serialize the same bytes from the same definitions.
 
 struct M10PVTData {
   uint32_t iTOW;

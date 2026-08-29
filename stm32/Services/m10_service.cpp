@@ -35,8 +35,7 @@ void M10Service::ProcessByte(uint8_t byte) {
   // Running checksum over class, id, length and payload -- every byte between
   // the sync pair and the checksum pair, in arrival order (UBX 8-bit Fletcher).
   const auto accumulate = [&ctx](uint8_t b) {
-    ctx.ck_a_calc += b;
-    ctx.ck_b_calc += ctx.ck_a_calc;
+    checksum::Fletcher8Update(ctx.ck_calc, b);
   };
 
   switch (parse_) {
@@ -58,8 +57,7 @@ void M10Service::ProcessByte(uint8_t byte) {
 
     case M10Parse::kClass:
       ctx.cls = byte;
-      ctx.ck_a_calc = 0;
-      ctx.ck_b_calc = 0;
+      ctx.ck_calc = {};
       accumulate(byte);
       parse_ = M10Parse::kId;
       break;
@@ -102,7 +100,7 @@ void M10Service::ProcessByte(uint8_t byte) {
 
     case M10Parse::kCkA:
       ctx.ck_a = byte;
-      if (ctx.ck_a == ctx.ck_a_calc) {
+      if (ctx.ck_a == ctx.ck_calc.ck_a) {
         parse_ = M10Parse::kCkB;
       } else {
         ctx.checksum_failures++;
@@ -113,7 +111,7 @@ void M10Service::ProcessByte(uint8_t byte) {
     case M10Parse::kCkB:
       ctx.ck_b = byte;
       parse_ = M10Parse::kSync1;
-      if (ctx.ck_b != ctx.ck_b_calc) {
+      if (ctx.ck_b != ctx.ck_calc.ck_b) {
         ctx.checksum_failures++;
         break;
       }

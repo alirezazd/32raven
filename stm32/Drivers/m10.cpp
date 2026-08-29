@@ -9,13 +9,13 @@
 #include <type_traits>
 #include <utility>
 
+#include "checksum.hpp"
 #include "error_code.hpp"
 #include "m10_reg.hpp"
 #include "panic.hpp"
 #include "system.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-#include "ubx.hpp"
 
 // One CFG-VALSET frame carrying several keys, for a group whose members have
 // to move together: the receiver applies and acknowledges the whole frame
@@ -53,7 +53,8 @@ class ValsetFrame {
     buf_[3] = UBX::kIdCfgValset;
     buf_[4] = payload_len & 0xFF;
     buf_[5] = (payload_len >> 8) & 0xFF;
-    const UbxChecksum ck = ComputeUbxChecksum(&buf_[2], 4 + payload_len);
+    const checksum::Fletcher8 ck =
+        checksum::Fletcher8Of({&buf_[2], 4u + payload_len});
     buf_[idx_] = ck.ck_a;
     buf_[idx_ + 1] = ck.ck_b;
     return {buf_, idx_ + 2};
@@ -147,8 +148,7 @@ void M10::ApplyConfig(ValsetLayer layer) {
       ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   set(kKeyUart1Parity, u8(config_.uart1.parity),
       ErrorCode::Stm32::kGpsVerifyProtocolFailed);
-  set(kKeyUart1InprotUbx, u8(true),
-      ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+  set(kKeyUart1InprotUbx, u8(true), ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   set(kKeyUart1OutprotUbx, u8(config_.protocols.outprot_ubx),
       ErrorCode::Stm32::kGpsVerifyProtocolFailed);
   set(kKeyUart1OutprotNmea, u8(config_.protocols.outprot_nmea),
@@ -244,8 +244,7 @@ void M10::ApplyConfig(ValsetLayer layer) {
       Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
     }
   } else {
-    if (SendCfgValSetRaw<uint8_t>(kKeyUart1Enabled, 0, layer) !=
-        Outcome::kOk) {
+    if (SendCfgValSetRaw<uint8_t>(kKeyUart1Enabled, 0, layer) != Outcome::kOk) {
       Panic(ErrorCode::Stm32::kGpsTxRejected);
     }
     if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
@@ -303,7 +302,7 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 
     const uint8_t chk_buf[6] = {frame[2], frame[3], frame[4],
                                 frame[5], frame[6], frame[7]};
-    const UbxChecksum ck = ComputeUbxChecksum(chk_buf, sizeof(chk_buf));
+    const checksum::Fletcher8 ck = checksum::Fletcher8Of(chk_buf);
     if (ck.ck_a != frame[8] || ck.ck_b != frame[9]) continue;
 
     if (frame[6] == want_cls && frame[7] == want_id) {
@@ -315,8 +314,7 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
 }
 
 template <typename T>
-Outcome M10::SendCfgValSetRaw(uint32_t key, T value,
-                                     ValsetLayer layer) {
+Outcome M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
@@ -344,7 +342,8 @@ Outcome M10::SendCfgValSetRaw(uint32_t key, T value,
 
   std::memcpy(&buf[14], &value, sizeof(T));
 
-  const UbxChecksum ck = ComputeUbxChecksum(&buf[2], 4 + payload_len);
+  const checksum::Fletcher8 ck =
+      checksum::Fletcher8Of({&buf[2], 4u + payload_len});
   buf[packet_len - 2] = ck.ck_a;
   buf[packet_len - 1] = ck.ck_b;
 
@@ -376,7 +375,8 @@ Outcome M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
   buf[12] = (key >> 16) & 0xFF;
   buf[13] = (key >> 24) & 0xFF;
 
-  const UbxChecksum ck = ComputeUbxChecksum(&buf[2], 4 + payload_len);
+  const checksum::Fletcher8 ck =
+      checksum::Fletcher8Of({&buf[2], 4u + payload_len});
   buf[packet_len - 2] = ck.ck_a;
   buf[packet_len - 1] = ck.ck_b;
 
@@ -429,7 +429,8 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
     if (frame[2] != UBX::kClsCfg || frame[3] != UBX::kIdCfgValget) continue;
     if (payload_len != 4 + 4 + sizeof(T)) continue;
 
-    const UbxChecksum ck = ComputeUbxChecksum(&frame[2], 4 + payload_len);
+    const checksum::Fletcher8 ck =
+        checksum::Fletcher8Of({&frame[2], 4u + payload_len});
     if (ck.ck_a != frame[6 + payload_len] ||
         ck.ck_b != frame[6 + payload_len + 1])
       continue;

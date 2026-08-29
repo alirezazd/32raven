@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include "checksum.hpp"
 #include "shared_state.hpp"
 #include "uart.hpp"
 #include "ubx.hpp"
@@ -17,8 +18,7 @@ struct M10ParserContext {
   uint16_t payload_idx;
   uint8_t ck_a;
   uint8_t ck_b;
-  uint8_t ck_a_calc;
-  uint8_t ck_b_calc;
+  checksum::Fletcher8 ck_calc;
   uint32_t pvt_itow_ms = 0;
   uint32_t pvt_rx_us = 0;
 
