@@ -459,8 +459,16 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   if (system_status_.have_data) {
     const message::SystemStatusMsg &status = system_status_.value;
     const bool fresh = SystemStatusFresh(now_ms);
-    const bool loop_alive =
-        (status.flags & message::kSystemStatusFlagLoopAlive) != 0u;
+    const bool boot_ready =
+        static_cast<message::BootState>(status.boot_state) ==
+        message::BootState::kReady;
+    // Gated on boot_state because the loop bit alone cannot tell a stall from
+    // a stop: ESC config and MSC halt the cascade on purpose, and that is what
+    // boot_state already describes. Ungated, plugging in a USB cable raised an
+    // emergency.
+    const bool loop_stalled =
+        boot_ready &&
+        (status.flags & message::kSystemStatusFlagLoopAlive) == 0u;
     const bool system_error =
         status.error_code != static_cast<uint32_t>(ErrorCode::Common::kOk) ||
         static_cast<message::BootState>(status.boot_state) ==
@@ -470,10 +478,9 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
     const bool vehicle_failsafe =
         vehicle_status_.have_data && vehicle_status_.value.failsafe_flags != 0u;
 
-    if (!fresh || !loop_alive || system_error || vehicle_failsafe) {
+    if (!fresh || loop_stalled || system_error || vehicle_failsafe) {
       system_status = MAV_STATE_CRITICAL;
-    } else if (static_cast<message::BootState>(status.boot_state) !=
-               message::BootState::kReady) {
+    } else if (!boot_ready) {
       system_status = MAV_STATE_BOOT;
     } else if (vehicle_armed) {
       system_status = MAV_STATE_ACTIVE;

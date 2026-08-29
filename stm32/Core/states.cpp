@@ -16,6 +16,11 @@ static void MainTick(AppContext &ctx);
 
 static void EnterFlightLoop(AppContext &ctx, IControlTickState *state) {
   ctx.control_tick_state = state;
+  // Stamped before the loop is declared running, or the stamp left over from
+  // before a bench state would report the loop dead until its first tick.
+  const uint32_t now_us = ctx.sys->Time().Micros();
+  g_control_loop_load.timestamp_us = now_us;
+  ctx.sys->Blackboard().UpdateControlLoopLoad(g_control_loop_load);
   ctx.sys->Blackboard().SetControlLoopRunning(true);
   ctx.sys->ResumeFlightComponents();
 }
@@ -181,6 +186,8 @@ static void ControlTickFlightLoop(AppContext &ctx) {
                                             stick);
 
   g_control_loop_load.busy_cycles += TimeBase::Cycles() - tick_start_cycles;
+  const uint32_t now_us = ctx.sys->Time().Micros();
+  g_control_loop_load.timestamp_us = now_us;
   ctx.sys->Blackboard().UpdateControlLoopLoad(g_control_loop_load);
 }
 

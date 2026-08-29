@@ -192,45 +192,11 @@ throttle as reverse — so the forward-only values `ThrustToDshot` produces woul
 motor backwards across the bottom half of its range, on an aircraft whose mixer believes it is
 commanding lift.
 
-### #15 — Nothing acts on a lost link — 🎯 CRITICAL
+### #15 — The failsafe conditions besides RC loss — 🎯 CRITICAL
 
-`kVehicleFailsafeFlagRcLoss` reaches the wire and nothing reads it. No code anywhere changes
-behaviour when a link goes down.
-
-The control loop reads `rc.roll_us`, `rc.throttle_us` and the rest straight out of `SharedState`
-with no freshness test, so RC loss means the last stick values are held and flown indefinitely.
-`states.cpp` says so where the cascade starts — *"No tx_online check yet — disarmed mixer +
-disarmed ESC means worst case is harmlessly computing zeros from stale RC."* That is true only
-because arming is currently reachable solely through `kPrivilegedArm` over FcLink.
-
-**The tripwire: stick arming must not land before this does.** The moment a stick gesture can
-arm, holding stale sticks stops being harmless.
-
-#### Detection is a timestamp away
-
-Freshness is derived at read time from `RcData::timestamp_us`, and each consumer picks its own
-bound. `TelemetryPublisher` uses 1.5 s because it only has to answer "is the GCS being shown a live
-link". The control path needs its own age test against the same field, not a new detector.
-
-Betaflight triggers at 150 ms and PX4 at 500 ms, and recovery wants the opposite hysteresis
-from an indicator — Betaflight demands 1 s of clean data plus low throttle before handing
-control back, where a display should be quick to recover and slow to drop.
-
-A timeout is the only detector available: CRSF carries no receiver-asserted failsafe bit, and
-ExpressLRS signals loss by *stopping* RC frames rather than flagging them.
-
-The battery condition inherits the same rule: `BatteryData` carries its own stamp and its
-current as an optional, and a failsafe that reads the voltage without checking the stamp
-trusts a frozen number — the freshness test lands with the detector, not after it.
-
-#### The action is a real choice
-
-Betaflight offers `DROP_IT`, `AUTO_LANDING` against a tuned `failsafe_throttle`, and GPS
-rescue. This airframe has no barometer and no position controller, so a timed descent would be
-an invented constant with nothing closing the loop on it. Disarm is the honest action today;
-autoland belongs behind an altitude backbone, and #50 is what all four conditions become once
-that backbone and a position estimate exist. Make it a knob either way — all three reference
-stacks parameterise it.
+RC loss is answered: Sentinel times the receiver out, rides out a guard, disarms, and holds
+arming shut until frames stream cleanly again. The other conditions are not, and the rule that
+resolves them against each other does not exist.
 
 #### Both links have to be considered together
 
@@ -251,23 +217,21 @@ Two pieces are missing before that rule can be evaluated at all:
 FcLink peer loss is the third condition this rule reads, and it belongs to #16 and #17 —
 each side needs its own, because the premise is that the other side is gone.
 
-#### Arming interaction
-
-Whatever the action, it needs PX4's `_manual_control_lost_at_arming` rule — if RC was already
-absent when the vehicle armed, its absence must not count as a loss until RC has been seen at
-least once. Otherwise arming over FcLink with no transmitter powered on disarms instantly and
-the bench path stops working. The reporting side already takes this shape, gating the flag on
-`rc.timestamp_us != 0`.
-
 #### The other three flags
 
-`kVehicleFailsafeFlagBattery` needs a threshold knob chosen; the voltage and percentage are
-already on the blackboard. `kVehicleFailsafeFlagImu` is the one flag Sentinel raises, and
-nothing reads it either — deciding what an IMU failsafe *does* in the air is this item's job.
-`kVehicleFailsafeFlagGps` stays zero until something actually navigates by GPS.
+`kVehicleFailsafeFlagBattery` is still never set. A pack too flat to fly now refuses to arm, but
+that is a ground interlock on the resting voltage; the in-flight condition is a different
+reading — it sags with throttle and recovers when it drops — and what it should *do* is #50's
+landing rather than a cut. `kVehicleFailsafeFlagImu` is raised and nothing reads it: deciding
+what an IMU failsafe does in the air is this item's job. `kVehicleFailsafeFlagGps` stays zero
+until something actually navigates by GPS.
 
-This item is the *policy*: which conditions count, how fast, and what each one does. Where that
-policy lives and what enforces it is #16.
+#### Arbitration is what none of the conditions owns
+
+Conditions overlap and their preferred actions contradict, so what is needed is one ranked
+resolution evaluated every pass rather than four handlers each acting alone. That resolution,
+and the ranked action vocabulary it needs, is #50's — this item is the *policy* feeding it:
+which conditions count and how fast. Where the policy lives and what enforces it is #16.
 
 ### #16 — Sentinel, one owner for arming and failsafe authority — 🎯 CRITICAL
 
@@ -279,13 +243,14 @@ failsafe conditions, FcLink peer loss, and the watchdog.
 
 `TelemetryPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
 moving detection into Sentinel is *relocating* that computation rather than writing a second
-copy of it. `Sentinel::Supervise` is the slot, and carries the `TODO(#15)` naming the three.
+copy of it. `Sentinel::Supervise` is the slot.
 
 **It must live on the STM32**, because its whole purpose is to keep working when the ESP32 is
 gone. That is also why FcLink peer loss is Sentinel's to detect on this side (#17 owns the
-other): `FcLink` exposes `Poll` and the `Send*` helpers and nothing that notices silence, and
-since arming currently lives behind FcLink, an ESP32 failure while armed removes the disarm
-path entirely and leaves the cascade running on the last RC values.
+other): `FcLink` exposes `Poll` and the `Send*` helpers and nothing that notices silence. An
+ESP32 failure while armed no longer takes the disarm path with it, since the arm switch is on
+the RC side, but it does take the GCS, the telemetry and every annunciation the pilot has --
+and nothing on the board knows to say so.
 
 #### What "high priority" means without an RTOS
 
@@ -395,7 +360,7 @@ consumes GPS as a *flight input* rather than as a display field.
 #### What each condition becomes
 
 - **RC loss** is the case RTH was invented for: the operator is still there and the link may
-  come back. Detection is unchanged from #15 -- a timeout against `RcData::timestamp_us`, since
+  come back. Detection is unchanged -- Sentinel's timeout against `RcData::timestamp_us`, since
   CRSF carries no receiver-asserted failsafe bit. The action changes, and so does the recovery
   rule: a link that flaps must not toggle the aircraft between returning and manual, so handing
   control back wants Betaflight's shape -- sustained clean frames plus a deliberate pilot
@@ -450,9 +415,9 @@ since that sag is what triggered it.
   navigates, and the moment this item lands it decides whether the aircraft has anywhere to
   return to.
 
-#15's `_manual_control_lost_at_arming` rule carries over unchanged -- RC absent at arming must
-not count as a loss until RC has been seen once -- and gains a sibling, since the same argument
-applies to a home position that was never captured.
+PX4's `_manual_control_lost_at_arming` rule, which Sentinel already applies -- RC absent at
+arming does not count as a loss until RC has been seen once -- gains a sibling here, since the
+same argument applies to a home position that was never captured.
 
 ### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
 
@@ -585,10 +550,10 @@ would silently end it. The mechanism wants a foreground/background split: a page
 background, a transient plays over it and hands it back.
 
 **The STM32 has no vocabulary at all.** `stm32/Drivers/led.hpp` exposes `Set`, `Toggle` and
-`IsOn` — a pin, not a signal. That is fine while every annunciation goes to the ESP32's buzzer
-and screen, and stops being fine the moment #28 lands: an arm refused on the RC path with the
-bridge dead has one LED, no tone and no display, which is the silent refusal #28 names as its
-own failure mode.
+`IsOn` — a pin, not a signal. That was fine while every annunciation went to the ESP32's buzzer
+and screen. Now that the switch can arm without the bridge, an arm refused on the RC path with
+the bridge dead has one LED, no tone and no display — a refusal the pilot has no way to hear,
+which is its own failure mode.
 
 Worth deciding what the LED *means* before adding patterns to it — page identity or link
 liveness on the ESP32, armed on the STM32 — because it attempts all three with no priority
@@ -1347,38 +1312,6 @@ One rule if it lands: **attitude gets a single owner.** Mahony and an IEKF both 
 both writing `EstimatorState::attitude_world_to_body` is the duplication this repo has spent
 real effort removing. PX4 retires the complementary filter into an output predictor; ArduPilot
 keeps DCM as an explicit fallback lane. Either is fine; two writers is not.
-
-### #28 — The vehicle cannot be armed without the ESP32 — 🎯 CRITICAL
-
-`CommandHandler::OnPrivilegedArm` is the only caller of `Sentinel::RequestArm` on the board, and
-it is reachable only by `kPrivilegedArm` over FcLink. So arming *and disarming* both require the
-second MCU alive and a GCS talking to it. An ESP32 failure while armed removes the disarm path
-entirely and leaves the cascade running on the last RC values.
-
-An arm switch is the fix, and Sentinel is already shaped for it — `RequestArm` is the single
-entry point, so this is a second caller, not a second mechanism.
-
-#### The switch is the easy part
-
-`RcReceiver::Config` carries roll, pitch, yaw and throttle and nothing else, so an aux channel
-needs a Kconfig knob, a calibration schema slot, and a wider `RcMapConfigMsg` — a wire change,
-so both firmwares. That is plumbing. The interlocks are the work:
-
-- **Throttle low**, or the props spin the instant the switch flips.
-- **The switch must have been seen *low* once since boot.** Otherwise powering on with it
-  already high arms on the bench, which is how people lose fingers.
-- **RC fresh**, plus #15's `_manual_control_lost_at_arming` rule so arming over FcLink with no
-  transmitter powered on does not disarm instantly.
-- **A refusal reason.** Betaflight carries roughly twenty `armingDisableFlags` because "it will
-  not arm and will not say why" is its own failure mode. `RequestArm` returns a bare `bool`
-  today; the caller turns it into a tone. With one arming path that is survivable, with two it
-  is not.
-
-#### Ordering
-
-#15 first, and its tripwire says why: while `kPrivilegedArm` is the only route, holding stale
-sticks is harmless because nothing can arm behind them. A stick gesture removes that guarantee,
-so link-loss policy has to exist before this lands, not after.
 
 ### #49 — Match PX4's UBX message set, and use it to decide the fix is trustworthy — 🟢 SUPPORTING
 

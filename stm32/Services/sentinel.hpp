@@ -14,9 +14,9 @@
 
 // Why an arm request would be refused. A bitmask rather than an enum because
 // the common case is several at once -- an uncycled switch on a link that has
-// just come back is one situation, not two competing answers. Roadmap #28
-// gives the reason to keep them apart at all: "it will not arm and will not
-// say why" is its own failure mode.
+// just come back is one situation, not two competing answers. Kept apart at
+// all because "it will not arm and will not say why" is its own failure mode,
+// which is why Betaflight carries twenty of these.
 //
 // Sentinel's own, like the phase below: the gate is the only reader, and
 // nothing off the board is told which interlock refused -- the tone a refusal
@@ -24,7 +24,7 @@
 // would put this back on the blackboard.
 //
 // Deliberately no never-seen-RC member. Arming over FcLink with no transmitter
-// powered on has to keep working, which is #15's _manual_control_lost_at_arming
+// powered on has to keep working, which is PX4's _manual_control_lost_at_arming
 // rule stated from the other side.
 inline constexpr uint16_t kArmBlockNotIdle = 1u << 0;
 inline constexpr uint16_t kArmBlockSwitchNotCycled = 1u << 1;

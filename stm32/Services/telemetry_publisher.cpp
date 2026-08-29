@@ -22,6 +22,10 @@ namespace {
 // silence needs no code, and each consumer is free to pick its own bound --
 // this one only has to answer "is the GCS being shown a live link".
 constexpr uint32_t kRcFreshTimeoutUs = 1500000u;
+// ~200 control ticks at any configured rate. Generous on purpose: this only
+// answers "is the ground station being shown a live loop", and an indicator
+// that flickers on scheduling jitter is worse than one that lags.
+constexpr uint32_t kControlLoopAliveTimeoutUs = 200000u;
 
 // The sample interrupt stamps ImuHealth every burst, so this is ~100 burst
 // periods. Deliberately well past Sentinel's stall window: a path that stalls
@@ -235,7 +239,13 @@ message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
   msg.batt_remaining = BatteryRemainingPct(battery);
   msg.boot_state = static_cast<uint8_t>(
       loop_running ? message::BootState::kReady : message::BootState::kBooting);
-  msg.flags = message::kSystemStatusFlagLoopAlive;
+  // Read rather than asserted: the ESP32 gates MAV_STATE_CRITICAL on this,
+  // and a bit set unconditionally told every ground indicator that a stopped
+  // control loop was fine.
+  const bool loop_alive =
+      loop_running && (now_us - blackboard.GetControlLoopLoad().timestamp_us) <
+                          kControlLoopAliveTimeoutUs;
+  msg.flags = loop_alive ? message::kSystemStatusFlagLoopAlive : 0u;
   return msg;
 }
 

@@ -172,6 +172,10 @@ struct ImuTemperature {
 // against its own snapshot rather than clearing it, which would race the
 // tick still adding to it.
 struct ControlLoopLoad {
+  // Written by the control tick, so it says the loop ran rather than that
+  // something meant it to. The sample path's own stamp cannot: it moves
+  // whenever a burst is published, consumed or not.
+  uint32_t timestamp_us = 0;
   uint32_t busy_cycles = 0;
 };
 
