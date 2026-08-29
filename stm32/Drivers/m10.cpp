@@ -15,21 +15,7 @@
 #include "system.hpp"
 #include "time_base.hpp"
 #include "uart.hpp"
-
-struct UbxChecksum {
-  uint8_t ck_a;
-  uint8_t ck_b;
-};
-
-inline UbxChecksum ComputeUbxChecksum(const uint8_t *data, size_t len) {
-  uint8_t ck_a = 0;
-  uint8_t ck_b = 0;
-  for (size_t i = 0; i < len; i++) {
-    ck_a = static_cast<uint8_t>(ck_a + data[i]);
-    ck_b = static_cast<uint8_t>(ck_b + ck_a);
-  }
-  return UbxChecksum{.ck_a = ck_a, .ck_b = ck_b};
-}
+#include "ubx.hpp"
 
 // One CFG-VALSET frame carrying several keys, for a group whose members have
 // to move together: the receiver applies and acknowledges the whole frame
