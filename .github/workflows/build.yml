@@ -15,8 +15,33 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Keyed on the gitlinks rather than .gitmodules: the URLs never move,
+      # the pinned commits do, and a stale tree restored under a moved pin
+      # would build the wrong Eigen.
+      - name: Submodule pins
+        id: pins
+        run: |
+          echo "key=$(git ls-tree HEAD third_party/ | sha256sum | cut -c1-16)" \
+            >> "$GITHUB_OUTPUT"
+
+      # The pinned Eigen commit is not its branch tip, so the shallow fetch
+      # below has to follow up with a direct fetch of that one commit -- the
+      # request GitLab sheds first under load, and it has taken two pushes down.
+      # Cached, a busy GitLab only costs a run when the pin actually moves.
+      # `.git/modules` comes too: without the submodule git dirs the working
+      # trees below are not checkouts, and the step would refetch them anyway.
+      - name: Cache submodules
+        uses: actions/cache@v6
+        with:
+          path: |
+            third_party/eigen
+            third_party/nanoprintf
+            third_party/stm32_open_pin_data
+            .git/modules
+          key: submodules-${{ steps.pins.outputs.key }}
+
       # Recursive would fetch ESP-IDF and its own submodules for a build that
-      # never reads them.
+      # never reads them. A no-op on a cache hit.
       - name: Submodules
         run: |
           git submodule update --init --depth 1 \
