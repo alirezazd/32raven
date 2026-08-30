@@ -146,11 +146,11 @@ void M10Service::DispatchFrame() {
         (static_cast<uint32_t>(ctx.payload_buf[1]) << 8) |
         (static_cast<uint32_t>(ctx.payload_buf[2]) << 16) |
         (static_cast<uint32_t>(ctx.payload_buf[3]) << 24);
-    constexpr uint32_t max_age_us = 150000;
+    constexpr uint32_t kMaxAgeUs = 150000;
     const uint32_t now_us = ctx.uart->GetLastRxTime();
 
     if (ctx.epoch_ready && eoe_itow_ms == ctx.pvt_itow_ms &&
-        (now_us - ctx.pvt_rx_us) < max_age_us) {
+        (now_us - ctx.pvt_rx_us) < kMaxAgeUs) {
       ctx.new_data_out = true;
     }
 

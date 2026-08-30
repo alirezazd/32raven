@@ -48,7 +48,7 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
   }
 
   cfg_ = cfg;
-  constexpr uart_port_t port = ToPort<Inst>();
+  constexpr uart_port_t kPort = ToPort<Inst>();
 
   uart_config_t ucfg{};
   ucfg.baud_rate = static_cast<int>(cfg_.line.baud_rate);
@@ -58,19 +58,19 @@ void Uart<Inst>::Init(const UartConfig &cfg) {
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  if (uart_param_config(port, &ucfg) != ESP_OK) {
+  if (uart_param_config(kPort, &ucfg) != ESP_OK) {
     Panic(ErrorCode::Esp32::kUartParamConfigFailed);
   }
-  if (uart_set_pin(port, cfg_.pins.tx_gpio, cfg_.pins.rx_gpio,
+  if (uart_set_pin(kPort, cfg_.pins.tx_gpio, cfg_.pins.rx_gpio,
                    UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE) != ESP_OK) {
     Panic(ErrorCode::Esp32::kUartSetPinFailed);
   }
-  if (uart_driver_install(port, cfg_.buffers.rx_bytes, cfg_.buffers.tx_bytes, 0,
-                          nullptr, 0) != ESP_OK) {
+  if (uart_driver_install(kPort, cfg_.buffers.rx_bytes, cfg_.buffers.tx_bytes,
+                          0, nullptr, 0) != ESP_OK) {
     Panic(ErrorCode::Esp32::kUartDriverInstallFailed);
   }
 
-  if (uart_flush_input(port) != ESP_OK) {
+  if (uart_flush_input(kPort) != ESP_OK) {
     Panic(
         ErrorCode::Esp32::kUartFlushFailed);  // This is rare but can happen if
                                               // the driver is in a bad state,
@@ -84,9 +84,9 @@ int Uart<Inst>::WriteBytes(std::span<const uint8_t> bytes) {
     return 0;
   }
 
-  constexpr uart_port_t port = ToPort<Inst>();
+  constexpr uart_port_t kPort = ToPort<Inst>();
   const int num_bytes_written =
-      uart_write_bytes(port, bytes.data(), bytes.size());
+      uart_write_bytes(kPort, bytes.data(), bytes.size());
   if (num_bytes_written < 0) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
@@ -104,10 +104,10 @@ int Uart<Inst>::ReadBytes(std::span<uint8_t> bytes, uint32_t timeout_ms) {
     return 0;
   }
 
-  constexpr uart_port_t port = ToPort<Inst>();
+  constexpr uart_port_t kPort = ToPort<Inst>();
   TickType_t timeout_ticks = (timeout_ms == 0) ? 0 : pdMS_TO_TICKS(timeout_ms);
   const int num_bytes_read = uart_read_bytes(
-      port, bytes.data(), static_cast<uint32_t>(bytes.size()), timeout_ticks);
+      kPort, bytes.data(), static_cast<uint32_t>(bytes.size()), timeout_ticks);
   if (num_bytes_read < 0) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
@@ -125,9 +125,9 @@ std::optional<uint8_t> Uart<Inst>::ReadByte(uint32_t timeout_ms) {
 
 template <UartInstance Inst>
 size_t Uart<Inst>::BufferedRxBytes() const {
-  constexpr uart_port_t port = ToPort<Inst>();
+  constexpr uart_port_t kPort = ToPort<Inst>();
   size_t buffered_bytes = 0;
-  if (uart_get_buffered_data_len(port, &buffered_bytes) != ESP_OK) {
+  if (uart_get_buffered_data_len(kPort, &buffered_bytes) != ESP_OK) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
   return buffered_bytes;
@@ -142,8 +142,8 @@ void Uart<Inst>::Flush() {
 
 template <UartInstance Inst>
 void Uart<Inst>::DrainTx(uint32_t timeout_ms) {
-  constexpr uart_port_t port = ToPort<Inst>();
-  if (uart_wait_tx_done(port, pdMS_TO_TICKS(timeout_ms)) != ESP_OK) {
+  constexpr uart_port_t kPort = ToPort<Inst>();
+  if (uart_wait_tx_done(kPort, pdMS_TO_TICKS(timeout_ms)) != ESP_OK) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
 }
@@ -158,7 +158,7 @@ void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
   }
 
   cfg_.line.baud_rate = baud_rate;
-  constexpr uart_port_t port = ToPort<Inst>();
+  constexpr uart_port_t kPort = ToPort<Inst>();
 
   uart_config_t ucfg{};
   ucfg.baud_rate = static_cast<int>(cfg_.line.baud_rate);
@@ -168,7 +168,7 @@ void Uart<Inst>::SetBaudRate(uint32_t baud_rate) {
   ucfg.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
   ucfg.rx_flow_ctrl_thresh = 0;
 
-  if (uart_param_config(port, &ucfg) != ESP_OK) {
+  if (uart_param_config(kPort, &ucfg) != ESP_OK) {
     Panic(ErrorCode::Esp32::kUartOperationFailed);
   }
 }

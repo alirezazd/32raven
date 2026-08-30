@@ -318,17 +318,17 @@ Outcome M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
   static_assert(std::is_integral_v<T> || std::is_enum_v<T>);
   static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4);
 
-  constexpr uint16_t payload_len = 4 + 4 + sizeof(T);
-  constexpr size_t packet_len = 6 + payload_len + 2;
+  constexpr uint16_t kPayloadLen = 4 + 4 + sizeof(T);
+  constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
 
-  uint8_t buf[packet_len];
+  uint8_t buf[kPacketLen];
 
   buf[0] = UBX::kSync1;
   buf[1] = UBX::kSync2;
   buf[2] = UBX::kClsCfg;
   buf[3] = UBX::kIdCfgValset;
-  buf[4] = payload_len & 0xFF;
-  buf[5] = (payload_len >> 8) & 0xFF;
+  buf[4] = kPayloadLen & 0xFF;
+  buf[5] = (kPayloadLen >> 8) & 0xFF;
 
   buf[6] = kValsetVersion;
   buf[7] = std::to_underlying(layer);
@@ -343,32 +343,32 @@ Outcome M10::SendCfgValSetRaw(uint32_t key, T value, ValsetLayer layer) {
   std::memcpy(&buf[14], &value, sizeof(T));
 
   const checksum::Fletcher8 ck =
-      checksum::Fletcher8Of({&buf[2], 4u + payload_len});
-  buf[packet_len - 2] = ck.ck_a;
-  buf[packet_len - 1] = ck.ck_b;
+      checksum::Fletcher8Of({&buf[2], 4u + kPayloadLen});
+  buf[kPacketLen - 2] = ck.ck_a;
+  buf[kPacketLen - 1] = ck.ck_b;
 
-  return (*uart_).Send(buf, packet_len);
+  return (*uart_).Send(buf, kPacketLen);
 }
 
 Outcome M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
-  constexpr uint8_t version = 0x00;
-  constexpr uint16_t position = 0;
-  constexpr uint16_t payload_len = 4 + 4;
-  constexpr size_t packet_len = 6 + payload_len + 2;
+  constexpr uint8_t kVersion = 0x00;
+  constexpr uint16_t kPosition = 0;
+  constexpr uint16_t kPayloadLen = 4 + 4;
+  constexpr size_t kPacketLen = 6 + kPayloadLen + 2;
 
-  uint8_t buf[packet_len];
+  uint8_t buf[kPacketLen];
 
   buf[0] = UBX::kSync1;
   buf[1] = UBX::kSync2;
   buf[2] = UBX::kClsCfg;
   buf[3] = UBX::kIdCfgValget;
-  buf[4] = payload_len & 0xFF;
-  buf[5] = (payload_len >> 8) & 0xFF;
+  buf[4] = kPayloadLen & 0xFF;
+  buf[5] = (kPayloadLen >> 8) & 0xFF;
 
-  buf[6] = version;
+  buf[6] = kVersion;
   buf[7] = std::to_underlying(layer);
-  buf[8] = position & 0xFF;
-  buf[9] = (position >> 8) & 0xFF;
+  buf[8] = kPosition & 0xFF;
+  buf[9] = (kPosition >> 8) & 0xFF;
 
   buf[10] = key & 0xFF;
   buf[11] = (key >> 8) & 0xFF;
@@ -376,11 +376,11 @@ Outcome M10::SendCfgValGet(uint32_t key, ValgetLayer layer) {
   buf[13] = (key >> 24) & 0xFF;
 
   const checksum::Fletcher8 ck =
-      checksum::Fletcher8Of({&buf[2], 4u + payload_len});
-  buf[packet_len - 2] = ck.ck_a;
-  buf[packet_len - 1] = ck.ck_b;
+      checksum::Fletcher8Of({&buf[2], 4u + kPayloadLen});
+  buf[kPacketLen - 2] = ck.ck_a;
+  buf[kPacketLen - 1] = ck.ck_b;
 
-  return (*uart_).Send(buf, packet_len);
+  return (*uart_).Send(buf, kPacketLen);
 }
 
 template <typename T>

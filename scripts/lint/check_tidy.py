@@ -108,6 +108,7 @@ NAMED = (
     "concurrency-mt-unsafe",
     "readability-math-missing-parentheses",
     "readability-implicit-bool-conversion",
+    "readability-identifier-naming",
 )
 
 CHECKS = ",".join(
@@ -115,8 +116,13 @@ CHECKS = ",".join(
     + [f"-{name}" for name in sorted(EXCLUDED)]
 )
 
+# Either severity: `.clang-tidy` promotes some checks with WarningsAsErrors for
+# the editor's benefit, and clang-tidy then prints those as `error:` whatever
+# the command line says. Matching only `warning:` silently dropped every
+# finding from a promoted check -- enabled here, reporting nothing. A real
+# compile failure never reaches this: `clang-diagnostic-error` is caught above.
 DIAG_RE = re.compile(
-    r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): warning: "
+    r"^(?P<file>[^:]+):(?P<line>\d+):(?P<col>\d+): (?:warning|error): "
     r"(?P<msg>.*?) \[(?P<check>[\w\-,.]+)\]$"
 )
 

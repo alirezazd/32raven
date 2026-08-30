@@ -59,9 +59,9 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   // keep flying, and its stage-one guard deliberately flies the pilot's last
   // frame so a dropout shorter than the guard costs nothing. Past the guard
   // it disarms, and that reaches the mixer above.
-  constexpr float fast_dt_sec = kControlLoopDtSec;
-  constexpr float max_rate_roll_pitch = kPilotAcroMaxRateRollPitch;
-  constexpr float max_rate_yaw = kPilotAcroMaxRateYaw;
+  constexpr float kFastDtSec = kControlLoopDtSec;
+  constexpr float kMaxRateRollPitch = kPilotAcroMaxRateRollPitch;
+  constexpr float kMaxRateYaw = kPilotAcroMaxRateYaw;
 
   const RcData &rc = ctx.sys->Blackboard().GetRc();
 
@@ -147,12 +147,12 @@ static void ControlTickFlightLoop(AppContext &ctx) {
                                               estimate.attitude_world_to_body);
     rate_sp = attitude_rate_sp;
     // Yaw bypasses the attitude loop — stick = desired yaw rate.
-    rate_sp.z() = RcReceiver::NormalizedAxis(rc.yaw_us) * max_rate_yaw;
+    rate_sp.z() = RcReceiver::NormalizedAxis(rc.yaw_us) * kMaxRateYaw;
   } else {
     rate_sp = Eigen::Vector3f{
-        RcReceiver::NormalizedAxis(rc.roll_us) * max_rate_roll_pitch,
-        RcReceiver::NormalizedAxis(rc.pitch_us) * max_rate_roll_pitch,
-        RcReceiver::NormalizedAxis(rc.yaw_us) * max_rate_yaw,
+        RcReceiver::NormalizedAxis(rc.roll_us) * kMaxRateRollPitch,
+        RcReceiver::NormalizedAxis(rc.pitch_us) * kMaxRateRollPitch,
+        RcReceiver::NormalizedAxis(rc.yaw_us) * kMaxRateYaw,
     };
   }
 
@@ -160,7 +160,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
 
   // 1) Pre-clip torque demand; PID integrators not yet committed.
   const auto torque = ctx.sys->RateControllerSvc().ComputeTorque(
-      rate_sp, estimate.gyro_body_rad_s, fast_dt_sec);
+      rate_sp, estimate.gyro_body_rad_s, kFastDtSec);
 
   const multirotor_mixer::Inputs in{
       .roll_torque = torque[0],
@@ -182,7 +182,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   //    Raw stick (not pilot_thrust) lets RateController freeze integrators
   //    on commanded descent; post-floor thrust never drops below the
   //    freeze threshold, so it would never freeze at min stick.
-  ctx.sys->RateControllerSvc().CommitTorque(mix.applied_torque, fast_dt_sec,
+  ctx.sys->RateControllerSvc().CommitTorque(mix.applied_torque, kFastDtSec,
                                             stick);
 
   g_control_loop_load.busy_cycles += TimeBase::Cycles() - tick_start_cycles;

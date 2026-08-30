@@ -18,6 +18,11 @@
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
+// NOLINTBEGIN(readability-identifier-naming)
+// Every name below is fixed by something outside this repo: the handler names
+// are the CMSIS vector table's, so a rename does not fail to build, it fails
+// to be called. The include guard is CubeMX's. Naming only -- the handler
+// bodies here are ours and every other check still applies to them.
 #ifndef __STM32F4xx_IT_H
 #define __STM32F4xx_IT_H
 
@@ -73,5 +78,7 @@ void DMA2_Stream7_IRQHandler(void);
 #ifdef __cplusplus
 }
 #endif
+
+// NOLINTEND(readability-identifier-naming)
 
 #endif /* __STM32F4xx_IT_H */

@@ -3,7 +3,6 @@
 
 #include "panic.hpp"
 
-
 #include "error_code.hpp"
 #include "message.hpp"
 #include "stm32f4xx.h"
@@ -71,17 +70,17 @@ static void UartSend(const uint8_t *data, size_t len) {
 
   // Bound the wait so panic never hangs. At 115200 baud one byte is ~87 us
   // (10 bits), so 2 ms per byte is plenty; TC allows a whole packet to drain.
-  constexpr uint32_t txe_timeout_us = 2000;
-  constexpr uint32_t tc_timeout_us = 20000;
+  constexpr uint32_t kTxeTimeoutUs = 2000;
+  constexpr uint32_t kTcTimeoutUs = 20000;
 
   for (size_t i = 0; i < len; ++i) {
-    if (!WaitCondTimeout(&USART1->SR, USART_SR_TXE, true, txe_timeout_us)) {
+    if (!WaitCondTimeout(&USART1->SR, USART_SR_TXE, true, kTxeTimeoutUs)) {
       return;  // do not hang panic
     }
     USART1->DR = data[i];
   }
 
-  (void)WaitCondTimeout(&USART1->SR, USART_SR_TC, true, tc_timeout_us);
+  (void)WaitCondTimeout(&USART1->SR, USART_SR_TC, true, kTcTimeoutUs);
 }
 
 // AM32 reboots half a second after the DShot stream stops and replays its
@@ -170,9 +169,7 @@ static void SendPanicMessage(uint32_t error_code) {
 
 // C-callable entry for the fault vectors in stm32f4xx_it.c: a bare while(1)
 // there says nothing, and fault priority masks the keep-alive tick.
-extern "C" void PanicHardFault(void) {
-  Panic(ErrorCode::Stm32::kHardFault);
-}
+extern "C" void PanicHardFault(void) { Panic(ErrorCode::Stm32::kHardFault); }
 
 [[noreturn]] void PanicImpl(uint32_t code) {
   // Fail safe: stop any in-flight frame and latch the lines low. Gated on the

@@ -9,8 +9,9 @@
 #include <span>
 #include <type_traits>
 
-template <typename T, size_t Size> class RingBuffer {
-public:
+template <typename T, size_t Size>
+class RingBuffer {
+ public:
   static_assert(Size > 0, "Size must be greater than 0");
 
   bool Push(const T &item) {
@@ -20,7 +21,7 @@ public:
     }
 
     if (next_head == tail_.load(std::memory_order_acquire)) {
-      return false; // Full
+      return false;  // Full
     }
 
     buffer_[head_.load(std::memory_order_relaxed)] = item;
@@ -31,7 +32,7 @@ public:
   bool Pop(T &item) {
     size_t current_tail = tail_.load(std::memory_order_relaxed);
     if (current_tail == head_.load(std::memory_order_acquire)) {
-      return false; // Empty
+      return false;  // Empty
     }
 
     item = buffer_[current_tail];
@@ -46,7 +47,7 @@ public:
   bool Peek(T &item) const {
     size_t current_tail = tail_.load(std::memory_order_relaxed);
     if (current_tail == head_.load(std::memory_order_acquire)) {
-      return false; // Empty
+      return false;  // Empty
     }
     item = buffer_[current_tail];
     return true;
@@ -81,15 +82,13 @@ public:
   size_t PushBlock(const T *p, size_t n) {
     static_assert(std::is_trivially_copyable_v<T>,
                   "PushBlock memcpys elements; use Push() for non-trivial T");
-    if (n == 0)
-      return 0;
+    if (n == 0) return 0;
 
-    const size_t kAvail = Capacity() - Available();
-    if (n > kAvail) {
-      n = kAvail; // Partial write
+    const size_t avail = Capacity() - Available();
+    if (n > avail) {
+      n = avail;  // Partial write
     }
-    if (n == 0)
-      return 0;
+    if (n == 0) return 0;
 
     size_t h = head_.load(std::memory_order_relaxed);
     size_t first_chunk = Size - h;
@@ -122,12 +121,10 @@ public:
   }
 
   void Consume(size_t n) {
-    if (n == 0)
-      return;
+    if (n == 0) return;
     size_t t = tail_.load(std::memory_order_relaxed);
     t += n;
-    if (t >= Size)
-      t -= Size;
+    if (t >= Size) t -= Size;
     tail_.store(t, std::memory_order_release);
   }
 
@@ -136,7 +133,7 @@ public:
                 std::memory_order_release);
   }
 
-private:
+ private:
   T buffer_[Size];
   std::atomic<size_t> head_{0};
   std::atomic<size_t> tail_{0};

@@ -112,12 +112,12 @@ int8_t NormalizeBatteryRemaining(int8_t battery_remaining) {
 
 void Mavlink::QueueTxItem(const TxQueueItem &item) {
   if (!tx_work_queue_.Push(item)) {
-    constexpr const char *tag = "mavlink";
+    constexpr const char *kTag = "mavlink";
 
     TxQueueItem dropped{};
     (void)tx_work_queue_.Pop(dropped);
     (void)tx_work_queue_.Push(item);
-    ESP_LOGW(tag, "TX work queue full; dropped oldest item");
+    ESP_LOGW(kTag, "TX work queue full; dropped oldest item");
     Sys().TonePlayer().PlayBuiltin(TonePlayer::BuiltinTone::kWarning);
   }
 }
@@ -307,12 +307,12 @@ Mavlink::TxFrameState Mavlink::StartAutopilotVersionFrame(
     const AutopilotVersion &work) {
   (void)work;
 
-  constexpr uint64_t mav_protocol_capability_param_float = 1ull << 1;
-  constexpr uint64_t mav_protocol_capability_mavlink2 = 1ull << 13;
-  constexpr uint64_t mav_protocol_capability_param_encode_c_cast = 1ull << 17;
-  const uint64_t capabilities = mav_protocol_capability_param_float |
-                                mav_protocol_capability_mavlink2 |
-                                mav_protocol_capability_param_encode_c_cast;
+  constexpr uint64_t kMavProtocolCapabilityParamFloat = 1ull << 1;
+  constexpr uint64_t kMavProtocolCapabilityMavlink2 = 1ull << 13;
+  constexpr uint64_t kMavProtocolCapabilityParamEncodeCCast = 1ull << 17;
+  const uint64_t capabilities = kMavProtocolCapabilityParamFloat |
+                                kMavProtocolCapabilityMavlink2 |
+                                kMavProtocolCapabilityParamEncodeCCast;
   static constexpr uint8_t kZeroHash[8] = {};
   static constexpr uint8_t kZeroUid2[18] = {};
 
@@ -415,12 +415,12 @@ bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
 }
 
 void Mavlink::ServiceTx(uint32_t now_ms) {
-  constexpr uint32_t tx_poll_period_ms = 10;
+  constexpr uint32_t kTxPollPeriodMs = 10;
 
   if (static_cast<int32_t>(now_ms - next_tx_poll_ms_) < 0) {
     return;
   }
-  next_tx_poll_ms_ = now_ms + tx_poll_period_ms;
+  next_tx_poll_ms_ = now_ms + kTxPollPeriodMs;
 
   if (!transport_->IsReady()) {
     // Drop any remembered peer state as soon as the transport reports not
@@ -469,7 +469,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   // Must equal QGCMAVLink::FirmwareClass32Raven in the ground station, which
   // is where the value is claimed -- MAV_AUTOPILOT has no vendor range, so
   // nothing but agreement between the two repos keeps 200 ours.
-  constexpr uint8_t mav_autopilot_32raven = 200;
+  constexpr uint8_t kMavAutopilot32Raven = 200;
 
   // `have_data` latches on the first report and never clears, so without this
   // a silent STM32 would keep the ground station asserting what it last saw.
@@ -543,7 +543,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
 
   mavlink_message_t m{};
   mavlink_msg_heartbeat_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                             MAV_TYPE_QUADROTOR, mav_autopilot_32raven,
+                             MAV_TYPE_QUADROTOR, kMavAutopilot32Raven,
                              base_mode, custom_mode, system_status);
 
   // Also what stops the slot staying due and refiring next poll, since the
@@ -725,9 +725,9 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
   // the ones past our channel count are filled with the value the field
   // documents as "not present" rather than with zeros a ground station would
   // draw as live sticks at minimum.
-  constexpr uint16_t mavlink_unused_channel_value = UINT16_MAX;
-  constexpr size_t mavlink_rc_channel_slots = 18u;
-  static_assert(message::kRcChannelCount <= mavlink_rc_channel_slots,
+  constexpr uint16_t kMavlinkUnusedChannelValue = UINT16_MAX;
+  constexpr size_t kMavlinkRcChannelSlots = 18u;
+  static_assert(message::kRcChannelCount <= kMavlinkRcChannelSlots,
                 "more channels enabled than RC_CHANNELS can carry");
 
   const bool rx_online =
@@ -744,8 +744,8 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
   const uint8_t rssi =
       rx_online ? to_mavlink_rssi(channels.link_quality) : UINT8_MAX;
 
-  std::array<uint16_t, mavlink_rc_channel_slots> slots{};
-  slots.fill(mavlink_unused_channel_value);
+  std::array<uint16_t, kMavlinkRcChannelSlots> slots{};
+  slots.fill(kMavlinkUnusedChannelValue);
   if (rx_online) {
     for (size_t i = 0; i < message::kRcChannelCount; ++i) {
       slots[i] = channels.channels[i];

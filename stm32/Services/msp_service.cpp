@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
-#include "math/attitude_euler.hpp"
 #include "msp_service.hpp"
 
 #include <cstring>
@@ -11,6 +10,7 @@
 #include "checksum.hpp"
 #include "dshot_codec.hpp"
 #include "error_code.hpp"
+#include "math/attitude_euler.hpp"
 #include "panic.hpp"
 #include "stm32f4xx.h"
 
@@ -99,9 +99,8 @@ uint8_t SaturateU8(float value) {
 
 }  // namespace
 
-void MspService::Init(const Config &cfg, UsbCdc &usb,
-                      SharedState &blackboard, FourWayService &four_way,
-                      EscService &esc) {
+void MspService::Init(const Config &cfg, UsbCdc &usb, SharedState &blackboard,
+                      FourWayService &four_way, EscService &esc) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kMspServiceReinit);
   }
@@ -513,9 +512,9 @@ bool MspService::BuildReply(uint16_t command) {
         Push8(0);  // signature
       }
       Push8(kMcuTypeF40x);
-      Push8(0);      // configuration state
+      Push8(0);  // configuration state
       Push16(cfg_.loop_rate_hz);
-      Push32(0);     // configuration problems
+      Push32(0);  // configuration problems
       return true;
     }
 
@@ -551,7 +550,7 @@ bool MspService::BuildReply(uint16_t command) {
         sensors |= kSensorGps;
       }
       Push16(cfg_.loop_period_us);
-      Push16(0);     // i2c errors
+      Push16(0);  // i2c errors
       Push16(sensors);
       Push32(0);  // flight mode flags
       Push8(0);   // config profile
@@ -565,13 +564,13 @@ bool MspService::BuildReply(uint16_t command) {
       const float pitch = euler.pitch;
       const float yaw = euler.yaw;
 
-      constexpr float rad_to_decidegrees = 572.9578f;
-      constexpr float rad_to_degrees = 57.29578f;
+      constexpr float kRadToDecidegrees = 572.9578f;
+      constexpr float kRadToDegrees = 57.29578f;
       Push16(static_cast<uint16_t>(
-          static_cast<int16_t>(roll * rad_to_decidegrees)));
+          static_cast<int16_t>(roll * kRadToDecidegrees)));
       Push16(static_cast<uint16_t>(
-          static_cast<int16_t>(pitch * rad_to_decidegrees)));
-      Push16(static_cast<uint16_t>(static_cast<int16_t>(yaw * rad_to_degrees)));
+          static_cast<int16_t>(pitch * kRadToDecidegrees)));
+      Push16(static_cast<uint16_t>(static_cast<int16_t>(yaw * kRadToDegrees)));
       return true;
     }
 
@@ -584,10 +583,11 @@ bool MspService::BuildReply(uint16_t command) {
       // Neither message has an unsensed encoding, so an absent reading is
       // reported as zero rather than withheld.
       const uint16_t centiamps =
-          bat.current ? static_cast<uint16_t>(SaturateI16(*bat.current * 100.0f))
-                      : uint16_t{0};
-      const uint16_t mah = bat.mah_drawn ? SaturateU16(*bat.mah_drawn)
-                                         : uint16_t{0};
+          bat.current
+              ? static_cast<uint16_t>(SaturateI16(*bat.current * 100.0f))
+              : uint16_t{0};
+      const uint16_t mah =
+          bat.mah_drawn ? SaturateU16(*bat.mah_drawn) : uint16_t{0};
 
       if (command == kMspAnalog) {
         Push8(decivolts);

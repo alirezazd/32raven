@@ -19,6 +19,11 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f4xx_it.h"
+// NOLINTBEGIN(readability-identifier-naming)
+// Every name below is fixed by something outside this repo: the handler names
+// are the CMSIS vector table's, so a rename does not fail to build, it fails
+// to be called. The include guard is CubeMX's. Naming only -- the handler
+// bodies here are ours and every other check still applies to them.
 
 #include "stm32f4xx.h"
 
@@ -531,3 +536,5 @@ void OTG_FS_IRQHandler(void) { UsbCdcOnIrq(); }
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */
+
+// NOLINTEND(readability-identifier-naming)

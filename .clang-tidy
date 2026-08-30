@@ -40,6 +40,13 @@ CheckOptions:
     value: lower_case
   - key: readability-identifier-naming.LocalConstantPointerCase
     value: lower_case
+  # constexpr is the compile-time case, and takes the k the other constant
+  # categories take. Plain `const` locals stay lower_case above: they are
+  # ordinary locals that happen not to be reassigned.
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstexprVariablePrefix
+    value: k
 
   # Class data members
   - key: readability-identifier-naming.MemberVariableCase
