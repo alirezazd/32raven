@@ -36,6 +36,7 @@ enum class MsgId : uint8_t {
   kReqReceiverBind = 0x0C,
   kCalibrateGyro = 0x0D,
   kReqReceiverCancelBind = 0x0E,
+  kCalibrateAccel = 0x0F,
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kAttitude = 0x11,
@@ -47,6 +48,7 @@ enum class MsgId : uint8_t {
   kSetUsbMode = 0x17,
   kUsbStatus = 0x18,
   kTone = 0x19,
+  kAccelCalStatus = 0x1A,
   kLogList = 0x1B,
   kLogListReply = 0x1C,
   kLogRead = 0x1D,
@@ -153,6 +155,38 @@ enum class BootState : uint8_t {
 };
 
 inline constexpr uint8_t kSystemStatusFlagLoopAlive = 1u << 0;
+
+// The six accelerometer calibration poses, each named by the axis that reads
+// +1 g and therefore points up. The order is the bit order of
+// AccelCalStatusMsg::sides_done, so it is wire format rather than taste.
+enum class AccelSide : uint8_t {
+  kXUp = 0,
+  kXDown,
+  kYUp,
+  kYDown,
+  kZUp,
+  kZDown,
+  kCount,
+};
+
+inline constexpr uint8_t kAccelSideCount =
+    static_cast<uint8_t>(AccelSide::kCount);
+inline constexpr uint8_t kAccelSideAllMask = 0x3Fu;
+
+// Deliberately not the flight controller's own enum: that one names states of
+// a class, this one names what an operator is told. They happen to match today.
+enum class AccelCalState : uint8_t {
+  kIdle = 0,
+  kDetecting,   // waiting for the board to settle into an unvisited pose
+  kCollecting,  // averaging the pose it settled into
+  kApplied,
+  kFailed,
+};
+
+struct AccelCalStatusMsg {
+  uint8_t state;       // AccelCalState
+  uint8_t sides_done;  // one bit per AccelSide, in that order
+};
 
 inline constexpr uint32_t kSystemSensorFlagImu = 1u << 0;
 inline constexpr uint32_t kSystemSensorFlagGps = 1u << 1;
@@ -348,6 +382,8 @@ inline constexpr bool IsKnownMsgId(MsgId id) {
     case MsgId::kReqReceiverBind:
     case MsgId::kReqReceiverCancelBind:
     case MsgId::kCalibrateGyro:
+    case MsgId::kCalibrateAccel:
+    case MsgId::kAccelCalStatus:
     case MsgId::kRcChannels:
     case MsgId::kGpsData:
     case MsgId::kSystemStatus:
@@ -381,6 +417,7 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
     case MsgId::kReqReceiverBind:
     case MsgId::kReqReceiverCancelBind:
     case MsgId::kCalibrateGyro:
+    case MsgId::kCalibrateAccel:
     case MsgId::kReboot:
     case MsgId::kBootload:
     case MsgId::kError:
@@ -393,6 +430,8 @@ inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
       return len == PayloadLength<RcCalibrationConfigMsg>();
     case MsgId::kGyroCalibrationIdConfig:
       return len == PayloadLength<GyroCalibrationIdConfigMsg>();
+    case MsgId::kAccelCalStatus:
+      return len == PayloadLength<AccelCalStatusMsg>();
     case MsgId::kRcChannels:
       return len == PayloadLength<RcChannelsMsg>();
     case MsgId::kGpsData:

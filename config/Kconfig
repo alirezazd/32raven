@@ -2266,32 +2266,6 @@ config STM32_IMU_GYRO_FS_15_625DPS
 
 endchoice
 
-config STM32_IMU_GYRO_CAL_DURATION_S
-    int "Gyro calibration duration (s)"
-    range 1 20
-    default 2
-    help
-      Stable sampling the run must gather before it commits, as a floor on
-      both elapsed sensor time and sample count. Must be below the timeout.
-
-config STM32_IMU_GYRO_CAL_TIMEOUT_S
-    int "Gyro calibration timeout (s)"
-    range 1 60
-    default 5
-    help
-      Deadline for the whole attempt. Motion restarts collection rather than
-      failing it, so this is what ends a run the airframe will not hold still
-      for. Must exceed the duration or the build fails.
-
-config STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW
-    int "Gyro calibration stillness threshold (raw)"
-    range 1 32767
-    default 64
-    help
-      Peak-to-peak spread per axis, in the chip's own counts, that still
-      counts as stationary. A spread, not a magnitude: a large but steady
-      bias is exactly what the run is there to measure.
-
 endmenu
 
 menu "Accelerometer"
@@ -2892,6 +2866,81 @@ endmenu
 endmenu
 
 menu "Services"
+
+menu "Sensor Calibration"
+
+menu "Gyro"
+
+config STM32_SENSOR_CAL_GYRO_DURATION_S
+    int "Duration (s)"
+    range 1 20
+    default 2
+    help
+      Stable sampling the run must gather before it commits, as a floor on
+      both elapsed sensor time and sample count. Must be below the timeout.
+
+config STM32_SENSOR_CAL_GYRO_TIMEOUT_S
+    int "Timeout (s)"
+    range 1 60
+    default 5
+    help
+      Deadline for the whole attempt. Motion restarts collection rather than
+      failing it, so this is what ends a run the airframe will not hold still
+      for. Must exceed the duration or the build fails.
+
+config STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_RAW
+    int "Stillness threshold (raw)"
+    range 1 32767
+    default 64
+    help
+      Peak-to-peak spread per axis, in the chip's own counts, that still
+      counts as stationary. A spread, not a magnitude: a large but steady
+      bias is exactly what the run is there to measure.
+
+endmenu
+
+menu "Accel"
+
+config STM32_SENSOR_CAL_ACCEL_SIDE_DURATION_MS
+    int "Per-pose duration (ms)"
+    range 100 10000
+    default 750
+    help
+      Stable sampling averaged for one pose, once the board has been still
+      long enough to classify which pose it is in. Six of these make a run.
+
+config STM32_SENSOR_CAL_ACCEL_STILL_DURATION_MS
+    int "Stillness hold (ms)"
+    range 100 10000
+    default 1300
+    help
+      How long the board must read still before the pose it is in counts as
+      chosen. PX4 waits the same 1.3 s: a board passing through an
+      orientation on its way elsewhere reads exactly like one resting in it.
+
+config STM32_SENSOR_CAL_ACCEL_TIMEOUT_S
+    int "Timeout (s)"
+    range 10 600
+    default 180
+    help
+      Deadline for the whole six-pose session rather than for one pose. The
+      operator turning the airframe is the slow part, so this is generous
+      next to the gyro's. Must exceed six poses' worth of sampling or the
+      build fails.
+
+config STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_RAW
+    int "Stillness threshold (raw)"
+    range 1 32767
+    default 256
+    help
+      Peak-to-peak spread per axis, in the chip's own counts, that still
+      counts as stationary. Looser than the gyro's: a hand-held airframe
+      resting against a bench is never as still as one set down flat, and
+      the pose only has to be identified, not measured to the last count.
+
+endmenu
+
+endmenu
 
 menu "FcLink"
 

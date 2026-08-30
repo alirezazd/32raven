@@ -180,6 +180,44 @@ void Mavlink::ReportSensorHealthChanges(
   }
 }
 
+// The operator is holding an airframe rather than reading a status field, so
+// an edge becomes one line of prose naming what is still owed. Text and not a
+// number because STATUSTEXT is what a ground station renders in its
+// calibration panel -- QGC's stock accel page needs nothing else.
+void Mavlink::ReportAccelCalProgress(const message::AccelCalStatusMsg &msg) {
+  static constexpr const char *kSideNames[message::kAccelSideCount] = {
+      "X up", "X down", "Y up", "Y down", "Z up", "Z down"};
+
+  switch (static_cast<message::AccelCalState>(msg.state)) {
+    case message::AccelCalState::kApplied:
+      QueueStatusText("[cal] accel calibration done", MAV_SEVERITY_INFO);
+      return;
+    case message::AccelCalState::kFailed:
+      QueueStatusText("[cal] accel calibration failed", MAV_SEVERITY_ERROR);
+      return;
+    default:
+      break;
+  }
+
+  char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
+  int used = std::snprintf(text, sizeof(text), "[cal] hold still:");
+  for (uint8_t side = 0; side < message::kAccelSideCount; ++side) {
+    if ((msg.sides_done & (1u << side)) != 0u) {
+      continue;
+    }
+    const int wrote =
+        std::snprintf(text + used, sizeof(text) - static_cast<size_t>(used),
+                      " %s", kSideNames[side]);
+    // Truncated rather than wrapped: the remaining sides shrink every pose, so
+    // a list too long to fit is one the operator will see in full shortly.
+    if (wrote <= 0 || static_cast<size_t>(used + wrote) >= sizeof(text)) {
+      break;
+    }
+    used += wrote;
+  }
+  QueueStatusText(text, MAV_SEVERITY_INFO);
+}
+
 void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
   const char *source_name = "ESP32";
   if (source == PanicSource::kStm32) {

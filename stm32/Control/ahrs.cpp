@@ -91,6 +91,17 @@ EstimatorState Ahrs::Process(SharedState &shared) {
   Eigen::Vector3f gyro_accum = Eigen::Vector3f::Zero();
   Eigen::Vector3f accel_accum = Eigen::Vector3f::Zero();
 
+  // Applied here rather than in the driver: the burst carries counts and one
+  // scale, so a float offset has no home in it, and correcting upstream would
+  // feed AccelCal its own output during a run. The log keeps the raw counts,
+  // which is what lets a fit be re-derived from a flight after the fact.
+  const AccelCalibration &accel_cal = shared.GetAccelCalibration();
+  const Eigen::Vector3f accel_offset{accel_cal.offsets_mps2[0],
+                                     accel_cal.offsets_mps2[1],
+                                     accel_cal.offsets_mps2[2]};
+  const Eigen::Vector3f accel_gain{accel_cal.gains[0], accel_cal.gains[1],
+                                   accel_cal.gains[2]};
+
   // The burst carries counts and one stamp, so the samples inside it are
   // spaced by the chip's own dt and the oldest sits a whole burst behind the
   // newest. Same reconstruction a ULog reader performs on these fields.
@@ -105,11 +116,13 @@ EstimatorState Ahrs::Process(SharedState &shared) {
                         static_cast<float>(burst.gyro[1][i]),
                         static_cast<float>(burst.gyro[2][i])} *
         burst.gyro_scale;
-    const Eigen::Vector3f accel =
+    const Eigen::Vector3f accel_raw =
         Eigen::Vector3f{static_cast<float>(burst.accel[0][i]),
                         static_cast<float>(burst.accel[1][i]),
                         static_cast<float>(burst.accel[2][i])} *
         burst.accel_scale;
+    const Eigen::Vector3f accel =
+        (accel_raw - accel_offset).cwiseProduct(accel_gain);
     gyro_accum += gyro_meas;
     accel_accum += accel;
 

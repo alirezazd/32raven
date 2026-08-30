@@ -9,12 +9,12 @@
 #include <cstdint>
 #include <optional>
 
+#include "common_config.hpp"
 #include "flight_mode.hpp"
 #include "message.hpp"
-#include "common_config.hpp"
 #include "stm32_limits.hpp"
 
-// POD (Plain Old Data) Sensor Packets
+// POD Sensor Packets
 
 inline constexpr uint16_t kImuMaxSamples =
     stm32_limits::kIcm42688pMaxWatermarkRecords;
@@ -171,6 +171,15 @@ struct ImuTemperature {
 // only ever receives a finished value. It only grows: the reader deltas
 // against its own snapshot rather than clearing it, which would race the
 // tick still adding to it.
+// The accelerometer fit in the form its consumer wants: corrected =
+// (raw - offset) * gain, per axis. A plain POD rather than the EEPROM record,
+// so nothing outside the driver has to know where it was stored. Identity by
+// default, which is what an uncalibrated board flies on.
+struct AccelCalibration {
+  float offsets_mps2[3] = {0.0f, 0.0f, 0.0f};
+  float gains[3] = {1.0f, 1.0f, 1.0f};
+};
+
 struct ControlLoopLoad {
   // Written by the control tick, so it says the loop ran rather than that
   // something meant it to. The sample path's own stamp cannot: it moves
@@ -298,6 +307,10 @@ class SharedState {
   // Monotonic counters, so a reader preempted mid-copy is off by at most one
   // increment on one field -- not worth a seqlock.
   void UpdateImuHealth(const ImuHealth &data) { imu_health_ = data; }
+  void UpdateAccelCalibration(const AccelCalibration &data) {
+    accel_calibration_ = data;
+  }
+
   void UpdateControlLoopLoad(const ControlLoopLoad &data) {
     control_loop_load_ = data;
   }
@@ -323,6 +336,10 @@ class SharedState {
   // Monotonic since boot; wraps at 49.7 days rather than TIM2's 71.6 min.
   uint32_t UptimeMs() const { return uptime_ms_; }
   const ImuHealth &GetImuHealth() const { return imu_health_; }
+  const AccelCalibration &GetAccelCalibration() const {
+    return accel_calibration_;
+  }
+
   const ControlLoopLoad &GetControlLoopLoad() const {
     return control_loop_load_;
   }
@@ -360,6 +377,7 @@ class SharedState {
   SystemHealth system_health_{};
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
+  AccelCalibration accel_calibration_{};
   ControlLoopLoad control_loop_load_{};
   uint32_t main_tick_count_ = 0;
   ImuTemperature imu_temp_{};

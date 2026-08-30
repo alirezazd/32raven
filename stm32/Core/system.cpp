@@ -212,9 +212,9 @@ void System::InitComponent(Component c) {
                      FcLink::GetInstance());
       break;
     case Component::kSensorCalService:
-      SensorCalService::GetInstance().Init(kSensorCalConfig, blackboard_,
-                                           Icm42688p::GetInstance(),
-                                           FcLink::GetInstance());
+      SensorCalService::GetInstance().Init(
+          kSensorCalConfig, blackboard_, Icm42688p::GetInstance(),
+          EE::GetInstance(), FcLink::GetInstance());
       break;
     case Component::kTelemetryPublisher:
       TelemetryPublisher::GetInstance().Init(
@@ -269,8 +269,7 @@ void System::InitComponent(Component c) {
       break;
     case Component::kIcm42688p:
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi2::GetInstance(),
-                                    EE::GetInstance(), kIcm42688pConfig,
-                                    blackboard_);
+                                    kIcm42688pConfig, blackboard_);
       break;
     case Component::kI2c1:
       I2c1::GetInstance().Init(kI2c1Config, GPIO::GetInstance());

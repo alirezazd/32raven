@@ -8,7 +8,6 @@
 #include <optional>
 
 #include "ee.hpp"
-#include "ee_schema.hpp"
 #include "icm42688p_reg.hpp"
 #include "shared_state.hpp"
 #include "spi.hpp"
@@ -105,18 +104,12 @@ class Icm42688p {
   // the sample path for ~50 ms: slow loop only, never while armed.
   void ApplyGyroOffsets(const float bias_body[3]);
 
-  const ee_schema::ImuAccelCalibration &GetAccelCalibration() const {
-    return accel_calibration_;
-  }
-  bool SaveAccelCalibration();
-
   uint32_t GetDeviceId() const;
   bool IsInitialized() const { return device_id_ != 0u; }
 
  private:
   friend class System;
-  void Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
-            SharedState &blackboard);
+  void Init(GPIO &gpio, Spi2 &spi, const Config &cfg, SharedState &blackboard);
 
   Icm42688p() = default;
   ~Icm42688p() = default;
@@ -258,8 +251,6 @@ class Icm42688p {
   GPIO *gpio_{nullptr};
   SharedState *blackboard_{nullptr};
   Spi2 *spi_{nullptr};
-  EE *ee_{nullptr};
-  ee_schema::ImuAccelCalibration accel_calibration_{};
 
   std::atomic<uint32_t> missed_samples_{0};
 

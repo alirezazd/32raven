@@ -238,10 +238,27 @@ inline constexpr SensorCalService::Config kSensorCalConfig = {
         .timeout_s = {{ sensor_cal.timeout_s }},
         .still_threshold_raw = {{ sensor_cal.still_threshold_raw }},
     },
+    .accel = {
+        .side_duration_ms = {{ sensor_cal.accel_side_duration_ms }},
+        .still_duration_ms = {{ sensor_cal.accel_still_duration_ms }},
+        .timeout_s = {{ sensor_cal.accel_timeout_s }},
+        .still_threshold_raw = {{ sensor_cal.accel_still_threshold_raw }},
+    },
 };
 static_assert(kSensorCalConfig.gyro.timeout_s > kSensorCalConfig.gyro.duration_s,
               "gyro calibration deadline leaves no room for a restart -- "
-              "raise STM32_IMU_GYRO_CAL_TIMEOUT_S above the duration");
+              "raise STM32_SENSOR_CAL_GYRO_TIMEOUT_S above the duration");
+// Six poses, each needing its stillness hold and then its sampling, with
+// nothing left over for the operator to turn the airframe between them. The
+// floor is what a perfect operator would take, so a deadline under it cannot
+// be met by anyone.
+static_assert(
+    SecondsToMicros(kSensorCalConfig.accel.timeout_s) >
+        6u * 1000u *
+            (kSensorCalConfig.accel.side_duration_ms +
+             kSensorCalConfig.accel.still_duration_ms),
+    "accel calibration deadline cannot cover six poses -- raise "
+    "STM32_SENSOR_CAL_ACCEL_TIMEOUT_S");
 
 inline constexpr SpiConfig kSpi2Config = {
     .polarity = SpiPolarity::kHigh,

@@ -6,7 +6,6 @@
 #include <cmath>
 #include <utility>
 
-#include "ee_config_storage.hpp"
 #include "error_code.hpp"
 #include "gpio.hpp"
 #include "irq_priority.hpp"
@@ -35,7 +34,7 @@ Icm42688p &Icm42688p::GetInstance() {
   return inst;
 }
 
-void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
+void Icm42688p::Init(GPIO &gpio, Spi2 &spi, const Config &cfg,
                      SharedState &blackboard) {
   if (device_id_ != 0u) {
     Panic(ErrorCode::Stm32::kImuReinit);
@@ -45,7 +44,7 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
 
   blackboard_ = &blackboard;
   spi_ = &spi;
-  ee_ = &ee;
+
   fifo_wm_records_ = cfg.fifo.watermark_records;
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
   last_irq_cnt_ = System::GetInstance().Time().Micros();
@@ -67,7 +66,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   gyro_odr_hz_ = EffectiveOdrHz(cfg.rates.gyro, cfg.external_clock);
   timestamp_tick_scale_q16_ = TimestampTickScaleQ16(cfg.external_clock);
   timestamp_tick_remainder_q16_ = 0;
-  accel_calibration_ = EeConfigStorage::LoadOrInitImuAccelCalibration(ee);
 
   System::GetInstance().Time().DelayMicros(MillisToMicros(10));
   spi.SetPrescaler(cfg.spi_prescaler);
@@ -106,13 +104,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, EE &ee, const Config &cfg,
   spi.EnableIrqs(irq_priority::kImuSpiDma);
   NVIC_SetPriority(board::kImuInt.exti_irqn, irq_priority::kImuInt);
   // Configured, not running: ResumeSampling arms this once a consumer exists.
-}
-
-bool Icm42688p::SaveAccelCalibration() {
-  if (ee_ == nullptr) {
-    return false;
-  }
-  return EeConfigStorage::SaveImuAccelCalibration(*ee_, accel_calibration_);
 }
 
 uint32_t Icm42688p::GetDeviceId() const {

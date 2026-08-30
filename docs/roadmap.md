@@ -608,22 +608,7 @@ same shape. A key exposes exactly one function.
 ### #20 — Sentinel watchdogs on the IMU and the control path — 🎯 CRITICAL
 
 Sentinel weighs the IMU counters and answers per arm state. Every threshold it uses is asserted
-rather than measured, and the failure that matters most — a control loop that has stopped
-running — has no detector at all.
-
-#### Nothing watches whether the control loop runs
-
-`TelemetryPublisher::BuildSystemStatusMsg` sets `msg.flags = kSystemStatusFlagLoopAlive`
-unconditionally, and the ESP32 gates `MAV_STATE_CRITICAL` on that bit. A SystemStatus frame
-needs only the main tick, and `msg.loop_counter` is the main tick's own count — so a wedged
-control loop leaves every indicator on the ground green. The IWDG misses it too: the main loop
-kicks it, and the main loop is fine, which is one concrete route to an in-flight reset (#21).
-
-`Sentinel::RecoverStalledImu` covers the neighbouring failure, not this one — it watches
-`ImuHealth::timestamp_us`, which the *sample interrupt* stamps. Liveness is the opposite case:
-the interrupt publishing normally while the control loop fails to consume. It needs a stamp the
-control loop writes, which is also what makes the flag mean its name, and what #16 needs before
-the watchdog kick can mean anything.
+rather than measured, and the one recovery it can order does not work in the case it exists for.
 
 #### Every threshold is a guess
 
@@ -985,21 +970,39 @@ looking for.
 
 ### #25 — Calibration never reaches a sample — 🎯 CRITICAL
 
-**Accel calibration has no consumer.** `accel_calibration_` round-trips through EE — loaded at
-`Init`, written back by `SaveAccelCalibration` — and `GetAccelCalibration()` has no callers, so
-nothing on the sample path reads it. The `EeConfigStorage` path around it is correct end to end;
-the value simply goes nowhere. Applying it means either an integer offset in `MapAxes` or a
-correction in the estimator, and the two differ in whether the log carries a corrected signal.
+The six-pose fit runs from a GCS and the estimator applies what it produces. What is left is
+the bench work none of it can substitute for.
+
+**Nothing has been measured on hardware.** The pose bands, the stillness threshold and the hold
+time are PX4's numbers carried across, and a hand-held airframe resting against a bench is not
+the jig they were chosen for. A run that classifies poses too readily accepts a corner; one that
+classifies too reluctantly never advances, and both look the same to an operator.
+
+**|a| at rest is unknown and decides how much any of this matters.** The accel-trust band gates
+the whole Mahony correction on the magnitude being near 1 g, so a scale that is wrong holds the
+gate shut and the attitude estimate is pure gyro integration — which is what the board has been
+flying. The scale factor derives correctly from the configured full-scale range, so if |a| is
+still wrong the cause is a mismatch between the range the chip is programmed with and the packet
+format it reports in, and no calibration can paper over it. One `SendLog` of `accel.norm()` on
+the bench settles it.
+
+**The Mahony PI bias term has still never executed**, for the same reason, so what `bias_`
+converges to — and therefore whether a stored gyro offset is needed at all — remains unanswered.
+The residual to beat is 0.910 dps, and the gyro stillness gate of 64 raw counts has never been
+checked against a still board either.
 
 No gyro record beside `ImuAccelCalibration`, by decision: bias moves with die temperature, so a
 stored offset is a stale number, and neither reference implementation trusts one. Accel keeps
 its record because a 6-point fit measures a mechanical property that does not drift the same way.
 
-Two measurements are still owed. The AHRS carries a Mahony PI bias term (`ki_bias`) that has
-never executed — the accel-trust band held the gate shut for the life of the board while |a|
-read 4 g — so what `bias_` converges to decides whether a hardware offset is needed at all; the
-residual to beat is 0.910 dps. And the stillness gate, 64 raw counts, has never been measured
-against a still board.
+#### Calibration needs a GCS
+
+`MAV_CMD_PREFLIGHT_CALIBRATION` is the only way in, so calibrating means a laptop and a link.
+Both reference stacks are the same, and both are wrong about it for a bench: the ESP32 already
+carries a display, a buzzer and a button, which is every input a six-pose routine needs. A
+calibration page there would run the same `AccelCal` over FcLink with no GCS at all, and the
+pose set is small enough to render — a name and a progress count. The wire already carries what
+it would draw: `kAccelCalStatus` reports the state and the captured-side mask on every edge.
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 

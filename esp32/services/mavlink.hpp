@@ -15,8 +15,8 @@
 #include <variant>
 
 #include "error_code.hpp"
-#include "mavlink_transport.hpp"
 #include "fc_link.hpp"
+#include "mavlink_transport.hpp"
 #include "message.hpp"  // for message::GpsData
 #include "panic.hpp"
 #include "ring_buffer.hpp"
@@ -139,6 +139,8 @@ class Mavlink {
     }
   }
   void ReportPanic(PanicSource source, uint32_t error_code);
+  // Each edge of an accel calibration run, as the line an operator reads.
+  void ReportAccelCalProgress(const message::AccelCalStatusMsg &msg);
   uint32_t GetUdpRxPacketCount() const;
   uint32_t GetUdpTxPacketCount() const;
   uint32_t GetUdpRxHeartbeatCount() const;

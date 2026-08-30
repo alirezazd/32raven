@@ -82,12 +82,17 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       }
       break;
     case MAV_CMD_PREFLIGHT_CALIBRATION:
-      // param1 is the gyro slot. ACCEPTED means the request reached the flight
-      // controller, not that the run finished -- that ends in a tone.
-      if (static_cast<uint32_t>(cmd.param1) != 0u) {
+      // param1 is the gyro slot and param5 the accel, as the MAVLink command
+      // defines them. ACCEPTED means the request reached the flight controller,
+      // not that the run finished -- the gyro ends in a tone, and the accel in
+      // a STATUSTEXT per pose.
+      if (static_cast<uint32_t>(cmd.param1) != 0u ||
+          static_cast<uint32_t>(cmd.param5) != 0u) {
         message::Packet req_pkt{};
         req_pkt.header.id =
-            static_cast<uint8_t>(message::MsgId::kCalibrateGyro);
+            static_cast<uint8_t>(static_cast<uint32_t>(cmd.param5) != 0u
+                                     ? message::MsgId::kCalibrateAccel
+                                     : message::MsgId::kCalibrateGyro);
         req_pkt.header.len = 0;
         fc_link_->SendPacket(req_pkt);
         QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,

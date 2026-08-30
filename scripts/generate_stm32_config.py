@@ -2180,13 +2180,24 @@ def _i2c1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 
 def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    # Knobs of the procedure, not of the part: the symbols keep their IMU names,
-    # but SensorCalService consumes them and nothing in the driver reads them.
+    # Knobs of the procedure, not of the part, and named for it: nothing in the
+    # IMU driver reads any of these, so they sit under Services with the
+    # service that does.
     return {
-        "duration_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_DURATION_S"),
-        "timeout_s": sym_int(kconf, "STM32_IMU_GYRO_CAL_TIMEOUT_S"),
+        "duration_s": sym_int(kconf, "STM32_SENSOR_CAL_GYRO_DURATION_S"),
+        "timeout_s": sym_int(kconf, "STM32_SENSOR_CAL_GYRO_TIMEOUT_S"),
         "still_threshold_raw": sym_int(
-            kconf, "STM32_IMU_GYRO_CAL_STILL_THRESHOLD_RAW"
+            kconf, "STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_RAW"
+        ),
+        "accel_side_duration_ms": sym_int(
+            kconf, "STM32_SENSOR_CAL_ACCEL_SIDE_DURATION_MS"
+        ),
+        "accel_still_duration_ms": sym_int(
+            kconf, "STM32_SENSOR_CAL_ACCEL_STILL_DURATION_MS"
+        ),
+        "accel_timeout_s": sym_int(kconf, "STM32_SENSOR_CAL_ACCEL_TIMEOUT_S"),
+        "accel_still_threshold_raw": sym_int(
+            kconf, "STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_RAW"
         ),
     }
 

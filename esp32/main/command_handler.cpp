@@ -68,6 +68,12 @@ static void OnTone(const AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->Ui().NotifyUserActivity();
 }
 
+static void OnAccelCalStatus(const AppContext &ctx,
+                             const message::Packet &pkt) {
+  ctx.sys->Mavlink().ReportAccelCalProgress(
+      message::PayloadAs<message::AccelCalStatusMsg>(pkt));
+}
+
 static void OnPanic(const AppContext &ctx, const message::Packet &pkt) {
   const uint32_t error_code =
       message::PayloadAs<message::PanicMsg>(pkt).error_code;
@@ -145,6 +151,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kPong, OnIgnored},
     {message::MsgId::kLog, OnLog},
     {message::MsgId::kTone, OnTone},
+    {message::MsgId::kAccelCalStatus, OnAccelCalStatus},
     {message::MsgId::kUsbStatus, OnUsbStatus},
     {message::MsgId::kPanic, OnPanic},
     {message::MsgId::kGpsData, OnTelemetry<message::GpsData>},
