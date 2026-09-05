@@ -152,3 +152,12 @@ repos:
         language: system
         pass_filenames: false
         files: '^(scripts/templates/.*\.j2|scripts/generate_.*\.py|(esp32|stm32)/.*\.hpp)$'
+
+      # A generated header that calls into the firmware, or reads its
+      # constants, is carrying a check that belongs with the code it names.
+      - id: check-config-reach
+        name: Generated config reaching into the firmware
+        entry: uv run --quiet --script scripts/lint/check_config_reach.py
+        language: system
+        pass_filenames: false
+        files: '^(scripts/templates/.*\.j2|scripts/generate_.*\.py)$'

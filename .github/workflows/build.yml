@@ -93,6 +93,9 @@ jobs:
       - name: Unassigned config fields
         run: uv run --quiet --script scripts/lint/check_config_coverage.py
 
+      - name: Generated config reaching into the firmware
+        run: uv run --quiet --script scripts/lint/check_config_reach.py
+
       - name: Unused includes
         run: uv run --quiet --script scripts/lint/check_unused_includes.py
 
@@ -141,6 +144,9 @@ jobs:
       # run anywhere but a build.
       - name: Unassigned config fields
         run: uv run --quiet --script scripts/lint/check_config_coverage.py
+
+      - name: Generated config reaching into the firmware
+        run: uv run --quiet --script scripts/lint/check_config_reach.py
 
       - name: Unused includes
         run: uv run --quiet --script scripts/lint/check_unused_includes.py
