@@ -19,6 +19,8 @@
 // why Connect is not just another command.
 class EscBootloader {
  public:
+  static EscBootloader &GetInstance();
+
   // Four bytes, in the order the four-way host expects them back from
   // cmd_DeviceInitFlash.
   struct __attribute__((packed)) DeviceInfo {
@@ -27,8 +29,6 @@ class EscBootloader {
     uint8_t boot_version;
     uint8_t interface_mode;
   };
-
-  void Init(UartSoft &uart);
 
   // False means no ESC answered: unpowered, absent, or running firmware rather
   // than sitting in its bootloader. The caller must have stopped DShot and the
@@ -66,6 +66,14 @@ class EscBootloader {
   static constexpr uint16_t kMaxTransferBytes = 256;
 
  private:
+  friend class System;
+  void Init(UartSoft &uart);
+
+  EscBootloader() = default;
+  ~EscBootloader() = default;
+  EscBootloader(const EscBootloader &) = delete;
+  EscBootloader &operator=(const EscBootloader &) = delete;
+
   bool SendWake();
   std::optional<DeviceInfo> ReadBootInfo();
   bool SendCommand(std::span<const uint8_t> cmd);

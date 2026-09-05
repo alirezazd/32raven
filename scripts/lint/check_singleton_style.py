@@ -27,6 +27,17 @@ Rules:
                 destructor already makes a copy fail, but at the point it is
                 destroyed rather than the point it is made, which is a
                 confusing place to learn it.
+  system-member
+                A driver or service held as a System member rather than
+                reached through GetInstance. The other rules only look at a
+                class that already declares one, so a component that never
+                opted in was never checked at all: EscBootloader sat in
+                Drivers for months with none of this shape and nothing said
+                so. This rule asks the opposite question -- of every member
+                System declares, is its type a driver or a service? -- and so
+                cannot be evaded by leaving the pattern out. Control/ and
+                Core/ objects stay members: they own no peripheral, and the
+                two folders this covers are the ones meant to be uniform.
   singleton-init
                 An Init reachable twice. Private is the usual answer, since
                 only `friend class System` can then reach it. A public Init is
@@ -216,6 +227,64 @@ def check(path: pathlib.Path, rel: str) -> list[str]:
     return findings
 
 
+# Every System, and the folders whose classes it may not own outright.
+SYSTEMS = ("stm32/Core/system.hpp", "esp32/services/system.hpp")
+COMPONENT_DIRS = (
+    "stm32/Drivers",
+    "stm32/Services",
+    "esp32/drivers",
+    "esp32/services",
+    "esp32/main",
+)
+MEMBER = re.compile(r"^  ([A-Z][\w:]*) (\w+_)\s*;")
+
+
+def component_classes() -> dict[str, str]:
+    """Class name to the component header that declares it."""
+    out = subprocess.run(
+        ["git", "ls-files", "*.hpp"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    found: dict[str, str] = {}
+    for rel in out.stdout.splitlines():
+        if not rel.startswith(COMPONENT_DIRS) or rel in SYSTEMS:
+            continue
+        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            # CLASS_HEAD wants a brace, a base clause or a wrapped head, so a
+            # forward declaration is not mistaken for the definition.
+            head = CLASS_HEAD.match(line)
+            if head and head.group(1) == "class":
+                found.setdefault(head.group(2), rel)
+    return found
+
+
+def owned_components() -> list[str]:
+    """Members of a System whose type is a driver or a service."""
+    classes = component_classes()
+    findings: list[str] = []
+    for rel in SYSTEMS:
+        path = REPO / rel
+        if not path.exists():
+            continue
+        for idx, line in enumerate(
+            path.read_text(encoding="utf-8", errors="replace").splitlines()
+        ):
+            found = MEMBER.match(line)
+            if not found:
+                continue
+            owner = classes.get(found.group(1))
+            if owner:
+                findings.append(
+                    f"{rel}:{idx + 1}: [system-member] {found.group(2)} holds "
+                    f"{found.group(1)}, declared in {owner}"
+                )
+    return findings
+
+
 def main(argv: list[str]) -> int:
     names = argv[1:]
     if not names:
@@ -229,7 +298,7 @@ def main(argv: list[str]) -> int:
         )
         names = [str(REPO / line) for line in out.stdout.splitlines()]
 
-    findings: list[str] = []
+    findings: list[str] = owned_components()
     for name in names:
         path = pathlib.Path(name)
         if path.suffix not in (".h", ".hpp") or "third_party" in path.parts:
@@ -240,7 +309,8 @@ def main(argv: list[str]) -> int:
         for finding in findings:
             print(f"  {finding}", file=sys.stderr)
         print(
-            "\nEvery driver and service singleton shares one shape. Declare\n"
+            "\nA driver or service is reached through GetInstance, never held\n"
+            "as a System member, and they all share one shape. Declare\n"
             "`static X &GetInstance();` and define it in the .cpp, delete the\n"
             "copy members, and keep Init private so only the System reaches\n"
             "it -- or, where the caller cannot be System, open Init\n"

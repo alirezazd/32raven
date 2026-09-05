@@ -162,6 +162,11 @@ void M10Service::DispatchFrame() {
 
 M10Service::M10Service() : ctx_(pvt_data_, dop_data_, cov_data_, new_data_) {}
 
+M10Service &M10Service::GetInstance() {
+  static M10Service instance;
+  return instance;
+}
+
 void M10Service::Init(Uart2 &uart, SharedState &blackboard) {
   uart_ = &uart;
   ctx_.uart = &uart;

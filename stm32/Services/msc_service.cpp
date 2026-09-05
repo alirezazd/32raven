@@ -62,6 +62,11 @@ void PutBeU32(uint8_t *p, uint32_t v) {
 
 }  // namespace
 
+MscService &MscService::GetInstance() {
+  static MscService instance;
+  return instance;
+}
+
 void MscService::Init(UsbCdc &usb, LogService &log, SharedState &blackboard,
                       Sdio &sd) {
   if (initialized_) {

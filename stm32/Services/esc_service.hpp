@@ -14,6 +14,8 @@
 
 class EscService {
  public:
+  static EscService &GetInstance();
+
   struct Config {
     DShotCodec::Config dshot;
     uint32_t idle_period_us;
@@ -39,8 +41,6 @@ class EscService {
     kSaveSettings = 12,
   };
 
-  void Init(const Config &cfg, DShotCodec &codec, EscTelemetry &telemetry,
-            SharedState &blackboard);
   void Poll(uint32_t now_us);
 
   [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor);
@@ -87,6 +87,15 @@ class EscService {
   uint32_t DroppedWriteCount() const { return dropped_write_count_; }
 
  private:
+  friend class System;
+  void Init(const Config &cfg, DShotCodec &codec, EscTelemetry &telemetry,
+            SharedState &blackboard);
+
+  EscService() = default;
+  ~EscService() = default;
+  EscService(const EscService &) = delete;
+  EscService &operator=(const EscService &) = delete;
+
   struct PendingCommand {
     uint16_t value = 0;
     uint8_t motor = kAllMotors;

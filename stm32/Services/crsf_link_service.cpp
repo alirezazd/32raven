@@ -290,6 +290,11 @@ uint16_t CrsfTicksToUs(uint16_t ticks) {
 
 }  // namespace
 
+CrsfLinkService &CrsfLinkService::GetInstance() {
+  static CrsfLinkService instance;
+  return instance;
+}
+
 void CrsfLinkService::Init(const Config &cfg, Uart6 &uart,
                            SharedState &blackboard, RcReceiver &rc_receiver) {
   if (initialized_) {

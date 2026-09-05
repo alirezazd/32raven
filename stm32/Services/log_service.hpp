@@ -27,6 +27,8 @@
 // leaves the service inert and counting, never feeding Sentinel.
 class LogService {
  public:
+  static LogService &GetInstance();
+
   // The raw IMU pair is the one exception to "every topic is scheduled": it is
   // pushed per FIFO read, so it has ids but no slots. Off, and it is not in the
   // file at all -- the ids below shift down and the tables shrink with them.
@@ -99,6 +101,11 @@ class LogService {
   friend class System;
   void Init(const Config &cfg, SharedState &blackboard,
             FcLink &fc_link);
+
+  LogService() = default;
+  ~LogService() = default;
+  LogService(const LogService &) = delete;
+  LogService &operator=(const LogService &) = delete;
 
   struct Stats {
     uint32_t dropped_bytes = 0;

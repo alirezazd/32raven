@@ -375,6 +375,11 @@ Record MakeRecord(uint16_t msg_id, uint64_t timestamp) {
 
 }  // namespace
 
+LogService &LogService::GetInstance() {
+  static LogService instance;
+  return instance;
+}
+
 void LogService::Init(const Config &cfg, SharedState &blackboard,
                       FcLink &fc_link) {
   if (initialized_) {

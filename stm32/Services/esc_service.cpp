@@ -65,6 +65,11 @@ bool EscService::WriteMotorsThrust(const multirotor_mixer::MotorThrust &thrust,
   return WriteMotors(ThrustToDshotValues(thrust), now_us);
 }
 
+EscService &EscService::GetInstance() {
+  static EscService instance;
+  return instance;
+}
+
 void EscService::Init(const Config &cfg, DShotCodec &codec,
                       EscTelemetry &telemetry, SharedState &blackboard) {
   if (initialized_) {

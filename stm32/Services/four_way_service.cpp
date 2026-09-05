@@ -53,6 +53,11 @@ constexpr uint8_t kModeArmBlb = 4;
 
 }  // namespace
 
+FourWayService &FourWayService::GetInstance() {
+  static FourWayService instance;
+  return instance;
+}
+
 void FourWayService::Init(UsbCdc &usb, EscBootloader &bootloader) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kFourWayServiceReinit);

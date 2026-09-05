@@ -203,13 +203,14 @@ void System::InitComponent(Component c) {
                                      blackboard_);
       break;
     case Component::kCrsfLink:
-      crsf_link_service_.Init(kCrsfLinkConfig, Uart6::GetInstance(),
-                              blackboard_, RcReceiver::GetInstance());
+      CrsfLinkService::GetInstance().Init(kCrsfLinkConfig, Uart6::GetInstance(),
+                                          blackboard_,
+                                          RcReceiver::GetInstance());
       break;
     case Component::kSentinel:
-      sentinel_.Init(kSentinelConfig, blackboard_, esc_service_,
-                     rate_controller_, Icm42688p::GetInstance(),
-                     FcLink::GetInstance());
+      Sentinel::GetInstance().Init(
+          kSentinelConfig, blackboard_, EscService::GetInstance(),
+          rate_controller_, Icm42688p::GetInstance(), FcLink::GetInstance());
       break;
     case Component::kSensorCalService:
       SensorCalService::GetInstance().Init(
@@ -218,7 +219,7 @@ void System::InitComponent(Component c) {
       break;
     case Component::kTelemetryPublisher:
       TelemetryPublisher::GetInstance().Init(blackboard_, FcLink::GetInstance(),
-                                             crsf_link_service_,
+                                             CrsfLinkService::GetInstance(),
                                              TimeBase::GetInstance().Micros());
       break;
     case Component::kLed:
@@ -238,8 +239,9 @@ void System::InitComponent(Component c) {
       EscTelemetry::GetInstance().Init(kEscTelemetryConfig, blackboard_);
       break;
     case Component::kEscService:
-      esc_service_.Init(kEscServiceConfig, DShotCodec::GetInstance(),
-                        EscTelemetry::GetInstance(), blackboard_);
+      EscService::GetInstance().Init(kEscServiceConfig,
+                                     DShotCodec::GetInstance(),
+                                     EscTelemetry::GetInstance(), blackboard_);
       break;
     case Component::kUsbCdc:
       UsbCdc::GetInstance().Init(kUsbCdcConfig);
@@ -248,14 +250,16 @@ void System::InitComponent(Component c) {
       UartSoft::GetInstance().Init(kEscBootloaderUartConfig);
       break;
     case Component::kEscBootloader:
-      esc_bootloader_.Init(UartSoft::GetInstance());
+      EscBootloader::GetInstance().Init(UartSoft::GetInstance());
       break;
     case Component::kFourWayService:
-      four_way_service_.Init(UsbCdc::GetInstance(), esc_bootloader_);
+      FourWayService::GetInstance().Init(UsbCdc::GetInstance(),
+                                         EscBootloader::GetInstance());
       break;
     case Component::kMspService:
-      msp_service_.Init(kMspServiceConfig, UsbCdc::GetInstance(), blackboard_,
-                        four_way_service_, esc_service_);
+      MspService::GetInstance().Init(kMspServiceConfig, UsbCdc::GetInstance(),
+                                     blackboard_, FourWayService::GetInstance(),
+                                     EscService::GetInstance());
       break;
     case Component::kButton:
       Button::GetInstance().Init(GPIO::GetInstance(), kButtonConfig);
@@ -265,7 +269,7 @@ void System::InitComponent(Component c) {
       break;
     case Component::kM10:
       M10::GetInstance().Init(Uart2::GetInstance(), kM10Config);
-      gps_service_.Init(Uart2::GetInstance(), blackboard_);
+      M10Service::GetInstance().Init(Uart2::GetInstance(), blackboard_);
       break;
     case Component::kIcm42688p:
       Icm42688p::GetInstance().Init(GPIO::GetInstance(), Spi2::GetInstance(),
@@ -290,11 +294,13 @@ void System::InitComponent(Component c) {
       Sdio::GetInstance().Init();
       break;
     case Component::kLogService:
-      log_service_.Init(kLogServiceConfig, blackboard_, FcLink::GetInstance());
+      LogService::GetInstance().Init(kLogServiceConfig, blackboard_,
+                                     FcLink::GetInstance());
       break;
     case Component::kMscService:
-      msc_service_.Init(UsbCdc::GetInstance(), log_service_, blackboard_,
-                        Sdio::GetInstance());
+      MscService::GetInstance().Init(UsbCdc::GetInstance(),
+                                     LogService::GetInstance(), blackboard_,
+                                     Sdio::GetInstance());
       break;
     case Component::kCount:
       break;

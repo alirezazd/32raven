@@ -72,6 +72,8 @@ enum class RcLinkPhase : uint8_t {
 // same transition, not as another thing it writes.
 class Sentinel {
  public:
+  static Sentinel &GetInstance();
+
   // Thresholds only. Every one is a policy question the components that raise
   // the conditions are deliberately not asked -- a driver counts, this decides
   // how much counts as too much.
@@ -132,6 +134,11 @@ class Sentinel {
 
   void Init(const Config &cfg, SharedState &blackboard, EscService &esc,
             RateController &rate_controller, Icm42688p &imu, FcLink &fc_link);
+
+  Sentinel() = default;
+  ~Sentinel() = default;
+  Sentinel(const Sentinel &) = delete;
+  Sentinel &operator=(const Sentinel &) = delete;
 
   // Weighs the driver's counters against the thresholds it deliberately does
   // not know, and answers per the arm state.

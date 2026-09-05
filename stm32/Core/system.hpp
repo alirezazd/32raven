@@ -111,22 +111,22 @@ class System {
   Uart2 &GpsUart() { return Uart2::GetInstance(); }
   Uart6 &RcUart() { return Uart6::GetInstance(); }
   RcReceiver &RcRx() { return RcReceiver::GetInstance(); }
-  CrsfLinkService &CrsfLinkSvc() { return crsf_link_service_; }
-  EscService &EscSvc() { return esc_service_; }
-  MspService &MspSvc() { return msp_service_; }
-  FourWayService &FourWaySvc() { return four_way_service_; }
-  EscBootloader &EscBootSvc() { return esc_bootloader_; }
-  M10Service &GpsSvc() { return gps_service_; }
+  CrsfLinkService &CrsfLinkSvc() { return CrsfLinkService::GetInstance(); }
+  EscService &EscSvc() { return EscService::GetInstance(); }
+  MspService &MspSvc() { return MspService::GetInstance(); }
+  FourWayService &FourWaySvc() { return FourWayService::GetInstance(); }
+  EscBootloader &EscBootSvc() { return EscBootloader::GetInstance(); }
+  M10Service &GpsSvc() { return M10Service::GetInstance(); }
   Icm42688p &Imu() { return Icm42688p::GetInstance(); }
   Sdio &Sd() { return Sdio::GetInstance(); }
-  LogService &LogSvc() { return log_service_; }
-  MscService &MscSvc() { return msc_service_; }
+  LogService &LogSvc() { return LogService::GetInstance(); }
+  MscService &MscSvc() { return MscService::GetInstance(); }
   SensorCalService &SensorCalSvc() { return SensorCalService::GetInstance(); }
   multirotor_mixer::Mixer &MixerSvc() { return mixer_; }
   Ahrs &AhrsSvc() { return ahrs_; }
   RateController &RateControllerSvc() { return rate_controller_; }
   AttitudeController &AttitudeControllerSvc() { return attitude_controller_; }
-  Sentinel &SentinelSvc() { return sentinel_; }
+  Sentinel &SentinelSvc() { return Sentinel::GetInstance(); }
 
   SharedState &Blackboard() { return blackboard_; }
   // Latched at boot and constant after, so it is read where it is reported
@@ -145,20 +145,11 @@ class System {
   void PublishSystemHealth(uint32_t now_us);
   bool initialized_ = false;
   ResetCause reset_cause_ = ResetCause::kUnknown;
-  M10Service gps_service_;
-  LogService log_service_;
-  MscService msc_service_;
   SharedState blackboard_;
-  CrsfLinkService crsf_link_service_;
-  EscService esc_service_;
-  MspService msp_service_;
-  FourWayService four_way_service_;
-  EscBootloader esc_bootloader_;
   multirotor_mixer::Mixer mixer_;
   Ahrs ahrs_;
   RateController rate_controller_;
   AttitudeController attitude_controller_;
-  Sentinel sentinel_;
 
   // Empty by design — call Init() explicitly to bring up the chip.
   System() = default;

@@ -107,6 +107,11 @@ const board::BoardPin *MotorPin(uint8_t index) {
 
 }  // namespace
 
+EscBootloader &EscBootloader::GetInstance() {
+  static EscBootloader instance;
+  return instance;
+}
+
 void EscBootloader::Init(UartSoft &uart) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kEscBootloaderReinit);

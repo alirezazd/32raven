@@ -22,6 +22,8 @@
 
 class MspService {
  public:
+  static MspService &GetInstance();
+
   struct Config {
     const char *board_identifier;  // exactly 4 chars, e.g. "RAVN"
     const char *board_name;
@@ -31,9 +33,6 @@ class MspService {
     uint16_t loop_rate_hz;
     uint16_t loop_period_us;
   };
-
-  void Init(const Config &cfg, UsbCdc &usb, SharedState &blackboard,
-            FourWayService &four_way, EscService &esc);
 
   void Poll(uint32_t now_us);
 
@@ -60,6 +59,15 @@ class MspService {
   uint16_t LastCommand() const { return last_command_; }
 
  private:
+  friend class System;
+  void Init(const Config &cfg, UsbCdc &usb, SharedState &blackboard,
+            FourWayService &four_way, EscService &esc);
+
+  MspService() = default;
+  ~MspService() = default;
+  MspService(const MspService &) = delete;
+  MspService &operator=(const MspService &) = delete;
+
   static constexpr size_t kMaxPayload = 256;
 
   // '$', 'M', direction, size, command -- and v2's longer '$', 'X', direction,

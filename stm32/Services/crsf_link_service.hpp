@@ -17,6 +17,8 @@ class SharedState;
 
 class CrsfLinkService {
  public:
+  static CrsfLinkService &GetInstance();
+
   // TelemetryPublisher indexes its CRSF group by this order.
   enum class TelemetryTopic : uint8_t {
     kHeartbeat,
@@ -148,6 +150,11 @@ class CrsfLinkService {
 
   void Init(const Config &cfg, Uart6 &uart, SharedState &blackboard,
             RcReceiver &rc_receiver);
+
+  CrsfLinkService() = default;
+  ~CrsfLinkService() = default;
+  CrsfLinkService(const CrsfLinkService &) = delete;
+  CrsfLinkService &operator=(const CrsfLinkService &) = delete;
   void PollRx(uint32_t now_us, size_t byte_budget = 128u);
   void PollCommands();
 

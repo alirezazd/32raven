@@ -24,7 +24,7 @@
 
 class FourWayService {
  public:
-  void Init(UsbCdc &usb, EscBootloader &bootloader);
+  static FourWayService &GetInstance();
 
   // While active the CDC byte stream belongs to this parser, not MSP's.
   void Enter();
@@ -50,6 +50,14 @@ class FourWayService {
   uint8_t SelectedEsc() const { return selected_esc_; }
 
  private:
+  friend class System;
+  void Init(UsbCdc &usb, EscBootloader &bootloader);
+
+  FourWayService() = default;
+  ~FourWayService() = default;
+  FourWayService(const FourWayService &) = delete;
+  FourWayService &operator=(const FourWayService &) = delete;
+
   static constexpr size_t kMaxParams = 256;
 
   enum class Parse : uint8_t {

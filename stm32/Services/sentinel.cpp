@@ -18,6 +18,11 @@ constexpr uint32_t kEscDropThreshold = 150;
 
 }  // namespace
 
+Sentinel &Sentinel::GetInstance() {
+  static Sentinel instance;
+  return instance;
+}
+
 void Sentinel::Init(const Config &cfg, SharedState &blackboard, EscService &esc,
                     RateController &rate_controller, Icm42688p &imu,
                     FcLink &fc_link) {

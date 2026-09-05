@@ -99,6 +99,11 @@ uint8_t SaturateU8(float value) {
 
 }  // namespace
 
+MspService &MspService::GetInstance() {
+  static MspService instance;
+  return instance;
+}
+
 void MspService::Init(const Config &cfg, UsbCdc &usb, SharedState &blackboard,
                       FourWayService &four_way, EscService &esc) {
   if (initialized_) {

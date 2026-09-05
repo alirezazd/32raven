@@ -19,6 +19,8 @@ class SharedState;
 // card stall cannot wedge the main loop past the watchdog.
 class MscService {
  public:
+  static MscService &GetInstance();
+
   void Poll(uint32_t now_us);
 
   // Public for the same reason as MspService::PublishUsbStatus: the state
@@ -34,6 +36,11 @@ class MscService {
   friend class System;
   void Init(UsbCdc &usb, LogService &log, SharedState &blackboard,
             Sdio &sd);
+
+  MscService() = default;
+  ~MscService() = default;
+  MscService(const MscService &) = delete;
+  MscService &operator=(const MscService &) = delete;
 
   enum class Bot : uint8_t {
     kWaitCbw,

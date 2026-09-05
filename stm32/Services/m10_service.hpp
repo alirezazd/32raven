@@ -62,7 +62,7 @@ enum class M10Parse : uint8_t {
 
 class M10Service {
  public:
-  M10Service();
+  static M10Service &GetInstance();
 
   void ProcessByte(uint8_t byte);
 
@@ -79,6 +79,12 @@ class M10Service {
   friend class System;
 
   void Init(Uart2 &uart, SharedState &blackboard);
+
+  M10Service();
+  ~M10Service() = default;
+  M10Service(const M10Service &) = delete;
+  M10Service &operator=(const M10Service &) = delete;
+
   GpsData BuildGpsData() const;
   void PublishIfNew();
   void DispatchFrame();
