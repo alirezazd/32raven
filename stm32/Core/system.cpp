@@ -217,9 +217,9 @@ void System::InitComponent(Component c) {
           EE::GetInstance(), FcLink::GetInstance());
       break;
     case Component::kTelemetryPublisher:
-      TelemetryPublisher::GetInstance().Init(
-          kTelemetryPublisherConfig, blackboard_, FcLink::GetInstance(),
-          crsf_link_service_, TimeBase::GetInstance().Micros());
+      TelemetryPublisher::GetInstance().Init(blackboard_, FcLink::GetInstance(),
+                                             crsf_link_service_,
+                                             TimeBase::GetInstance().Micros());
       break;
     case Component::kLed:
       LED::GetInstance().Init(GPIO::GetInstance(), kLedConfig);

@@ -251,6 +251,7 @@ inline constexpr Mavlink::Config kMavlinkConfig = {
                     .rc_ms = {{ mavlink.tx.periods.rc_ms }},
                     .esc_ms = {{ mavlink.tx.periods.esc_ms }},
                 },
+            .link_air_bytes_per_s = {{ mavlink.tx.link_air_bytes_per_s }},
             .schedule =
                 {
                     .hb_deadline_ms = {{ mavlink.tx.schedule.hb_deadline_ms }},

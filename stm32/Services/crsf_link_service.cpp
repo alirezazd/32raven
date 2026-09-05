@@ -15,6 +15,7 @@
 #include "panic.hpp"
 #include "rc_receiver.hpp"
 #include "shared_state.hpp"
+#include "stm32_config.hpp"
 #include "uart.hpp"
 
 namespace {
@@ -44,18 +45,44 @@ constexpr uint8_t kCrsfRcChannelsPayloadSize = 22u;
 constexpr uint8_t kCrsfMinFrameLength = 2u;
 constexpr uint8_t kCrsfMaxFrameLength = 62u;
 
-constexpr uint8_t kGpsPayloadSize = 15u;
-constexpr uint8_t kHeartbeatPayloadSize = 2u;
-constexpr uint8_t kBatteryPayloadSize = 8u;
-constexpr uint8_t kAttitudePayloadSize = 6u;
-// A source byte, then one entry per motor: 24-bit RPM, 16-bit deci-Celsius.
-constexpr uint8_t kRpmPayloadSize =
-    1u + (3u * common_config::kAirframeMotorCount);
+using TelemetryTopic = CrsfLinkService::TelemetryTopic;
+
+constexpr uint8_t PayloadSize(TelemetryTopic topic) {
+  return CrsfLinkService::kPayloadSize[static_cast<size_t>(topic)];
+}
+
+constexpr uint8_t kGpsPayloadSize = PayloadSize(TelemetryTopic::kGps);
+constexpr uint8_t kHeartbeatPayloadSize =
+    PayloadSize(TelemetryTopic::kHeartbeat);
+constexpr uint8_t kBatteryPayloadSize = PayloadSize(TelemetryTopic::kBattery);
+constexpr uint8_t kAttitudePayloadSize = PayloadSize(TelemetryTopic::kAttitude);
+constexpr uint8_t kRpmPayloadSize = PayloadSize(TelemetryTopic::kRpm);
 constexpr uint8_t kTemperaturePayloadSize =
-    1u + (2u * common_config::kAirframeMotorCount);
-// Longest name, the disarmed marker, and the terminator.
-constexpr uint8_t kFlightModePayloadSize = 6u;
-constexpr uint8_t kGpsTimePayloadSize = 9u;
+    PayloadSize(TelemetryTopic::kTemperature);
+constexpr uint8_t kFlightModePayloadSize =
+    PayloadSize(TelemetryTopic::kFlightMode);
+constexpr uint8_t kGpsTimePayloadSize = PayloadSize(TelemetryTopic::kGpsTime);
+
+// Pinned to ExpressLRS's own arithmetic: 250 Hz at 1:64 bursts one data
+// packet per link-statistics packet, at 1:8 fifteen.
+static_assert(CrsfLinkService::DataSlotsPerKs(250u, 64u) == 1953u,
+              "the telemetry cycle no longer matches TLMBurstMaxForRateRatio");
+static_assert(CrsfLinkService::DataSlotsPerKs(250u, 8u) == 29296u,
+              "the telemetry cycle no longer matches TLMBurstMaxForRateRatio");
+// The slow end, where the burst would round to one before a slot is reserved
+// for link statistics and ExpressLRS holds it at one instead. Reachable from
+// the menu: 250 Hz at 1:128, and 25 or 50 Hz on Std.
+static_assert(CrsfLinkService::DataSlotsPerKs(250u, 128u) == 976u,
+              "a burst that rounds to one is held there, not decremented");
+// A single-chunk frame still pays the blank confirmation packet.
+static_assert(CrsfLinkService::FrameSlots(TelemetryTopic::kHeartbeat, 10u) ==
+                  2u,
+              "a one-chunk frame costs two slots on the air");
+static_assert(CrsfLinkService::FrameSlots(TelemetryTopic::kGps, 5u) == 4u,
+              "a 19-byte frame is four 5-byte chunks");
+static_assert(
+    CrsfLinkService::ElrsRateFor(kCrsfLinkConfig.expected_rf_mode).has_value(),
+    "STM32_RC_RECEIVER_CRSF_RATE names a rate the table does not know");
 // Source 0 is the airframe as a whole, which is what a per-motor list is --
 // the alternative numbering identifies one physical sensor per frame.
 constexpr uint8_t kCrsfSensorSourceAirframe = 0u;

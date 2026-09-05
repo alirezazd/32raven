@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <iterator>
 #include <limits>
 #include <type_traits>
 
@@ -345,6 +344,70 @@ Mavlink::TxFrameState Mavlink::StartStatusTextFrame(const StatusText &work) {
 
 namespace {
 
+// SYS_STATUS rides at a fixed second: a GCS's health view has one cadence.
+constexpr uint16_t kSysStatusPeriodMs = 1000;
+
+// The periods in TxSlot order, which is the order the scheduler indexes.
+constexpr std::array<uint32_t, Mavlink::kTxSlotCount> SlotPeriodsMs(
+    const Mavlink::Config &cfg) {
+  return {{cfg.tx.periods.hb_ms, kSysStatusPeriodMs, cfg.tx.periods.gps_ms,
+           cfg.tx.periods.att_ms, cfg.tx.periods.gpos_ms,
+           cfg.tx.periods.batt_ms, cfg.tx.periods.rc_ms,
+           cfg.tx.periods.esc_ms}};
+}
+
+// The longest frame a slot can put on the wire: its payload's full length
+// and the v2 framing. MAVLink 2 trims trailing zeros, so real frames run
+// shorter; the ladder is costed at the ceiling.
+constexpr uint32_t MaxFrameBytes(Mavlink::TxSlot slot) {
+  constexpr std::array<uint8_t, Mavlink::kTxSlotCount> kPayloadLen = {{
+      MAVLINK_MSG_ID_HEARTBEAT_LEN,
+      MAVLINK_MSG_ID_SYS_STATUS_LEN,
+      MAVLINK_MSG_ID_GPS_RAW_INT_LEN,
+      MAVLINK_MSG_ID_ATTITUDE_LEN,
+      MAVLINK_MSG_ID_GLOBAL_POSITION_INT_LEN,
+      MAVLINK_MSG_ID_BATTERY_STATUS_LEN,
+      MAVLINK_MSG_ID_RC_CHANNELS_LEN,
+      MAVLINK_MSG_ID_ESC_STATUS_LEN,
+  }};
+  return kPayloadLen[static_cast<size_t>(slot)] + MAVLINK_NUM_NON_PAYLOAD_BYTES;
+}
+
+// Bytes per kilosecond the periodic ladder needs, every frame at its longest.
+constexpr uint32_t LadderBytesPerKs(const Mavlink::Config &cfg) {
+  const std::array<uint32_t, Mavlink::kTxSlotCount> periods_ms =
+      SlotPeriodsMs(cfg);
+  uint32_t bytes_per_ks = 0;
+  for (size_t i = 0; i < Mavlink::kTxSlotCount; ++i) {
+    if (periods_ms[i] != 0u) {
+      bytes_per_ks +=
+          (MaxFrameBytes(static_cast<Mavlink::TxSlot>(i)) * 1000000u) /
+          periods_ms[i];
+    }
+  }
+  return bytes_per_ks;
+}
+
+// What the link carries vehicle to ground: the declared air rate, or the
+// line at ten bits a byte when there is none or the line is the slower.
+constexpr uint32_t LinkBytesPerS(uint32_t baud, uint32_t air_bytes_per_s) {
+  const uint32_t line = baud / 10u;
+  return (air_bytes_per_s == 0u || air_bytes_per_s > line) ? line
+                                                           : air_bytes_per_s;
+}
+
+// Held back from the line for retransmits and the traffic the ladder does
+// not count -- STATUSTEXT, acks, parameter reads. A safety factor on a
+// model, so not a knob.
+constexpr uint32_t kLinkMarginPct = 80u;
+
+constexpr bool LadderFitsLink(const Mavlink::Config &cfg, uint32_t baud) {
+  const uint64_t budget_per_ks =
+      static_cast<uint64_t>(LinkBytesPerS(baud, cfg.tx.link_air_bytes_per_s)) *
+      1000u * kLinkMarginPct / 100u;
+  return LadderBytesPerKs(cfg) <= budget_per_ks;
+}
+
 // Only one frame leaves per tick, so streams that come due together do not
 // interleave -- they serialise into a burst, and because rescheduling advances
 // by period rather than from now, that opening phase persists for the life of
@@ -355,16 +418,24 @@ namespace {
 // The heartbeat is a slot like any other. Its deadline can pull it earlier, but
 // it still reschedules by period, so leaving it out of the ladder only means
 // its offset is fixed at zero and whatever lands there collides with it.
-constexpr uint16_t kSysStatusPeriodMs = 1000;
+constexpr std::array<uint32_t, Mavlink::kTxSlotCount> kSlotPeriodsMs =
+    SlotPeriodsMs(kMavlinkConfig);
 
-constexpr uint32_t kSlotPeriodsMs[] = {
-    kMavlinkConfig.tx.periods.hb_ms,   kSysStatusPeriodMs,
-    kMavlinkConfig.tx.periods.gps_ms,  kMavlinkConfig.tx.periods.att_ms,
-    kMavlinkConfig.tx.periods.gpos_ms, kMavlinkConfig.tx.periods.batt_ms,
-    kMavlinkConfig.tx.periods.rc_ms,   kMavlinkConfig.tx.periods.esc_ms,
-};
-static_assert(std::size(kSlotPeriodsMs) == Mavlink::kTxSlotCount,
-              "a TxSlot has no period here, so its offset goes unchecked");
+static_assert(LinkBytesPerS(57600u, 0u) == 5760u,
+              "no radio declared leaves the line, at ten bits a byte");
+static_assert(LinkBytesPerS(57600u, 2100u) == 2100u,
+              "a radio slower than its line is the limit");
+static_assert(LinkBytesPerS(9600u, 2100u) == 960u,
+              "a line slower than its radio is the limit");
+
+// Every periodic message at its longest, against what the telem UART's radio
+// carries vehicle to ground -- or the line itself, with no radio declared.
+static_assert(
+    LadderFitsLink(kMavlinkConfig, kTelemUartConfig.line.baud_rate),
+    "the MAVLink stream needs more than the telem link carries -- slow the "
+    "ESP32_MAVLINK_TX_PERIODS_*_MS ladder (RC_CHANNELS at 40 ms is most of "
+    "it), turn streams off, or declare the faster "
+    "ESP32_MAVLINK_TX_LINK_AIR_RATE the radio is set to");
 
 // Equal priority throughout leaves the tie-break as the whole rule: of the
 // streams due, the one waiting longest goes. Raising the heartbeat's would not

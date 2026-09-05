@@ -113,6 +113,15 @@ TELEM_UART_BAUD_RATE_CHOICES = {
     "ESP32_TELEM_UART_BAUD_230400": "230400",
     "ESP32_TELEM_UART_BAUD_460800": "460800",
 }
+# Bytes per second the radio carries vehicle to ground; 0 leaves the UART's
+# own line rate as the limit.
+MAVLINK_TX_LINK_AIR_RATE_CHOICES = {
+    "ESP32_MAVLINK_TX_LINK_AIR_RATE_UART_BOUND": "0",
+    "ESP32_MAVLINK_TX_LINK_AIR_RATE_400": "400",
+    "ESP32_MAVLINK_TX_LINK_AIR_RATE_1100": "1100",
+    "ESP32_MAVLINK_TX_LINK_AIR_RATE_2100": "2100",
+    "ESP32_MAVLINK_TX_LINK_AIR_RATE_3200": "3200",
+}
 
 
 UI_TRANSITION_SPEED_CHOICES = {
@@ -551,6 +560,14 @@ def _wifi_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _mavlink_stream_period_ms(kconf: kconfiglib.Kconfig, key: str) -> int:
+    """A stream's period, or zero -- never due -- when it is off."""
+    prefix = f"ESP32_MAVLINK_TX_PERIODS_{key}"
+    if not sym_bool(kconf, f"{prefix}_ENABLE"):
+        return 0
+    return sym_int(kconf, f"{prefix}_MS")
+
+
 def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     git_hash = _git_head_short_hash()
     firmware_version_string = _firmware_version_string()
@@ -568,13 +585,16 @@ def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "tx": {
             "periods": {
                 "hb_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_HB_MS"),
-                "gps_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_GPS_MS"),
-                "att_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_ATT_MS"),
-                "gpos_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_GPOS_MS"),
-                "batt_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_BATT_MS"),
-                "rc_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_RC_MS"),
-                "esc_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_ESC_MS"),
+                "gps_ms": _mavlink_stream_period_ms(kconf, "GPS"),
+                "att_ms": _mavlink_stream_period_ms(kconf, "ATT"),
+                "gpos_ms": _mavlink_stream_period_ms(kconf, "GPOS"),
+                "batt_ms": _mavlink_stream_period_ms(kconf, "BATT"),
+                "rc_ms": _mavlink_stream_period_ms(kconf, "RC"),
+                "esc_ms": _mavlink_stream_period_ms(kconf, "ESC"),
             },
+            "link_air_bytes_per_s": choice_value(
+                kconf, MAVLINK_TX_LINK_AIR_RATE_CHOICES
+            ),
             "schedule": {
                 "hb_deadline_ms": sym_int(
                     kconf, "ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS"

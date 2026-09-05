@@ -7,7 +7,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
+#include "common_config.hpp"
 #include "crsf_link_service.hpp"
 #include "error_code.hpp"
 #include "fc_link.hpp"
@@ -37,21 +39,94 @@ constexpr uint32_t kImuFreshTimeoutUs = 100000u;
 // frame rate: below the fault window there would be nothing to compare.
 constexpr uint32_t kEscFreshTimeoutUs = 1000000u;
 
-// Flattened in FcLinkTopic order -- the scheduler indexes this by the
+// The FcLink ladder, fixed here rather than configured: the link is this
+// project at both ends, and each cadence is what its consumer on the ESP32
+// needs. Flattened in FcLinkTopic order -- the scheduler indexes this by the
 // enumerator, so a row inserted out of order silently reschedules the wrong
 // stream.
 constexpr std::array<TopicConfig, TelemetryPublisher::kFcLinkTopicCount>
     kFcLinkTopicConfigs = {{
-        kTelemetryPublisherConfig.system_status,
-        kTelemetryPublisherConfig.vehicle_status,
-        kTelemetryPublisherConfig.esc_telemetry,
-        kTelemetryPublisherConfig.rc_channels,
-        kTelemetryPublisherConfig.usb_status,
-        kTelemetryPublisherConfig.gps,
-        kTelemetryPublisherConfig.attitude,
+        // SystemStatus: the ESP32's heartbeat takes MAV_STATE from it and
+        // holds a sample fresh for three seconds, so a second leaves a lost
+        // frame inside that window.
+        {.period = 1000000u, .max_silence = 0u, .priority = 10u},
+        // VehicleStatus: armed state and failsafe flags, the one thing a
+        // ground station must not learn late -- hence the highest priority,
+        // and the heartbeat's own second.
+        {.period = 1000000u, .max_silence = 0u, .priority = 12u},
+        {.period = 1000000u, .max_silence = 0u, .priority = 5u},
+        // RcChannels: the MAVLink RC_CHANNELS stream's own 40 ms. Sent on
+        // change, so a quiet receiver costs nothing until the silence bound,
+        // which is what lets the ESP32 tell held channels from a dead link.
+        {.period = 40000u, .max_silence = 1000000u, .priority = 9u},
+        // UsbStatus: sent when the MSP or four-way counters move; the silence
+        // bound keeps the configurator UI from flapping on an idle port.
+        {.period = 100000u, .max_silence = 300000u, .priority = 4u},
+        // GpsData: sent on a new fix, so this only caps the rate, at the
+        // M10's own measurement interval -- any slower would drop fixes.
+        {.period = kM10Config.nav.rate_meas_ms * 1000u,
+         .max_silence = 5000000u,
+         .priority = 8u},
+        // Attitude: a decimation of the control tick. The silence bound is
+        // only reached with the loop suspended, which is when the ground
+        // station most needs telling the estimate is stale.
+        {.period = 100000u, .max_silence = 1000000u, .priority = 7u},
     }};
 
-// In CrsfLinkService::TelemetryTopic order, on the same terms.
+constexpr std::array<uint32_t, TelemetryPublisher::kFcLinkTopicCount>
+    kFcLinkFrameBytes = {{
+        sizeof(message::SystemStatusMsg) + message::kPacketOverhead,
+        sizeof(message::VehicleStatusMsg) + message::kPacketOverhead,
+        sizeof(message::EscTelemetryMsg) + message::kPacketOverhead,
+        sizeof(message::RcChannelsMsg) + message::kPacketOverhead,
+        sizeof(message::UsbStatusMsg) + message::kPacketOverhead,
+        sizeof(message::GpsData) + message::kPacketOverhead,
+        sizeof(message::AttitudeMsg) + message::kPacketOverhead,
+    }};
+
+// The ladder at full rate.
+constexpr uint64_t FcLinkLadderBytesPerKs() {
+  uint64_t bytes_per_ks = 0;
+  for (size_t i = 0; i < TelemetryPublisher::kFcLinkTopicCount; ++i) {
+    bytes_per_ks +=
+        (static_cast<uint64_t>(kFcLinkFrameBytes[i]) * 1000000000ull) /
+        kFcLinkTopicConfigs[i].period;
+  }
+  return bytes_per_ks;
+}
+
+// Held back from the line for what the ladder does not count -- logs,
+// replies, the RC map.
+constexpr uint64_t kFcLinkMarginPct = 80u;
+static_assert(
+    FcLinkLadderBytesPerKs() <=
+        (static_cast<uint64_t>(common_config::kFcLinkBaud) / 10u) * 1000u *
+            kFcLinkMarginPct / 100u,
+    "the FcLink telemetry ladder needs more than the configured line carries "
+    "-- raise COMMON_FCLINK_BAUD");
+
+// The CRSF periods' ceiling: Kconfig's own, and what keeps a stretched
+// period inside uint32_t and the scheduler's wrap-safe compare.
+constexpr uint32_t kCrsfPeriodCeilingUs = 60000000u;
+
+// How far the link budget may stretch a topic: to its max_silence, which
+// already promises the handset a frame at least that often, or to the
+// ceiling where it promises nothing.
+constexpr uint32_t CrsfFloorUs(const TopicConfig &topic) {
+  if (topic.max_silence == 0u) {
+    return kCrsfPeriodCeilingUs;
+  }
+  return topic.max_silence > topic.period ? topic.max_silence : topic.period;
+}
+
+// Frame chunks per kilosecond a topic costs at one period.
+constexpr uint64_t CrsfSlotsPerKs(uint32_t slots, uint32_t period_us) {
+  return (static_cast<uint64_t>(slots) * 1000000000ull) / period_us;
+}
+
+// In CrsfLinkService::TelemetryTopic order, which is the order the scheduler
+// indexes. The base ladder: what the link is fitted from, never what the
+// scheduler reads.
 constexpr std::array<TopicConfig, TelemetryPublisher::kCrsfTopicCount>
     kCrsfTopicConfigs = {{
         kTelemetryPublisherConfig.crsf_heartbeat,
@@ -64,33 +139,46 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kCrsfTopicCount>
         kTelemetryPublisherConfig.crsf_gps_time,
     }};
 
-constexpr uint32_t kFcLinkPeriodsUs[] = {
-    kTelemetryPublisherConfig.system_status.period,
-    kTelemetryPublisherConfig.vehicle_status.period,
-    kTelemetryPublisherConfig.esc_telemetry.period,
-    kTelemetryPublisherConfig.rc_channels.period,
-    kTelemetryPublisherConfig.usb_status.period,
-    kTelemetryPublisherConfig.gps.period,
-    kTelemetryPublisherConfig.attitude.period,
-};
+// Whether the ladder driven as slowly as its floors allow still fits a link.
+// If not, no stretch can save it, so the declared link is refused at build
+// time rather than discovered on the handset.
+constexpr bool CrsfFloorsFit(const CrsfLinkService::TelemetryBudget &budget) {
+  uint64_t needed_per_ks = 0;
+  for (size_t i = 0; i < TelemetryPublisher::kCrsfTopicCount; ++i) {
+    if (kCrsfTopicConfigs[i].period == 0u) {
+      continue;
+    }
+    const uint8_t slots = CrsfLinkService::FrameSlots(
+        static_cast<CrsfLinkService::TelemetryTopic>(i), budget.bytes_per_call);
+    needed_per_ks += CrsfSlotsPerKs(slots, CrsfFloorUs(kCrsfTopicConfigs[i]));
+  }
+  return needed_per_ks <= budget.slots_per_ks;
+}
 
-constexpr uint32_t kCrsfPeriodsUs[] = {
-    kTelemetryPublisherConfig.crsf_heartbeat.period,
-    kTelemetryPublisherConfig.crsf_gps.period,
-    kTelemetryPublisherConfig.crsf_battery.period,
-    kTelemetryPublisherConfig.crsf_flight_mode.period,
-    kTelemetryPublisherConfig.crsf_attitude.period,
-    kTelemetryPublisherConfig.crsf_rpm.period,
-    kTelemetryPublisherConfig.crsf_temperature.period,
-    kTelemetryPublisherConfig.crsf_gps_time.period,
-};
+constexpr std::optional<CrsfLinkService::TelemetryBudget> kDeclaredCrsfBudget =
+    CrsfLinkService::BudgetFor(kCrsfLinkConfig.expected_rf_mode,
+                               kCrsfLinkConfig.tlm_ratio_denom);
+static_assert(
+    kDeclaredCrsfBudget && CrsfFloorsFit(*kDeclaredCrsfBudget),
+    "the CRSF ladder's floors need more than the configured link carries -- "
+    "raise STM32_RC_RECEIVER_CRSF_TLM_RATIO to what the handset can give, "
+    "loosen the STM32_RC_RECEIVER_CRSF_*_MAX_SILENCE_MS floors, or disable "
+    "topics");
 
-static_assert(std::size(kFcLinkPeriodsUs) ==
-                  TelemetryPublisher::kFcLinkTopicCount,
-              "a FcLinkTopic has no period here, so its offset goes unchecked");
-static_assert(std::size(kCrsfPeriodsUs) == TelemetryPublisher::kCrsfTopicCount,
-              "a TelemetryTopic has no period here, so its offset goes "
-              "unchecked");
+template <size_t N>
+constexpr std::array<uint32_t, N> PeriodsOf(
+    const std::array<TopicConfig, N> &topics) {
+  std::array<uint32_t, N> periods{};
+  for (size_t i = 0; i < N; ++i) {
+    periods[i] = topics[i].period;
+  }
+  return periods;
+}
+
+constexpr std::array<uint32_t, TelemetryPublisher::kFcLinkTopicCount>
+    kFcLinkPeriodsUs = PeriodsOf(kFcLinkTopicConfigs);
+constexpr std::array<uint32_t, TelemetryPublisher::kCrsfTopicCount>
+    kCrsfPeriodsUs = PeriodsOf(kCrsfTopicConfigs);
 
 // Each group staggers within itself only -- they drive different UARTs, so a
 // shared tick between groups costs nothing. Pick keeps the target while it
@@ -109,6 +197,133 @@ constexpr uint32_t kCrsfStaggerUs =
 static_assert(kCrsfStaggerUs != 0,
               "no spacing near the target clears every configured CRSF "
               "period, so a topic would open in phase with the ladder");
+
+// Caps the burst when several FcLink topics come due together, at the cost
+// of deferring the losers to the next poll: two lets a status pair leave in
+// one tick while a late loop still cannot flood the line.
+constexpr uint8_t kFcLinkFramesPerPoll = 2u;
+
+// The CRSF link carries single-digit frames a second and the tick is 1 kHz,
+// so a per-poll count configures nothing for that group; one keeps a stagger
+// collision -- which stretching can create, the proof above being for the
+// base ladder -- to a tick of latency.
+constexpr uint8_t kCrsfFramesPerPoll = 1u;
+
+// The CRSF ladder fitted to a budget. Every enabled topic stretches by one
+// factor until it meets its floor, where it holds and its share comes off the
+// budget the rest divide -- water-filling, at most one pass per topic. When
+// the floors alone exceed the link the budget still wins and the floors
+// stretch by one factor too: the build refuses that for the declared link, so
+// it means a handset changed underneath the config, and a ladder over budget
+// hands scheduling back to the receiver's FIFO, which is what this exists to
+// prevent.
+template <size_t N>
+constexpr std::array<uint32_t, N> StretchPeriods(
+    const std::array<TopicConfig, N> &base, const std::array<uint8_t, N> &slots,
+    uint32_t budget_per_ks) {
+  std::array<uint32_t, N> out{};
+  std::array<bool, N> capped{};
+  for (size_t i = 0; i < N; ++i) {
+    out[i] = base[i].period;
+  }
+  if (budget_per_ks == 0u) {
+    for (size_t i = 0; i < N; ++i) {
+      if (base[i].period != 0u) {
+        out[i] = kCrsfPeriodCeilingUs;
+      }
+    }
+    return out;
+  }
+
+  for (size_t pass = 0; pass < N; ++pass) {
+    uint64_t required = 0;
+    uint64_t held = 0;
+    for (size_t i = 0; i < N; ++i) {
+      if (base[i].period == 0u) {
+        continue;
+      }
+      if (capped[i]) {
+        held += CrsfSlotsPerKs(slots[i], CrsfFloorUs(base[i]));
+      } else {
+        required += CrsfSlotsPerKs(slots[i], base[i].period);
+      }
+    }
+
+    if (held >= budget_per_ks) {
+      uint64_t floors = 0;
+      for (size_t i = 0; i < N; ++i) {
+        if (base[i].period != 0u) {
+          floors += CrsfSlotsPerKs(slots[i], CrsfFloorUs(base[i]));
+        }
+      }
+      for (size_t i = 0; i < N; ++i) {
+        if (base[i].period == 0u) {
+          continue;
+        }
+        const uint64_t stretched =
+            (static_cast<uint64_t>(CrsfFloorUs(base[i])) * floors) /
+            budget_per_ks;
+        out[i] = stretched > kCrsfPeriodCeilingUs
+                     ? kCrsfPeriodCeilingUs
+                     : static_cast<uint32_t>(stretched);
+      }
+      return out;
+    }
+
+    const uint64_t room = budget_per_ks - held;
+    if (required <= room) {
+      for (size_t i = 0; i < N; ++i) {
+        if (!capped[i]) {
+          out[i] = base[i].period;
+        }
+      }
+      return out;
+    }
+
+    bool moved = false;
+    for (size_t i = 0; i < N; ++i) {
+      if (base[i].period == 0u || capped[i]) {
+        continue;
+      }
+      const uint64_t stretched =
+          (static_cast<uint64_t>(base[i].period) * required) / room;
+      const uint32_t floor = CrsfFloorUs(base[i]);
+      if (stretched > floor) {
+        capped[i] = true;
+        moved = true;
+        out[i] = floor;
+      } else {
+        out[i] = static_cast<uint32_t>(stretched);
+      }
+    }
+    if (!moved) {
+      return out;
+    }
+  }
+  return out;
+}
+
+// A three-topic ladder: 2 slots every 200 ms with a 2 s floor, 4 every 500 ms
+// with a 2 s floor, 2 every second with none. 20 slots/s at base.
+constexpr std::array<TopicConfig, 3> kStretchLadder = {{
+    {.period = 200000u, .max_silence = 2000000u, .priority = 0u},
+    {.period = 500000u, .max_silence = 2000000u, .priority = 0u},
+    {.period = 1000000u, .max_silence = 0u, .priority = 0u},
+}};
+constexpr std::array<uint8_t, 3> kStretchSlots = {2u, 4u, 2u};
+static_assert(StretchPeriods(kStretchLadder, kStretchSlots, 20000u) ==
+                  std::array<uint32_t, 3>{200000u, 500000u, 1000000u},
+              "a ladder that fits is left alone");
+static_assert(StretchPeriods(kStretchLadder, kStretchSlots, 10000u) ==
+                  std::array<uint32_t, 3>{400000u, 1000000u, 2000000u},
+              "half the budget doubles every period, inside every floor");
+static_assert(StretchPeriods(kStretchLadder, kStretchSlots, 4000u) ==
+                  std::array<uint32_t, 3>{1200000u, 2000000u, 6000000u},
+              "a topic at its floor holds, and the rest absorb its share");
+static_assert(StretchPeriods(kStretchLadder, kStretchSlots, 1000u) ==
+                  std::array<uint32_t, 3>{6066000u, 6066000u, 60000000u},
+              "below the floors' own need they stretch too, the floorless "
+              "topic to the ceiling");
 
 }  // namespace
 
@@ -542,18 +757,18 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfGpsTime(
                           CrsfLinkService::TelemetryTopic::kGpsTime);
 }
 
-void TelemetryPublisher::Init(const Config &cfg, SharedState &blackboard,
-                              FcLink &fclink, CrsfLinkService &crsf,
-                              uint32_t now_us) {
-  cfg_ = cfg;
+void TelemetryPublisher::Init(SharedState &blackboard, FcLink &fclink,
+                              CrsfLinkService &crsf, uint32_t now_us) {
   blackboard_ = &blackboard;
   fclink_svc_ = &fclink;
   crsf_svc_ = &crsf;
   last_link_window_us_ = now_us;
   fclink_.scheduler.Init(kFcLinkTopicConfigs, fclink_.states, kFcLinkStaggerUs,
                          now_us);
-  crsf_.scheduler.Init(kCrsfTopicConfigs, crsf_.states, kCrsfStaggerUs, now_us);
+  crsf_configs_ = kCrsfTopicConfigs;
+  crsf_.scheduler.Init(crsf_configs_, crsf_.states, kCrsfStaggerUs, now_us);
   initialized_ = true;
+  FitCrsfLadder();
 }
 
 template <size_t N>
@@ -609,6 +824,7 @@ void TelemetryPublisher::UpdateFaultWindows(uint32_t now_us) {
 
 void TelemetryPublisher::Poll(uint32_t now_us) {
   UpdateFaultWindows(now_us);
+  FitCrsfLadder();
 
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {
       PublishSystemStatus, PublishVehicleStatus, PublishEscTelemetry,
@@ -621,7 +837,60 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
       PublishCrsfTemperature, PublishCrsfGpsTime,
   };
 
-  PollGroup(fclink_, kFcLinkPublishers, cfg_.fclink_max_frames_per_poll,
-            now_us);
-  PollGroup(crsf_, kCrsfPublishers, cfg_.crsf_max_frames_per_poll, now_us);
+  PollGroup(fclink_, kFcLinkPublishers, kFcLinkFramesPerPoll, now_us);
+  PollGroup(crsf_, kCrsfPublishers, kCrsfFramesPerPoll, now_us);
+}
+
+// The declared rate stands in until the receiver reports one -- nothing is
+// listening before then, and it is the best knowledge there is. A rate the
+// table does not know leaves the ladder as configured: a guess would be
+// worse than honesty, and the log says which rate it was.
+void TelemetryPublisher::FitCrsfLadder() {
+  const CrsfLinkData &link = blackboard_->GetCrsfLink();
+  const uint8_t expected = crsf_svc_->ExpectedRfMode();
+  const uint8_t rf_mode = link.timestamp_us != 0u ? link.rf_mode : expected;
+  if (rf_mode == applied_rf_mode_) {
+    return;
+  }
+  applied_rf_mode_ = rf_mode;
+
+  const std::optional<CrsfLinkService::TelemetryBudget> budget =
+      crsf_svc_->BudgetFor(rf_mode);
+  if (!budget) {
+    for (size_t i = 0; i < kCrsfTopicCount; ++i) {
+      crsf_configs_[i].period = kCrsfTopicConfigs[i].period;
+    }
+    fclink_svc_->SendLog("crsf: rf_mode %u unknown, ladder unshed", rf_mode);
+    return;
+  }
+
+  std::array<uint8_t, kCrsfTopicCount> slots{};
+  uint64_t needed = 0;
+  uint64_t floors = 0;
+  for (size_t i = 0; i < kCrsfTopicCount; ++i) {
+    slots[i] = CrsfLinkService::FrameSlots(
+        static_cast<CrsfLinkService::TelemetryTopic>(i),
+        budget->bytes_per_call);
+    if (kCrsfTopicConfigs[i].period == 0u) {
+      continue;
+    }
+    needed += CrsfSlotsPerKs(slots[i], kCrsfTopicConfigs[i].period);
+    floors += CrsfSlotsPerKs(slots[i], CrsfFloorUs(kCrsfTopicConfigs[i]));
+  }
+  const std::array<uint32_t, kCrsfTopicCount> periods =
+      StretchPeriods(kCrsfTopicConfigs, slots, budget->slots_per_ks);
+  for (size_t i = 0; i < kCrsfTopicCount; ++i) {
+    crsf_configs_[i].period = periods[i];
+  }
+
+  // Slots per second to one decimal, from thousandths.
+  fclink_svc_->SendLog(
+      "crsf: rf_mode %u (%u Hz 1:%u) ladder %lu.%lu of %lu.%lu slots/s%s%s",
+      rf_mode, budget->packet_hz, budget->denom,
+      static_cast<unsigned long>(needed / 1000u),
+      static_cast<unsigned long>((needed % 1000u) / 100u),
+      static_cast<unsigned long>(budget->slots_per_ks / 1000u),
+      static_cast<unsigned long>((budget->slots_per_ks % 1000u) / 100u),
+      floors > budget->slots_per_ks ? ", floors over budget" : "",
+      rf_mode != expected ? ", not the configured rate" : "");
 }

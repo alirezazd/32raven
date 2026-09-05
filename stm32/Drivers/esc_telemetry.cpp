@@ -9,9 +9,16 @@
 #include "irq_priority.hpp"
 #include "panic.hpp"
 #include "rcc.hpp"
+#include "stm32_config.hpp"
 #include "stm32f4xx.h"
 
 namespace {
+
+static_assert(kEscTelemetryConfig.response_timeout_us >
+                  EscTelemetry::kMinResponseTimeoutUs,
+              "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US is shorter than "
+              "a KISS frame takes at the ESC's fixed baud, so every request "
+              "would expire mid-reply");
 
 static constexpr uint32_t kUsart3DmaChannel = 4u;
 

@@ -95,17 +95,6 @@ inline const std::array kGpioDefault = {
 {# Field order here is the struct's, not the schedule's: TelemetryPublisher owns
    the topic order, flattening these into the array the scheduler walks. #}
 inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
-    .fclink_max_frames_per_poll = {{ fclink.topics.max_frames_per_poll }}u,
-    .crsf_max_frames_per_poll = {{ rc_receiver.crsf.max_frames_per_poll }}u,
-{% for name in ["system_status", "vehicle_status", "esc_telemetry",
-                "rc_channels", "usb_status", "gps", "attitude"] %}
-{% set topic = fclink.topics[name] %}
-    .{{ name }} = {
-        .period = {{ topic.period_ms }}u * 1000u,
-        .max_silence = {{ topic.max_silence_ms }}u * 1000u,
-        .priority = {{ topic.priority }}u,
-    },
-{% endfor %}
 {# Authored under RC Receiver -> CRSF Telemetry, because they describe that
    link's content; scheduled here, because TelemetryPublisher owns every cadence. #}
 {% for name in ["heartbeat", "gps", "battery", "flight_mode",
@@ -226,11 +215,6 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .z_neg = false,
     },
 };
-static_assert(Icm42688p::WatermarkFitsFifo(kIcm42688pConfig),
-              "IMU FIFO watermark exceeds what the chip holds at this packet "
-              "size -- lower STM32_CONTROL_LOOP_HZ or the gyro ODR");
-static_assert(Icm42688p::AxisMapIsPermutation(kIcm42688pConfig.axis_map),
-              "IMU axis map is not a permutation of {0,1,2}");
 
 inline constexpr SensorCalService::Config kSensorCalConfig = {
     .gyro = {
@@ -253,7 +237,7 @@ static_assert(kSensorCalConfig.gyro.timeout_s > kSensorCalConfig.gyro.duration_s
 // floor is what a perfect operator would take, so a deadline under it cannot
 // be met by anyone.
 static_assert(
-    SecondsToMicros(kSensorCalConfig.accel.timeout_s) >
+    kSensorCalConfig.accel.timeout_s * 1000000ull >
         6u * 1000u *
             (kSensorCalConfig.accel.side_duration_ms +
              kSensorCalConfig.accel.still_duration_ms),
@@ -325,6 +309,8 @@ inline constexpr uint32_t kGpsFreshTimeoutUs =
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
     .battery_fresh_timeout_us = kBatteryFreshTimeoutUs,
+    .expected_rf_mode = {{ rc_receiver.crsf.expected_rf_mode }}u,
+    .tlm_ratio_denom = {{ rc_receiver.crsf.tlm_ratio_denom }}u,
     {# In TelemetryTopic order. The heartbeat payload is a constant, so
        suppressing it on change would silence the link entirely. #}
     .send_on_change = {
@@ -422,12 +408,6 @@ inline constexpr LogService::Config kLogServiceConfig = {
 {% endfor %}
 };
 
-static_assert(kEscTelemetryConfig.response_timeout_us >
-                  EscTelemetry::kMinResponseTimeoutUs,
-              "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US is shorter than "
-              "a KISS frame takes at the ESC's fixed baud, so every request "
-              "would expire mid-reply");
-
 // The threshold below is {{ sentinel.loss_permille }} per mille of the record
 // rate over {{ sentinel.loss_window_ms }} ms, resolved here so the comparison
 // is a plain compare. The share is the knob
@@ -509,13 +489,6 @@ inline constexpr EscService::Config kEscServiceConfig = {
     .command_repeat_count = {{ esc_service.command_repeat_count }},
     .firmware_checks = {{ 'true' if esc_service.firmware_checks else 'false' }},
 };
-
-{# Init panics past the codec's gap budget. Checking the configured value here
-   turns a Kconfig range that drifted wider than the codec into a build
-   failure rather than a board that halts at boot. #}
-static_assert(kEscServiceConfig.dshot.gap_bits <= DShotCodec::kMaxGapBits,
-              "CONFIG_STM32_ESC_SERVICE_DSHOT_GAP_BITS is past the codec's "
-              "staging buffer; DShotCodec::Init would panic at boot");
 
 inline constexpr multirotor_mixer::Mixer::Config kMultirotorMixerConfig = {
     .idle = {{ multirotor_mixer.idle_milli }} * 0.001f,

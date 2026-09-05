@@ -760,6 +760,32 @@ CALIBRATING, EMERGENCY, POWEROFF and FLIGHT_TERMINATION are unreachable. EMERGEN
 other absence worth closing — "lost control over parts or the whole airframe" is a real
 distinction from CRITICAL's "can however still navigate", and #15 is what would decide it.
 
+### #53 — The LR900-P replaces WiFi as the MAVLink link — 🧊 DEFERRED
+
+The Telem UART is already the aircraft's link (#41), 57600 and SiK-shaped, and the MicoAir
+LR900-P goes on it: 2.1 KB/s over the air by default, which MicoAir recommends for a flight
+controller, 1.1 and 0.4 KB/s below that, and 3.2 KB/s downlink in its FHSS mode. The build
+already checks the MAVLink ladder against `ESP32_MAVLINK_TX_LINK_AIR_RATE` — every periodic
+message at its longest, against the declared air rate or the UART's line rate, whichever is
+lower, with a 20 % margin — and the choice sits at UART-bound until a radio is on the port. So
+landing the radio is setting that choice to the mode the radio is configured in, and reading
+what the build says.
+
+What it will say: the ladder at its defaults is ~1.57 KB/s, and RC_CHANNELS every 40 ms is
+1.35 KB/s of it. At 2.1 KB/s the ladder fits with 7 % of the margin to spare; at 1.1 or
+0.4 KB/s it does not, and RC_CHANNELS is the first knob to turn — deliberately, since 40 ms is
+the rate the GCS's stick display was tuned to, not a default nobody chose.
+
+Open with the radio, not before:
+
+- The uplink is the narrower direction in FHSS mode (1.6 KB/s) and carries the GCS's commands
+  and parameter traffic, which the check does not model.
+- The bench pages in #41 should narrow the stream to a profile; with a budget declared, a
+  profile is a budget.
+- Whether the ladder should stretch to the link at runtime the way the CRSF one does, or stay
+  a build-time check. A radio's air rate cannot change underneath the config the way a handset's
+  ratio can, so a check is probably all it needs.
+
 ### #42 — SystemStatus reports values nothing produces — 🟢 SUPPORTING
 
 Two fields the STM32 fills with constants, and one whose health bits latch. #20 owns
@@ -1152,8 +1178,8 @@ at 20 ms and `vehicle_attitude` at 50 ms, in PX4's field order and units. Both l
 than approximated — and ours would be the burst mean, where PX4's is calibration-corrected,
 notch/LPF filtered and EKF-bias-subtracted, which the record cannot claim to be.
 
-**ESC telemetry is recorded not at all, deliberately.** `STM32_LOG_TOPIC_ESC_TELEMETRY_PERIOD_MS`
-defaults to 0. The four motors answer their own requests and carry their own timestamps, so a
+**ESC telemetry is recorded not at all, deliberately.** `STM32_LOG_TOPIC_ESC_TELEMETRY_ENABLED`
+defaults off. The four motors answer their own requests and carry their own timestamps, so a
 record with a single timestamp dates itself by whichever motor happened to be freshest, which
 the reader cannot identify — and a motor falling silent has to be inferred from `valid_mask`
 and a frozen RPM rather than seen. A log that quietly misattributes is worse than one that

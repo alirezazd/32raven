@@ -19,6 +19,12 @@ using namespace Icm42688pReg;
 
 namespace {
 
+static_assert(Icm42688p::WatermarkFitsFifo(kIcm42688pConfig),
+              "IMU FIFO watermark exceeds what the chip holds at this packet "
+              "size -- lower STM32_CONTROL_LOOP_HZ or the gyro ODR");
+static_assert(Icm42688p::AxisMapIsPermutation(kIcm42688pConfig.axis_map),
+              "IMU axis map is not a permutation of {0,1,2}");
+
 constexpr uint16_t LoadBe16(const uint8_t *p) {
   return static_cast<uint16_t>((static_cast<uint16_t>(p[0]) << 8) | p[1]);
 }

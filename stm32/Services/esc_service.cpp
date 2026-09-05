@@ -7,6 +7,7 @@
 
 #include "error_code.hpp"
 #include "panic.hpp"
+#include "stm32_config.hpp"
 #include "system.hpp"
 
 // A configurator that vanishes mid-test must not leave a motor turning, so the
@@ -22,7 +23,7 @@ uint16_t EscService::ThrustToDshot(float thrust) {
   if (thrust >= 1.0f) return DShotCodec::kThrottleMax;
   const float scaled = static_cast<float>(DShotCodec::kThrottleMin) +
                        (thrust * static_cast<float>(DShotCodec::kThrottleMax -
-                                                   DShotCodec::kThrottleMin));
+                                                    DShotCodec::kThrottleMin));
   return static_cast<uint16_t>(scaled);
 }
 
@@ -35,6 +36,10 @@ float EscService::DshotToThrust(uint16_t value) {
 }
 
 namespace {
+
+static_assert(kEscServiceConfig.dshot.gap_bits <= DShotCodec::kMaxGapBits,
+              "CONFIG_STM32_ESC_SERVICE_DSHOT_GAP_BITS is past the codec's "
+              "staging buffer; DShotCodec::Init would panic at boot");
 
 // A frame with fewer motors than TIM1 has channels leaves the spare ones
 // configured and idle, which is what DShotCodec::kMotorStop encodes.
@@ -50,7 +55,8 @@ DShotCodec::MotorValues ThrustToDshotValues(
 
 }  // namespace
 
-bool EscService::WriteMotorsThrust(const multirotor_mixer::MotorThrust &thrust) {
+bool EscService::WriteMotorsThrust(
+    const multirotor_mixer::MotorThrust &thrust) {
   return WriteMotors(ThrustToDshotValues(thrust));
 }
 
@@ -99,10 +105,9 @@ void EscService::Poll(uint32_t now_us) {
        static_cast<int32_t>(now_us - command_.next_send_us) >= 0)) {
     DShotCodec::MotorValues command_values{};
     for (uint8_t i = 0; i < DShotCodec::kMotorCount; ++i) {
-      command_values[i] =
-          (command_.motor == kAllMotors || command_.motor == i)
-              ? command_.value
-              : DShotCodec::kMotorStop;
+      command_values[i] = (command_.motor == kAllMotors || command_.motor == i)
+                              ? command_.value
+                              : DShotCodec::kMotorStop;
     }
 
     if (!WriteRaw(command_values, now_us, command_.telemetry)) {
@@ -200,8 +205,8 @@ void EscService::PollEscInfo(uint32_t now_us) {
     // Round robin rather than draining one motor first. AM32 needs about a
     // second of zero throttle to arm, and telemetry starts before that, so
     // whoever is asked first spends its whole budget too early.
-    const uint8_t i = static_cast<uint8_t>((info_cursor_ + n) %
-                                           DShotCodec::kMotorCount);
+    const uint8_t i =
+        static_cast<uint8_t>((info_cursor_ + n) % DShotCodec::kMotorCount);
     if ((seen & (1u << i)) == 0u || telemetry_->GetInfo(i).valid ||
         info_attempts_[i] >= kInfoMaxAttempts) {
       continue;

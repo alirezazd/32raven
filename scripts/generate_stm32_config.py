@@ -166,6 +166,52 @@ RC_RECEIVER_UART_BAUD_RATE_CHOICES = {
     f"STM32_RC_RECEIVER_UART_BAUD_{rate}": str(rate)
     for rate in (115200, 400000, 416666, 420000, 460800, 921600)
 }
+# ExpressLRS's expresslrs_RFrates_e, the value LinkStatistics.rf_mode carries.
+# CrsfLinkService::ElrsRateFor holds the row each resolves to, and the
+# generated config asserts the chosen one is in it.
+RC_RECEIVER_CRSF_RATE_CHOICES = _prefixed(
+    "STM32_RC_RECEIVER_CRSF_RATE",
+    {
+        "LORA_900_25HZ": "0",
+        "LORA_900_50HZ": "1",
+        "LORA_900_100HZ": "2",
+        "LORA_900_100HZ_8CH": "3",
+        "LORA_900_200HZ": "5",
+        "LORA_900_200HZ_8CH": "6",
+        "LORA_900_250HZ": "7",
+        "LORA_900_50HZ_DVDA": "10",
+        "FSK_900_1000HZ_8CH": "11",
+        "LORA_2G4_50HZ": "21",
+        "LORA_2G4_100HZ_8CH": "23",
+        "LORA_2G4_150HZ": "24",
+        "LORA_2G4_250HZ": "27",
+        "LORA_2G4_333HZ_8CH": "28",
+        "LORA_2G4_500HZ": "29",
+        "FLRC_2G4_250HZ_DVDA": "30",
+        "FLRC_2G4_500HZ_DVDA": "31",
+        "FLRC_2G4_500HZ": "32",
+        "FLRC_2G4_1000HZ": "33",
+        "FSK_2G4_250HZ_DVDA": "34",
+        "FSK_2G4_500HZ_DVDA": "35",
+        "FSK_2G4_1000HZ": "36",
+        "LORA_DUAL_100HZ_8CH": "100",
+        "LORA_DUAL_150HZ": "101",
+    },
+)
+# The ratio's denominator; 0 is "Std", which the rate table resolves.
+RC_RECEIVER_CRSF_TLM_RATIO_CHOICES = _prefixed(
+    "STM32_RC_RECEIVER_CRSF_TLM_RATIO",
+    {
+        "STD": "0",
+        "1_2": "2",
+        "1_4": "4",
+        "1_8": "8",
+        "1_16": "16",
+        "1_32": "32",
+        "1_64": "64",
+        "1_128": "128",
+    },
+)
 RC_RECEIVER_UART_WORD_LENGTH_CHOICES = _prefixed(
     "STM32_RC_RECEIVER_UART_WORD_LENGTH", _UART_WORD_LENGTH_VALUES
 )
@@ -1783,7 +1829,7 @@ LOG_TOPICS = (
 
 
 def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
-    """Preallocation size plus one cadence per scheduled topic.
+    """Preallocation size plus one cadence per scheduled topic, zero when off.
 
     `max_silence` mirrors `period` and `priority` is uniform: this scheduler
     emits every due topic instead of choosing one, and never suppresses an
@@ -1792,8 +1838,10 @@ def _log_service_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     """
     topics = {
         name: {
-            "period_ms": sym_int(
-                kconf, f"STM32_LOG_TOPIC_{name.upper()}_PERIOD_MS"
+            "period_ms": (
+                sym_int(kconf, f"STM32_LOG_TOPIC_{name.upper()}_PERIOD_MS")
+                if sym_bool(kconf, f"STM32_LOG_TOPIC_{name.upper()}_ENABLED")
+                else 0
             ),
         }
         for name in LOG_TOPICS
@@ -2050,44 +2098,42 @@ def _attitude_controller_context(
     }
 
 
-def _fclink_topic_context(
-    kconf: kconfiglib.Kconfig, key: str, *, max_silence: bool = False
+def _scheduled_topic_context(
+    kconf: kconfiglib.Kconfig,
+    prefix: str,
+    *,
+    max_silence: bool = True,
+    send_on_change: bool = False,
+    vital: bool = False,
 ) -> dict[str, object]:
-    """One TelemetryPublisher topic; key picks the prefix.
+    """The TopicConfig behind one prefix, as its enable leaves it.
 
-    Only topics whose publisher suppresses unchanged payloads carry a
-    max-silence knob; the rest emit zero, which means "never times out".
+    Off is all zeros: a zero period is what the scheduler reads as never due,
+    and the knobs behind the enable then describe nothing. A vital topic has
+    no enable to read -- a consumer malfunctions without it, so the menu
+    offers only its cadence. Only topics whose publisher suppresses unchanged
+    payloads carry a max-silence knob; the rest emit zero, which means "never
+    times out".
     """
-    prefix = f"STM32_FCLINK_TOPIC_{key.upper()}"
-    return {
-        "period_ms": sym_int(kconf, f"{prefix}_PERIOD_MS"),
-        "priority": sym_int(kconf, f"{prefix}_PRIORITY"),
+    enabled = vital or sym_bool(kconf, f"{prefix}_ENABLED")
+    context: dict[str, object] = {
+        "period_ms": sym_int(kconf, f"{prefix}_PERIOD_MS") if enabled else 0,
+        "priority": sym_int(kconf, f"{prefix}_PRIORITY") if enabled else 0,
         "max_silence_ms": (
-            sym_int(kconf, f"{prefix}_MAX_SILENCE_MS") if max_silence else 0
+            sym_int(kconf, f"{prefix}_MAX_SILENCE_MS")
+            if enabled and max_silence
+            else 0
         ),
     }
+    if send_on_change:
+        context["send_on_change"] = enabled and sym_bool(
+            kconf, f"{prefix}_SEND_ON_CHANGE"
+        )
+    return context
 
 
 def _fclink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
-        "topics": {
-            "max_frames_per_poll": sym_int(
-                kconf, "STM32_FCLINK_TOPIC_MAX_FRAMES_PER_POLL"
-            ),
-            "system_status": _fclink_topic_context(kconf, "system_status"),
-            "vehicle_status": _fclink_topic_context(kconf, "vehicle_status"),
-            "esc_telemetry": _fclink_topic_context(kconf, "esc_telemetry"),
-            "gps": _fclink_topic_context(kconf, "gps", max_silence=True),
-            "attitude": _fclink_topic_context(
-                kconf, "attitude", max_silence=True
-            ),
-            "rc_channels": _fclink_topic_context(
-                kconf, "rc_channels", max_silence=True
-            ),
-            "usb_status": _fclink_topic_context(
-                kconf, "usb_status", max_silence=True
-            ),
-        },
         "uart": {
             "stop_bits": _UART_STOP_BITS_VALUES[str(FCLINK_UART_STOP_BITS)],
             "over_sampling": choice_value(
@@ -2324,14 +2370,9 @@ def _battery_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 def _crsf_periodic_msg_context(
     kconf: kconfiglib.Kconfig, key: str
 ) -> dict[str, object]:
-    """CRSF GPS/battery messages share one shape; key picks the prefix."""
-    prefix = f"STM32_RC_RECEIVER_CRSF_{key.upper()}"
-    return {
-        "period_ms": sym_int(kconf, f"{prefix}_PERIOD_MS"),
-        "priority": sym_int(kconf, f"{prefix}_PRIORITY"),
-        "send_on_change": sym_bool(kconf, f"{prefix}_SEND_ON_CHANGE"),
-        "max_silence_ms": sym_int(kconf, f"{prefix}_MAX_SILENCE_MS"),
-    }
+    return _scheduled_topic_context(
+        kconf, f"STM32_RC_RECEIVER_CRSF_{key.upper()}", send_on_change=True
+    )
 
 
 def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
@@ -2357,23 +2398,24 @@ def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             ),
         },
         "crsf": {
-            "max_frames_per_poll": sym_int(
-                kconf, "STM32_RC_RECEIVER_CRSF_MAX_FRAMES_PER_POLL"
+            "expected_rf_mode": choice_value(
+                kconf, RC_RECEIVER_CRSF_RATE_CHOICES
+            ),
+            "tlm_ratio_denom": choice_value(
+                kconf, RC_RECEIVER_CRSF_TLM_RATIO_CHOICES
             ),
             "gps_fresh_timeout_ms": sym_int(
                 kconf, "STM32_RC_RECEIVER_CRSF_GPS_FRESH_TIMEOUT_MS"
             ),
-            "heartbeat": {
-                "period_ms": sym_int(
-                    kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PERIOD_MS"
-                ),
-                "priority": sym_int(
-                    kconf, "STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY"
-                ),
-                # Constant payload, so it is never suppressed and never has a
-                # silence to bound. Present so the topics share one shape.
-                "max_silence_ms": 0,
-            },
+            # Constant payload, so it is never suppressed and has no silence
+            # to bound -- nor a floor against the link budget: it stretches as
+            # far as the ceiling.
+            "heartbeat": _scheduled_topic_context(
+                kconf,
+                "STM32_RC_RECEIVER_CRSF_HEARTBEAT",
+                max_silence=False,
+                vital=True,
+            ),
             "gps": _crsf_periodic_msg_context(kconf, "gps"),
             "battery": _crsf_periodic_msg_context(kconf, "battery"),
             "flight_mode": _crsf_periodic_msg_context(

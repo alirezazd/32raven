@@ -61,6 +61,11 @@ class Mavlink {
         uint16_t rc_ms = 0;
         uint16_t esc_ms = 0;
       } periods;
+      // What the telem UART's radio carries over the air, vehicle to ground,
+      // in bytes per second; 0 leaves the line rate as the limit. Declared,
+      // because a radio never reports it and the build checks the ladder
+      // against it.
+      uint32_t link_air_bytes_per_s = 0;
 
       struct Schedule {
         uint16_t hb_deadline_ms = 0;

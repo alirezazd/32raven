@@ -23,10 +23,17 @@ struct UsbStatusMsg;
 struct VehicleStatusMsg;
 }  // namespace message
 
-// Every periodic publication on this board, each with a Kconfig period and
-// priority. Poll() emits at most `max_frames_per_poll` of whichever are due, so
-// what drops when the loop runs late is a stated policy rather than a
-// consequence of where a call sits in the main tick.
+// Every periodic publication on this board. The FcLink group's cadences are
+// fixed in the .cpp: both ends of that link are this project, each consumer's
+// need is known, and the build checks the ladder against the configured baud.
+// It emits at most a fixed count of frames per poll, so what drops when the
+// loop runs late is a stated policy rather than a consequence of where a call
+// sits in the main tick. The CRSF group faces a link of varying capacity, so
+// its periods are Kconfig's and are fitted to the link: the receiver's
+// telemetry budget follows from the air rate and the handset's ratio, and
+// every period is stretched to fit it, evenly, each topic no further than its
+// max_silence while those floors fit. Nothing drops there; a slow link is a
+// slow ladder.
 //
 // Only publications with a *rate* belong here. Replies, tones, logs and the
 // panic packet fire at their trigger site, carrying data that exists only at
@@ -35,15 +42,6 @@ struct VehicleStatusMsg;
 class TelemetryPublisher {
  public:
   struct Config {
-    uint8_t fclink_max_frames_per_poll = 1;
-    uint8_t crsf_max_frames_per_poll = 1;
-    TopicConfig system_status{};
-    TopicConfig vehicle_status{};
-    TopicConfig esc_telemetry{};
-    TopicConfig rc_channels{};
-    TopicConfig usb_status{};
-    TopicConfig gps{};
-    TopicConfig attitude{};
     TopicConfig crsf_heartbeat{};
     TopicConfig crsf_gps{};
     TopicConfig crsf_battery{};
@@ -65,8 +63,8 @@ class TelemetryPublisher {
  private:
   friend class System;
 
-  void Init(const Config &cfg, SharedState &blackboard, FcLink &fclink,
-            CrsfLinkService &crsf, uint32_t now_us);
+  void Init(SharedState &blackboard, FcLink &fclink, CrsfLinkService &crsf,
+            uint32_t now_us);
 
   // Faults belong to the sensor whose path suffered them, so each folds into
   // that sensor's health bit rather than getting a field of its own. FcLink's
@@ -199,7 +197,14 @@ class TelemetryPublisher {
   void PollGroup(Group<N> &group, const std::array<Publish, N> &publishers,
                  uint8_t budget, uint32_t now_us);
 
-  Config cfg_{};
+  void FitCrsfLadder();
+
+  // The CRSF group's periods as fitted to the link. A runtime copy of the
+  // config table: the scheduler reads its span live, so rewriting a period
+  // here is the whole mechanism.
+  std::array<TopicConfig, kCrsfTopicCount> crsf_configs_{};
+  // The rf_mode the ladder was last fitted to, -1 before any.
+  int16_t applied_rf_mode_ = -1;
   SharedState *blackboard_ = nullptr;
   FcLink *fclink_svc_ = nullptr;
   CrsfLinkService *crsf_svc_ = nullptr;

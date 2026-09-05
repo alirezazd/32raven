@@ -743,62 +743,126 @@ endmenu
 
 menu "Transmit"
 
-menu "Periods"
+choice
+    prompt "Radio air rate"
+    default ESP32_MAVLINK_TX_LINK_AIR_RATE_UART_BOUND
+    help
+      What the radio on the telemetry UART carries over the air, vehicle to
+      ground. Declared here rather than measured, because a radio never
+      reports it: with it, the build refuses a stream ladder the link cannot
+      hold -- every periodic message at its longest, against this rate or the
+      UART's line rate, whichever is lower. UART-bound says there is no radio
+      limit, as on a wired or WiFi bench link. The MicoAir LR900 runs
+      2.1 KB/s by default and recommends it for a flight controller;
+      3.2 KB/s is its FHSS mode's downlink.
+
+config ESP32_MAVLINK_TX_LINK_AIR_RATE_UART_BOUND
+    bool "UART-bound, no radio limit"
+
+config ESP32_MAVLINK_TX_LINK_AIR_RATE_400
+    bool "0.4 KB/s"
+
+config ESP32_MAVLINK_TX_LINK_AIR_RATE_1100
+    bool "1.1 KB/s"
+
+config ESP32_MAVLINK_TX_LINK_AIR_RATE_2100
+    bool "2.1 KB/s (LR900 default)"
+
+config ESP32_MAVLINK_TX_LINK_AIR_RATE_3200
+    bool "3.2 KB/s (LR900 FHSS downlink)"
+
+endchoice
+
+menu "Streams"
 
 config ESP32_MAVLINK_TX_PERIODS_HB_MS
     int "Heartbeat period (ms)"
-    range 1 60000
+    range 100 1000
     default 1000
     help
-      Nominal HEARTBEAT transmit cadence for the primary MAVLink transport.
+      HEARTBEAT transmit cadence for the primary MAVLink transport. The one
+      stream that cannot be turned off, and MAVLink's nominal 1 Hz is its
+      ceiling: faster survives a lossy link, slower and ground stations start
+      declaring the vehicle lost -- ArduPilot after FS_GCS_TIMEOUT (5 s), PX4
+      after COM_DL_LOSS_T (10 s), QGroundControl sooner than either.
+
+config ESP32_MAVLINK_TX_PERIODS_GPS_ENABLE
+    bool "GPS RAW INT"
+    default y
+    help
+      Stream GPS_RAW_INT on the primary MAVLink transport.
 
 config ESP32_MAVLINK_TX_PERIODS_GPS_MS
-    int "GPS RAW INT period (ms)"
-    range 0 60000
+    int "GPS RAW INT period (ms)" if ESP32_MAVLINK_TX_PERIODS_GPS_ENABLE
+    range 1 60000
     default 2000
     help
-      GPS_RAW_INT transmit cadence for the primary MAVLink transport. Set to 0
-      to disable this stream.
+      GPS_RAW_INT transmit cadence for the primary MAVLink transport.
+
+config ESP32_MAVLINK_TX_PERIODS_ATT_ENABLE
+    bool "Attitude"
+    default y
+    help
+      Stream ATTITUDE on the primary MAVLink transport.
 
 config ESP32_MAVLINK_TX_PERIODS_ATT_MS
-    int "Attitude period (ms)"
-    range 0 60000
+    int "Attitude period (ms)" if ESP32_MAVLINK_TX_PERIODS_ATT_ENABLE
+    range 1 60000
     default 2000
     help
-      ATTITUDE transmit cadence for the primary MAVLink transport. Set to 0 to
-      disable this stream.
+      ATTITUDE transmit cadence for the primary MAVLink transport.
+
+config ESP32_MAVLINK_TX_PERIODS_GPOS_ENABLE
+    bool "Global position"
+    default y
+    help
+      Stream GLOBAL_POSITION_INT on the primary MAVLink transport.
 
 config ESP32_MAVLINK_TX_PERIODS_GPOS_MS
-    int "Global position period (ms)"
-    range 0 60000
+    int "Global position period (ms)" if ESP32_MAVLINK_TX_PERIODS_GPOS_ENABLE
+    range 1 60000
     default 2000
     help
       GLOBAL_POSITION_INT transmit cadence for the primary MAVLink transport.
-      Set to 0 to disable this stream.
+
+config ESP32_MAVLINK_TX_PERIODS_BATT_ENABLE
+    bool "Battery status"
+    default y
+    help
+      Stream BATTERY_STATUS on the primary MAVLink transport.
 
 config ESP32_MAVLINK_TX_PERIODS_BATT_MS
-    int "Battery status period (ms)"
-    range 0 60000
+    int "Battery status period (ms)" if ESP32_MAVLINK_TX_PERIODS_BATT_ENABLE
+    range 1 60000
     default 2000
     help
-      BATTERY_STATUS transmit cadence for the primary MAVLink transport. Set
-      to 0 to disable this stream.
+      BATTERY_STATUS transmit cadence for the primary MAVLink transport.
+
+config ESP32_MAVLINK_TX_PERIODS_RC_ENABLE
+    bool "RC channels"
+    default y
+    help
+      Stream RC_CHANNELS on the primary MAVLink transport.
 
 config ESP32_MAVLINK_TX_PERIODS_RC_MS
-    int "RC channels period (ms)"
-    range 0 60000
+    int "RC channels period (ms)" if ESP32_MAVLINK_TX_PERIODS_RC_ENABLE
+    range 1 60000
     default 40
     help
-      RC_CHANNELS transmit cadence for the primary MAVLink transport. Set to 0
-      to disable this stream.
+      RC_CHANNELS transmit cadence for the primary MAVLink transport.
+
+config ESP32_MAVLINK_TX_PERIODS_ESC_ENABLE
+    bool "ESC telemetry"
+    default y
+    help
+      Stream ESC_STATUS on the primary MAVLink transport.
 
 config ESP32_MAVLINK_TX_PERIODS_ESC_MS
-    int "ESC telemetry period (ms)"
-    range 0 60000
+    int "ESC telemetry period (ms)" if ESP32_MAVLINK_TX_PERIODS_ESC_ENABLE
+    range 1 60000
     default 2000
     help
-      ESC_STATUS transmit cadence for the primary MAVLink transport. Set to 0
-      to disable this stream.
+      ESC_STATUS transmit cadence for the primary MAVLink transport.
 
 endmenu
 
@@ -806,12 +870,13 @@ menu "Timing"
 
 config ESP32_MAVLINK_TX_SCHEDULE_HB_DEADLINE_MS
     int "Heartbeat deadline (ms)"
-    range 1 60000
+    range 100 2000
     default 1500
     help
       Maximum allowed gap between completed HEARTBEAT frames on the primary
       MAVLink transport. If this is lower than the heartbeat period, the
-      deadline wins.
+      deadline wins. Bounded at two seconds so that no ground station's
+      timeout is reachable however late the scheduler runs.
 
 endmenu
 
@@ -2942,183 +3007,6 @@ endmenu
 
 endmenu
 
-menu "FcLink"
-
-menu "Telemetry topics"
-
-# TelemetryPublisher schedules each topic on its own period; priority only orders
-# the ones that come due on the same poll.
-
-config STM32_FCLINK_TOPIC_MAX_FRAMES_PER_POLL
-    int "Max frames per slow-loop poll"
-    range 1 8
-    default 2
-    help
-      Upper bound on FcLink telemetry frames TelemetryPublisher emits in one poll.
-      Caps the burst when several topics come due together, at the cost of
-      deferring the losers to the next poll.
-
-config STM32_FCLINK_TOPIC_SYSTEM_STATUS_PERIOD_MS
-    int "System status period (ms)"
-    range 0 60000
-    default 1000
-    help
-      Interval between SystemStatus frames: uptime, loop counter, sensor
-      present and health bitmaps, and the battery summary. Set to 0 to
-      disable.
-
-config STM32_FCLINK_TOPIC_SYSTEM_STATUS_PRIORITY
-    int "System status priority"
-    range 0 15
-    default 10
-    help
-      Relative priority when several FcLink topics are due at once. Higher
-      values go first.
-
-config STM32_FCLINK_TOPIC_VEHICLE_STATUS_PERIOD_MS
-    int "Vehicle status period (ms)"
-    range 0 60000
-    default 1000
-    help
-      Interval between VehicleStatus frames: armed state, failsafe flags and
-      flight mode. Set to 0 to disable.
-
-config STM32_FCLINK_TOPIC_VEHICLE_STATUS_PRIORITY
-    int "Vehicle status priority"
-    range 0 15
-    default 12
-    help
-      Relative priority when several FcLink topics are due at once. Highest of
-      the defaults: armed state is the one field a ground station must not
-      learn late.
-
-config STM32_FCLINK_TOPIC_GPS_PERIOD_MS
-    int "GPS period (ms)"
-    range 0 60000
-    default 100
-    help
-      Shortest interval between GpsData frames. A frame is sent only when the
-      receiver has parsed a new fix, so this bounds the rate rather than
-      setting one -- leave it at or below the M10's measurement rate or fixes
-      are dropped. Set to 0 to disable.
-
-config STM32_FCLINK_TOPIC_GPS_MAX_SILENCE_MS
-    int "GPS max silence (ms)"
-    range 0 60000
-    default 5000
-    help
-      How long an unchanged fix may go unsent before one is resent anyway, so
-      a receiver that has stopped producing still refreshes what the peer
-      holds. 0 never times out.
-
-config STM32_FCLINK_TOPIC_GPS_PRIORITY
-    int "GPS priority"
-    range 0 15
-    default 8
-    help
-      Relative priority when several FcLink topics are due at once.
-
-config STM32_FCLINK_TOPIC_ATTITUDE_PERIOD_MS
-    int "Attitude period (ms)"
-    range 0 60000
-    default 100
-    help
-      Shortest interval between Attitude frames. The estimator produces one
-      per control tick, far faster than this link can carry them, so this is
-      the decimation that picks which ones travel. Set to 0 to disable.
-
-config STM32_FCLINK_TOPIC_ATTITUDE_MAX_SILENCE_MS
-    int "Attitude max silence (ms)"
-    range 0 60000
-    default 1000
-    help
-      How long an unchanged estimate may go unsent before one is resent
-      anyway. Only reached with the control loop suspended, which is when a
-      ground station most needs telling the attitude is stale. 0 never times
-      out.
-
-config STM32_FCLINK_TOPIC_ATTITUDE_PRIORITY
-    int "Attitude priority"
-    range 0 15
-    default 7
-    help
-      Relative priority when several FcLink topics are due at once.
-
-config STM32_FCLINK_TOPIC_ESC_TELEMETRY_PERIOD_MS
-    int "ESC telemetry period (ms)"
-    range 0 60000
-    default 1000
-    help
-      Interval between EscTelemetry frames. Frames are suppressed entirely
-      until at least one ESC has reported, so this is an upper bound on rate
-      rather than a guarantee. Set to 0 to disable.
-
-config STM32_FCLINK_TOPIC_ESC_TELEMETRY_PRIORITY
-    int "ESC telemetry priority"
-    range 0 15
-    default 5
-    help
-      Relative priority when several FcLink topics are due at once.
-
-config STM32_FCLINK_TOPIC_RC_CHANNELS_PERIOD_MS
-    int "RC channels period (ms)"
-    range 0 60000
-    default 40
-    help
-      Shortest interval between RcChannels frames. A frame is sent only when
-      the receiver has produced a new one or the link flags changed, so a
-      quiet receiver costs nothing until the max-silence window expires. Set
-      to 0 to disable.
-
-config STM32_FCLINK_TOPIC_RC_CHANNELS_PRIORITY
-    int "RC channels priority"
-    range 0 15
-    default 9
-    help
-      Relative priority when several FcLink topics are due at once.
-
-config STM32_FCLINK_TOPIC_RC_CHANNELS_MAX_SILENCE_MS
-    int "RC channels max silence (ms)"
-    range 0 60000
-    default 1000
-    help
-      Longest TelemetryPublisher may suppress unchanged RC data before sending it
-      anyway. Without this the stream stops dead when the receiver goes quiet,
-      leaving the ESP32 unable to tell held channels from a dead link. Set to
-      0 to suppress indefinitely.
-
-config STM32_FCLINK_TOPIC_USB_STATUS_PERIOD_MS
-    int "USB status period (ms)"
-    range 0 60000
-    default 100
-    help
-      Shortest interval between UsbStatus frames. A frame is sent only when
-      the MSP or four-way frame counters moved, so this bounds how quickly a
-      burst is reflected rather than setting a steady rate. Set to 0 to
-      disable.
-
-config STM32_FCLINK_TOPIC_USB_STATUS_PRIORITY
-    int "USB status priority"
-    range 0 15
-    default 4
-    help
-      Relative priority when several FcLink topics are due at once. Lowest of
-      the defaults: the configurator UI tolerates a late frame.
-
-config STM32_FCLINK_TOPIC_USB_STATUS_MAX_SILENCE_MS
-    int "USB status max silence (ms)"
-    range 0 60000
-    default 300
-    help
-      Longest TelemetryPublisher may suppress an unchanged USB status before
-      sending it anyway. This is what keeps the configurator UI from flapping
-      to "no USB" on a healthy but idle port.
-
-endmenu
-
-
-endmenu
-
 menu "MSP"
 
 # Identity reported over MSP on the USB CDC port. A configurator will not admit
@@ -3162,25 +3050,147 @@ menu "RC Receiver"
 
 menu "CRSF Telemetry"
 
-config STM32_RC_RECEIVER_CRSF_MAX_FRAMES_PER_POLL
-    int "Max frames per slow-loop poll"
-    range 1 8
-    default 1
+choice
+    prompt "Packet rate"
+    default STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_250HZ
     help
-      Maximum number of native CRSF telemetry or command frames the STM32 will
-      try to send during one slow-loop pass on the RC receiver link. Raise
-      this only after confirming the receiver telemetry bandwidth can absorb
-      the extra traffic.
+      The packet rate the handset's ELRS Lua shows. With the telemetry ratio
+      below it fixes how many telemetry frames a second the link carries, and
+      the build refuses a ladder whose floors -- the max-silence settings --
+      cannot fit it. The receiver reports the live rate, so a handset changed
+      after the build is followed at runtime and logged as differing.
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_25HZ
+    bool "900 MHz LoRa 25 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_50HZ
+    bool "900 MHz LoRa 50 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_100HZ
+    bool "900 MHz LoRa 100 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_100HZ_8CH
+    bool "900 MHz LoRa 100 Hz Full"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_200HZ
+    bool "900 MHz LoRa 200 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_200HZ_8CH
+    bool "900 MHz LoRa 200 Hz Full"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_250HZ
+    bool "900 MHz LoRa 250 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_900_50HZ_DVDA
+    bool "900 MHz LoRa D50"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FSK_900_1000HZ_8CH
+    bool "900 MHz FSK 1000 Hz Full"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_50HZ
+    bool "2.4 GHz LoRa 50 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_100HZ_8CH
+    bool "2.4 GHz LoRa 100 Hz Full"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_150HZ
+    bool "2.4 GHz LoRa 150 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_250HZ
+    bool "2.4 GHz LoRa 250 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_333HZ_8CH
+    bool "2.4 GHz LoRa 333 Hz Full"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_2G4_500HZ
+    bool "2.4 GHz LoRa 500 Hz"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FLRC_2G4_250HZ_DVDA
+    bool "2.4 GHz FLRC D250"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FLRC_2G4_500HZ_DVDA
+    bool "2.4 GHz FLRC D500"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FLRC_2G4_500HZ
+    bool "2.4 GHz FLRC F500"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FLRC_2G4_1000HZ
+    bool "2.4 GHz FLRC F1000"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FSK_2G4_250HZ_DVDA
+    bool "2.4 GHz FSK D250"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FSK_2G4_500HZ_DVDA
+    bool "2.4 GHz FSK D500"
+
+config STM32_RC_RECEIVER_CRSF_RATE_FSK_2G4_1000HZ
+    bool "2.4 GHz FSK K1000"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_DUAL_100HZ_8CH
+    bool "Dual band LoRa 100 Hz Full"
+
+config STM32_RC_RECEIVER_CRSF_RATE_LORA_DUAL_150HZ
+    bool "Dual band LoRa 150 Hz"
+
+endchoice
+
+choice
+    prompt "Telemetry ratio"
+    default STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_8
+    help
+      The telemetry ratio the handset's ELRS Lua shows. The receiver never
+      reports it. Std follows the packet rate the way ELRS does -- 1:64 at
+      250 Hz, which carries about ten bytes of telemetry a second and cannot
+      hold this ladder's floors; the build says so. 1:8 is what ELRS
+      recommends for telemetry use.
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_STD
+    bool "Std"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_2
+    bool "1:2"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_4
+    bool "1:4"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_8
+    bool "1:8"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_16
+    bool "1:16"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_32
+    bool "1:32"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_64
+    bool "1:64"
+
+config STM32_RC_RECEIVER_CRSF_TLM_RATIO_1_128
+    bool "1:128"
+
+endchoice
+
+config STM32_RC_RECEIVER_CRSF_GPS_FRESH_TIMEOUT_MS
+    int "GPS freshness timeout (ms)"
+    range 1 60000
+    default 2000
+    help
+      Maximum age of a GPS sample before the GPS and GPS time topics stop
+      forwarding it and wait for fresher navigation data.
 
 menu "Heartbeat"
 
 config STM32_RC_RECEIVER_CRSF_HEARTBEAT_PERIOD_MS
     int "Period (ms)"
-    range 0 60000
+    range 100 2000
     default 1000
     help
-      Interval between CRSF heartbeat frames sent from the flight controller
-      back through the RC receiver. Set to 0 to disable heartbeat telemetry.
+      Interval between CRSF heartbeat frames from the flight controller back
+      through the RC receiver. Cannot be turned off: ExpressLRS registers the
+      flight controller as a device from this frame's origin address and
+      routes to it from then on, so it is how a receiver that has just booted
+      or renegotiated learns there is one on the wire. Two seconds is as slow
+      as that discovery should be.
 
 config STM32_RC_RECEIVER_CRSF_HEARTBEAT_PRIORITY
     int "Priority"
@@ -3194,16 +3204,21 @@ endmenu
 
 menu "GPS"
 
+config STM32_RC_RECEIVER_CRSF_GPS_ENABLED
+    bool "Enable"
+    default y
+    help
+      CRSF GPS telemetry frames sent back to the radio.
+
 config STM32_RC_RECEIVER_CRSF_GPS_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_GPS_ENABLED
+    range 1 60000
     default 500
     help
-      Interval between CRSF GPS telemetry frames sent back to the radio. Set
-      to 0 to disable GPS telemetry on the RC receiver link.
+      Interval between CRSF GPS telemetry frames.
 
 config STM32_RC_RECEIVER_CRSF_GPS_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_GPS_ENABLED
     range 0 15
     default 12
     help
@@ -3211,7 +3226,7 @@ config STM32_RC_RECEIVER_CRSF_GPS_PRIORITY
       same time. Higher values win.
 
 config STM32_RC_RECEIVER_CRSF_GPS_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_GPS_ENABLED
     default y
     help
       Suppress repeated CRSF GPS frames when the encoded payload has not
@@ -3219,7 +3234,7 @@ config STM32_RC_RECEIVER_CRSF_GPS_SEND_ON_CHANGE
       max-silence window expires.
 
 config STM32_RC_RECEIVER_CRSF_GPS_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_GPS_ENABLED
     range 0 60000
     default 2000
     help
@@ -3227,28 +3242,29 @@ config STM32_RC_RECEIVER_CRSF_GPS_MAX_SILENCE_MS
       before forcing a resend. Set to 0 to only send GPS when the payload
       changes.
 
-config STM32_RC_RECEIVER_CRSF_GPS_FRESH_TIMEOUT_MS
-    int "Freshness timeout (ms)"
-    range 1 60000
-    default 2000
-    help
-      Maximum age of a GPS sample before the CRSF scheduler stops forwarding
-      GPS telemetry and waits for fresher navigation data.
+      Also the floor of the link budget: when the declared link cannot carry
+      the configured periods every topic slows, this one no further than
+      this, and the build refuses floors the link cannot carry at all.
 
 endmenu
 
 menu "Battery"
 
+config STM32_RC_RECEIVER_CRSF_BATTERY_ENABLED
+    bool "Enable"
+    default y
+    help
+      CRSF battery telemetry frames sent back to the radio.
+
 config STM32_RC_RECEIVER_CRSF_BATTERY_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_BATTERY_ENABLED
+    range 1 60000
     default 1000
     help
-      Interval between CRSF battery telemetry frames sent back to the radio.
-      Set to 0 to disable battery telemetry on the RC receiver link.
+      Interval between CRSF battery telemetry frames.
 
 config STM32_RC_RECEIVER_CRSF_BATTERY_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_BATTERY_ENABLED
     range 0 15
     default 10
     help
@@ -3256,7 +3272,7 @@ config STM32_RC_RECEIVER_CRSF_BATTERY_PRIORITY
       same time. Higher values win.
 
 config STM32_RC_RECEIVER_CRSF_BATTERY_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_BATTERY_ENABLED
     default y
     help
       Suppress repeated CRSF battery frames when the encoded payload has not
@@ -3264,7 +3280,7 @@ config STM32_RC_RECEIVER_CRSF_BATTERY_SEND_ON_CHANGE
       max-silence window expires.
 
 config STM32_RC_RECEIVER_CRSF_BATTERY_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_BATTERY_ENABLED
     range 0 60000
     default 5000
     help
@@ -3272,24 +3288,31 @@ config STM32_RC_RECEIVER_CRSF_BATTERY_MAX_SILENCE_MS
       before forcing a resend. Set to 0 to only send battery data when the
       payload changes.
 
+      Also the floor of the link budget: when the declared link cannot carry
+      the configured periods every topic slows, this one no further than
+      this, and the build refuses floors the link cannot carry at all.
+
 endmenu
 
 menu "Flight Mode"
 
-config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
-    default 500
+config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_ENABLED
+    bool "Enable"
+    default y
     help
-      Interval between CRSF flight mode frames sent back to the radio. Set to 0 to
-      disable flight mode telemetry on the RC receiver link.
-
       The armed/disarmed state and current mode as a short string, which
       EdgeTX renders as the FM telemetry field. Betaflight's vocabulary,
       so a handset's logical switches written for one work on the other.
 
+config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_PERIOD_MS
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_ENABLED
+    range 1 60000
+    default 500
+    help
+      Interval between CRSF flight mode frames.
+
 config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_ENABLED
     range 0 15
     default 12
     help
@@ -3297,7 +3320,7 @@ config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_PRIORITY
       same time. Higher values win.
 
 config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_ENABLED
     default y
     help
       Suppress repeated CRSF flight mode frames when the encoded payload has not
@@ -3305,7 +3328,7 @@ config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_SEND_ON_CHANGE
       max-silence window expires.
 
 config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_ENABLED
     range 0 60000
     default 2000
     help
@@ -3313,23 +3336,31 @@ config STM32_RC_RECEIVER_CRSF_FLIGHT_MODE_MAX_SILENCE_MS
       before forcing a resend. Set to 0 to only send flight mode data when the
       payload changes.
 
+      Also the floor of the link budget: when the declared link cannot carry
+      the configured periods every topic slows, this one no further than
+      this, and the build refuses floors the link cannot carry at all.
+
 endmenu
 
 menu "Attitude"
 
+config STM32_RC_RECEIVER_CRSF_ATTITUDE_ENABLED
+    bool "Enable"
+    default y
+    help
+      Pitch, roll and yaw in radians, sent back to the radio.
+
 config STM32_RC_RECEIVER_CRSF_ATTITUDE_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_ATTITUDE_ENABLED
+    range 1 60000
     default 200
     help
-      Interval between CRSF attitude frames sent back to the radio. Set to 0 to
-      disable attitude telemetry on the RC receiver link.
-
-      Pitch, roll and yaw in radians. The control loop writes the estimate far
-      faster than this link can carry it, so the period is a decimation.
+      Interval between CRSF attitude frames. The control loop writes the
+      estimate far faster than this link can carry it, so the period is a
+      decimation.
 
 config STM32_RC_RECEIVER_CRSF_ATTITUDE_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_ATTITUDE_ENABLED
     range 0 15
     default 6
     help
@@ -3337,7 +3368,7 @@ config STM32_RC_RECEIVER_CRSF_ATTITUDE_PRIORITY
       same time. Higher values win.
 
 config STM32_RC_RECEIVER_CRSF_ATTITUDE_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_ATTITUDE_ENABLED
     default y
     help
       Suppress repeated CRSF attitude frames when the encoded payload has not
@@ -3345,7 +3376,7 @@ config STM32_RC_RECEIVER_CRSF_ATTITUDE_SEND_ON_CHANGE
       max-silence window expires.
 
 config STM32_RC_RECEIVER_CRSF_ATTITUDE_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_ATTITUDE_ENABLED
     range 0 60000
     default 2000
     help
@@ -3353,24 +3384,31 @@ config STM32_RC_RECEIVER_CRSF_ATTITUDE_MAX_SILENCE_MS
       before forcing a resend. Set to 0 to only send attitude data when the
       payload changes.
 
+      Also the floor of the link budget: when the declared link cannot carry
+      the configured periods every topic slows, this one no further than
+      this, and the build refuses floors the link cannot carry at all.
+
 endmenu
 
 menu "RPM"
 
-config STM32_RC_RECEIVER_CRSF_RPM_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
-    default 500
+config STM32_RC_RECEIVER_CRSF_RPM_ENABLED
+    bool "Enable"
+    default y
     help
-      Interval between CRSF RPM frames sent back to the radio. Set to 0 to
-      disable RPM telemetry on the RC receiver link.
-
       Per-motor RPM from ESC telemetry. Worth having on the radio because a
       handset can fire a voice callout on it, which beats a screen nobody is
       looking at mid-flight.
 
+config STM32_RC_RECEIVER_CRSF_RPM_PERIOD_MS
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_RPM_ENABLED
+    range 1 60000
+    default 500
+    help
+      Interval between CRSF RPM frames.
+
 config STM32_RC_RECEIVER_CRSF_RPM_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_RPM_ENABLED
     range 0 15
     default 8
     help
@@ -3378,7 +3416,7 @@ config STM32_RC_RECEIVER_CRSF_RPM_PRIORITY
       same time. Higher values win.
 
 config STM32_RC_RECEIVER_CRSF_RPM_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_RPM_ENABLED
     default y
     help
       Suppress repeated CRSF RPM frames when the encoded payload has not
@@ -3386,7 +3424,7 @@ config STM32_RC_RECEIVER_CRSF_RPM_SEND_ON_CHANGE
       max-silence window expires.
 
 config STM32_RC_RECEIVER_CRSF_RPM_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_RPM_ENABLED
     range 0 60000
     default 5000
     help
@@ -3394,23 +3432,30 @@ config STM32_RC_RECEIVER_CRSF_RPM_MAX_SILENCE_MS
       before forcing a resend. Set to 0 to only send RPM data when the
       payload changes.
 
+      Also the floor of the link budget: when the declared link cannot carry
+      the configured periods every topic slows, this one no further than
+      this, and the build refuses floors the link cannot carry at all.
+
 endmenu
 
 menu "Temperature"
 
-config STM32_RC_RECEIVER_CRSF_TEMPERATURE_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
-    default 1000
+config STM32_RC_RECEIVER_CRSF_TEMPERATURE_ENABLED
+    bool "Enable"
+    default y
     help
-      Interval between CRSF temperature frames sent back to the radio. Set to 0 to
-      disable temperature telemetry on the RC receiver link.
-
       Per-motor ESC temperature in tenths of a degree. The condition it exists
       to catch is derating, which is gradual and easy to miss.
 
+config STM32_RC_RECEIVER_CRSF_TEMPERATURE_PERIOD_MS
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_TEMPERATURE_ENABLED
+    range 1 60000
+    default 1000
+    help
+      Interval between CRSF temperature frames.
+
 config STM32_RC_RECEIVER_CRSF_TEMPERATURE_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_TEMPERATURE_ENABLED
     range 0 15
     default 7
     help
@@ -3418,7 +3463,7 @@ config STM32_RC_RECEIVER_CRSF_TEMPERATURE_PRIORITY
       same time. Higher values win.
 
 config STM32_RC_RECEIVER_CRSF_TEMPERATURE_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_TEMPERATURE_ENABLED
     default y
     help
       Suppress repeated CRSF temperature frames when the encoded payload has not
@@ -3426,7 +3471,7 @@ config STM32_RC_RECEIVER_CRSF_TEMPERATURE_SEND_ON_CHANGE
       max-silence window expires.
 
 config STM32_RC_RECEIVER_CRSF_TEMPERATURE_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_TEMPERATURE_ENABLED
     range 0 60000
     default 5000
     help
@@ -3434,25 +3479,32 @@ config STM32_RC_RECEIVER_CRSF_TEMPERATURE_MAX_SILENCE_MS
       before forcing a resend. Set to 0 to only send temperature data when the
       payload changes.
 
+      Also the floor of the link budget: when the declared link cannot carry
+      the configured periods every topic slows, this one no further than
+      this, and the build refuses floors the link cannot carry at all.
+
 endmenu
 
 menu "GPS Time"
 
+config STM32_RC_RECEIVER_CRSF_GPS_TIME_ENABLED
+    bool "Enable"
+    default y
+    help
+      The GPS date and time. EdgeTX makes this the handset's clock rather
+      than a display field: it calls rtcAdjust on the frame when Adjust RTC
+      is enabled, which is why a slow period is enough and why an unresolved
+      or stale date is withheld instead of sent as zeroes.
+
 config STM32_RC_RECEIVER_CRSF_GPS_TIME_PERIOD_MS
-    int "Period (ms)"
-    range 0 60000
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_GPS_TIME_ENABLED
+    range 1 60000
     default 10000
     help
-      Interval between CRSF GPS time frames sent back to the radio. Set to 0
-      to disable GPS time telemetry on the RC receiver link.
-
-      EdgeTX makes this the handset's clock rather than a display field: it
-      calls rtcAdjust on the frame when Adjust RTC is enabled, which is why a
-      slow period is enough and why an unresolved or stale date is withheld
-      instead of sent as zeroes.
+      Interval between CRSF GPS time frames.
 
 config STM32_RC_RECEIVER_CRSF_GPS_TIME_PRIORITY
-    int "Priority"
+    int "Priority" if STM32_RC_RECEIVER_CRSF_GPS_TIME_ENABLED
     range 0 15
     default 2
     help
@@ -3461,18 +3513,20 @@ config STM32_RC_RECEIVER_CRSF_GPS_TIME_PRIORITY
       arrives a poll late is still the right clock.
 
 config STM32_RC_RECEIVER_CRSF_GPS_TIME_SEND_ON_CHANGE
-    bool "Prefer send on change"
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_GPS_TIME_ENABLED
     default n
     help
       Off by design. The seconds field moves every second, so change
       suppression can never fire and only costs a payload comparison.
 
 config STM32_RC_RECEIVER_CRSF_GPS_TIME_MAX_SILENCE_MS
-    int "Max silence (ms)"
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_GPS_TIME_ENABLED
     range 0 60000
     default 0
     help
-      Unused while send-on-change is off, since nothing is being suppressed.
+      With send-on-change off this bounds only the link budget: how far a
+      short link may slow the clock, 0 letting it fall back as far as the
+      60 s ceiling.
 
 endmenu
 
@@ -3673,9 +3727,10 @@ config STM32_LOG_PREALLOC_MB
 # event, and a per-second sample only ever says the link was fine on average.
 #
 # One semantic difference from PX4 worth knowing: PX4 reads interval 0 as
-# "log at the topic's full rate", this scheduler reads 0 as "disabled". So
-# esc_telemetry cannot express PX4's uncapped esc_status; 20 ms is one full
-# request round across four motors, which is as fast as new data exists.
+# "log at the topic's full rate", where here a topic is either off or on a
+# period. So esc_telemetry cannot express PX4's uncapped esc_status; 20 ms is
+# one full request round across four motors, which is as fast as new data
+# exists.
 
 config STM32_LOG_TOPIC_RAW_IMU
     bool "Raw IMU samples"
@@ -3690,88 +3745,129 @@ config STM32_LOG_TOPIC_RAW_IMU
       a smaller watermark spends proportionally more of the stream on entry
       headers.
 
+config STM32_LOG_TOPIC_RC_INPUT_ENABLED
+    bool "RC input"
+    default y
+    help
+      Receiver channels as reported, plus the four mapped stick values.
+
 config STM32_LOG_TOPIC_RC_INPUT_PERIOD_MS
-    int "RC input period (ms)"
-    range 0 60000
+    int "RC input period (ms)" if STM32_LOG_TOPIC_RC_INPUT_ENABLED
+    range 1 60000
     default 200
     help
-      Receiver channels as reported, plus the four mapped stick values. Set
-      to 0 to disable. PX4: manual_control_setpoint 200 ms.
+      PX4: manual_control_setpoint 200 ms.
+
+config STM32_LOG_TOPIC_BATTERY_ENABLED
+    bool "Battery"
+    default y
+    help
+      Pack voltage, current, mAh drawn and the percentage estimate.
 
 config STM32_LOG_TOPIC_BATTERY_PERIOD_MS
-    int "Battery period (ms)"
-    range 0 60000
+    int "Battery period (ms)" if STM32_LOG_TOPIC_BATTERY_ENABLED
+    range 1 60000
     default 200
     help
-      Pack voltage, current, mAh drawn and the percentage estimate. Set to 0
-      to disable. PX4: battery_status 200 ms.
+      PX4: battery_status 200 ms.
 
-config STM32_LOG_TOPIC_ESC_TELEMETRY_PERIOD_MS
-    int "ESC telemetry period (ms)"
-    range 0 60000
-    default 0
+config STM32_LOG_TOPIC_ESC_TELEMETRY_ENABLED
+    bool "ESC telemetry"
+    default n
     help
       Per-motor RPM, voltage, current and temperature.
 
-      Disabled on purpose, not by oversight. The four motors answer their own
+      Off on purpose, not by oversight. The four motors answer their own
       requests and carry their own timestamps, so a record with one timestamp
       dates itself by a motor the reader cannot identify, and a motor that
       goes quiet is inferred rather than seen. Recording something misleading
       is worse than recording nothing, so this stays off until the record
-      shape is right -- see #33. Set to 20 (one full round-robin across four
-      motors) to turn it back on as it stands.
+      shape is right -- see #33.
 
       The bus's own fault counters carry no such ambiguity and are logged in
       system_health whatever this is set to.
 
+config STM32_LOG_TOPIC_ESC_TELEMETRY_PERIOD_MS
+    int "ESC telemetry period (ms)" if STM32_LOG_TOPIC_ESC_TELEMETRY_ENABLED
+    range 1 60000
+    default 20
+    help
+      20 ms is one full round-robin across four motors, as fast as new data
+      exists.
+
+config STM32_LOG_TOPIC_GPS_ENABLED
+    bool "GPS"
+    default y
+    help
+      Position, velocity, heading and fix quality.
+
 config STM32_LOG_TOPIC_GPS_PERIOD_MS
-    int "GPS period (ms)"
-    range 0 60000
+    int "GPS period (ms)" if STM32_LOG_TOPIC_GPS_ENABLED
+    range 1 60000
     default 100
     help
-      Position, velocity, heading and fix quality. Set to 0 to disable.
       PX4: vehicle_gps_position 100 ms.
 
-config STM32_LOG_TOPIC_IMU_HEALTH_PERIOD_MS
-    int "IMU health period (ms)"
-    range 0 60000
-    default 200
+config STM32_LOG_TOPIC_IMU_HEALTH_ENABLED
+    bool "IMU health"
+    default y
     help
       Sample-path counters: publishes, path faults, overruns, DMA and SPI
-      failures, parse failures, drops. Set to 0 to disable. PX4:
-      sensors_status_imu 200 ms.
+      failures, parse failures, drops.
+
+config STM32_LOG_TOPIC_IMU_HEALTH_PERIOD_MS
+    int "IMU health period (ms)" if STM32_LOG_TOPIC_IMU_HEALTH_ENABLED
+    range 1 60000
+    default 200
+    help
+      PX4: sensors_status_imu 200 ms.
+
+config STM32_LOG_TOPIC_CRSF_LINK_ENABLED
+    bool "CRSF link"
+    default y
+    help
+      Uplink and downlink RSSI, link quality, SNR, RF mode and TX power.
 
 config STM32_LOG_TOPIC_CRSF_LINK_PERIOD_MS
-    int "CRSF link period (ms)"
-    range 0 60000
+    int "CRSF link period (ms)" if STM32_LOG_TOPIC_CRSF_LINK_ENABLED
+    range 1 60000
     default 100
     help
-      Uplink and downlink RSSI, link quality, SNR, RF mode and TX power. Set
-      to 0 to disable. Faster than PX4's nearest equivalent on purpose: a
-      dropout is sub-second, so a slower sample cannot show one.
+      Faster than PX4's nearest equivalent on purpose: a dropout is
+      sub-second, so a slower sample cannot show one.
 
-config STM32_LOG_TOPIC_SYSTEM_HEALTH_PERIOD_MS
-    int "System health period (ms)"
-    range 0 60000
-    default 1000
+config STM32_LOG_TOPIC_SYSTEM_HEALTH_ENABLED
+    bool "System health"
+    default y
     help
       Per-link faults for the ESP32, GPS, receiver and ESC lines: transport
       errors on each wire, then the frames each protocol above it rejected.
       SPI2's share rides in imu_health instead, with the burst path that
-      suffers it. Set to 0 to
-      disable. These are since-boot totals, so the period bounds only how
-      precisely a reader can place a fault in time, not whether it is caught.
-      PX4: telemetry_status 1000 ms.
+      suffers it.
 
-config STM32_LOG_TOPIC_LOGGER_STATUS_PERIOD_MS
-    int "Logger status period (ms)"
-    range 0 60000
-    default 200
+config STM32_LOG_TOPIC_SYSTEM_HEALTH_PERIOD_MS
+    int "System health period (ms)" if STM32_LOG_TOPIC_SYSTEM_HEALTH_ENABLED
+    range 1 60000
+    default 1000
+    help
+      These are since-boot totals, so the period bounds only how precisely a
+      reader can place a fault in time, not whether it is caught. PX4:
+      telemetry_status 1000 ms.
+
+config STM32_LOG_TOPIC_LOGGER_STATUS_ENABLED
+    bool "Logger status"
+    default y
     help
       The logger's own account of itself: bytes dropped for a full ring, and
-      write errors. Set to 0 to disable, though a log that cannot say it lost
-      data is the one case where this costs more than it saves. PX4:
-      logger_status 200 ms.
+      write errors. A log that cannot say it lost data is the one case where
+      turning a topic off costs more than it saves.
+
+config STM32_LOG_TOPIC_LOGGER_STATUS_PERIOD_MS
+    int "Logger status period (ms)" if STM32_LOG_TOPIC_LOGGER_STATUS_ENABLED
+    range 1 60000
+    default 200
+    help
+      PX4: logger_status 200 ms.
 
 endmenu
 
