@@ -22,9 +22,9 @@ inline constexpr size_t kMaxPayload = 0xFFu;
 inline constexpr uint8_t kMaxLogTextPayload = 200u;
 
 enum class MsgId : uint8_t {
-  kPing = 0x01,
+  kHandshake = 0x01,
   kLog = 0x02,
-  kPong = 0x03,
+  kHandshakeReply = 0x03,
   kReqRcMap = 0x04,
   kRcMapConfig = 0x05,
   kReqRcCalibration = 0x06,
@@ -71,6 +71,11 @@ struct Header {
 // would emit frames the peer cannot parse rather than fail here.
 static_assert(sizeof(Header) == 4 && alignof(Header) == 1,
               "wire header must be 4 packed bytes");
+
+// Handshake hash
+struct HandshakeMsg {
+  uint32_t wire_hash;
+} __attribute__((packed));
 
 // Fixed by CRSF, whose channels frame packs exactly this many at 11 bits
 // each. Not a tunable: narrowing it would only move where the unused channels
@@ -366,108 +371,114 @@ inline constexpr uint8_t PayloadLength() {
 template <typename T>
 using PacketBuffer = std::array<uint8_t, sizeof(T) + kPacketOverhead>;
 
-inline constexpr bool IsKnownMsgId(MsgId id) {
-  switch (id) {
-    case MsgId::kPing:
-    case MsgId::kLog:
-    case MsgId::kPong:
-    case MsgId::kReqRcMap:
-    case MsgId::kRcMapConfig:
-    case MsgId::kReqRcCalibration:
-    case MsgId::kRcCalibrationConfig:
-    case MsgId::kReqGyroCalibrationId:
-    case MsgId::kGyroCalibrationIdConfig:
-    case MsgId::kSetRcMapConfig:
-    case MsgId::kSetRcCalibrationConfig:
-    case MsgId::kReqReceiverBind:
-    case MsgId::kReqReceiverCancelBind:
-    case MsgId::kCalibrateGyro:
-    case MsgId::kCalibrateAccel:
-    case MsgId::kAccelCalStatus:
-    case MsgId::kRcChannels:
-    case MsgId::kGpsData:
-    case MsgId::kSystemStatus:
-    case MsgId::kVehicleStatus:
-    case MsgId::kPanic:
-    case MsgId::kEscTelemetry:
-    case MsgId::kPrivilegedArm:
-    case MsgId::kSetUsbMode:
-    case MsgId::kUsbStatus:
-    case MsgId::kTone:
-    case MsgId::kLogList:
-    case MsgId::kLogListReply:
-    case MsgId::kLogRead:
-    case MsgId::kLogData:
-    case MsgId::kReboot:
-    case MsgId::kBootload:
-    case MsgId::kError:
-      return true;
-    default:
-      return false;
+// One row per message the wire carries: its id, and the payload length that
+// makes a frame of it valid. Every rule below reads this table, and so does
+// the hash the two firmwares compare at boot -- which is the point. A struct
+// whose size changes cannot move the length rule without moving the hash.
+struct WireEntry {
+  MsgId id;
+  uint8_t len;
+  // kLog carries text, so its length is a bound rather than a size.
+  bool bounded;
+};
+
+inline constexpr std::array<WireEntry, 34> kWireContract = {{
+    {MsgId::kHandshake, PayloadLength<HandshakeMsg>(), false},
+    {MsgId::kLog, kMaxLogTextPayload, true},
+    {MsgId::kHandshakeReply, PayloadLength<HandshakeMsg>(), false},
+    {MsgId::kReqRcMap, 0, false},
+    {MsgId::kRcMapConfig, PayloadLength<RcMapConfigMsg>(), false},
+    {MsgId::kReqRcCalibration, 0, false},
+    {MsgId::kRcCalibrationConfig, PayloadLength<RcCalibrationConfigMsg>(),
+     false},
+    {MsgId::kReqGyroCalibrationId, 0, false},
+    {MsgId::kGyroCalibrationIdConfig,
+     PayloadLength<GyroCalibrationIdConfigMsg>(), false},
+    {MsgId::kSetRcMapConfig, PayloadLength<RcMapConfigMsg>(), false},
+    {MsgId::kSetRcCalibrationConfig, PayloadLength<RcCalibrationConfigMsg>(),
+     false},
+    {MsgId::kReqReceiverBind, 0, false},
+    {MsgId::kCalibrateGyro, 0, false},
+    {MsgId::kReqReceiverCancelBind, 0, false},
+    {MsgId::kCalibrateAccel, 0, false},
+    {MsgId::kRcChannels, PayloadLength<RcChannelsMsg>(), false},
+    {MsgId::kGpsData, PayloadLength<GpsData>(), false},
+    {MsgId::kAttitude, PayloadLength<AttitudeMsg>(), false},
+    {MsgId::kSystemStatus, PayloadLength<SystemStatusMsg>(), false},
+    {MsgId::kVehicleStatus, PayloadLength<VehicleStatusMsg>(), false},
+    {MsgId::kPanic, PayloadLength<PanicMsg>(), false},
+    {MsgId::kEscTelemetry, PayloadLength<EscTelemetryMsg>(), false},
+    {MsgId::kPrivilegedArm, PayloadLength<PrivilegedArmMsg>(), false},
+    {MsgId::kSetUsbMode, PayloadLength<SetUsbModeMsg>(), false},
+    {MsgId::kUsbStatus, PayloadLength<UsbStatusMsg>(), false},
+    {MsgId::kTone, PayloadLength<ToneMsg>(), false},
+    {MsgId::kAccelCalStatus, PayloadLength<AccelCalStatusMsg>(), false},
+    {MsgId::kLogList, PayloadLength<LogListMsg>(), false},
+    {MsgId::kLogListReply, PayloadLength<LogListReplyMsg>(), false},
+    {MsgId::kLogRead, PayloadLength<LogReadMsg>(), false},
+    {MsgId::kLogData, PayloadLength<LogDataMsg>(), false},
+    {MsgId::kReboot, 0, false},
+    {MsgId::kBootload, 0, false},
+    {MsgId::kError, 0, false},
+}};
+
+inline constexpr uint32_t FoldByte(uint32_t hash, uint8_t byte) {
+  return (hash ^ byte) * 16777619u;
+}
+
+// FNV-1a over the contract. Derived rather than declared: there is no number
+// to remember to bump, so a struct cannot change size and leave the two
+// firmwares believing they still agree.
+inline constexpr uint32_t WireContractHash() {
+  uint32_t hash = 2166136261u;
+  for (const WireEntry &entry : kWireContract) {
+    hash = FoldByte(hash, static_cast<uint8_t>(entry.id));
+    hash = FoldByte(hash, entry.len);
+    hash = FoldByte(hash, entry.bounded ? 1u : 0u);
   }
+  return hash;
+}
+
+inline constexpr uint32_t kWireContractHash = WireContractHash();
+
+// A duplicated id would answer from whichever row came first while still
+// folding both into the hash -- the two firmwares would disagree over a
+// difference that changes no rule.
+inline constexpr bool WireContractIdsAreUnique() {
+  for (size_t i = 0; i < kWireContract.size(); ++i) {
+    for (size_t j = i + 1; j < kWireContract.size(); ++j) {
+      if (kWireContract[i].id == kWireContract[j].id) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+static_assert(WireContractIdsAreUnique(), "a message id has two rows");
+
+inline constexpr bool IsKnownMsgId(MsgId id) {
+  for (const WireEntry &entry : kWireContract) {
+    if (entry.id == id) {
+      return true;
+    }
+  }
+  return false;
 }
 
 inline constexpr bool IsPayloadLengthValid(MsgId id, uint8_t len) {
-  switch (id) {
-    case MsgId::kPing:
-    case MsgId::kPong:
-    case MsgId::kReqRcMap:
-    case MsgId::kReqRcCalibration:
-    case MsgId::kReqGyroCalibrationId:
-    case MsgId::kReqReceiverBind:
-    case MsgId::kReqReceiverCancelBind:
-    case MsgId::kCalibrateGyro:
-    case MsgId::kCalibrateAccel:
-    case MsgId::kReboot:
-    case MsgId::kBootload:
-    case MsgId::kError:
-      return len == 0;
-    case MsgId::kRcMapConfig:
-    case MsgId::kSetRcMapConfig:
-      return len == PayloadLength<RcMapConfigMsg>();
-    case MsgId::kRcCalibrationConfig:
-    case MsgId::kSetRcCalibrationConfig:
-      return len == PayloadLength<RcCalibrationConfigMsg>();
-    case MsgId::kGyroCalibrationIdConfig:
-      return len == PayloadLength<GyroCalibrationIdConfigMsg>();
-    case MsgId::kAccelCalStatus:
-      return len == PayloadLength<AccelCalStatusMsg>();
-    case MsgId::kRcChannels:
-      return len == PayloadLength<RcChannelsMsg>();
-    case MsgId::kGpsData:
-      return len == PayloadLength<GpsData>();
-    case MsgId::kAttitude:
-      return len == PayloadLength<AttitudeMsg>();
-    case MsgId::kSystemStatus:
-      return len == PayloadLength<SystemStatusMsg>();
-    case MsgId::kVehicleStatus:
-      return len == PayloadLength<VehicleStatusMsg>();
-    case MsgId::kPanic:
-      return len == PayloadLength<PanicMsg>();
-    case MsgId::kEscTelemetry:
-      return len == PayloadLength<EscTelemetryMsg>();
-    case MsgId::kPrivilegedArm:
-      return len == PayloadLength<PrivilegedArmMsg>();
-    case MsgId::kSetUsbMode:
-      return len == PayloadLength<SetUsbModeMsg>();
-    case MsgId::kLogList:
-      return len == PayloadLength<LogListMsg>();
-    case MsgId::kLogListReply:
-      return len == PayloadLength<LogListReplyMsg>();
-    case MsgId::kLogRead:
-      return len == PayloadLength<LogReadMsg>();
-    case MsgId::kLogData:
-      return len == PayloadLength<LogDataMsg>();
-    case MsgId::kUsbStatus:
-      return len == PayloadLength<UsbStatusMsg>();
-    case MsgId::kTone:
-      return len == PayloadLength<ToneMsg>();
-    case MsgId::kLog:
-      return len <= kMaxLogTextPayload;
-    default:
-      return false;
+  for (const WireEntry &entry : kWireContract) {
+    if (entry.id != id) {
+      continue;
+    }
+    return entry.bounded ? len <= entry.len : len == entry.len;
   }
+  return false;
 }
+
+static_assert(IsPayloadLengthValid(MsgId::kLog, kMaxLogTextPayload) &&
+                  !IsPayloadLengthValid(MsgId::kLog, kMaxLogTextPayload + 1) &&
+                  !IsPayloadLengthValid(MsgId::kSystemStatus, 0),
+              "a bound is not a size, and a size is not a bound");
 
 inline bool IsPayloadValid(MsgId id, const uint8_t *payload, uint8_t len) {
   if (!IsPayloadLengthValid(id, len)) {

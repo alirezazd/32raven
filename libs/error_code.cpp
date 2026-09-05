@@ -155,6 +155,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "SD card full";
     case ErrorCode::Stm32::kEscOutputStalled:
       return "ESC Output Stalled";
+    case ErrorCode::Stm32::kFcLinkWireMismatch:
+      return "FcLink version mismatch -- reflash both";
     case ErrorCode::Stm32::kSdCardGeometry:
       return "SD card FAT too large -- reformat";
     case ErrorCode::Stm32::kHardFault:
@@ -301,6 +303,8 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "TonePlayer Init Failed";
     case ErrorCode::Esp32::kSystemReinit:
       return "ESP32 system re-init";
+    case ErrorCode::Esp32::kFcLinkWireMismatch:
+      return "FcLink version mismatch -- reflash both";
   }
   return "Unknown error";
 }

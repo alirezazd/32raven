@@ -148,7 +148,7 @@ static void OnLogData(const AppContext &ctx, const message::Packet &pkt) {
 }
 
 static const Dispatcher<const AppContext>::Entry kHandlers[] = {
-    {message::MsgId::kPong, OnIgnored},
+    {message::MsgId::kHandshakeReply, OnIgnored},
     {message::MsgId::kLog, OnLog},
     {message::MsgId::kTone, OnTone},
     {message::MsgId::kAccelCalStatus, OnAccelCalStatus},

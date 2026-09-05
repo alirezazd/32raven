@@ -88,13 +88,15 @@ void FcLink::PerformHandshake() {
   ResetRxState();
 
   ESP_LOGI(kTag, "Handshake Start...");
-  message::Packet ping{};
-  ping.header.id = static_cast<uint8_t>(message::MsgId::kPing);
-  ping.header.len = 0;
+  const message::HandshakeMsg local{.wire_hash = message::kWireContractHash};
+  message::Packet request{};
+  request.header.id = static_cast<uint8_t>(message::MsgId::kHandshake);
+  request.header.len = message::PayloadLength<message::HandshakeMsg>();
+  std::memcpy(request.payload, &local, sizeof(local));
 
   const uint16_t attempts = HandshakeAttempts(cfg_.handshake_window_s);
   for (uint16_t i = 0; i < attempts; ++i) {
-    SendPacket(ping);
+    SendPacket(request);
     vTaskDelay(pdMS_TO_TICKS(kHandshakeRetryPeriodMs));
 
     Poll();
@@ -102,13 +104,24 @@ void FcLink::PerformHandshake() {
     while (auto packet = PopPacket()) {
       const uint8_t id = packet->header.id;
 
-      if (id == static_cast<uint8_t>(message::MsgId::kPong)) {
+      if (id == static_cast<uint8_t>(message::MsgId::kHandshakeReply)) {
+        // The STM32 refuses a request it cannot match, so reaching here
+        // usually means agreement. Checked anyway: this is the direction that
+        // catches a stale ESP32 against a flight controller that was flashed.
+        const auto &peer = message::PayloadAs<message::HandshakeMsg>(*packet);
+        if (peer.wire_hash != message::kWireContractHash) {
+          ESP_LOGE(kTag, "Wire contract %08lX, STM32 has %08lX",
+                   static_cast<unsigned long>(message::kWireContractHash),
+                   static_cast<unsigned long>(peer.wire_hash));
+          Panic(ErrorCode::Esp32::kFcLinkWireMismatch);
+        }
         ESP_LOGI(kTag, "Handshake Success!");
-        // A pong means both MCUs are up and the link carries traffic each way.
+        // A reply means both MCUs are up and the link carries traffic each
+        // way.
         Sys().TonePlayer().PlayBuiltin(message::Tone::kDoomShort);
         return;
       }
-      if (id == static_cast<uint8_t>(message::MsgId::kPing)) {
+      if (id == static_cast<uint8_t>(message::MsgId::kHandshake)) {
         continue;
       }
       if (id == static_cast<uint8_t>(message::MsgId::kLog)) {

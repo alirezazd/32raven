@@ -809,7 +809,7 @@ bool Mavlink::EnsureParamDependencyRequested(ParamDependency dependency) {
     return false;
   }
 
-  message::MsgId request_id = message::MsgId::kPing;
+  message::MsgId request_id{};
   // Same reasoning as field_name above: the switch covers every enumerator,
   // but not every value the type can hold.
   // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)

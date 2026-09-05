@@ -421,45 +421,21 @@ same argument applies to a home position that was never captured.
 
 ### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
 
-Both MCUs compile `libs/message.hpp`, so the FcLink wire format is a contract between two
-images that are flashed separately. When they disagree, `IsPayloadLengthValid` rejects the
-mismatched frames and the link degrades silently — no panic, no log, just a stream that stops
-arriving. Nothing in either firmware detects it, and nothing in the build system prevents it.
+`make flash-wifi` flashes everything every time, and when two images disagree neither can say
+which of them is the stale one. The ESP32 owns the STM32's only flash path — `Programmer`
+drives BOOT0 and the shared FcLink UART — so one device deciding what to flash is mostly
+wiring parts that are already there.
 
-The only protection today is remembering to flash both. That held while the wire format was
-stable; narrowing `RcChannelsMsg` from 36 bytes to 20 is the first change that would have
-punished forgetting, and `static_assert`s catch only the half of it that lives inside one build.
-
-#### What already exists
-
-- **The ESP32 owns the STM32's only flash path.** `Programmer` drives BOOT0 and the shared
-  FcLink UART, so "one device flashes both" is mostly wiring parts that are already there.
-- **The ESP32 already has a version** — `kMavlinkFlightSwVersion` and `kMavlinkGitHashShort`,
-  emitted by `generate_esp32_config.py`.
-- **The STM32 has none**, and the FcLink handshake that would carry one is a bare `kPing` with
-  a zero-length payload. It runs at boot with retries already, so it is the natural place to
-  exchange versions without inventing a message.
-
-#### Shape
-
-- `make flash-wifi` decides what to flash rather than flashing everything: read both versions,
-  compare against the build, skip what already matches.
-- Version the *protocol*, not the build. A build hash forces a reflash of both MCUs for a
-  comment change; what actually has to match is the message layout. Deriving the value from
-  the message definitions — a compile-time hash over the wire structs — makes it impossible to
-  change a struct and forget to bump it, which is the failure this item exists to prevent.
-- Keep a build identity too, but as information rather than a gate: knowing *which* image is
-  stale is what turns "they disagree" into "flash the ESP32".
+- Read both build identities, compare against the build, skip what already matches. The ESP32
+  has `kMavlinkFlightSwVersion` and `kMavlinkGitHashShort` from `generate_esp32_config.py`; the
+  STM32 has no identity at all, which is also what #31 wants for the ULog header.
+- Identity is information, not a gate. What it buys over the handshake's refusal is knowing
+  which image to flash.
 - If it becomes one addressed binary, order matters: the ESP32 last means a failure leaves a
   matched STM32 and a stale ESP32, which is recoverable over WiFi. The reverse can leave a
   half-flashed ESP32 that can no longer program the STM32 it was meant to fix.
 
-Refusing to arm on a protocol mismatch is Sentinel's call, not the flasher's — see #16. The
-flasher's job ends at making the mismatch visible and easy to fix on the bench.
-
-Supporting rather than critical only because the manual practice works. It stops being enough
-the moment someone other than the author flashes this aircraft, or a wire change lands
-alongside a flight-day rebuild.
+Refusing to arm on a protocol mismatch is Sentinel's call, not the flasher's — see #16.
 
 ### #35 — Flash the STM32 over the cable, not the air — 🟢 SUPPORTING
 

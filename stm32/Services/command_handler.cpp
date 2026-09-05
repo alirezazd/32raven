@@ -19,11 +19,20 @@ CommandHandler &CommandHandler::GetInstance() {
   return instance;
 }
 
-static void OnPing(const AppContext &ctx, const message::Packet &pkt) {
-  (void)pkt;
+// Refused here rather than left to surface as a message type that never
+// arrives. Panicking sends kPanic, which the ESP32 shows in place of its own
+// handshake timeout.
+static void OnHandshake(const AppContext &ctx, const message::Packet &pkt) {
+  const auto &peer = message::PayloadAs<message::HandshakeMsg>(pkt);
+  if (peer.wire_hash != message::kWireContractHash) {
+    Panic(ErrorCode::Stm32::kFcLinkWireMismatch);
+  }
+
+  const message::HandshakeMsg reply{.wire_hash = message::kWireContractHash};
   message::Packet tx_pkt;
-  tx_pkt.header.id = (uint8_t)message::MsgId::kPong;
-  tx_pkt.header.len = 0;
+  tx_pkt.header.id = (uint8_t)message::MsgId::kHandshakeReply;
+  tx_pkt.header.len = message::PayloadLength<message::HandshakeMsg>();
+  std::memcpy(tx_pkt.payload, &reply, sizeof(reply));
   ctx.sys->FcLinkSvc().Send(tx_pkt);
 }
 
@@ -211,7 +220,7 @@ static void OnLogRead(const AppContext &ctx, const message::Packet &pkt) {
 }
 
 static const Dispatcher<const AppContext>::Entry kHandlers[] = {
-    {message::MsgId::kPing, OnPing},
+    {message::MsgId::kHandshake, OnHandshake},
     {message::MsgId::kReqRcMap, OnReqRcMap},
     {message::MsgId::kReqRcCalibration, OnReqRcCalibration},
     {message::MsgId::kSetRcMapConfig, OnSetRcMapConfig},

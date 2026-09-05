@@ -105,6 +105,7 @@ enum class Stm32 : uint32_t {
   kSensorCalServiceReinit,
   kSdCardGeometry,
   kEscOutputStalled,
+  kFcLinkWireMismatch,
 };
 
 enum class Esp32 : uint32_t {
@@ -181,6 +182,7 @@ enum class Esp32 : uint32_t {
   kUiInitFailed,
   kTonePlayerInitFailed,
   kSystemReinit,
+  kFcLinkWireMismatch,
 };
 };
 

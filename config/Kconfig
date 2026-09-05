@@ -648,9 +648,10 @@ config ESP32_FCLINK_HANDSHAKE_WINDOW_S
     range 1 10
     default 5
     help
-      How long the ESP32 pings the STM32 at startup before calling the link
-      unavailable. One ping goes out every FcLink::kHandshakeRetryPeriodMs,
-      and the attempt count is derived from the two.
+      How long the ESP32 retries the handshake at startup before calling the
+      link unavailable. One request goes out every
+      FcLink::kHandshakeRetryPeriodMs, and the attempt count is derived from
+      the two.
 
       The window has to outlast the STM32's slowest boot -- a card that needs
       mounting and a fresh log preallocated pushes that out by seconds. A peer
