@@ -327,8 +327,9 @@ class SerialLink:
     # No raw socket to hand the shell.
     ctrl = None
 
-    def __init__(self, port):
+    def __init__(self, port, timeout):
         self.port = port
+        self.timeout = timeout
         self.ser = None
 
     def describe(self):
@@ -338,15 +339,17 @@ class SerialLink:
         ser = serial.Serial()
         ser.port = self.port
         ser.timeout = USB_REPLY_TIMEOUT_S
-        # The USB-Serial-JTAG peripheral resets the chip on the DTR/RTS dance
-        # esptool relies on, and pyserial asserts both on open by default.
-        ser.dtr = False
+        # The USB-Serial-JTAG peripheral resets the chip on RTS high with DTR
+        # low. The kernel raises both on open and pyserial then applies DTR
+        # before RTS, which is exactly that state; so RTS is dropped first
+        # with DTR left up, and DTR follows once the port is open.
         ser.rts = False
         try:
             ser.open()
         except serial.SerialException as e:
             print(f"Could not open {self.port}: {e}")
             return False
+        ser.dtr = False
         self.ser = ser
         # Nothing refuses a serial port, and only Service polls this link, so
         # the wrong page is a STATUS? that goes unanswered.
@@ -359,9 +362,9 @@ class SerialLink:
         self.close()
         return False
 
-    def _reply(self):
+    def _reply(self, timeout_s=USB_REPLY_TIMEOUT_S):
         """The next protocol line; console lines pass through."""
-        deadline = time.monotonic() + USB_REPLY_TIMEOUT_S
+        deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             raw = self.ser.readline()
             if not raw:
@@ -382,7 +385,10 @@ class SerialLink:
 
     def send_chunk(self, chunk):
         self.ser.write(chunk)
-        reply = self._reply()
+        # The bridge erases the target's sectors before it takes the first
+        # chunk, seconds with its tick held; the WiFi link rides the same
+        # stall on its socket timeout.
+        reply = self._reply(self.timeout)
         if reply != "OK":
             raise OSError(f"chunk not acknowledged: {reply}")
 
@@ -426,7 +432,7 @@ class Esp32Shell(cmd.Cmd):
             return
 
         if self.port:
-            link = SerialLink(self.port)
+            link = SerialLink(self.port, self.timeout)
         else:
             ip = arg if arg else self.target_ip
             if not ip:
@@ -901,7 +907,7 @@ def main():
     if is_batch_mode:
         line = " ".join(args.command)
         shell.onecmd("connect")
-        if not shell.connected:
+        if not shell.link:
             sys.exit(1)
         shell.onecmd(line)
         sys.exit(1 if shell.failed else 0)
