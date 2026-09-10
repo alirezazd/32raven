@@ -66,6 +66,10 @@ bool UsbCdcServer::IsReady() const {
   return driver_installed_;
 }
 
+bool UsbCdcServer::HostAttached() const {
+  return usb_serial_jtag_is_connected();
+}
+
 void UsbCdcServer::ClearPeer() {
   // No peer state to clear — USB CDC is point-to-point with the host.
 }

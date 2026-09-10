@@ -24,6 +24,7 @@ extern "C" {
 #include "udp_server.hpp"
 #include "ui.hpp"
 #include "usb_cdc_server.hpp"
+#include "usb_host_link.hpp"
 #include "wifi.hpp"
 
 class System {
@@ -43,6 +44,7 @@ class System {
     kTcpServer,
     kUdpServer,
     kUsbCdcServer,
+    kUsbHostLink,
     kTelemUart,
     kFcLinkUart,
     kProgrammer,
@@ -66,6 +68,7 @@ class System {
   ::TcpServer &Tcp() { return ::TcpServer::GetInstance(); }
   ::UdpServer &Udp() { return ::UdpServer::GetInstance(); }
   ::UsbCdcServer &UsbCdc() { return ::UsbCdcServer::GetInstance(); }
+  ::UsbHostLink &UsbHost() { return ::UsbHostLink::GetInstance(); }
   ::TelemUartServer &Telem() { return ::TelemUartServer::GetInstance(); }
   ::Mavlink &Mavlink() { return ::Mavlink::GetInstance(); }
   ::FcLink &FcLink() { return ::FcLink::GetInstance(); }

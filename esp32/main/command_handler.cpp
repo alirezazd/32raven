@@ -15,7 +15,6 @@
 #include "state_machine.hpp"
 #include "states.hpp"
 #include "system.hpp"
-#include "tcp_server.hpp"
 
 extern "C" {
 #include "esp_log.h"
@@ -193,45 +192,65 @@ void CommandHandler::Dispatch(const AppContext &ctx, const message::Packet &pkt)
   }
 }
 
-CommandHandler::ServiceTcpAction CommandHandler::Dispatch(
-    const AppContext &ctx, const TcpServer::Event &ev) {
-  switch (ev.id) {
-    case TcpServer::EventId::kBegin: {
-      ctx.sys->Tcp().BeginTransfer(ev.begin.size);
-      ctx.sys->Programmer().SetTarget(ev.begin.target);
+void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
+  HostLink &link = *ev.origin;
+  // Which page is showing decides whether a verb can be served here: BEGIN
+  // belongs to Service, the LOG pair to WifiLog, and each refuses the other's.
+  const IState<AppContext> *page = ctx.sm->CurrentState();
 
-      ESP_LOGI(kTag, "TCP: BEGIN size=%u crc=%u target=%s",
-               (unsigned)ev.begin.size, (unsigned)ev.begin.crc,
+  switch (ev.id) {
+    case HostLink::EventId::kBegin: {
+      ESP_LOGI(kTag, "BEGIN size=%u crc=%u target=%s", (unsigned)ev.begin.size,
+               (unsigned)ev.begin.crc,
                ev.begin.target[0] != '\0' ? ev.begin.target : "stm32");
-      return ServiceTcpAction::kEnterProgram;
+      if (page != ctx.service_state) {
+        link.SendCtrlLine("ERR wrong_page\n");
+        return;
+      }
+      // Two links are drained in one tick, so a second BEGIN can land while
+      // the first's transfer is armed and Program not yet entered.
+      if (ctx.host_link != nullptr) {
+        link.SendCtrlLine("ERR busy\n");
+        return;
+      }
+      // Armed on the link that carried it, so Program answers only that one.
+      link.BeginTransfer(ev.begin);
+      ctx.sys->Programmer().SetTarget(ev.begin.target);
+      ctx.host_link = &link;
+      link.SendCtrlLine("OK\n");
+      ctx.sm->ReqTransition(*ctx.program_state);
+      return;
     }
-    case TcpServer::EventId::kLogList: {
-      ctx.log_pull_state->PrepareList();
-      return ServiceTcpAction::kEnterLogPull;
+    case HostLink::EventId::kLogList:
+    case HostLink::EventId::kLogGet: {
+      // Logs are served from the WiFi log page, where the screen shows the
+      // transfer.
+      if (page != ctx.wifi_log_state) {
+        link.SendCtrlLine("ERR wrong_page\n");
+        return;
+      }
+      if (ev.id == HostLink::EventId::kLogList) {
+        ctx.log_pull_state->PrepareList();
+      } else {
+        ctx.log_pull_state->PrepareGet(ev.log_name);
+      }
+      link.SendCtrlLine("OK\n");
+      ctx.sm->ReqTransition(*ctx.log_pull_state);
+      return;
     }
-    case TcpServer::EventId::kLogGet: {
-      ctx.log_pull_state->PrepareGet(ev.log_name);
-      return ServiceTcpAction::kEnterLogPull;
+    case HostLink::EventId::kAbort: {
+      link.EndTransfer();
+      ESP_LOGI(kTag, "ABORT");
+      return;
     }
-    case TcpServer::EventId::kAbort: {
-      ctx.sys->Tcp().EndTransfer();
-      ESP_LOGI(kTag, "TCP: ABORT");
-      return ServiceTcpAction::kStayInService;
-    }
-    case TcpServer::EventId::kReset: {
-      ctx.sys->Tcp().CloseDataRx();
-      ESP_LOGW(kTag, "TCP: RESET requested. Rebooting...");
+    case HostLink::EventId::kReset: {
+      link.CloseDataRx();
+      ESP_LOGW(kTag, "RESET requested. Rebooting...");
       ctx.sys->Programmer().Boot();
       esp_restart();
-      return ServiceTcpAction::kStayInService;
+      return;
     }
-    case TcpServer::EventId::kBridge: {
-      ESP_LOGI(kTag, "TCP: BRIDGE requested");
-      ctx.sys->Tcp().OpenDataRx();
-      return ServiceTcpAction::kStayInService;
-    }
-    default:
+    case HostLink::EventId::kNone:
       break;
   }
-  return ServiceTcpAction::kStayInService;
 }

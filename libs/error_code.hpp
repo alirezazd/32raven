@@ -183,6 +183,7 @@ enum class Esp32 : uint32_t {
   kTonePlayerInitFailed,
   kSystemReinit,
   kFcLinkWireMismatch,
+  kProgrammerCrcMismatch,
 };
 };
 

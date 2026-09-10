@@ -8,6 +8,7 @@
 #include "ctx.hpp"
 #include "esp32_config.hpp"
 #include "fc_link.hpp"
+#include "host_link.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
 #include "timebase.hpp"
@@ -152,12 +153,17 @@ void ServiceState::OnEnter(AppContext &ctx) {
   // Service-recoverable), so a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().CloseDataRx();
+  ctx.sys->UsbHost().Start();
 }
 
 // This page never drains FcLink, so the STM32's stream has been piling up
 // unparsed the whole time. Handed on as a resync rather than as a buffer the
 // next page would read as fatal corruption. Program is the other such page.
-void ServiceState::OnExit(AppContext &ctx) { ctx.sys->FcLink().ResetRxState(); }
+void ServiceState::OnExit(AppContext &ctx) {
+  ctx.sys->FcLink().ResetRxState();
+  // Every page but Program takes the port for something else.
+  if (ctx.host_link != &ctx.sys->UsbHost()) ctx.sys->UsbHost().Stop();
+}
 
 void ServiceState::OnStep(AppContext &ctx) {
   if (CycleOnButton(ctx, "Service", {*ctx.esc_config_state, "EscConfig"},
@@ -166,24 +172,18 @@ void ServiceState::OnStep(AppContext &ctx) {
   }
 
   ctx.sys->Tcp().Poll();
+  ctx.sys->UsbHost().Poll();
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    switch (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
-      case CommandHandler::ServiceTcpAction::kEnterProgram:
-        ctx.sys->Tcp().SendCtrlLine("OK\n");
-        ctx.sm->ReqTransition(*ctx.program_state);
-        return;
-      case CommandHandler::ServiceTcpAction::kEnterLogPull:
-        // Logs are served from the WiFi log page, where the screen shows
-        // the transfer.
-        ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
-        break;
-      case CommandHandler::ServiceTcpAction::kStayInService:
-        break;
-    }
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
   }
 
-  (void)ctx.sys->Tcp().TakeLinkDrops();
+  while (auto ev = ctx.sys->UsbHost().PopEvent()) {
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+  }
+
+  ctx.sys->Tcp().ClearLinkDrop();
+  ctx.sys->UsbHost().ClearLinkDrop();
 }
 
 // Program State
@@ -193,12 +193,16 @@ void ProgramState::OnEnter(AppContext &ctx) {
   // Treat programming start like user activity so the progress UI is visible.
   ctx.sys->Ui().NotifyUserActivity();
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Programmer().Start(ctx.sys->Tcp().GetStatus().total);
+  const HostLink::BeginArgs &begin = ctx.host_link->Begin();
+  ctx.sys->Programmer().Start(begin.size, begin.crc);
   ctx.sys->Led().Off();
 }
 
 // As ServiceState::OnExit, and the STM32 may also just have been rebooted.
-void ProgramState::OnExit(AppContext &ctx) { ctx.sys->FcLink().ResetRxState(); }
+void ProgramState::OnExit(AppContext &ctx) {
+  ctx.sys->FcLink().ResetRxState();
+  ctx.host_link = nullptr;
+}
 
 void ProgramState::OnStep(AppContext &ctx) {
   auto &button = ctx.sys->Button();
@@ -211,50 +215,49 @@ void ProgramState::OnStep(AppContext &ctx) {
     ctx.sys->Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "Program -> Service (long press)");
     ctx.sys->Programmer().Abort();
-    ctx.sys->Tcp().EndTransfer();
+    ctx.host_link->EndTransfer();
     ctx.sm->ReqTransition(*ctx.service_state);
     return;
   }
 
-  ctx.sys->Tcp().Poll();
+  ctx.host_link->Poll();
   ctx.sys->Programmer().Poll();
 
-  auto &tcp = ctx.sys->Tcp();
+  auto &link = *ctx.host_link;
   auto &prog = ctx.sys->Programmer();
 
   if (prog.Done()) {
     ESP_LOGI(kTag, "Prog Done -> Transitioning to Service");
-    TcpServer::Status st{};
+    HostLink::Status st{};
     st.rx = prog.Written();
     st.total = prog.Total();
-    st.state = TcpServer::Status::kDone;
-    tcp.EndTransfer();
-    tcp.SetStatus(st);
+    st.state = HostLink::Status::kDone;
+    link.EndTransfer();
+    link.SetStatus(st);
 
     ctx.sys->Programmer().Boot();
     ctx.sm->ReqTransition(*ctx.service_state);
     return;
   }
 
-  while (auto ev = tcp.PopEvent()) {
-    if (ev->id == TcpServer::EventId::kAbort) {
+  while (auto ev = link.PopEvent()) {
+    if (ev->id == HostLink::EventId::kAbort) {
       ESP_LOGE(kTag, "ProgramState: ABORT");
-      tcp.EndTransfer();
+      link.EndTransfer();
       prog.Abort();
       ctx.sm->ReqTransition(*ctx.service_state);
       return;
     }
   }
 
-  const TcpServer::LinkDrops drops = tcp.TakeLinkDrops();
-  if (drops.ctrl || drops.data) {
+  if (link.TakeLinkDrop()) {
     ESP_LOGE(kTag, "ProgramState: link drop -> Abort");
-    tcp.EndTransfer();
+    link.EndTransfer();
     prog.Abort();
     // Service, where a completed flash also lands: the network stays up and
     // the host can retry without walking the menu again. Only the unasked-for
     // endings sound -- an ABORT line is the host's own doing, a dropped
-    // socket is not, and the STM32 left half-written says so on next boot.
+    // link is not, and the STM32 left half-written says so on next boot.
     ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
     ctx.sm->ReqTransition(*ctx.service_state);
     return;
@@ -264,22 +267,22 @@ void ProgramState::OnStep(AppContext &ctx) {
     ctx.sys->Led().Toggle();
     // Writing is over, so rx would otherwise sit frozen at the last written
     // byte for the whole verify pass. state distinguishes the two counts.
-    TcpServer::Status verifying = tcp.GetStatus();
+    HostLink::Status verifying = link.GetStatus();
     verifying.rx = prog.VerifyOffset();
-    verifying.state = TcpServer::Status::kVerifying;
-    tcp.SetStatus(verifying);
+    verifying.state = HostLink::Status::kVerifying;
+    link.SetStatus(verifying);
     return;
   }
 
-  TcpServer::Status st = tcp.GetStatus();
+  HostLink::Status st = link.GetStatus();
   st.rx = prog.Written();
-  tcp.SetStatus(st);
+  link.SetStatus(st);
 
   size_t free = prog.Free();
   if (free > 0) {
     uint8_t buf[512];
     const std::span<uint8_t> chunk{buf};
-    const size_t n = tcp.ReadDataRx(
+    const size_t n = link.ReadDataRx(
         chunk.first((free < chunk.size()) ? free : chunk.size()));
     if (n > 0) {
       prog.PushBytes(chunk.first(n));
@@ -445,22 +448,10 @@ void WifiLogState::OnStep(AppContext &ctx) {
   DrainFcLink(ctx);
 
   while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    switch (ctx.sys->CommandHandler().Dispatch(ctx, *ev)) {
-      case CommandHandler::ServiceTcpAction::kEnterLogPull:
-        ctx.sys->Tcp().SendCtrlLine("OK\n");
-        ctx.sm->ReqTransition(*ctx.log_pull_state);
-        return;
-      case CommandHandler::ServiceTcpAction::kEnterProgram:
-        // BEGIN's dispatch already opened the transfer, so close it first.
-        ctx.sys->Tcp().EndTransfer();
-        ctx.sys->Tcp().SendCtrlLine("ERR wrong_page\n");
-        break;
-      case CommandHandler::ServiceTcpAction::kStayInService:
-        break;
-    }
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
   }
 
-  (void)ctx.sys->Tcp().TakeLinkDrops();
+  ctx.sys->Tcp().ClearLinkDrop();
 }
 
 // LogPull State

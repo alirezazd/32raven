@@ -134,7 +134,8 @@ uint32_t EnterRecoveryServiceMode() {
   sys.Button().FlushEvents();
   sys.Ui().SetAppState(Ui::AppState::kProgram);
   sys.Ui().NotifyUserActivity();
-  sys.Programmer().Start(sys.Tcp().GetStatus().total);
+  const HostLink::BeginArgs &begin = sys.Tcp().Begin();
+  sys.Programmer().Start(begin.size, begin.crc);
   return sys.Programmer().Written();
 }
 
@@ -193,7 +194,7 @@ void RecoverySession::StepServiceMode(TimeMs now) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
         tcp_.SendCtrlLine("OK\n");
-        tcp_.BeginTransfer(ev->begin.size);
+        tcp_.BeginTransfer(ev->begin);
         prog_.SetTarget(ev->begin.target);
         EnterProgramMode(now);
         return;
@@ -210,16 +211,13 @@ void RecoverySession::StepServiceMode(TimeMs now) {
         (void)prog_.Boot();
         esp_restart();
         break;
-      case TcpServer::EventId::kBridge:
-        tcp_.OpenDataRx();
-        break;
       case TcpServer::EventId::kNone:
       default:
         break;
     }
   }
 
-  (void)tcp_.TakeLinkDrops();
+  tcp_.ClearLinkDrop();
 }
 
 void RecoverySession::EnterProgramMode(TimeMs now) {
@@ -255,7 +253,7 @@ void RecoverySession::StepProgramMode(TimeMs now) {
     switch (ev->id) {
       case TcpServer::EventId::kBegin:
         tcp_.SendCtrlLine("OK\n");
-        tcp_.BeginTransfer(ev->begin.size);
+        tcp_.BeginTransfer(ev->begin);
         prog_.SetTarget(ev->begin.target);
         EnterProgramMode(now);
         return;
@@ -269,17 +267,13 @@ void RecoverySession::StepProgramMode(TimeMs now) {
         (void)prog_.Boot();
         esp_restart();
         break;
-      case TcpServer::EventId::kBridge:
-        tcp_.OpenDataRx();
-        break;
       case TcpServer::EventId::kNone:
       default:
         break;
     }
   }
 
-  const TcpServer::LinkDrops drops = tcp_.TakeLinkDrops();
-  if (drops.ctrl || drops.data) {
+  if (tcp_.TakeLinkDrop()) {
     prog_.Abort();
     tcp_.EndTransfer();
     (void)EnterServiceMode(now, NetworkAction::kStopNetwork);

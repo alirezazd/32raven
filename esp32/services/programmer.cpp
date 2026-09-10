@@ -11,6 +11,7 @@
 #include <optional>
 #include <span>
 
+#include "checksum.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -537,9 +538,11 @@ bool Programmer::ReadStm32Block(uint32_t addr, uint8_t *bytes, size_t len) {
   return true;
 }
 
-void Programmer::Start(uint32_t total_size) {
+void Programmer::Start(uint32_t total_size, uint32_t expected_crc) {
   // Reset session
   ctx_.total_size = total_size;
+  ctx_.crc = checksum::kCrc32Init;
+  ctx_.expected_crc = expected_crc;
   ctx_.written = 0;
   ctx_.verify_offset = 0;
   ctx_.head = ctx_.tail = 0;
@@ -608,6 +611,9 @@ size_t Programmer::PushBytes(std::span<const uint8_t> bytes) {
     std::memcpy(ctx_.buf + ctx_.tail, bytes.data(), until_wrap);
     std::memcpy(ctx_.buf, bytes.data() + until_wrap, take - until_wrap);
     ctx_.tail = (ctx_.tail + take) % Ctx::kBufCap;
+    for (const uint8_t byte : bytes.first(take)) {
+      ctx_.crc = checksum::Crc32Update(ctx_.crc, byte);
+    }
   }
 
   if (take < bytes.size()) {
@@ -898,6 +904,12 @@ void Programmer::StepWriting() {
 
   ESP_LOGI(kTag, "Write complete.");
 
+  // The verify below proves the flash holds what arrived; this proves what
+  // arrived is the image the host meant to send.
+  if (checksum::Crc32Final(ctx_.crc) != ctx_.expected_crc) {
+    Fail(ErrorCode::Esp32::kProgrammerCrcMismatch);
+    return;
+  }
   if (!FinalizeTargetWrite()) {
     return;
   }

@@ -15,6 +15,7 @@ struct EscConfigState;
 struct WifiLogState;
 struct UsbLogState;
 struct LogPullState;
+class HostLink;
 
 class System;
 
@@ -34,4 +35,6 @@ struct AppContext {
   WifiLogState *wifi_log_state = nullptr;
   UsbLogState *usb_log_state = nullptr;
   LogPullState *log_pull_state = nullptr;
+  // The link whose BEGIN armed the current transfer; Program answers only it.
+  HostLink *host_link = nullptr;
 };

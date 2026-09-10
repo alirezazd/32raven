@@ -437,40 +437,6 @@ wiring parts that are already there.
 
 Refusing to arm on a protocol mismatch is Sentinel's call, not the flasher's — see #16.
 
-### #35 — Flash the STM32 over the cable, not the air — 🟢 SUPPORTING
-
-`make flash-wifi-stm32` is the only way to program the flight computer, so the AP has to be up
-and joined before the STM32 can be fixed — including when the thing being debugged *is* the
-WiFi. The bridge already has a USB cable attached for `make flash-esp32`; the same cable should
-carry a `make flash-stm32`.
-
-Everything below the host leg is already transport-agnostic. `ServiceState` and `ProgramState`
-drive `Programmer`, which pulses `BOOT0`/`NRST` and speaks the ROM bootloader over USART1;
-none of that knows or cares how the image arrived. Only the host-to-ESP32 hop is TCP, and the
-states touch it through about a dozen `TcpServer` calls — `Poll`, `PopEvent`, `SendCtrlLine`,
-`SendData`, `StartDownload`, `StopDownload`, `GetStatus`, `SetStatus`, the bridge pair and
-`Stop`. A USB transport that produces the same event stream and accepts the same writes drops
-in underneath without the states noticing.
-
-Two things make it more than a rename:
-
-- **One pipe, two channels.** TCP hands out a line-oriented ctrl socket and a binary data
-  socket; USB-Serial-JTAG is a single byte stream, so the two have to be multiplexed and
-  framed. `libs/message.hpp` already defines a framed packet with a length and a CRC, and both
-  firmwares compile it — reusing that shape is cheaper than inventing a second one.
-- **The console shares the pipe.** `CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y`, so `ESP_LOG` output
-  interleaves with whatever else writes there — `UsbCdcServer::Init` says as much, and MAVLink
-  survives it only because pymavlink resynchronises on the `0xFD` magic byte. A firmware image
-  needs the same resync property from its framing, or the console silenced for the duration of
-  a transfer.
-
-Host side, `tools/esp32_client.py` opens two sockets and resolves an IP; it would open one
-serial port and demultiplex, with port discovery replacing `resolve_target_ip`. The existing
-`flash`/`flash_esp` command shapes and the `BEGIN size=… crc=…` handshake stay as they are.
-
-The one-USB-at-a-time rule in `docs/flashing.md` is unaffected: this uses the bridge's own
-port, the one already carrying `make flash-esp32`, and never the flight computer's.
-
 ### #36 — Notifications the display can carry — 🟢 SUPPORTING
 
 Several conditions today are announced only by a warning tone and an `ESP_LOGW` nobody is

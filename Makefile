@@ -74,7 +74,7 @@ CLEAN_FILES := \
 	config/32raven.config.old \
 	config/defconfig
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs doctor install-deps
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 flash-stm32 flash-all flash-wifi-all monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs doctor install-deps
 
 help:
 	@echo "Targets:"
@@ -96,6 +96,9 @@ help:
 	@echo "  flash-monitor-esp32 - Flash and monitor ESP32 via serial"
 	@echo "  flash-wifi-esp32    - Flash ESP32 via WiFi (OTA)"
 	@echo "  flash-wifi-stm32    - Flash STM32 via WiFi (Bridge)"
+	@echo "  flash-stm32         - Flash STM32 via the bridge's USB cable"
+	@echo "  flash-all           - Flash STM32 then ESP32, both via USB"
+	@echo "  flash-wifi-all      - Flash STM32 then ESP32, both via WiFi"
 	@echo "  pull-wifi-logs      - Pull blackbox logs over WiFi (LOG=<name> skips the picker)"
 	@echo "  idf-install         - Install local ESP-IDF tools for third_party/esp-idf"
 	@echo "  enable-docker       - Persist USE_DOCKER=1 in .build-mode (builds run in container)"
@@ -213,6 +216,20 @@ flash-wifi-stm32: stm32
 flash-wifi-esp32: esp32
 	-pkill -f esp32_client.py || true
 	$(RUN) uv run --quiet --script tools/esp32_client.py $(ESP_IP) flash_esp $(BUILD_DIR)/esp32/32Raven_esp32.bin
+
+flash-stm32: stm32
+	$(if $(ESP_PORT_VAR),,$(error No ESP32 USB port found; plug the bridge in, or set ESP_PORT in user_config.cmake))
+	$(RUN_USB) uv run --quiet --script tools/esp32_client.py --port $(ESP_PORT_VAR) flash $(BUILD_DIR)/stm32/32Raven_stm32.bin
+
+# Recursive rather than prerequisites, so -j cannot reorder them: the flight
+# computer goes first, and a failure there leaves the bridge as it was.
+flash-all:
+	$(MAKE) flash-stm32
+	$(MAKE) flash-esp32
+
+flash-wifi-all:
+	$(MAKE) flash-wifi-stm32
+	$(MAKE) flash-wifi-esp32
 
 # Host-side, no $(RUN): this prompts on a TTY and writes to the desktop's
 # download directory, neither of which survives the build container. With no

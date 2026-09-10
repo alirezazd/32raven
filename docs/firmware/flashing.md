@@ -1,7 +1,7 @@
 # Flashing the firmware
 
 Only one board is ever plugged into a computer. The bridge is flashed over its own USB, and
-from then on it programs the flight computer itself, over the air.
+from then on it programs the flight computer itself — over the air, or over that same cable.
 
 It does that by holding `BOOT0` high and pulsing `NRST`, so the STM32 starts in its built-in
 ROM bootloader instead of the application. That bootloader listens on USART1 — the same
@@ -51,3 +51,25 @@ Both WiFi targets need your computer on the bridge's network — it broadcasts i
 point (SSID `32Raven` in the reference config, `CONFIG_ESP32_WIFI_AP_SSID`), where its
 address is the default `192.168.4.1`. Reaching it some other way, pass the address
 explicitly: `make flash-wifi-stm32 ESP_IP=<address>`.
+
+## The flight computer, over USB
+
+```bash
+make flash-stm32
+```
+
+The same path with the WiFi hop replaced by the cable `make flash-esp32` already uses: the
+image goes down USB to the bridge, which programs the flight computer exactly as above. The
+bridge must be on its Service page, as for WiFi. Useful when the thing being debugged is the
+WiFi. The bridge's own log scrolls past while it works — it shares the port — and the
+`OK`/`ERR`/`STATUS` lines among it are the protocol.
+
+## Both boards
+
+```bash
+make flash-all        # over USB
+make flash-wifi-all   # over WiFi
+```
+
+Flight computer first, then the bridge. The order is deliberate: if the first half fails, the
+bridge is still the one that was there before, and the bridge is what retries.

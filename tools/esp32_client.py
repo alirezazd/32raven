@@ -5,6 +5,7 @@
 
 # /// script
 # dependencies = [
+#     "pyserial",
 #     "rich",
 # ]
 # ///
@@ -20,7 +21,9 @@ import socket
 import subprocess
 import sys
 import time
+import zlib
 
+import serial
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -43,9 +46,20 @@ FLASH_STATUS_TIMEOUT_S = 120
 SERVICE_POLL_SECONDS = 1.0
 WIFI_WAIT_SECONDS = 15
 
-# STATUS? state values, mirroring TcpServer::Status in tcp_server.hpp.
+# STATUS? state values, mirroring HostLink::Status in host_link.hpp.
 STATE_DONE = 1
 STATE_VERIFYING = 2
+
+# Mirrors UsbHostLink::kChunkBytes: the bridge acknowledges every chunk,
+# and its USB driver drops what it cannot hold, so nothing more is in flight.
+USB_CHUNK_SIZE = 512
+USB_REPLY_TIMEOUT_S = 2.0
+# The bridge's console shares its USB port; these are the lines that are not
+# console.
+PROTOCOL_PREFIXES = ("OK", "ERR", "STATUS")
+SERVICE_HINT = (
+    "  Put it in Service mode: press the button until the OLED reads Service."
+)
 
 # Flash-path output only; the interactive shell keeps plain prints.
 console = Console()
@@ -168,48 +182,21 @@ class AutoConnector:
             time.sleep(0.5)
 
 
-class Esp32Shell(cmd.Cmd):
-    intro = (
-        "Welcome to the ESP32/32raven Shell. Type help or ? to list commands.\n"
-    )
-    prompt = "(disconnected) > "
+class TcpLink:
+    """The WiFi transport: a ctrl socket for lines, a data socket for bytes."""
 
-    def __init__(self, ip=None, timeout=10, wait_for_service=False):
-        super().__init__()
-        self.target_ip = ip
+    chunk_size = CHUNK_SIZE
+
+    def __init__(self, ip, timeout):
+        self.ip = ip
         self.timeout = timeout
-        # Only the one-shot flash waits: an interactive session has a human
-        # who can read the message and retry.
-        self.wait_for_service = wait_for_service
-        self.ctrl_sock = None
-        self.data_sock = None
-        self.connected = False
-        self.failed = False
+        self.ctrl = None
+        self.data = None
 
-        # If no IP provided, just prompt updates
-        if self.target_ip:
-            self.prompt = f"({self.target_ip}) > "
+    def describe(self):
+        return self.ip
 
-    def do_connect(self, arg):
-        """Connect to the ESP32. Usage: connect [ip]."""
-        ip = arg if arg else self.target_ip
-
-        if not ip:
-            print("No IP specified and auto-connect not yet run.")
-            return
-
-        self.target_ip = ip
-        if self.connected:
-            print(f"Already connected to {self.target_ip}")
-            return
-
-        print(f"Connecting to {self.target_ip}...")
-        if self._open_ctrl(retry=self.wait_for_service):
-            self.connected = True
-            self.prompt = f"({self.target_ip}) > "
-            print("Connected.")
-
-    def _open_ctrl(self, retry=False):
+    def open(self, retry):
         """Open the ctrl socket, explaining a refusal, not echoing errno.
 
         ECONNREFUSED here is not ambiguous: MavlinkWifiState calls Tcp().Stop()
@@ -222,8 +209,8 @@ class Esp32Shell(cmd.Cmd):
         announced = False
         while True:
             try:
-                self.ctrl_sock = socket.create_connection(
-                    (self.target_ip, CTRL_PORT), timeout=self.timeout
+                self.ctrl = socket.create_connection(
+                    (self.ip, CTRL_PORT), timeout=self.timeout
                 )
                 if announced:
                     print("\nService mode detected.")
@@ -231,14 +218,9 @@ class Esp32Shell(cmd.Cmd):
             except ConnectionRefusedError:
                 if not announced:
                     print()
-                    print(
-                        f"  CONNECTION REFUSED   {self.target_ip}:{CTRL_PORT}"
-                    )
+                    print(f"  CONNECTION REFUSED   {self.ip}:{CTRL_PORT}")
                     print("  ESP32 is up, Service server is not.")
-                    print(
-                        "  Put it in Service mode: press the button until "
-                        "the OLED reads Service."
-                    )
+                    print(SERVICE_HINT)
                     if not retry:
                         print()
                         return False
@@ -253,9 +235,169 @@ class Esp32Shell(cmd.Cmd):
                 print(f"Connection failed: {e}")
                 return False
 
+    def request(self, cmd):
+        """One line out, one line back; None once the socket is gone."""
+        self.ctrl.sendall((cmd.strip() + "\n").encode("ascii"))
+        resp = b""
+        while True:
+            chunk = self.ctrl.recv(1)
+            if not chunk:
+                return None
+            resp += chunk
+            if chunk == b"\n":
+                return resp.decode("ascii").strip()
+
+    def open_data(self):
+        try:
+            self.data = socket.create_connection(
+                (self.ip, DATA_PORT), timeout=self.timeout
+            )
+            return True
+        except OSError as e:
+            print(f"Error connecting to data port: {e}")
+            return False
+
+    def send_chunk(self, chunk):
+        self.data.sendall(chunk)
+
+    def alive(self):
+        try:
+            self.ctrl.send(b"\n")
+            return True
+        except OSError:
+            return False
+
+    def close(self):
+        for sock in (self.ctrl, self.data):
+            if sock:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+        self.ctrl = None
+        self.data = None
+
+
+class SerialLink:
+    """The USB transport: one byte stream, shared with the bridge's console."""
+
+    chunk_size = USB_CHUNK_SIZE
+
+    def __init__(self, port):
+        self.port = port
+        self.ser = None
+
+    def describe(self):
+        return self.port
+
+    def open(self, retry):
+        # Whether the bridge is on Service is only learnt from BEGIN going
+        # unanswered, so the wait lives in the upload rather than here.
+        del retry
+        ser = serial.Serial()
+        ser.port = self.port
+        ser.timeout = USB_REPLY_TIMEOUT_S
+        # The USB-Serial-JTAG peripheral resets the chip on the DTR/RTS dance
+        # esptool relies on, and pyserial asserts both on open by default.
+        ser.dtr = False
+        ser.rts = False
+        try:
+            ser.open()
+        except serial.SerialException as e:
+            print(f"Could not open {self.port}: {e}")
+            return False
+        self.ser = ser
+        return True
+
+    def _reply(self):
+        """The next protocol line; console lines pass through."""
+        deadline = time.monotonic() + USB_REPLY_TIMEOUT_S
+        while time.monotonic() < deadline:
+            raw = self.ser.readline()
+            if not raw:
+                continue
+            line = raw.decode("ascii", errors="replace").strip()
+            if line.startswith(PROTOCOL_PREFIXES):
+                return line
+            if line and line.isprintable():
+                print(line)
+        return None
+
+    def request(self, cmd):
+        self.ser.write((cmd.strip() + "\n").encode("ascii"))
+        return self._reply()
+
+    def open_data(self):
+        return True
+
+    def send_chunk(self, chunk):
+        self.ser.write(chunk)
+        reply = self._reply()
+        if reply != "OK":
+            raise OSError(f"chunk not acknowledged: {reply}")
+
+    def alive(self):
+        return self.ser is not None and self.ser.is_open
+
+    def close(self):
+        if self.ser:
+            try:
+                self.ser.close()
+            except serial.SerialException:
+                pass
+            self.ser = None
+
+
+class Esp32Shell(cmd.Cmd):
+    intro = (
+        "Welcome to the ESP32/32raven Shell. Type help or ? to list commands.\n"
+    )
+    prompt = "(disconnected) > "
+
+    def __init__(self, ip=None, port=None, timeout=10, wait_for_service=False):
+        super().__init__()
+        self.target_ip = ip
+        self.port = port
+        self.timeout = timeout
+        # Only the one-shot flash waits: an interactive session has a human
+        # who can read the message and retry.
+        self.wait_for_service = wait_for_service
+        self.link = None
+        self.connected = False
+        self.failed = False
+
+        # If no IP provided, just prompt updates
+        if self.port or self.target_ip:
+            self.prompt = f"({self.port or self.target_ip}) > "
+
+    def do_connect(self, arg):
+        """Connect to the ESP32. Usage: connect [ip]."""
+        if self.connected:
+            print(f"Already connected to {self.link.describe()}")
+            return
+
+        if self.port:
+            link = SerialLink(self.port)
+        else:
+            ip = arg if arg else self.target_ip
+            if not ip:
+                print("No IP specified and auto-connect not yet run.")
+                return
+            self.target_ip = ip
+            link = TcpLink(ip, self.timeout)
+
+        print(f"Connecting to {link.describe()}...")
+        if link.open(retry=self.wait_for_service):
+            self.link = link
+            self.connected = True
+            self.prompt = f"({link.describe()}) > "
+            print("Connected.")
+
     def do_disconnect(self, arg):
         """Disconnect from the ESP32."""
-        self._close_sockets()
+        if self.link:
+            self.link.close()
+            self.link = None
         self.connected = False
         self.prompt = "(disconnected) > "
         print("Disconnected.")
@@ -290,11 +432,28 @@ class Esp32Shell(cmd.Cmd):
         self.do_disconnect(None)
 
     def _upload(self, filename, begin_extra):
-        """BEGIN on ctrl, open the data socket on OK, and stream the file."""
-        filesize = os.path.getsize(filename)
+        """BEGIN on ctrl, open the data path on OK, and stream the file."""
+        with open(filename, "rb") as f:
+            image = f.read()
+        filesize = len(image)
+        crc = zlib.crc32(image) & 0xFFFFFFFF
 
         print(f"Handshake (BEGIN{begin_extra})...")
-        resp = self._send_ctrl(f"BEGIN size={filesize} crc=0{begin_extra}")
+        begin = f"BEGIN size={filesize} crc={crc}{begin_extra}"
+        resp = self._send_ctrl(begin)
+        # Over USB nothing refuses a connection, so the wrong page shows only
+        # as silence; the wait the TCP path does at connect happens here.
+        if (
+            resp is None
+            and isinstance(self.link, SerialLink)
+            and self.wait_for_service
+        ):
+            print(SERVICE_HINT)
+            print(f"  Waiting {SERVICE_WAIT_SECONDS}s...  ^C aborts.")
+            deadline = time.time() + SERVICE_WAIT_SECONDS
+            while resp is None and self.link and time.time() < deadline:
+                time.sleep(SERVICE_POLL_SECONDS)
+                resp = self._send_ctrl(begin)
         if resp != "OK":
             if resp is None:
                 # The connect succeeded, so something is listening; silence
@@ -316,14 +475,9 @@ class Esp32Shell(cmd.Cmd):
                 console.print(f"[red]Target refused handshake:[/red] {resp}")
             return False
 
-        try:
-            self.data_sock = socket.create_connection(
-                (self.target_ip, DATA_PORT), timeout=self.timeout
-            )
-        except OSError as e:
+        if not self.link.open_data():
             # The target armed a transfer on BEGIN; tell it the stream is
             # not coming rather than leaving it waiting for one.
-            print(f"Error connecting to data port: {e}")
             self._send_ctrl("ABORT")
             return False
 
@@ -339,13 +493,11 @@ class Esp32Shell(cmd.Cmd):
             transient=True,
         )
         try:
-            with open(filename, "rb") as f, progress:
+            with progress:
                 task = progress.add_task("upload", total=filesize)
-                while True:
-                    chunk = f.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    self.data_sock.sendall(chunk)
+                for offset in range(0, filesize, self.link.chunk_size):
+                    chunk = image[offset : offset + self.link.chunk_size]
+                    self.link.send_chunk(chunk)
                     total_sent += len(chunk)
                     progress.update(task, completed=total_sent)
         except Exception as e:
@@ -388,9 +540,18 @@ class Esp32Shell(cmd.Cmd):
                 except (OSError, BrokenPipeError):
                     resp = None
                 if not resp:
+                    progress.stop()
+                    if expect_done:
+                        # The bridge halts on a failed flash rather than
+                        # reporting it, so silence before done is the failure.
+                        console.print(
+                            "[red]Target went quiet before reporting "
+                            "done.[/red] The bridge's display and log have "
+                            "the reason."
+                        )
+                        return False
                     # The target reboots into the new image mid-poll; the
                     # drop is the ordinary success signal.
-                    progress.stop()
                     console.print(
                         "[green]Flash success[/green] (target rebooted)"
                     )
@@ -454,20 +615,13 @@ class Esp32Shell(cmd.Cmd):
 
         # STM32 keeps the connection up; an ESP32 flash drops it.
         if self._ensure_connected_silent():
-            print("Session active. You can run 'monitor' or other commands.")
+            print("Session active.")
         else:
             self.do_disconnect(None)
 
     def _ensure_connected_silent(self):
         """Check if connected without auto-reconnect or prints."""
-        if not self.connected:
-            return False
-        try:
-            # check socket health?
-            self.ctrl_sock.send(b"\n")
-            return True
-        except OSError:
-            return False
+        return self.connected and self.link.alive()
 
     def do_flash_esp(self, arg):
         """Flash ESP32 firmware. Usage: flash_esp <path_to_bin>."""
@@ -512,7 +666,12 @@ class Esp32Shell(cmd.Cmd):
         if not self._ensure_connected():
             return
 
-        print(f"--- Entering Interactive Shell ({self.target_ip}) ---")
+        sock = self.link.ctrl if isinstance(self.link, TcpLink) else None
+        if sock is None:
+            print("The shell needs the WiFi link; USB has make monitor-esp32.")
+            return
+
+        print(f"--- Entering Interactive Shell ({self.link.describe()}) ---")
         print("Type commands directly. Ctrl+C to exit.")
 
         prompt = "32Raven> "
@@ -522,17 +681,17 @@ class Esp32Shell(cmd.Cmd):
         try:
             while self.connected:
                 # Wait for input from stdin or data from socket
-                r, _, _ = select.select([sys.stdin, self.ctrl_sock], [], [])
+                r, _, _ = select.select([sys.stdin, sock], [], [])
 
                 if sys.stdin in r:
                     line = sys.stdin.readline()
                     if not line:
                         break
-                    self.ctrl_sock.sendall(line.encode("ascii"))
+                    sock.sendall(line.encode("ascii"))
                     # Don't print prompt here, expect response
 
-                if self.ctrl_sock in r:
-                    data = self.ctrl_sock.recv(1024)
+                if sock in r:
+                    data = sock.recv(1024)
                     if not data:
                         print("\nDisconnected by remote.")
                         self.do_disconnect(None)
@@ -556,20 +715,26 @@ class Esp32Shell(cmd.Cmd):
             if not self.connected:
                 return
 
+        sock = self.link.ctrl if isinstance(self.link, TcpLink) else None
+        if sock is None:
+            print(f"> {line}")
+            print(self._send_ctrl(line) or "")
+            return
+
         try:
             print(f"> {line}")
-            self.ctrl_sock.sendall((line + "\n").encode("ascii"))
+            sock.sendall((line + "\n").encode("ascii"))
             # Wait briefly for response (pseudo-shell)
-            self.ctrl_sock.settimeout(0.5)
+            sock.settimeout(0.5)
             try:
                 while True:
-                    data = self.ctrl_sock.recv(1024)
+                    data = sock.recv(1024)
                     if not data:
                         break
                     sys.stdout.write(data.decode("ascii", errors="replace"))
             except TimeoutError:
                 pass
-            self.ctrl_sock.settimeout(self.timeout)
+            sock.settimeout(self.timeout)
             print()
         except OSError as e:
             print(f"Error: {e}")
@@ -583,39 +748,13 @@ class Esp32Shell(cmd.Cmd):
             self.do_connect(self.target_ip)
         return self.connected
 
-    def _close_sockets(self):
-        if self.ctrl_sock:
-            try:
-                self.ctrl_sock.close()
-            except OSError:
-                pass
-            self.ctrl_sock = None
-        if self.data_sock:
-            try:
-                self.data_sock.close()
-            except OSError:
-                pass
-            self.data_sock = None
-
     def _send_ctrl(self, cmd):
-        if not self.ctrl_sock:
+        if not self.link:
             return None
         try:
-            msg = cmd.strip() + "\n"
-            self.ctrl_sock.sendall(msg.encode("ascii"))
-
-            # Read response
-            resp = b""
-            while True:
-                chunk = self.ctrl_sock.recv(1)
-                if not chunk:
-                    return None
-                resp += chunk
-                if chunk == b"\n":
-                    break
-            return resp.decode("ascii").strip()
+            return self.link.request(cmd)
         except OSError as e:
-            print(f"Socket error: {e}")
+            print(f"Link error: {e}")
             self.do_disconnect(None)
             return None
 
@@ -664,8 +803,16 @@ def main():
     parser.add_argument(
         "command", nargs="*", help="Run single command and exit"
     )
+    parser.add_argument(
+        "--port",
+        help="Serial port of the bridge's USB; replaces the IP and WiFi",
+    )
 
     args = parser.parse_args()
+    # With a port there is no address, so the first positional is the verb.
+    if args.port and args.ip:
+        args.command = [args.ip] + args.command
+        args.ip = None
 
     # Exclusive access check
     # We keep the file open until the process exits
@@ -708,13 +855,15 @@ def main():
     target_ip = args.ip
 
     # Auto-Connect Logic if IP not provided
-    if not target_ip:
+    if not target_ip and not args.port:
         target_ip = resolve_target_ip()
 
     # Check if a command is provided (one or more arguments)
     is_batch_mode = len(args.command) > 0
 
-    shell = Esp32Shell(ip=target_ip, wait_for_service=is_batch_mode)
+    shell = Esp32Shell(
+        ip=target_ip, port=args.port, wait_for_service=is_batch_mode
+    )
 
     if is_batch_mode:
         line = " ".join(args.command)

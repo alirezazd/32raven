@@ -22,23 +22,15 @@ namespace {
 constexpr std::array<System::Component,
                      static_cast<std::size_t>(System::Component::kCount)>
     kInitOrder{
-        System::Component::kLed,
-        System::Component::kBuzzer,
-        System::Component::kTonePlayer,
-        System::Component::kButton,
-        System::Component::kDisplayI2c,
-        System::Component::kDisplayPanel,
-        System::Component::kUi,
-        System::Component::kWifi,
-        System::Component::kTcpServer,
-        System::Component::kUdpServer,
-        System::Component::kUsbCdcServer,
-        System::Component::kTelemUart,
-        System::Component::kFcLinkUart,
-        System::Component::kProgrammer,
-        System::Component::kFcLink,
-        System::Component::kMavlink,
-        System::Component::kCommandHandler,
+        System::Component::kLed,          System::Component::kBuzzer,
+        System::Component::kTonePlayer,   System::Component::kButton,
+        System::Component::kDisplayI2c,   System::Component::kDisplayPanel,
+        System::Component::kUi,           System::Component::kWifi,
+        System::Component::kTcpServer,    System::Component::kUdpServer,
+        System::Component::kUsbCdcServer, System::Component::kUsbHostLink,
+        System::Component::kTelemUart,    System::Component::kFcLinkUart,
+        System::Component::kProgrammer,   System::Component::kFcLink,
+        System::Component::kMavlink,      System::Component::kCommandHandler,
     };
 
 // -Werror=switch already ties Component to InitComponent's switch; this ties it
@@ -130,6 +122,10 @@ void System::InitComponent(Component c) {
     case Component::kUsbCdcServer:
       UsbCdc().Init(kUsbCdcServerConfig);
       ESP_LOGI(kTag, "USB CDC server initialized");
+      break;
+    case Component::kUsbHostLink:
+      UsbHost().Init(UsbCdc());
+      ESP_LOGI(kTag, "USB program link initialized");
       break;
     case Component::kTelemUart:
       TelemUart().Init(kTelemUartConfig);

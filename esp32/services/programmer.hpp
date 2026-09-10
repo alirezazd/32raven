@@ -56,7 +56,7 @@ class Programmer {
   // else defaults to the STM32.
   void SetTarget(const char *name);
 
-  void Start(uint32_t total_size);
+  void Start(uint32_t total_size, uint32_t expected_crc);
   void Poll();
   void Abort();
   void WatchForStall();
@@ -93,6 +93,9 @@ class Programmer {
 
     uint32_t total_size = 0;
     uint32_t written = 0;
+    // CRC-32 of the image as it arrived, run against the BEGIN line's.
+    uint32_t crc = 0;
+    uint32_t expected_crc = 0;
 
     bool ready = false;
     uint32_t restore_baud_rate = 115200;

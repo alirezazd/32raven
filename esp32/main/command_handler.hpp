@@ -4,26 +4,22 @@
 #pragma once
 
 #include "ctx.hpp"
+#include "host_link.hpp"
 #include "message.hpp"
-#include "tcp_server.hpp"
 
 class CommandHandler {
  public:
   struct Config {};
-  enum class ServiceTcpAction : uint8_t {
-    kStayInService = 0,
-    kEnterProgram,
-    kEnterLogPull,
-  };
 
   static CommandHandler &GetInstance();
 
   void Dispatch(const AppContext &ctx, const message::Packet &pkt);
 
-  ServiceTcpAction Dispatch(const AppContext &ctx, const TcpServer::Event &ev);
+  void Dispatch(AppContext &ctx, const HostLink::Event &ev);
 
  private:
   friend class System;
+
   void Init(const Config &cfg);
   CommandHandler() = default;
   ~CommandHandler() = default;

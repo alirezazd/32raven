@@ -9,9 +9,6 @@
 
 #include "mavlink_transport.hpp"
 
-extern "C" {
-}
-
 // USB Serial/JTAG transport for the ESP32-C3 native USB peripheral. Selected
 // when ESP32_MAVLINK_TRANSPORT_USB_CDC=y; the host sees /dev/ttyACM0. Same
 // Send/Receive contract as UdpServer; MAVLink drives it through the
@@ -28,6 +25,7 @@ class UsbCdcServer : public IMavlinkTransport {
   int Receive(std::span<uint8_t> dst) override;
   int Send(std::span<const uint8_t> bytes) override;
   bool IsReady() const override;
+  bool HostAttached() const;
   void ClearPeer() override;
 
  private:

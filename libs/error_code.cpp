@@ -305,6 +305,8 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "ESP32 system re-init";
     case ErrorCode::Esp32::kFcLinkWireMismatch:
       return "FcLink version mismatch -- reflash both";
+    case ErrorCode::Esp32::kProgrammerCrcMismatch:
+      return "Image CRC mismatch -- retry the flash";
   }
   return "Unknown error";
 }
