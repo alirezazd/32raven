@@ -131,7 +131,9 @@ void FcLink::PerformHandshake() {
       if (id == static_cast<uint8_t>(message::MsgId::kPanic)) {
         PanicFromHandshakePacket(*packet);
       }
-      QueueRxPacket(*packet);
+      // Anything else is the STM32 streaming before the link is up. The app
+      // that would want it is not running yet, and putting it back on the
+      // queue this loop drains would pop it again forever.
     }
   }
 
