@@ -20,6 +20,7 @@ retrieval is USB mass storage from the USB Log page, one press further.
 # /// script
 # dependencies = [
 #     "prompt_toolkit",
+#     "pyserial",
 #     "rich",
 # ]
 # ///
@@ -35,10 +36,9 @@ import socket
 import subprocess
 import sys
 import termios
-import time
 import tty
 
-from esp32_client import resolve_target_ip
+from esp32_client import CTRL_PORT, DATA_PORT, CtrlLines, resolve_target_ip
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import PathCompleter
 from prompt_toolkit.formatted_text import HTML
@@ -52,9 +52,6 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 from rich.table import Table
-
-CTRL_PORT = 9000
-DATA_PORT = 9001
 
 # At or above this, USB mass storage is the faster route.
 BULK_HINT_BYTES = 8 * 1024 * 1024
@@ -159,28 +156,6 @@ def ask_path(label: str, default: pathlib.Path) -> pathlib.Path:
         complete_while_typing=False,
     )
     return pathlib.Path(answer or default).expanduser()
-
-
-class CtrlLines:
-    """Line-splitter over the ctrl socket."""
-
-    def __init__(self, sock: socket.socket):
-        self.sock = sock
-        self.buf = b""
-
-    def readline(self, timeout_s: float) -> str:
-        deadline = time.monotonic() + timeout_s
-        while b"\n" not in self.buf:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("ctrl socket: no line")
-            self.sock.settimeout(remaining)
-            chunk = self.sock.recv(256)
-            if not chunk:
-                raise ConnectionError("ctrl socket closed")
-            self.buf += chunk
-        line, self.buf = self.buf.split(b"\n", 1)
-        return line.decode(errors="replace").strip()
 
 
 def fetch_list(ip: str) -> list[tuple[str, int]]:

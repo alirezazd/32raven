@@ -182,6 +182,57 @@ class AutoConnector:
             time.sleep(0.5)
 
 
+def await_service(probe, retry, refusal):
+    """probe() until it answers True, waiting out the wrong page if retry.
+
+    refusal is what the first failed probe prints, before the Service hint.
+    """
+    deadline = time.time() + SERVICE_WAIT_SECONDS
+    announced = False
+    while True:
+        if probe():
+            if announced:
+                print("\nService mode detected.")
+            return True
+        if not announced:
+            print()
+            for line in refusal:
+                print(f"  {line}")
+            print(SERVICE_HINT)
+            if not retry:
+                print()
+                return False
+            print(f"  Waiting {SERVICE_WAIT_SECONDS}s...  ^C aborts.")
+            print()
+            announced = True
+        if time.time() > deadline:
+            print("Gave up waiting for Service mode.")
+            return False
+        time.sleep(SERVICE_POLL_SECONDS)
+
+
+class CtrlLines:
+    """Line-splitter over the ctrl socket."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = b""
+
+    def readline(self, timeout_s):
+        deadline = time.monotonic() + timeout_s
+        while b"\n" not in self.buf:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("ctrl socket: no line")
+            self.sock.settimeout(remaining)
+            chunk = self.sock.recv(256)
+            if not chunk:
+                raise ConnectionError("ctrl socket closed")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return line.decode(errors="replace").strip()
+
+
 class TcpLink:
     """The WiFi transport: a ctrl socket for lines, a data socket for bytes."""
 
@@ -191,6 +242,7 @@ class TcpLink:
         self.ip = ip
         self.timeout = timeout
         self.ctrl = None
+        self.lines = None
         self.data = None
 
     def describe(self):
@@ -205,47 +257,37 @@ class TcpLink:
         Service mode. Anything else -- timeout, unreachable -- is a network
         fault and is reported as-is.
         """
-        deadline = time.time() + SERVICE_WAIT_SECONDS
-        announced = False
-        while True:
+
+        def connect():
             try:
                 self.ctrl = socket.create_connection(
                     (self.ip, CTRL_PORT), timeout=self.timeout
                 )
-                if announced:
-                    print("\nService mode detected.")
-                return True
             except ConnectionRefusedError:
-                if not announced:
-                    print()
-                    print(f"  CONNECTION REFUSED   {self.ip}:{CTRL_PORT}")
-                    print("  ESP32 is up, Service server is not.")
-                    print(SERVICE_HINT)
-                    if not retry:
-                        print()
-                        return False
-                    print(f"  Waiting {SERVICE_WAIT_SECONDS}s...  ^C aborts.")
-                    print()
-                    announced = True
-                if time.time() > deadline:
-                    print("Gave up waiting for Service mode.")
-                    return False
-                time.sleep(SERVICE_POLL_SECONDS)
-            except OSError as e:
-                print(f"Connection failed: {e}")
                 return False
+            self.lines = CtrlLines(self.ctrl)
+            return True
+
+        try:
+            return await_service(
+                connect,
+                retry,
+                [
+                    f"CONNECTION REFUSED   {self.ip}:{CTRL_PORT}",
+                    "ESP32 is up, Service server is not.",
+                ],
+            )
+        except OSError as e:
+            print(f"Connection failed: {e}")
+            return False
 
     def request(self, cmd):
         """One line out, one line back; None once the socket is gone."""
         self.ctrl.sendall((cmd.strip() + "\n").encode("ascii"))
-        resp = b""
-        while True:
-            chunk = self.ctrl.recv(1)
-            if not chunk:
-                return None
-            resp += chunk
-            if chunk == b"\n":
-                return resp.decode("ascii").strip()
+        try:
+            return self.lines.readline(self.timeout)
+        except ConnectionError:
+            return None
 
     def open_data(self):
         try:
@@ -293,9 +335,6 @@ class SerialLink:
         return self.port
 
     def open(self, retry):
-        # Whether the bridge is on Service is only learnt from BEGIN going
-        # unanswered, so the wait lives in the upload rather than here.
-        del retry
         ser = serial.Serial()
         ser.port = self.port
         ser.timeout = USB_REPLY_TIMEOUT_S
@@ -309,7 +348,16 @@ class SerialLink:
             print(f"Could not open {self.port}: {e}")
             return False
         self.ser = ser
-        return True
+        # Nothing refuses a serial port, and only Service polls this link, so
+        # the wrong page is a STATUS? that goes unanswered.
+        if await_service(
+            lambda: self.request("STATUS?") is not None,
+            retry,
+            [f"NO ANSWER   {self.port}", "The port opened; Service is not on."],
+        ):
+            return True
+        self.close()
+        return False
 
     def _reply(self):
         """The next protocol line; console lines pass through."""
@@ -440,19 +488,6 @@ class Esp32Shell(cmd.Cmd):
         print(f"Handshake (BEGIN{begin_extra})...")
         begin = f"BEGIN size={filesize} crc={crc}{begin_extra}"
         resp = self._send_ctrl(begin)
-        # Over USB nothing refuses a connection, so the wrong page shows only
-        # as silence; the wait the TCP path does at connect happens here.
-        if (
-            resp is None
-            and isinstance(self.link, SerialLink)
-            and self.wait_for_service
-        ):
-            print(SERVICE_HINT)
-            print(f"  Waiting {SERVICE_WAIT_SECONDS}s...  ^C aborts.")
-            deadline = time.time() + SERVICE_WAIT_SECONDS
-            while resp is None and self.link and time.time() < deadline:
-                time.sleep(SERVICE_POLL_SECONDS)
-                resp = self._send_ctrl(begin)
         if resp != "OK":
             if resp is None:
                 # The connect succeeded, so something is listening; silence
