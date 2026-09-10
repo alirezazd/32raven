@@ -8,6 +8,8 @@
 #include <optional>
 #include <span>
 
+#include "ring_buffer.hpp"
+
 // This end of the link to the host tool, as FcLink is this end of the link to
 // the flight computer: ASCII verbs in, a sized image in, status lines out.
 // The transport is the subclass -- TCP hands out two sockets, USB one byte
@@ -127,9 +129,7 @@ class HostLink {
   // one; overflow answers ERR evt_queue_full rather than dropping, so this
   // trades a little RAM against a spurious error.
   static constexpr size_t kEvtCap = 8;
-  Event evt_q_[kEvtCap]{};
-  size_t evt_head_ = 0;
-  size_t evt_tail_ = 0;
+  RingBuffer<Event, kEvtCap + 1> evt_q_;
   bool link_dropped_ = false;
   bool data_rx_open_ = false;
   BeginArgs begin_{};

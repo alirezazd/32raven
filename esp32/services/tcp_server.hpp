@@ -9,6 +9,7 @@
 #include <span>
 
 #include "host_link.hpp"
+#include "ring_buffer.hpp"
 
 // HostLink over WiFi: a line-oriented ctrl socket and a binary data
 // socket, one client each, the data one only inside a ctrl session.
@@ -83,7 +84,5 @@ class TcpServer final : public HostLink {
   // every pump instead of only under real backpressure; PumpDataRx
   // static_asserts against it.
   static constexpr size_t kDataRxCap = 4096;
-  uint8_t data_rx_[kDataRxCap]{};
-  size_t data_rx_head_ = 0;
-  size_t data_rx_tail_ = 0;
+  RingBuffer<uint8_t, kDataRxCap + 1> data_rx_;
 };

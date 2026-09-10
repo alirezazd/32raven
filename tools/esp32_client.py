@@ -282,6 +282,8 @@ class SerialLink:
     """The USB transport: one byte stream, shared with the bridge's console."""
 
     chunk_size = USB_CHUNK_SIZE
+    # No raw socket to hand the shell.
+    ctrl = None
 
     def __init__(self, port):
         self.port = port
@@ -363,7 +365,6 @@ class Esp32Shell(cmd.Cmd):
         # who can read the message and retry.
         self.wait_for_service = wait_for_service
         self.link = None
-        self.connected = False
         self.failed = False
 
         # If no IP provided, just prompt updates
@@ -372,7 +373,7 @@ class Esp32Shell(cmd.Cmd):
 
     def do_connect(self, arg):
         """Connect to the ESP32. Usage: connect [ip]."""
-        if self.connected:
+        if self.link:
             print(f"Already connected to {self.link.describe()}")
             return
 
@@ -389,7 +390,6 @@ class Esp32Shell(cmd.Cmd):
         print(f"Connecting to {link.describe()}...")
         if link.open(retry=self.wait_for_service):
             self.link = link
-            self.connected = True
             self.prompt = f"({link.describe()}) > "
             print("Connected.")
 
@@ -398,7 +398,6 @@ class Esp32Shell(cmd.Cmd):
         if self.link:
             self.link.close()
             self.link = None
-        self.connected = False
         self.prompt = "(disconnected) > "
         print("Disconnected.")
 
@@ -621,7 +620,7 @@ class Esp32Shell(cmd.Cmd):
 
     def _ensure_connected_silent(self):
         """Check if connected without auto-reconnect or prints."""
-        return self.connected and self.link.alive()
+        return self.link is not None and self.link.alive()
 
     def do_flash_esp(self, arg):
         """Flash ESP32 firmware. Usage: flash_esp <path_to_bin>."""
@@ -666,7 +665,7 @@ class Esp32Shell(cmd.Cmd):
         if not self._ensure_connected():
             return
 
-        sock = self.link.ctrl if isinstance(self.link, TcpLink) else None
+        sock = self.link.ctrl
         if sock is None:
             print("The shell needs the WiFi link; USB has make monitor-esp32.")
             return
@@ -679,7 +678,7 @@ class Esp32Shell(cmd.Cmd):
         sys.stdout.flush()
 
         try:
-            while self.connected:
+            while self.link:
                 # Wait for input from stdin or data from socket
                 r, _, _ = select.select([sys.stdin, sock], [], [])
 
@@ -710,12 +709,12 @@ class Esp32Shell(cmd.Cmd):
 
     def default(self, line):
         """Send unknown commands directly to ESP32."""
-        if not self.connected:
+        if not self.link:
             self.do_connect(self.target_ip)
-            if not self.connected:
+            if not self.link:
                 return
 
-        sock = self.link.ctrl if isinstance(self.link, TcpLink) else None
+        sock = self.link.ctrl
         if sock is None:
             print(f"> {line}")
             print(self._send_ctrl(line) or "")
@@ -743,10 +742,10 @@ class Esp32Shell(cmd.Cmd):
     # --- Helpers ---
 
     def _ensure_connected(self):
-        if not self.connected:
+        if not self.link:
             print("Not connected. Trying auto-connect...")
             self.do_connect(self.target_ip)
-        return self.connected
+        return self.link is not None
 
     def _send_ctrl(self, cmd):
         if not self.link:

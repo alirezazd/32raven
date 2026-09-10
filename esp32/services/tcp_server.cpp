@@ -5,6 +5,7 @@
 
 #include <fcntl.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstring>
 
@@ -22,15 +23,6 @@ static constexpr const char *kTag = "tcp_server";
 // download ring has to be able to swallow without asserting backpressure.
 static constexpr size_t kDataPumpReadBytes = 1024;
 static constexpr int kDataPumpMaxIterations = 4;
-
-static inline size_t RbUsed(size_t head, size_t tail, size_t cap) {
-  return (tail >= head) ? (tail - head) : (cap - head + tail);
-}
-
-static inline size_t RbFree(size_t head, size_t tail, size_t cap) {
-  // keep 1 byte gap
-  return (cap - 1) - RbUsed(head, tail, cap);
-}
 
 // TcpServer core
 
@@ -305,9 +297,13 @@ void TcpServer::PumpDataRx() {
 
 size_t TcpServer::ReadDataRx(std::span<uint8_t> dst) {
   size_t n = 0;
-  while (n < dst.size() && data_rx_head_ != data_rx_tail_) {
-    dst[n++] = data_rx_[data_rx_head_];
-    data_rx_head_ = (data_rx_head_ + 1) % kDataRxCap;
+  while (n < dst.size()) {
+    const std::span<const uint8_t> chunk = data_rx_.ContiguousReadable();
+    if (chunk.empty()) break;
+    const size_t take = std::min(chunk.size(), dst.size() - n);
+    std::memcpy(dst.data() + n, chunk.data(), take);
+    data_rx_.Consume(take);
+    n += take;
   }
   return n;
 }
@@ -316,17 +312,14 @@ void TcpServer::StageDataRx(const uint8_t *data, size_t len) {
   if (!DataRxOpen()) {
     return;
   }
-  for (size_t i = 0; i < len; ++i) {
-    data_rx_[data_rx_tail_] = data[i];
-    data_rx_tail_ = (data_rx_tail_ + 1) % kDataRxCap;
-  }
+  (void)data_rx_.PushBlock(data, len);
 }
 
 size_t TcpServer::DataRxFree() const {
-  return RbFree(data_rx_head_, data_rx_tail_, kDataRxCap);
+  return data_rx_.Capacity() - data_rx_.Available();
 }
 
-void TcpServer::DiscardDataRx() { data_rx_head_ = data_rx_tail_ = 0; }
+void TcpServer::DiscardDataRx() { data_rx_.Clear(); }
 
 // CTRL TX
 

@@ -19,23 +19,17 @@ static constexpr const char *kTag = "host_link";
 // SM-facing API (queue/buffer/status)
 
 std::optional<HostLink::Event> HostLink::PopEvent() {
-  if (evt_head_ == evt_tail_) {
+  Event out;
+  if (!evt_q_.Pop(out)) {
     return std::nullopt;
   }
-  Event out = evt_q_[evt_head_];
-  evt_head_ = (evt_head_ + 1) % kEvtCap;
   return out;
 }
 
 bool HostLink::PushEvent(const Event &e) {
-  size_t next = (evt_tail_ + 1) % kEvtCap;
-  if (next == evt_head_) {
-    return false;
-  }
-  evt_q_[evt_tail_] = e;
-  evt_q_[evt_tail_].origin = this;
-  evt_tail_ = next;
-  return true;
+  Event stamped = e;
+  stamped.origin = this;
+  return evt_q_.Push(stamped);
 }
 
 void HostLink::QueueSimpleCommand(EventId id) {
@@ -72,8 +66,7 @@ void HostLink::BeginTransfer(const BeginArgs &begin) {
 }
 
 void HostLink::EndTransfer() {
-  data_rx_open_ = false;
-  DiscardDataRx();
+  CloseDataRx();
   begin_ = BeginArgs{};
   status_ = Status{};
 }
@@ -84,13 +77,10 @@ void HostLink::ResetLine() {
 }
 
 void HostLink::ResetSession() {
+  EndTransfer();
   ResetLine();
-  evt_head_ = evt_tail_ = 0;
+  evt_q_.Clear();
   link_dropped_ = false;
-  DiscardDataRx();
-  data_rx_open_ = false;
-  begin_ = BeginArgs{};
-  status_ = Status{};
 }
 
 void HostLink::SetStatus(const Status &s) { status_ = s; }

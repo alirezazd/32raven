@@ -83,8 +83,8 @@ inline uint16_t Arc16Update(uint16_t crc, uint8_t byte) {
 
 // CRC-32/ISO-HDLC, poly 0xEDB88320 reflected, init all-ones, complemented at
 // the end -- zlib's crc32, so the host computes it from its standard library.
-// Streamed over a firmware image: start from kCrc32Init, Update per byte,
-// Final once.
+// Streamed over a firmware image: start from kCrc32Init, Update per byte
+// or span, Final once.
 inline constexpr uint32_t kCrc32Init = 0xFFFFFFFFu;
 
 inline uint32_t Crc32Update(uint32_t crc, uint8_t byte) {
@@ -97,12 +97,15 @@ inline uint32_t Crc32Update(uint32_t crc, uint8_t byte) {
 
 inline uint32_t Crc32Final(uint32_t crc) { return ~crc; }
 
-[[nodiscard]] inline uint32_t Crc32(std::span<const uint8_t> bytes) {
-  uint32_t crc = kCrc32Init;
+inline uint32_t Crc32Update(uint32_t crc, std::span<const uint8_t> bytes) {
   for (const uint8_t byte : bytes) {
     crc = Crc32Update(crc, byte);
   }
-  return Crc32Final(crc);
+  return crc;
+}
+
+[[nodiscard]] inline uint32_t Crc32(std::span<const uint8_t> bytes) {
+  return Crc32Final(Crc32Update(kCrc32Init, bytes));
 }
 
 }  // namespace checksum

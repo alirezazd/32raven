@@ -39,6 +39,7 @@ class UsbHostLink final : public HostLink {
   friend class System;
   void Init(UsbCdcServer &usb);
   void DiscardDataRx() override;
+  // Empties the driver's ring.
   void Drain();
 
   UsbHostLink() = default;
@@ -49,7 +50,8 @@ class UsbHostLink final : public HostLink {
   UsbCdcServer *usb_ = nullptr;
   bool running_ = false;
   bool attached_ = false;
-  // Image bytes read out since BEGIN; the data phase ends when it reaches
-  // the announced size.
+  // Image bytes read out since BEGIN, and whether they reached the announced
+  // size: after that the ring holds the host's next lines, not a stale image.
   uint32_t received_ = 0;
+  bool image_complete_ = false;
 };

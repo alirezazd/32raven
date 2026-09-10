@@ -611,9 +611,7 @@ size_t Programmer::PushBytes(std::span<const uint8_t> bytes) {
     std::memcpy(ctx_.buf + ctx_.tail, bytes.data(), until_wrap);
     std::memcpy(ctx_.buf, bytes.data() + until_wrap, take - until_wrap);
     ctx_.tail = (ctx_.tail + take) % Ctx::kBufCap;
-    for (const uint8_t byte : bytes.first(take)) {
-      ctx_.crc = checksum::Crc32Update(ctx_.crc, byte);
-    }
+    ctx_.crc = checksum::Crc32Update(ctx_.crc, bytes.first(take));
   }
 
   if (take < bytes.size()) {
