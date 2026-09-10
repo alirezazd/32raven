@@ -284,28 +284,26 @@ def tree_headers() -> list[str]:
     return headers
 
 
-def component_classes(
-    headers: list[str],
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Component-folder classes, and which of them declare a GetInstance.
+def tree_classes(headers: list[str]) -> list[tuple[str, str, bool]]:
+    """(class, header, declares a GetInstance) for every class in the tree.
 
     Read from the whole tree rather than from the files passed in: a hook
     hands over only what changed, and a component is no less a component for
     having been left alone this commit.
     """
-    found: dict[str, str] = {}
-    declared: dict[str, str] = {}
+    out: list[tuple[str, str, bool]] = []
     for rel in headers:
         if (
             not rel.endswith(".hpp")
-            or not rel.startswith(COMPONENT_DIRS)
+            or rel.startswith("third_party")
             or rel in SYSTEMS
         ):
             continue
         text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-        for info in parse_classes(text.splitlines()):
-            if info.has_getinstance:
-                declared[info.name] = rel
+        declared = {
+            info.name for info in parse_classes(text.splitlines())
+            if info.has_getinstance
+        }
         for line in text.splitlines():
             # At namespace scope: an indented head is a nested type, which
             # belongs to the class around it rather than to the System.
@@ -313,8 +311,8 @@ def component_classes(
             # so a forward declaration is not mistaken for the definition.
             head = CLASS_HEAD.match(line)
             if head and head.group(1) == "class" and not line[0].isspace():
-                found.setdefault(head.group(2), rel)
-    return found, declared
+                out.append((head.group(2), rel, head.group(2) in declared))
+    return out
 
 
 def accessors(system_hpp: pathlib.Path) -> dict[str, str]:
@@ -356,18 +354,34 @@ def system_rules(headers: list[str]) -> list[str]:
     that cannot drift: a class that quietly stopped being initialized stops
     being a component, and one that never adopted the pattern is still on it.
     """
-    classes, declared = component_classes(headers)
+    tree = tree_classes(headers)
     findings: list[str] = []
 
     for rel in SYSTEMS:
         hpp = REPO / rel
         if not hpp.exists():
             continue
+        # One board at a time: both boards have a CommandHandler and an
+        # FcLink, and one's GetInstance must not vouch for the other's.
+        board = rel.split("/", 1)[0] + "/"
+        classes: dict[str, str] = {}
+        declared: dict[str, str] = {}
+        for name, header, has_getinstance in tree:
+            if not header.startswith(board):
+                continue
+            classes.setdefault(name, header)
+            if has_getinstance:
+                declared[name] = header
+        components = {
+            name: header
+            for name, header in classes.items()
+            if header.startswith(COMPONENT_DIRS)
+        }
         for idx, line in enumerate(
             hpp.read_text(encoding="utf-8", errors="replace").splitlines()
         ):
             found = MEMBER.match(line)
-            if found and found.group(1) in classes:
+            if found and found.group(1) in components:
                 findings.append(
                     f"{rel}:{idx + 1}: [system-member] {found.group(2)} holds "
                     f"{found.group(1)}, declared in {classes[found.group(1)]}"
@@ -384,13 +398,13 @@ def system_rules(headers: list[str]) -> list[str]:
                     f"GetInstance"
                 )
 
-    for name, rel in sorted(classes.items()):
-        if name in declared or name in NOT_A_COMPONENT:
-            continue
-        findings.append(
-            f"{rel}: [component-shape] {name} is neither a singleton nor "
-            f"listed in NOT_A_COMPONENT with a reason"
-        )
+        for name, header in sorted(components.items()):
+            if name in declared or name in NOT_A_COMPONENT:
+                continue
+            findings.append(
+                f"{header}: [component-shape] {name} is neither a singleton "
+                f"nor listed in NOT_A_COMPONENT with a reason"
+            )
     return findings
 
 
