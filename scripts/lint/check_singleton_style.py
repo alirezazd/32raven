@@ -227,83 +227,186 @@ def check(path: pathlib.Path, rel: str) -> list[str]:
     return findings
 
 
-# Every System, and the folders whose classes it may not own outright.
+# Every System, and the folders it draws its components from. esp32/main is
+# the application -- the state machine and its pages -- so it is not one.
 SYSTEMS = ("stm32/Core/system.hpp", "esp32/services/system.hpp")
 COMPONENT_DIRS = (
     "stm32/Drivers",
     "stm32/Services",
     "esp32/drivers",
     "esp32/services",
-    "esp32/main",
 )
 MEMBER = re.compile(r"^  ([A-Z][\w:]*) (\w+_)\s*;")
+# The receiver of the Init call in an InitComponent case: a singleton by name,
+# a System member, or a System accessor.
+INIT_BY_SINGLETON = re.compile(r"\b(\w+)::GetInstance\(\)\s*\.Init\(")
+INIT_BY_MEMBER = re.compile(r"^\s*(\w+_)\.Init\(")
+INIT_BY_ACCESSOR = re.compile(r"(?:^|\.|>)\s*(\w+)\(\)\s*\.Init\(")
+# An accessor body, which either hands out a singleton or hands out a member.
+ACCESSOR = re.compile(
+    r"^\s*[\w:]+\s*&\s*(\w+)\(\)\s*\{\s*return\s+([\w:]+)"
+    r"(?:::GetInstance\(\))?;"
+)
+
+# A class in a component folder that is not a component. Each entry needs a
+# reason: the alternative is inferring it, and a component that forgot the
+# whole pattern looks exactly like a class that never needed it.
+NOT_A_COMPONENT = {
+    # Interfaces. The implementations are the components, and each of those
+    # is brought up by name.
+    "IMavlinkTransport": "the transport interface MAVLink is handed",
+    "DisplayCanvas": "what a widget draws onto, owned by Ui",
+    "HostLink": "the host protocol; its two transports are the components",
+    # Owned by a component, constructed as part of it.
+    "EeConfigStorage": "EE's record layout, held by the drivers that store one",
+    "GyroCal": "a phase of SensorCalService, which owns it",
+    "AccelCal": "a phase of SensorCalService, which owns it",
+}
 
 
-def component_classes() -> dict[str, str]:
-    """Class name to the component header that declares it."""
-    out = subprocess.run(
-        ["git", "ls-files", "*.hpp"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    found: dict[str, str] = {}
-    for rel in out.stdout.splitlines():
-        if not rel.startswith(COMPONENT_DIRS) or rel in SYSTEMS:
-            continue
-        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
-        for line in text.splitlines():
-            # CLASS_HEAD wants a brace, a base clause or a wrapped head, so a
-            # forward declaration is not mistaken for the definition.
-            head = CLASS_HEAD.match(line)
-            if head and head.group(1) == "class":
-                found.setdefault(head.group(2), rel)
-    return found
+def tree_headers() -> list[str]:
+    """Every header in the tree, tracked or not.
 
-
-def owned_components() -> list[str]:
-    """Members of a System whose type is a driver or a service."""
-    classes = component_classes()
-    findings: list[str] = []
-    for rel in SYSTEMS:
-        path = REPO / rel
-        if not path.exists():
-            continue
-        for idx, line in enumerate(
-            path.read_text(encoding="utf-8", errors="replace").splitlines()
-        ):
-            found = MEMBER.match(line)
-            if not found:
-                continue
-            owner = classes.get(found.group(1))
-            if owner:
-                findings.append(
-                    f"{rel}:{idx + 1}: [system-member] {found.group(2)} holds "
-                    f"{found.group(1)}, declared in {owner}"
-                )
-    return findings
-
-
-def main(argv: list[str]) -> int:
-    names = argv[1:]
-    if not names:
-        # CI runs with no arguments and expects a whole-tree walk.
-        out = subprocess.run(
-            ["git", "ls-files", "*.h", "*.hpp"],
+    Of the tree, not the index: a header added but not yet committed is the
+    one most likely to have missed the pattern, so it is the last one to
+    leave unchecked.
+    """
+    headers: list[str] = []
+    for extra in ((), ("--others", "--exclude-standard")):
+        run = subprocess.run(
+            ["git", "ls-files", *extra, "*.h", "*.hpp"],
             cwd=REPO,
             capture_output=True,
             text=True,
             check=True,
         )
-        names = [str(REPO / line) for line in out.stdout.splitlines()]
+        headers += run.stdout.split()
+    return headers
 
-    findings: list[str] = owned_components()
+
+def component_classes(
+    headers: list[str],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Component-folder classes, and which of them declare a GetInstance.
+
+    Read from the whole tree rather than from the files passed in: a hook
+    hands over only what changed, and a component is no less a component for
+    having been left alone this commit.
+    """
+    found: dict[str, str] = {}
+    declared: dict[str, str] = {}
+    for rel in headers:
+        if (
+            not rel.endswith(".hpp")
+            or not rel.startswith(COMPONENT_DIRS)
+            or rel in SYSTEMS
+        ):
+            continue
+        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        for info in parse_classes(text.splitlines()):
+            if info.has_getinstance:
+                declared[info.name] = rel
+        for line in text.splitlines():
+            # At namespace scope: an indented head is a nested type, which
+            # belongs to the class around it rather than to the System.
+            # CLASS_HEAD also wants a brace, a base clause or a wrapped head,
+            # so a forward declaration is not mistaken for the definition.
+            head = CLASS_HEAD.match(line)
+            if head and head.group(1) == "class" and not line[0].isspace():
+                found.setdefault(head.group(2), rel)
+    return found, declared
+
+
+def accessors(system_hpp: pathlib.Path) -> dict[str, str]:
+    """A System accessor's name to what it hands out: a class, or a member."""
+    out: dict[str, str] = {}
+    for line in system_hpp.read_text(
+        encoding="utf-8", errors="replace"
+    ).splitlines():
+        found = ACCESSOR.match(line)
+        if found:
+            out[found.group(1)] = found.group(2).lstrip(":")
+    return out
+
+
+def brought_up(system_cpp: pathlib.Path, names: dict[str, str]) -> set[str]:
+    """Every class System::InitComponent initializes, however it reaches it."""
+    out: set[str] = set()
+    for line in system_cpp.read_text(
+        encoding="utf-8", errors="replace"
+    ).splitlines():
+        if ".Init(" not in line:
+            continue
+        found = INIT_BY_SINGLETON.search(line)
+        if found:
+            out.add(found.group(1))
+            continue
+        if INIT_BY_MEMBER.match(line):
+            continue  # the member rule below already has this one
+        found = INIT_BY_ACCESSOR.search(line)
+        if found:
+            out.add(names.get(found.group(1), found.group(1)))
+    return out
+
+
+def system_rules(headers: list[str]) -> list[str]:
+    """What System says its components are, against what they look like.
+
+    A component is whatever InitComponent brings up, which is the one list
+    that cannot drift: a class that quietly stopped being initialized stops
+    being a component, and one that never adopted the pattern is still on it.
+    """
+    classes, declared = component_classes(headers)
+    findings: list[str] = []
+
+    for rel in SYSTEMS:
+        hpp = REPO / rel
+        if not hpp.exists():
+            continue
+        for idx, line in enumerate(
+            hpp.read_text(encoding="utf-8", errors="replace").splitlines()
+        ):
+            found = MEMBER.match(line)
+            if found and found.group(1) in classes:
+                findings.append(
+                    f"{rel}:{idx + 1}: [system-member] {found.group(2)} holds "
+                    f"{found.group(1)}, declared in {classes[found.group(1)]}"
+                )
+
+        cpp = hpp.with_suffix(".cpp")
+        if not cpp.exists():
+            continue
+        for name in sorted(brought_up(cpp, accessors(hpp))):
+            if name in classes and name not in declared:
+                findings.append(
+                    f"{classes[name]}: [component-shape] {name} is brought up "
+                    f"by {cpp.relative_to(REPO).as_posix()} and declares no "
+                    f"GetInstance"
+                )
+
+    for name, rel in sorted(classes.items()):
+        if name in declared or name in NOT_A_COMPONENT:
+            continue
+        findings.append(
+            f"{rel}: [component-shape] {name} is neither a singleton nor "
+            f"listed in NOT_A_COMPONENT with a reason"
+        )
+    return findings
+
+
+def main(argv: list[str]) -> int:
+    headers = tree_headers()
+    # CI runs with no arguments and expects a whole-tree walk.
+    names = argv[1:] or [str(REPO / rel) for rel in headers]
+
+    findings: list[str] = []
     for name in names:
         path = pathlib.Path(name)
         if path.suffix not in (".h", ".hpp") or "third_party" in path.parts:
             continue
         findings += check(path, path.resolve().relative_to(REPO).as_posix())
+
+    findings += system_rules(headers)
 
     if findings:
         for finding in findings:
