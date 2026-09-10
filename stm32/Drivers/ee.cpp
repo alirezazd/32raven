@@ -7,6 +7,7 @@
 #include <cstring>
 #include <span>
 
+#include "checksum.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32_config.hpp"
@@ -30,15 +31,6 @@ constexpr uint8_t kJedecCapacity16Mbit = 0x15u;
 
 constexpr uint32_t kBusyPollLimit = 1000000u;
 constexpr uint32_t kRecordMagic = 0x314C4545u;  // "EEL1"
-
-uint32_t UpdateCrc32(uint32_t crc, uint8_t byte) {
-  crc ^= byte;
-  for (int i = 0; i < 8; ++i) {
-    const uint32_t mask = -(crc & 1u);
-    crc = (crc >> 1) ^ (0xEDB88320u & mask);
-  }
-  return crc;
-}
 
 bool BufferIsErased(const uint8_t *data, size_t len) {
   for (size_t i = 0; i < len; ++i) {
@@ -163,7 +155,7 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
     return false;
   }
 
-  uint32_t crc32 = 0xFFFFFFFFu;
+  uint32_t crc32 = checksum::kCrc32Init;
   uint8_t page[kPageSize] = {};
   for (uint32_t page_offset = 0u; page_offset < new_size;
        page_offset += kPageSize) {
@@ -198,16 +190,14 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
       std::memcpy(&page[dst_offset], &src_bytes[src_offset], copy_len);
     }
 
-    for (size_t i = 0; i < page_len; ++i) {
-      crc32 = UpdateCrc32(crc32, page[i]);
-    }
+    crc32 = checksum::Crc32Update(crc32, std::span{page, page_len});
 
     if (!ProgramBytes(PayloadAddress(next_write_address_) + page_offset, page,
                       page_len)) {
       return false;
     }
   }
-  crc32 = ~crc32;
+  crc32 = checksum::Crc32Final(crc32);
 
   RecordHeader header = {
       .magic = kRecordMagic,
@@ -515,12 +505,7 @@ bool EE::ProgramBytes(uint32_t address, const uint8_t *src, size_t len) {
 }
 
 uint32_t EE::Crc32(const void *data, size_t len) {
-  const auto *bytes = static_cast<const uint8_t *>(data);
-  uint32_t crc = 0xFFFFFFFFu;
-  for (size_t i = 0; i < len; ++i) {
-    crc = UpdateCrc32(crc, bytes[i]);
-  }
-  return ~crc;
+  return checksum::Crc32({static_cast<const uint8_t *>(data), len});
 }
 
 uint32_t EE::AlignUp(uint32_t value, uint32_t alignment) {
@@ -602,19 +587,17 @@ EE::RecordState EE::ReadRecord(uint32_t address) const {
 std::optional<uint32_t> EE::ComputePayloadCrc32(uint32_t address,
                                                 uint32_t size) const {
   uint8_t buffer[kPageSize] = {};
-  uint32_t crc = 0xFFFFFFFFu;
+  uint32_t crc = checksum::kCrc32Init;
   for (uint32_t offset = 0u; offset < size; offset += kPageSize) {
     const size_t chunk = std::min(static_cast<size_t>(kPageSize),
                                   static_cast<size_t>(size - offset));
     if (!ReadRaw(address + offset, buffer, chunk)) {
       return std::nullopt;
     }
-    for (size_t i = 0; i < chunk; ++i) {
-      crc = UpdateCrc32(crc, buffer[i]);
-    }
+    crc = checksum::Crc32Update(crc, std::span{buffer, chunk});
   }
 
-  return ~crc;
+  return checksum::Crc32Final(crc);
 }
 
 bool EE::ValidateRecord(const RecordState &record) const {
