@@ -569,10 +569,9 @@ class Esp32Shell(cmd.Cmd):
             task = progress.add_task("write", total=None)
             verifying = False
             while time.monotonic() < deadline:
-                try:
-                    resp = self._send_ctrl("STATUS?")
-                except (OSError, BrokenPipeError):
-                    resp = None
+                # One lost reply is not a halted bridge; a halted bridge is
+                # silent for the retry as well.
+                resp = self._send_ctrl("STATUS?") or self._send_ctrl("STATUS?")
                 if not resp:
                     progress.stop()
                     if expect_done:
