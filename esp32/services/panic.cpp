@@ -118,6 +118,9 @@ uint32_t EnterRecoveryServiceMode() {
   // RunPanicLoop on the same static stack. The checks below report instead.
   sys.StartNetwork();
   sys.Tcp().CloseDataRx();
+  // As the app's Service page: the host links get the USB port to themselves.
+  sys.Mavlink().SetTelemetryLink(false);
+  sys.UsbHost().Start();
 
   if (!sys.Wifi().IsOn()) {
     return Raw(ErrorCode::Esp32::kWifiInitFailed);
@@ -129,12 +132,12 @@ uint32_t EnterRecoveryServiceMode() {
   return Raw(ErrorCode::Common::kOk);
 }
 
-[[nodiscard]] uint32_t EnterRecoveryProgramMode() {
+[[nodiscard]] uint32_t EnterRecoveryProgramMode(const HostLink &link) {
   System &sys = Sys();
   sys.Button().FlushEvents();
   sys.Ui().SetAppState(Ui::AppState::kProgram);
   sys.Ui().NotifyUserActivity();
-  const HostLink::BeginArgs &begin = sys.Tcp().Begin();
+  const HostLink::BeginArgs &begin = link.Begin();
   sys.Programmer().Start(begin.size, begin.crc);
   return sys.Programmer().Written();
 }
@@ -160,11 +163,15 @@ class RecoverySession {
   void EnterProgramMode(TimeMs now);
   void StepServiceMode(TimeMs now);
   void StepProgramMode(TimeMs now);
+  void Dispatch(TimeMs now, const HostLink::Event &ev);
   void Exit(uint32_t code, NetworkAction network);
 
   System &sys_;
   TcpServer &tcp_;
+  UsbHostLink &usb_;
   Programmer &prog_;
+  // The link whose BEGIN armed the current transfer; Program answers only it.
+  HostLink *link_ = nullptr;
   Mode mode_ = Mode::kService;
   uint32_t result_ = Raw(ErrorCode::Common::kOk);
   bool exit_ = false;
@@ -173,7 +180,10 @@ class RecoverySession {
 };
 
 RecoverySession::RecoverySession(System &sys)
-    : sys_(sys), tcp_(sys.Tcp()), prog_(sys.Programmer()) {}
+    : sys_(sys),
+      tcp_(sys.Tcp()),
+      usb_(sys.UsbHost()),
+      prog_(sys.Programmer()) {}
 
 bool RecoverySession::EnterServiceMode(TimeMs now,
                                        NetworkAction network_on_error) {
@@ -191,112 +201,106 @@ bool RecoverySession::EnterServiceMode(TimeMs now,
 
 void RecoverySession::StepServiceMode(TimeMs now) {
   while (auto ev = tcp_.PopEvent()) {
-    switch (ev->id) {
-      case TcpServer::EventId::kBegin:
-        tcp_.SendCtrlLine("OK\n");
-        tcp_.BeginTransfer(ev->begin);
-        prog_.SetTarget(ev->begin.target);
-        EnterProgramMode(now);
-        return;
-      case TcpServer::EventId::kAbort: {
-        prog_.Abort();
-        tcp_.EndTransfer();
-        if (!EnterServiceMode(now, NetworkAction::kStopNetwork)) {
-          return;
-        }
-        break;
-      }
-      case TcpServer::EventId::kReset:
-        tcp_.CloseDataRx();
-        (void)prog_.Boot();
-        esp_restart();
-        break;
-      case TcpServer::EventId::kNone:
-      default:
-        break;
-    }
+    Dispatch(now, *ev);
+    if (mode_ != Mode::kService || exit_) return;
+  }
+  while (auto ev = usb_.PopEvent()) {
+    Dispatch(now, *ev);
+    if (mode_ != Mode::kService || exit_) return;
   }
 
   tcp_.ClearLinkDrop();
+  usb_.ClearLinkDrop();
+}
+
+void RecoverySession::Dispatch(TimeMs now, const HostLink::Event &ev) {
+  HostLink &link = *ev.origin;
+  switch (ev.id) {
+    case HostLink::EventId::kBegin:
+      link.SendCtrlLine("OK\n");
+      link.BeginTransfer(ev.begin);
+      prog_.SetTarget(ev.begin.target);
+      link_ = &link;
+      EnterProgramMode(now);
+      return;
+    case HostLink::EventId::kAbort:
+      prog_.Abort();
+      link.EndTransfer();
+      (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
+      return;
+    case HostLink::EventId::kReset:
+      link.CloseDataRx();
+      (void)prog_.Boot();
+      esp_restart();
+      return;
+    case HostLink::EventId::kNone:
+    default:
+      return;
+  }
 }
 
 void RecoverySession::EnterProgramMode(TimeMs now) {
+  // Program serves the armed link only. Stopped, the USB one drops what
+  // arrives meanwhile instead of banking commands for the return to Service.
+  if (link_ != &usb_) usb_.Stop();
   mode_ = Mode::kProgram;
-  last_written_ = EnterRecoveryProgramMode();
+  last_written_ = EnterRecoveryProgramMode(*link_);
   last_activity_ = now;
 }
 
 void RecoverySession::StepProgramMode(TimeMs now) {
+  HostLink &link = *link_;
   prog_.Poll();
 
   if (prog_.Error()) {
     const uint32_t programmer_error = prog_.LastErrorCode();
-    tcp_.EndTransfer();
+    link.EndTransfer();
     prog_.Abort();
     Exit(programmer_error, NetworkAction::kStopNetwork);
     return;
   }
 
   if (prog_.Done()) {
-    TcpServer::Status st{};
+    HostLink::Status st{};
     st.rx = prog_.Written();
     st.total = prog_.Total();
-    st.state = TcpServer::Status::kDone;
-    tcp_.EndTransfer();
-    tcp_.SetStatus(st);
+    st.state = HostLink::Status::kDone;
+    link.EndTransfer();
+    link.SetStatus(st);
     (void)prog_.Boot();
     (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
     return;
   }
 
-  while (auto ev = tcp_.PopEvent()) {
-    switch (ev->id) {
-      case TcpServer::EventId::kBegin:
-        tcp_.SendCtrlLine("OK\n");
-        tcp_.BeginTransfer(ev->begin);
-        prog_.SetTarget(ev->begin.target);
-        EnterProgramMode(now);
-        return;
-      case TcpServer::EventId::kAbort:
-        prog_.Abort();
-        tcp_.EndTransfer();
-        (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
-        return;
-      case TcpServer::EventId::kReset:
-        tcp_.CloseDataRx();
-        (void)prog_.Boot();
-        esp_restart();
-        break;
-      case TcpServer::EventId::kNone:
-      default:
-        break;
-    }
+  while (auto ev = link.PopEvent()) {
+    Dispatch(now, *ev);
+    if (mode_ != Mode::kProgram || exit_) return;
   }
 
-  if (tcp_.TakeLinkDrop()) {
+  if (link.TakeLinkDrop()) {
     prog_.Abort();
-    tcp_.EndTransfer();
+    link.EndTransfer();
     (void)EnterServiceMode(now, NetworkAction::kStopNetwork);
     return;
   }
 
   if (prog_.IsVerifying()) {
-    TcpServer::Status verifying = tcp_.GetStatus();
+    HostLink::Status verifying = link.GetStatus();
     verifying.rx = prog_.VerifyOffset();
-    verifying.state = TcpServer::Status::kVerifying;
-    tcp_.SetStatus(verifying);
+    verifying.state = HostLink::Status::kVerifying;
+    link.SetStatus(verifying);
     return;
   }
 
-  TcpServer::Status st = tcp_.GetStatus();
+  HostLink::Status st = link.GetStatus();
   st.rx = prog_.Written();
-  tcp_.SetStatus(st);
+  link.SetStatus(st);
 
   const size_t free = prog_.Free();
   if (free > 0) {
     uint8_t buf[512];
     const size_t read_size = std::min(free, sizeof(buf));
-    const size_t n = tcp_.ReadDataRx({buf, read_size});
+    const size_t n = link.ReadDataRx({buf, read_size});
     if (n > 0) {
       prog_.PushBytes({buf, n});
       last_activity_ = now;
@@ -320,6 +324,7 @@ void RecoverySession::Exit(uint32_t code, NetworkAction network) {
   if (network == NetworkAction::kStopNetwork) {
     sys_.StopNetwork();
   }
+  usb_.Stop();
   result_ = code;
   exit_ = true;
 }
@@ -333,6 +338,7 @@ uint32_t RecoverySession::RunUntilFailure() {
     const TimeMs now = sys_.Timebase().NowMs();
     sys_.Button().Poll();
     tcp_.Poll();
+    usb_.Poll();
 
     switch (mode_) {
       case Mode::kService:

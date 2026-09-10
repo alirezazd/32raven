@@ -74,7 +74,10 @@ void Mavlink::SetTelemetryLink(bool enabled) {
   InitTxSchedule(0);
   rc_map_apply_.Reset();
   rc_calibration_apply_.Reset();
-  transport_->ClearPeer();
+  // Reached from panic recovery too, which may run before Init.
+  if (transport_ != nullptr) {
+    transport_->ClearPeer();
+  }
 }
 
 uint32_t Mavlink::GetUdpRxPacketCount() const {

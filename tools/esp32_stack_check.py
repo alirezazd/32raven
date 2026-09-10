@@ -56,6 +56,11 @@ RESOLVED = {
         "_ZN11ErrorWidget6OnStepER13WidgetContextm",
         "_ZN12MainUiWidget6OnStepER13WidgetContextm",
     ),
+    # HostLink::ReadDataRx, one entry per transport the recovery session serves
+    "_ZN12_GLOBAL__N_115RecoverySession15StepProgramModeEm": (
+        "_ZN9TcpServer10ReadDataRxESt4spanIhLj4294967295EE",
+        "_ZN11UsbHostLink10ReadDataRxESt4spanIhLj4294967295EE",
+    ),
 }
 
 # Indirect sites the walk stops at, each with the reason that is safe.
