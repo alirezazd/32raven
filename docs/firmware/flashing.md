@@ -60,7 +60,7 @@ make flash-stm32
 
 The same path with the WiFi hop replaced by the cable `make flash-esp32` already uses: the
 image goes down USB to the bridge, which programs the flight computer exactly as above. The
-bridge must be on its Service page, as for WiFi. Useful when the thing being debugged is the
+bridge must be in its Service mode, as for WiFi. Useful when the thing being debugged is the
 WiFi. The bridge's own log scrolls past while it works — it shares the port — and the
 `OK`/`ERR`/`STATUS` lines among it are the protocol.
 

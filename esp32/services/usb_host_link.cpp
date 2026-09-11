@@ -40,7 +40,7 @@ void UsbHostLink::Poll() {
   }
   attached_ = attached;
 
-  // Until the image is complete the stream is the page's, through ReadDataRx.
+  // Until the image is complete the stream is the mode's, through ReadDataRx.
   if (DataRxOpen() && !image_complete_) return;
 
   uint8_t buf[kMaxLineBytes];

@@ -655,7 +655,7 @@ present. #36 carries the notification.
 
 The Telem UART is the aircraft's MAVLink link: `TelemUartServer` on GPIO20/21 at 57600, the
 SiK default, brought up by `ServingState` which is where `main.cpp` starts the machine. The
-WiFi and USB MAVLink pages are bench transports reached from the menu, not the vehicle's link.
+WiFi and USB MAVLink modes are bench transports reached from the menu, not the vehicle's link.
 
 Four states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them has a reason.
 

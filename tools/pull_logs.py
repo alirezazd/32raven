@@ -5,8 +5,8 @@
 
 """Pull blackbox logs off the aircraft over WiFi.
 
-The ESP32 must be on the WiFi Log page (short-press past MAVLink in the main
-menu) with its AP up; any other page answers the LOG verbs with a redirect.
+The ESP32 must be in WiFi Log mode (short-press past MAVLink in the main
+menu) with its AP up; any other mode answers the LOG verbs with a redirect.
 Listing and transfer ride the same ctrl/data socket pair the firmware
 programmer uses; the ESP32 relays FcLink frames from the STM32's SD card.
 
@@ -14,7 +14,7 @@ programmer uses; the ESP32 relays FcLink frames from the STM32's SD card.
   ./tools/pull_logs.py get LOG00042.ULG [-o out.ulg]
 
 Throughput is FcLink-bound (~50 KB/s) -- this is the cable-free peek. Bulk
-retrieval is USB mass storage from the USB Log page, one press further.
+retrieval is USB mass storage from USB Log mode, one press further.
 """
 
 # /// script
@@ -56,7 +56,7 @@ from rich.table import Table
 # At or above this, USB mass storage is the faster route.
 BULK_HINT_BYTES = 8 * 1024 * 1024
 
-WRONG_PAGE = "wrong page -- put the ESP32 on WiFi Log and retry"
+WRONG_MODE = "wrong mode -- put the ESP32 on WiFi Log and retry"
 
 console = Console()
 
@@ -166,7 +166,7 @@ def fetch_list(ip: str) -> list[tuple[str, int]]:
         ctrl.sendall(b"LOG LIST\n")
         reply = lines.readline(5)
         if reply != "OK":
-            raise RuntimeError(WRONG_PAGE if "wrong_page" in reply else reply)
+            raise RuntimeError(WRONG_MODE if "wrong_mode" in reply else reply)
         while True:
             line = lines.readline(10)
             if line.startswith("DONE"):
@@ -246,7 +246,7 @@ def cmd_list(ip: str) -> int:
         ctrl.sendall(b"LOG LIST\n")
         reply = lines.readline(5)
         if reply != "OK":
-            print(f"error: {reply or WRONG_PAGE}", file=sys.stderr)
+            print(f"error: {reply or WRONG_MODE}", file=sys.stderr)
             return 1
         while True:
             line = lines.readline(10)
@@ -270,7 +270,7 @@ def cmd_get(
             ctrl.sendall(f"LOG GET {name}\n".encode())
             reply = lines.readline(5)
             if reply != "OK":
-                print(f"error: {reply or WRONG_PAGE}", file=sys.stderr)
+                print(f"error: {reply or WRONG_MODE}", file=sys.stderr)
                 return 1
             data.settimeout(10)
             progress = Progress(

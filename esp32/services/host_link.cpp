@@ -192,7 +192,7 @@ static bool TokenEqCI(const char *s, const char *verb) {
 // Command handling
 
 // BEGIN and LOG are answered by whoever pops the event, not here: only the
-// current page knows whether it can serve them, and a host that has already
+// current mode knows whether it can serve them, and a host that has already
 // been told OK commits to streaming before the refusal could reach it.
 void HostLink::HandleLine(const char *line) {
   if (!line) return;

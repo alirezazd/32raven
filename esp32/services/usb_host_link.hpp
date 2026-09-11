@@ -26,7 +26,7 @@ class UsbHostLink final : public HostLink {
   // mirrors it.
   static constexpr size_t kChunkBytes = 512;
 
-  // Drops what a host sent while another page held the port, so the next
+  // Drops what a host sent while another mode held the port, so the next
   // BEGIN is the first one answered. A no-op while running: Program hands
   // the port back with the conversation, and its Status, intact.
   void Start();

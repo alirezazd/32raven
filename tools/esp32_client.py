@@ -183,7 +183,7 @@ class AutoConnector:
 
 
 def await_service(probe, retry, refusal):
-    """probe() until it answers True, waiting out the wrong page if retry.
+    """probe() until it answers True, waiting out the wrong mode if retry.
 
     refusal is what the first failed probe prints, before the Service hint.
     """
@@ -352,7 +352,7 @@ class SerialLink:
         ser.dtr = False
         self.ser = ser
         # Nothing refuses a serial port, and only Service polls this link, so
-        # the wrong page is a STATUS? that goes unanswered.
+        # the wrong mode is a STATUS? that goes unanswered.
         if await_service(
             lambda: self.request("STATUS?") is not None,
             retry,
@@ -499,16 +499,16 @@ class Esp32Shell(cmd.Cmd):
                 # The connect succeeded, so something is listening; silence
                 # means nothing is consuming commands. The claim stops there:
                 # this path has covered a wedged server as well as the wrong
-                # page, and a guessed diagnosis reads as fact.
+                # mode, and a guessed diagnosis reads as fact.
                 console.print(
                     "[red]Connected, but nothing answered BEGIN.[/red] The "
                     "ESP32 is not serving flashing right now -- not on the "
-                    "Service page, or its command loop is stuck. Check the "
+                    "Service mode, or its command loop is stuck. Check the "
                     "serial log."
                 )
-            elif "wrong_page" in resp:
+            elif "wrong_mode" in resp:
                 console.print(
-                    "[yellow]Wrong page:[/yellow] put the ESP32 on Service "
+                    "[yellow]Wrong mode:[/yellow] put the ESP32 on Service "
                     "and retry."
                 )
             else:
@@ -621,7 +621,7 @@ class Esp32Shell(cmd.Cmd):
         console.print(
             f"[red]Target never reported done after "
             f"{FLASH_STATUS_TIMEOUT_S}s.[/red] "
-            "Check which page the ESP32 is on."
+            "Check which mode the ESP32 is in."
         )
         return False
 

@@ -43,7 +43,7 @@ class HostLink {
     BeginArgs begin{};
     char log_name[13] = {};  // kLogGet only, 8.3 + terminator
     // The link that queued it, stamped by PushEvent: the answer goes back
-    // the way the command came, and a page draining two links cannot mix
+    // the way the command came, and a mode draining two links cannot mix
     // them up.
     HostLink *origin = nullptr;
   };
@@ -75,12 +75,12 @@ class HostLink {
   // missed. Take once per tick, after draining PopEvent, so a command and a
   // drop landing in the same tick resolve to the drop.
   bool TakeLinkDrop();
-  // For a page with no transfer to abort: a drop that happened while the
+  // For a mode with no transfer to abort: a drop that happened while the
   // host sat idle must not surface as one the moment a transfer starts.
   void ClearLinkDrop();
 
   // CloseDataRx shuts the sink and leaves Status alone -- a finished
-  // transfer's Status must survive the return to the service page --
+  // transfer's Status must survive the return to the service mode --
   // Begin/EndTransfer wrap a sized download and own its Status.
   void CloseDataRx();
   void BeginTransfer(const BeginArgs &begin);
@@ -114,7 +114,7 @@ class HostLink {
   void HandleLine(const char *line);
   [[nodiscard]] bool PushEvent(const Event &e);
   // Push-and-OK for the payload-free verbs; BEGIN and LOG answer from the
-  // page that pops them.
+  // mode that pops them.
   void QueueSimpleCommand(EventId id);
   enum class LineFeed : uint8_t { kIncomplete, kComplete, kTruncated };
   LineFeed LinebufAdd(char c);
