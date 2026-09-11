@@ -27,6 +27,17 @@ uint32_t SamplePathFaults(const SharedState &blackboard) {
          health.parse_fails + health.missed_samples;
 }
 
+// Zero until the scale is known, which holds the run rather than passing a
+// window nothing was checked against.
+uint32_t StillThresholdCounts(uint32_t threshold_si_milli, float unit_si,
+                              float count_to_si) {
+  if (count_to_si <= 0.0f) {
+    return 0;
+  }
+  const float si = static_cast<float>(threshold_si_milli) * 0.001f * unit_si;
+  return static_cast<uint32_t>(si / count_to_si);
+}
+
 }  // namespace
 
 void GyroCal::Init(const Config &cfg, SharedState &blackboard, Icm42688p &imu) {
@@ -89,6 +100,10 @@ void GyroCal::Feed(const ImuBurst &burst) {
     return;
   }
 
+  constexpr float kDegToRad = 0.01745329252f;
+  const uint32_t still_counts = StillThresholdCounts(
+      cfg_.still_threshold_mdps, kDegToRad, gyro_scale_);
+
   for (uint8_t i = 0; i < burst.count; ++i) {
     for (int axis = 0; axis < 3; ++axis) {
       const int32_t g = burst.gyro[axis][i];
@@ -98,8 +113,7 @@ void GyroCal::Feed(const ImuBurst &burst) {
       if (g > max_[axis]) {
         max_[axis] = g;
       }
-      if (static_cast<uint32_t>(max_[axis] - min_[axis]) >
-          cfg_.still_threshold_raw) {
+      if (static_cast<uint32_t>(max_[axis] - min_[axis]) > still_counts) {
         ResetRun();
         return;
       }
@@ -308,6 +322,9 @@ void AccelCal::Feed(const ImuBurst &burst) {
     return;
   }
 
+  const uint32_t still_counts = StillThresholdCounts(
+      cfg_.still_threshold_mg, kGravityMps2, accel_scale_);
+
   for (uint8_t i = 0; i < burst.count; ++i) {
     for (int axis = 0; axis < 3; ++axis) {
       const int32_t a = burst.accel[axis][i];
@@ -317,8 +334,7 @@ void AccelCal::Feed(const ImuBurst &burst) {
       if (a > max_[axis]) {
         max_[axis] = a;
       }
-      if (static_cast<uint32_t>(max_[axis] - min_[axis]) >
-          cfg_.still_threshold_raw) {
+      if (static_cast<uint32_t>(max_[axis] - min_[axis]) > still_counts) {
         // Moving. A pose half-collected is discarded rather than kept: the
         // board has left the orientation those samples described.
         ResetWindow();

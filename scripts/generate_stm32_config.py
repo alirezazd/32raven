@@ -2232,8 +2232,8 @@ def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "duration_s": sym_int(kconf, "STM32_SENSOR_CAL_GYRO_DURATION_S"),
         "timeout_s": sym_int(kconf, "STM32_SENSOR_CAL_GYRO_TIMEOUT_S"),
-        "still_threshold_raw": sym_int(
-            kconf, "STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_RAW"
+        "still_threshold_mdps": sym_int(
+            kconf, "STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_MDPS"
         ),
         "accel_side_duration_ms": sym_int(
             kconf, "STM32_SENSOR_CAL_ACCEL_SIDE_DURATION_MS"
@@ -2242,8 +2242,8 @@ def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             kconf, "STM32_SENSOR_CAL_ACCEL_STILL_DURATION_MS"
         ),
         "accel_timeout_s": sym_int(kconf, "STM32_SENSOR_CAL_ACCEL_TIMEOUT_S"),
-        "accel_still_threshold_raw": sym_int(
-            kconf, "STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_RAW"
+        "accel_still_threshold_mg": sym_int(
+            kconf, "STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_MG"
         ),
     }
 

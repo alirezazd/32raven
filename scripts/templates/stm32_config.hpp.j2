@@ -220,13 +220,13 @@ inline constexpr SensorCalService::Config kSensorCalConfig = {
     .gyro = {
         .duration_s = {{ sensor_cal.duration_s }},
         .timeout_s = {{ sensor_cal.timeout_s }},
-        .still_threshold_raw = {{ sensor_cal.still_threshold_raw }},
+        .still_threshold_mdps = {{ sensor_cal.still_threshold_mdps }},
     },
     .accel = {
         .side_duration_ms = {{ sensor_cal.accel_side_duration_ms }},
         .still_duration_ms = {{ sensor_cal.accel_still_duration_ms }},
         .timeout_s = {{ sensor_cal.accel_timeout_s }},
-        .still_threshold_raw = {{ sensor_cal.accel_still_threshold_raw }},
+        .still_threshold_mg = {{ sensor_cal.accel_still_threshold_mg }},
     },
 };
 static_assert(kSensorCalConfig.gyro.timeout_s > kSensorCalConfig.gyro.duration_s,

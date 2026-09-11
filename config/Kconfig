@@ -2954,14 +2954,20 @@ config STM32_SENSOR_CAL_GYRO_TIMEOUT_S
       failing it, so this is what ends a run the airframe will not hold still
       for. Must exceed the duration or the build fails.
 
-config STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_RAW
-    int "Stillness threshold (raw)"
-    range 1 32767
-    default 64
+config STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_MDPS
+    int "Stillness threshold (mdps)"
+    range 100 60000
+    default 4000
     help
-      Peak-to-peak spread per axis, in the chip's own counts, that still
-      counts as stationary. A spread, not a magnitude: a large but steady
-      bias is exactly what the run is there to measure.
+      Peak-to-peak spread per axis that still counts as stationary. A spread,
+      not a magnitude: a large but steady bias is exactly what the run is
+      there to measure.
+
+      In millidegrees per second, converted to counts against the scale the
+      driver reports with each burst. A count is not a physical quantity --
+      it means nothing without the full-scale range and bit depth behind it,
+      and the 20-bit FIFO spans 16x as many counts as the 16-bit one for the
+      same rotation.
 
 endmenu
 
@@ -2994,15 +3000,18 @@ config STM32_SENSOR_CAL_ACCEL_TIMEOUT_S
       next to the gyro's. Must exceed six poses' worth of sampling or the
       build fails.
 
-config STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_RAW
-    int "Stillness threshold (raw)"
-    range 1 32767
-    default 256
+config STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_MG
+    int "Stillness threshold (mg)"
+    range 1 2000
+    default 125
     help
-      Peak-to-peak spread per axis, in the chip's own counts, that still
-      counts as stationary. Looser than the gyro's: a hand-held airframe
-      resting against a bench is never as still as one set down flat, and
-      the pose only has to be identified, not measured to the last count.
+      Peak-to-peak spread per axis that still counts as stationary. Looser
+      than the gyro's: a hand-held airframe resting against a bench is never
+      as still as one set down flat, and the pose only has to be identified,
+      not measured to the last count.
+
+      In milli-g, converted to counts against the scale the driver reports
+      with each burst, for the reason the gyro's help gives.
 
 endmenu
 

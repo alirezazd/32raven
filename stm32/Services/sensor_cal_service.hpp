@@ -25,8 +25,9 @@ class GyroCal {
     // about the window it came from, a window nothing about its density.
     uint32_t duration_s;
     uint32_t timeout_s;
-    // Peak-to-peak, not magnitude, and in the chip's own counts.
-    uint32_t still_threshold_raw;
+    // Peak-to-peak, not magnitude, and physical: a count means nothing
+    // without the full-scale range and bit depth behind it.
+    uint32_t still_threshold_mdps;
   };
 
   enum class State : uint8_t { kIdle, kCollecting, kApplied, kFailed };
@@ -107,8 +108,9 @@ class AccelCal {
     uint32_t still_duration_ms;
     // The whole session, not one pose -- the operator is the slow part.
     uint32_t timeout_s;
-    // Peak-to-peak in the chip's own counts, as GyroCal does it.
-    uint32_t still_threshold_raw;
+    // Peak-to-peak in milli-g, converted against the burst's own scale as
+    // GyroCal does it.
+    uint32_t still_threshold_mg;
   };
 
   enum class State : uint8_t {
