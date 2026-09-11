@@ -276,6 +276,14 @@ bool Programmer::EnterStm32Bootloader() {
         break;
       }
 
+      // Our own sync byte back. AN2606 has the ROM bootloader watching several
+      // peripherals at once, each candidate TX pin left an input until it knows
+      // which one carried the sync, so our RX floats and picks this off the
+      // adjacent TX line. Expected every connect, not junk.
+      if (*rx == kSyncByte) {
+        continue;
+      }
+
       last_unexpected = *rx;
       ++unexpected_count;
     }

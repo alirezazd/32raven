@@ -97,7 +97,6 @@ void HostLink::FeedCtrl(uint8_t byte) {
   }
   if (fed == LineFeed::kComplete) {
     line_buf_[line_len_] = '\0';
-    ESP_LOGI(kTag, "Cmd line: %s", line_buf_);
     HandleLine(line_buf_);
     line_len_ = 0;
   }
@@ -199,6 +198,12 @@ void HostLink::HandleLine(const char *line) {
 
   const char *p = SkipSpace(line);
   if (!*p) return;
+
+  // Every verb but the poll: the host asks STATUS? twice a second for a whole
+  // verify, which buries the lines that carry something.
+  if (!TokenEqCI(p, "STATUS?") && !TokenEqCI(p, "STATUS")) {
+    ESP_LOGI(kTag, "Cmd line: %s", p);
+  }
 
   if (TokenEqCI(p, "BEGIN")) {
     const std::optional<uint32_t> parsed_size = FindU32KV(p, "size");
