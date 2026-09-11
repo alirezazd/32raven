@@ -41,11 +41,11 @@ The build is also where the checking happens:
 - The ESP32 build finishes with a flash/RAM size report and a static stack-depth check on
   its FreeRTOS tasks.
 
-## Generators and output
+## Output layout
 
-The top level drives CMake with **Ninja** by default, and build outputs are
-generator-specific: `build/Ninja/stm32/`, `build/Ninja/esp32/`. To use another generator,
-pass `GEN` — `make configure GEN="Unix Makefiles"` — and when switching generators or
-toolchains, run `make clean` first so a stale CMake cache does not confuse the new one.
+The top level drives CMake with **Ninja**, and builds land in `build/Ninja/stm32/` and
+`build/Ninja/esp32/`. That path is fixed rather than a preference: the lint scripts and
+the size and stack tools read it by name. After switching toolchains, run `make clean`
+first so a stale CMake cache does not confuse the new one.
 
 Next: [flash it](flashing.md).

@@ -3,12 +3,10 @@ SHELL := /usr/bin/bash
 CMAKE := cmake
 RM := rm
 
-GEN ?= Ninja
-empty :=
-space := $(empty) $(empty)
-GEN_DIR := $(subst $(space),_,$(GEN))
 BUILD_ROOT ?= build
-BUILD_DIR ?= $(BUILD_ROOT)/$(GEN_DIR)
+# Ninja only, and the path is part of the contract: the lint scripts and the
+# size and stack tools read build/Ninja by name rather than asking make.
+BUILD_DIR ?= $(BUILD_ROOT)/Ninja
 
 # user_config.cmake is gitignored; values surface as overrides for IDF_PATH / ESP_PORT / ESP_BAUD.
 IDF_PATH_VAR := $(shell grep "IDF_PATH" user_config.cmake 2>/dev/null | grep -v "^#" | cut -d'"' -f2)
@@ -107,7 +105,7 @@ help:
 	@echo "  setup-vscode        - Configure VSCode settings for 32Raven (git submodule handling, watchers)"
 	@echo "  docs                - Build the handbook strictly into ./site + lint it"
 	@echo "  docs-serve          - Live-reload handbook preview at http://127.0.0.1:8000"
-	@echo "Vars: GEN='Ninja' or 'Unix Makefiles', BUILD_ROOT=build, BUILD_DIR=build/<generator>, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..., USE_DOCKER=0|1, DOCKER_IMAGE=..."
+	@echo "Vars: BUILD_ROOT=build, BUILD_DIR=build/Ninja, IDF_PATH=..., STM32_TOOLCHAIN_FILE=..., USE_DOCKER=0|1, DOCKER_IMAGE=..."
 
 # Both run bare python3 on the host, never through $(RUN): they exist to report
 # on the machine you are standing at, and they have to work before uv does.
@@ -122,7 +120,7 @@ install-deps:
 
 configure:
 	@mkdir -p "$(BUILD_DIR)"
-	$(RUN) $(CMAKE) -S . -B "$(BUILD_DIR)" -G "$(GEN)"
+	$(RUN) $(CMAKE) -S . -B "$(BUILD_DIR)" -G Ninja
 
 all: configure
 	$(RUN) $(CMAKE) --build "$(BUILD_DIR)" --target all_firmware
@@ -221,15 +219,17 @@ flash-stm32: stm32
 	$(if $(ESP_PORT_VAR),,$(error No ESP32 USB port found; plug the bridge in, or set ESP_PORT in user_config.cmake))
 	$(RUN_USB) uv run --quiet --script tools/esp32_client.py --port $(ESP_PORT_VAR) flash $(BUILD_DIR)/stm32/32Raven_stm32.bin
 
-# Recursive rather than prerequisites, so -j cannot reorder them: the flight
-# computer goes first, and a failure there leaves the bridge as it was.
-flash-all:
-	$(MAKE) flash-stm32
-	$(MAKE) flash-esp32
+# Both images built before either is written, and the flight computer written
+# first, so a failure anywhere leaves the bridge as the one that was there
+# before -- and the bridge is what retries. .NOTPARALLEL is what holds that
+# order; on make older than 4.4 it ignores its prerequisites and serializes
+# the whole file instead, which costs nothing here because every recipe is one
+# shell-out and the real parallelism is Ninja's.
+.NOTPARALLEL: flash-all flash-wifi-all
 
-flash-wifi-all:
-	$(MAKE) flash-wifi-stm32
-	$(MAKE) flash-wifi-esp32
+flash-all: stm32 esp32 flash-stm32 flash-esp32
+
+flash-wifi-all: stm32 esp32 flash-wifi-stm32 flash-wifi-esp32
 
 # Host-side, no $(RUN): this prompts on a TTY and writes to the desktop's
 # download directory, neither of which survives the build container. With no
@@ -239,7 +239,7 @@ pull-wifi-logs:
 	@uv run --quiet --script tools/pull_logs.py $(if $(IP),--ip $(IP)) $(if $(LOG),get $(LOG))
 
 distclean: clean
-	@echo "Removing all generator build directories in $(BUILD_ROOT)/"
+	@echo "Removing $(BUILD_ROOT)/"
 	$(RUN) $(RM) -rf "$(BUILD_ROOT)"
 
 # ---- Docker mode toggle ---------------------------------------------------
