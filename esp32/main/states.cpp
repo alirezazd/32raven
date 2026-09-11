@@ -3,6 +3,7 @@
 
 #include "states.hpp"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "ctx.hpp"
@@ -21,18 +22,18 @@ extern "C" {
 
 static constexpr const char *kTag = "ESP32-SM";
 
-// LED cadence per page, so the board says where it is without the screen.
-// The three tool pages share one rate; Service blinks faster because it is the
-// only page waiting on a host to connect.
+// LED cadence per mode, so the board says where it is without the screen.
+// The three tool modes share one rate; Service blinks faster because it is the
+// only mode waiting on a host to connect.
 static constexpr uint32_t kServingBreatheMs = 3000;
 static constexpr uint32_t kServiceBlinkMs = 400;
-static constexpr uint32_t kToolPageBlinkMs = 800;
+static constexpr uint32_t kToolModeBlinkMs = 800;
 
 // Same patience as the boot handshake: the same STM32 on the same link.
 static constexpr uint16_t kStm32RequestAttempts =
     FcLink::HandshakeAttempts(kFcLinkConfig.handshake_window_s);
 
-// Mavlink().Poll stays at the call sites, so a page that wants the radio has
+// Mavlink().Poll stays at the call sites, so a mode that wants the radio has
 // to say so.
 static void DrainFcLink(AppContext &ctx) {
   ctx.sys->FcLink().Poll();
@@ -156,12 +157,16 @@ void ServiceState::OnEnter(AppContext &ctx) {
   ctx.sys->UsbHost().Start();
 }
 
-// This page never drains FcLink, so the STM32's stream has been piling up
+// This mode never drains FcLink, so the STM32's stream has been piling up
 // unparsed the whole time. Handed on as a resync rather than as a buffer the
-// next page would read as fatal corruption. Program is the other such page.
+// next mode would read as fatal corruption. Program is the other such mode.
 void ServiceState::OnExit(AppContext &ctx) {
   ctx.sys->FcLink().ResetRxState();
-  // Every page but Program takes the port for something else.
+  // The USB session is only valid while a mode is attending it, and Program
+  // is the only one that keeps doing so -- for the link that armed its
+  // transfer, and no other. Anything else leaves it unattended, so it is
+  // stopped here and the next entry to Service opens a clean one rather than
+  // answering a command that has been sitting in the queue since.
   if (ctx.host_link != &ctx.sys->UsbHost()) ctx.sys->UsbHost().Stop();
 }
 
@@ -171,19 +176,14 @@ void ServiceState::OnStep(AppContext &ctx) {
     return;
   }
 
-  ctx.sys->Tcp().Poll();
-  ctx.sys->UsbHost().Poll();
-
-  while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+  HostLink *const links[] = {&ctx.sys->Tcp(), &ctx.sys->UsbHost()};
+  for (HostLink *link : links) {
+    link->Poll();
+    while (auto ev = link->PopEvent()) {
+      ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+    }
+    link->ClearLinkDrop();
   }
-
-  while (auto ev = ctx.sys->UsbHost().PopEvent()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
-  }
-
-  ctx.sys->Tcp().ClearLinkDrop();
-  ctx.sys->UsbHost().ClearLinkDrop();
 }
 
 // Program State
@@ -241,6 +241,8 @@ void ProgramState::OnStep(AppContext &ctx) {
   }
 
   while (auto ev = link.PopEvent()) {
+    // ABORT means the transfer, not just the link, so it is handled here
+    // rather than by the shared dispatch.
     if (ev->id == HostLink::EventId::kAbort) {
       ESP_LOGE(kTag, "ProgramState: ABORT");
       link.EndTransfer();
@@ -248,6 +250,9 @@ void ProgramState::OnStep(AppContext &ctx) {
       ctx.sm->ReqTransition(*ctx.service_state);
       return;
     }
+    // BEGIN and the LOG pair are queued unanswered, so whoever pops one owes
+    // the host a reply; dropping it leaves the host waiting out its timeout.
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
   }
 
   if (link.TakeLinkDrop()) {
@@ -278,16 +283,21 @@ void ProgramState::OnStep(AppContext &ctx) {
   st.rx = prog.Written();
   link.SetStatus(st);
 
-  size_t free = prog.Free();
-  if (free > 0) {
-    uint8_t buf[512];
-    const std::span<uint8_t> chunk{buf};
-    const size_t n = link.ReadDataRx(
-        chunk.first((free < chunk.size()) ? free : chunk.size()));
-    if (n > 0) {
-      prog.PushBytes(chunk.first(n));
-      ctx.sys->Led().Toggle();
-    }
+  uint8_t buf[512];
+  const std::span<uint8_t> chunk{buf};
+  size_t budget = prog.TargetWriteChunkLimit();
+  bool moved = false;
+  while (budget > 0) {
+    const size_t room = std::min({prog.Free(), budget, chunk.size()});
+    if (room == 0) break;
+    const size_t n = link.ReadDataRx(chunk.first(room));
+    if (n == 0) break;
+    prog.PushBytes(chunk.first(n));
+    budget -= n;
+    moved = true;
+  }
+  if (moved) {
+    ctx.sys->Led().Toggle();
   }
 }
 
@@ -315,7 +325,7 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   // flight-ready rather than being told nothing at all.
   ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
   ctx.sys->Mavlink().SetTelemetryLink(true);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolModeBlinkMs);
   ctx.sys->StopNetwork();
   warned_armed_ = false;
   stream_seen_ = false;
@@ -383,7 +393,7 @@ void UsbLogState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering UsbLog");
   ctx.sys->Ui().SetAppState(Ui::AppState::kUsbLog);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolModeBlinkMs);
   ctx.sys->StopNetwork();
   stream_seen_ = false;
   activity_.Reset(0);
@@ -432,7 +442,7 @@ void WifiLogState::OnEnter(AppContext &ctx) {
   ESP_LOGI(kTag, "entering WifiLog");
   ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
   ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolPageBlinkMs);
+  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolModeBlinkMs);
   // Best effort: a failed start only leaves nothing listening.
   ctx.sys->StartNetwork();
   ctx.sys->Tcp().CloseDataRx();
@@ -586,6 +596,15 @@ void LogPullState::OnStep(AppContext &ctx) {
   }
 
   ctx.sys->Tcp().Poll();
+  while (auto ev = ctx.sys->Tcp().PopEvent()) {
+    // The pull is what ABORT ends; everything else the dispatch refuses,
+    // because a queued verb nobody answers hangs the host.
+    if (ev->id == HostLink::EventId::kAbort) {
+      Finish(ctx, "ERR aborted\n");
+      return;
+    }
+    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+  }
   DrainFcLink(ctx);
 
   // A pull outlasts the inactivity timeout many times over, so traffic keeps

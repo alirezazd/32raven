@@ -74,6 +74,10 @@ class Programmer {
   uint32_t Written() const;
   uint32_t VerifyOffset() const;
   size_t Free() const;
+  // The most the target swallows in one write, and so what a mode should
+  // feed per tick: less leaves the transfer paced by the tick, more lets a
+  // slow target hold the loop for several writes.
+  size_t TargetWriteChunkLimit() const;
   bool Boot();
 
  private:
@@ -144,7 +148,6 @@ class Programmer {
   void Boot0Set(bool on);
   void NrstPulse(uint32_t pulse_ms);
   bool BeginTargetSession();
-  size_t TargetWriteChunkLimit() const;
   bool WriteTargetChunk(const uint8_t *bytes, size_t len);
   bool FinalizeTargetWrite();
   size_t TargetVerifyChunkSize() const;

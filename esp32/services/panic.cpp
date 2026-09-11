@@ -118,7 +118,7 @@ uint32_t EnterRecoveryServiceMode() {
   // RunPanicLoop on the same static stack. The checks below report instead.
   sys.StartNetwork();
   sys.Tcp().CloseDataRx();
-  // As the app's Service page: the host links get the USB port to themselves.
+  // As the app's Service mode: the host links get the USB port to themselves.
   sys.Mavlink().SetTelemetryLink(false);
   sys.UsbHost().Start();
 
@@ -233,6 +233,11 @@ void RecoverySession::Dispatch(TimeMs now, const HostLink::Event &ev) {
       (void)prog_.Boot();
       esp_restart();
       return;
+    case HostLink::EventId::kLogList:
+    case HostLink::EventId::kLogGet:
+      // Queued unanswered by the parser, and recovery serves no logs.
+      link.SendCtrlLine("ERR wrong_mode\n");
+      return;
     case HostLink::EventId::kNone:
     default:
       return;
@@ -296,15 +301,16 @@ void RecoverySession::StepProgramMode(TimeMs now) {
   st.rx = prog_.Written();
   link.SetStatus(st);
 
-  const size_t free = prog_.Free();
-  if (free > 0) {
-    uint8_t buf[512];
-    const size_t read_size = std::min(free, sizeof(buf));
-    const size_t n = link.ReadDataRx({buf, read_size});
-    if (n > 0) {
-      prog_.PushBytes({buf, n});
-      last_activity_ = now;
-    }
+  uint8_t buf[512];
+  size_t budget = prog_.TargetWriteChunkLimit();
+  while (budget > 0) {
+    const size_t room = std::min({prog_.Free(), budget, sizeof(buf)});
+    if (room == 0) break;
+    const size_t n = link.ReadDataRx({buf, room});
+    if (n == 0) break;
+    prog_.PushBytes({buf, n});
+    last_activity_ = now;
+    budget -= n;
   }
 
   const uint32_t current_written = prog_.Written();

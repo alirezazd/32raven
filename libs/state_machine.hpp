@@ -48,6 +48,10 @@ class StateMachine {
 
   void ReqTransition(IState<Context> &target) { next_ = &target; }
 
+  // A transition is already committed for this tick. A second request would
+  // silently replace the first, so a caller that is about to arm one asks.
+  bool TransitionPending() const { return next_ != nullptr; }
+
   const char *CurrentName() const {
     return current_ ? current_->Name() : "(none)";
   }

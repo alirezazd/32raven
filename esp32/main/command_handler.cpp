@@ -194,22 +194,23 @@ void CommandHandler::Dispatch(const AppContext &ctx, const message::Packet &pkt)
 
 void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
   HostLink &link = *ev.origin;
-  // Which page is showing decides whether a verb can be served here: BEGIN
-  // belongs to Service, the LOG pair to WifiLog, and each refuses the other's.
-  const IState<AppContext> *page = ctx.sm->CurrentState();
+  // Which mode the board is in decides whether a verb can be served here:
+  // BEGIN belongs to Service, the LOG pair to WifiLog, and each refuses the
+  // other's.
+  const IState<AppContext> *mode = ctx.sm->CurrentState();
 
   switch (ev.id) {
     case HostLink::EventId::kBegin: {
       ESP_LOGI(kTag, "BEGIN size=%u crc=%u target=%s", (unsigned)ev.begin.size,
                (unsigned)ev.begin.crc,
                ev.begin.target[0] != '\0' ? ev.begin.target : "stm32");
-      if (page != ctx.service_state) {
-        link.SendCtrlLine("ERR wrong_page\n");
+      if (mode != ctx.service_state) {
+        link.SendCtrlLine("ERR wrong_mode\n");
         return;
       }
       // Two links are drained in one tick, so a second BEGIN can land while
-      // the first's transfer is armed and Program not yet entered.
-      if (ctx.host_link != nullptr) {
+      // the first is armed and Program not yet entered.
+      if (ctx.sm->TransitionPending()) {
         link.SendCtrlLine("ERR busy\n");
         return;
       }
@@ -223,10 +224,16 @@ void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
     }
     case HostLink::EventId::kLogList:
     case HostLink::EventId::kLogGet: {
-      // Logs are served from the WiFi log page, where the screen shows the
+      // Logs are served from the WiFi log mode, where the screen shows the
       // transfer.
-      if (page != ctx.wifi_log_state) {
-        link.SendCtrlLine("ERR wrong_page\n");
+      if (mode != ctx.wifi_log_state) {
+        link.SendCtrlLine("ERR wrong_mode\n");
+        return;
+      }
+      // As BEGIN: one tick's drain can carry two, and the second would
+      // replace the first's prepared pull with the host none the wiser.
+      if (ctx.sm->TransitionPending()) {
+        link.SendCtrlLine("ERR busy\n");
         return;
       }
       if (ev.id == HostLink::EventId::kLogList) {
