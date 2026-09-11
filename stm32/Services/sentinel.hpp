@@ -26,7 +26,7 @@
 // Deliberately no never-seen-RC member. Arming over FcLink with no transmitter
 // powered on has to keep working, which is PX4's _manual_control_lost_at_arming
 // rule stated from the other side.
-inline constexpr uint16_t kArmBlockNotIdle = 1u << 0;
+inline constexpr uint16_t kArmBlockNotStandby = 1u << 0;
 inline constexpr uint16_t kArmBlockSwitchNotCycled = 1u << 1;
 inline constexpr uint16_t kArmBlockRcLoss = 1u << 2;
 inline constexpr uint16_t kArmBlockLowBattery = 1u << 3;
@@ -189,7 +189,7 @@ class Sentinel {
   // Refused until the first Supervise has computed a real set, so a request
   // that beats the supervisor to the first pass is answered by the interlock
   // rather than by a word nobody has written yet.
-  uint16_t arm_blockers_ = kArmBlockNotIdle;
+  uint16_t arm_blockers_ = kArmBlockNotStandby;
   RcLinkPhase rc_link_phase_ = RcLinkPhase::kUp;
   // Stamped on every phase change; only kGuard reads it back, to age itself
   // out against the guard.

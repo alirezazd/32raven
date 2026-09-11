@@ -11,8 +11,8 @@ struct IControlTickState {
   virtual void OnControlTick(AppContext &ctx) = 0;
 };
 
-struct IdleState : public IState<AppContext>, public IControlTickState {
-  const char *Name() const override { return "Idle"; }
+struct StandbyState : public IState<AppContext>, public IControlTickState {
+  const char *Name() const override { return "Standby"; }
   void OnEnter(AppContext &ctx) override;
   void OnStep(AppContext &ctx) override;
   void OnControlTick(AppContext &ctx) override;

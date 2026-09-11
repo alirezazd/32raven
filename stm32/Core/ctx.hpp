@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-struct IdleState;
+struct StandbyState;
 struct ArmedState;
 struct EscConfigState;
 struct MscState;
@@ -22,7 +22,7 @@ struct AppContext {
   // Sampled once per pass, so everything in a pass agrees on when it started.
   uint32_t now_us = 0;
   IControlTickState *control_tick_state = nullptr;
-  IdleState *idle_state = nullptr;
+  StandbyState *standby_state = nullptr;
   ArmedState *armed_state = nullptr;
   EscConfigState *esc_config_state = nullptr;
   MscState *msc_state = nullptr;

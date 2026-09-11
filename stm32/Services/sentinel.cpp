@@ -249,19 +249,19 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
 
 void Sentinel::Supervise(uint32_t now_us) {
   // Above the branch below: a throttle set on the bench survives the exit to
-  // Idle, and the exit that matters is an arm request.
+  // Standby, and the exit that matters is an arm request.
   SuperviseTestThrottle(now_us);
 
-  // The condition Idle actually is, rather than the name of it: the cascade
-  // is running and no flight has started. Asking the state machine which
-  // state is current would point Sentinel back up at the machine that owns
-  // it, and a flag the states each set is one every future state can forget
-  // -- a forgotten call keeps the previous state's answer, which entered
-  // from Idle is yes.
+  // The condition Standby actually is, rather than the name of it: the
+  // cascade is running and no flight has started. Asking the state machine
+  // which state is current would point Sentinel back up at the machine that
+  // owns it, and a flag the states each set is one every future state can
+  // forget -- a forgotten call keeps the previous state's answer, which
+  // entered from Standby is yes.
   const uint16_t state_blockers =
       (blackboard_->IsControlLoopRunning() && !blackboard_->IsArmed())
           ? 0u
-          : kArmBlockNotIdle;
+          : kArmBlockNotStandby;
   const uint16_t standing_blockers = state_blockers | BatteryBlocker();
 
   // The bench states suspend the sample interrupt on purpose, so a frozen

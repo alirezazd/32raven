@@ -219,16 +219,16 @@ static void MainTick(AppContext &ctx) {
   ctx.sys->CrsfLinkSvc().PollCommands();
 }
 
-void IdleState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
+void StandbyState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
 
 void ArmedState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
 
-void IdleState::OnEnter(AppContext &ctx) {
+void StandbyState::OnEnter(AppContext &ctx) {
   EnterFlightLoop(ctx, this);
   ctx.sys->Led().Set(false);
 }
 
-void IdleState::OnStep(AppContext &ctx) {
+void StandbyState::OnStep(AppContext &ctx) {
   StepFlightLoop(ctx);
 
   // No edge to these from Armed, which is what makes the interlock
@@ -259,7 +259,7 @@ void ArmedState::OnStep(AppContext &ctx) {
   StepFlightLoop(ctx);
 
   if (!ctx.sys->Blackboard().IsArmed()) {
-    ctx.sm->ReqTransition(*ctx.idle_state);
+    ctx.sm->ReqTransition(*ctx.standby_state);
   }
 }
 
@@ -298,7 +298,7 @@ void EscConfigState::OnStep(AppContext &ctx) {
   }
 
   if (!ctx.sys->MspSvc().EscConfigGranted()) {
-    ctx.sm->ReqTransition(*ctx.idle_state);
+    ctx.sm->ReqTransition(*ctx.standby_state);
   }
 }
 
@@ -327,6 +327,6 @@ void MscState::OnStep(AppContext &ctx) {
   ctx.sys->Poll(current_time);
 
   if (!ctx.sys->MscSvc().MscGranted()) {
-    ctx.sm->ReqTransition(*ctx.idle_state);
+    ctx.sm->ReqTransition(*ctx.standby_state);
   }
 }

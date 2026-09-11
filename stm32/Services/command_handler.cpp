@@ -83,12 +83,12 @@ static message::RcCalibrationConfigMsg GetRcCalibrationConfigMsg(
 
 static void OnSetRcMapConfig(const AppContext &ctx,
                              const message::Packet &pkt) {
-  // Outside Idle the config belongs to the flight or to the host: the write is
-  // a blocking EEPROM transfer on SPI1 from the main tick, and it would retune
-  // the channel map the aircraft is being flown by. Echoing the unchanged map
-  // below is what tells the sender the write did not take.
+  // Outside Standby the config belongs to the flight or to the host: the
+  // write is a blocking EEPROM transfer on SPI1 from the main tick, and it
+  // would retune the channel map the aircraft is being flown by. Echoing the
+  // unchanged map below is what tells the sender the write did not take.
   const auto &req = message::PayloadAs<message::RcMapConfigMsg>(pkt);
-  if (ctx.sm->CurrentState() == ctx.idle_state &&
+  if (ctx.sm->CurrentState() == ctx.standby_state &&
       message::IsRcMapConfigValid(req)) {
     (void)ctx.sys->RcRx().SetRcMapConfig(req);
   }
@@ -102,9 +102,9 @@ static void OnSetRcMapConfig(const AppContext &ctx,
 
 static void OnSetRcCalibration(const AppContext &ctx,
                                const message::Packet &pkt) {
-  // Idle only, for the reasons in OnSetRcMapConfig.
+  // Standby only, for the reasons in OnSetRcMapConfig.
   const auto &req = message::PayloadAs<message::RcCalibrationConfigMsg>(pkt);
-  if (ctx.sm->CurrentState() == ctx.idle_state &&
+  if (ctx.sm->CurrentState() == ctx.standby_state &&
       message::IsRcCalibrationConfigValid(req)) {
     (void)ctx.sys->RcRx().SetCalibrationConfig(req);
   }
@@ -146,7 +146,7 @@ static void OnCalibrateGyro(const AppContext &ctx, const message::Packet &) {
     ctx.sys->FcLinkSvc().SendLog("Gyro calibration started");
     return;
   }
-  // 🖕 if asked while not idle, return the finger.
+  // 🖕 if asked outside Standby, return the finger.
   ctx.sys->FcLinkSvc().SendLog("Gyro calibration refused: armed or busy");
   ctx.sys->FcLinkSvc().SendPacket(
       message::MsgId::kTone,
@@ -195,11 +195,11 @@ static void OnSetUsbMode(const AppContext &ctx, const message::Packet &pkt) {
   }
 }
 
-// Outside Idle the card belongs to the flight (armed) or to the host (MSC).
+// Outside Standby the card belongs to the flight (armed) or to the host (MSC).
 static void OnLogList(const AppContext &ctx, const message::Packet &pkt) {
   const auto &req = message::PayloadAs<message::LogListMsg>(pkt);
   message::LogListReplyMsg reply{};
-  if (ctx.sm->CurrentState() != ctx.idle_state) {
+  if (ctx.sm->CurrentState() != ctx.standby_state) {
     reply.status = static_cast<uint8_t>(message::LogStatus::kBusy);
   } else {
     ctx.sys->LogSvc().ListLogs(req.first, reply);
@@ -210,7 +210,7 @@ static void OnLogList(const AppContext &ctx, const message::Packet &pkt) {
 static void OnLogRead(const AppContext &ctx, const message::Packet &pkt) {
   const auto &req = message::PayloadAs<message::LogReadMsg>(pkt);
   message::LogDataMsg reply{};
-  if (ctx.sm->CurrentState() != ctx.idle_state) {
+  if (ctx.sm->CurrentState() != ctx.standby_state) {
     reply.offset = req.offset;
     reply.status = static_cast<uint8_t>(message::LogStatus::kBusy);
   } else {

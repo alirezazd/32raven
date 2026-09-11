@@ -10,7 +10,7 @@ namespace {
 AppContext app{};
 StateMachine<AppContext> sm(app);
 
-IdleState idle_state;
+StandbyState standby_state;
 ArmedState armed_state;
 EscConfigState esc_config_state;
 MscState msc_state;
@@ -34,7 +34,7 @@ int main(void) {
   System::GetInstance().Init();
   app.sys = &System::GetInstance();
   app.sm = &sm;
-  app.idle_state = &idle_state;
+  app.standby_state = &standby_state;
   app.armed_state = &armed_state;
   app.esc_config_state = &esc_config_state;
   app.msc_state = &msc_state;
@@ -43,7 +43,7 @@ int main(void) {
                                          System::GetInstance().Blackboard());
 
   app.now_us = app.sys->Time().Micros();
-  sm.Start(idle_state);
+  sm.Start(standby_state);
   while (1) {
     app.now_us = app.sys->Time().Micros();
     app.sm->Step();
