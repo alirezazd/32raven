@@ -341,11 +341,11 @@ same argument applies to a home position that was never captured.
 
 ### #52 — The vehicle states a failsafe procedure needs — 🧊 DEFERRED
 
-Today the state machine has four states and only two of them fly: `Idle` and `Armed`, with
+Today the state machine has four states and only two of them fly: `Standby` and `Armed`, with
 `EscConfig` and `Msc` as bench modes that suspend the cascade. That is enough while every
 failsafe procedure is "disarm", because a disarm is not sequencing -- Sentinel writes
-`armed_`, `ArmedState::OnStep` sees it and transitions to `Idle`, and no new state was needed
-to express it.
+`armed_`, `ArmedState::OnStep` sees it and transitions to `Standby`, and no new state was
+needed to express it.
 
 `Sentinel::RcLinkPhase` is deliberately not a fifth state. Its three phases -- `kUp`, `kGuard`,
 `kRecovering` -- change how much the RC input is believed, not what the vehicle does: `kGuard`
@@ -386,10 +386,10 @@ and the procedure's.
 stick or switch action, because a link that flaps must not toggle the aircraft between
 returning and manual. `RcLinkPhase::kRecovering` already carries the first half.
 
-**What `IControlTickState` means for them.** `Idle` and `Armed` implement it and the bench states
-do not, which is what `IsControlLoopRunning()` reports. Every state here flies, so all of them
-implement it -- and `kArmBlockNotIdle`, currently derived as "control loop running and not
-armed", needs re-deriving once more than one flying state is disarmed-and-armable.
+**What `IControlTickState` means for them.** `Standby` and `Armed` implement it and the bench
+states do not, which is what `IsControlLoopRunning()` reports. Every state here flies, so all
+of them implement it -- and `kArmBlockNotStandby`, currently derived as "control loop running
+and not armed", needs re-deriving once more than one flying state is disarmed-and-armable.
 
 Deferred behind the same four gates as #50 -- #46, #27, #45, #49 -- because a procedure with no
 altitude, position, heading or trusted fix has nothing to sequence.
@@ -594,21 +594,10 @@ Wants #24 for an RPM source worth tracking.
 The six-pose fit runs from a GCS and the estimator applies what it produces. Every number it
 turns on is still an assumption.
 
-The pose bands, the stillness threshold and the hold
-time are PX4's numbers carried across, and a hand-held airframe resting against a bench is not
-the jig they were chosen for. A run that classifies poses too readily accepts a corner; one that
-classifies too reluctantly never advances, and both look the same to an operator.
-
-**|a| at rest is unknown and decides how much any of this matters.** The accel-trust band gates
-the whole Mahony correction on the magnitude being near 1 g, so a scale that is wrong holds the
-gate shut and the attitude estimate is pure gyro integration. The scale factor derives correctly from the configured full-scale range, so if |a| is
-still wrong the cause is a mismatch between the range the chip is programmed with and the packet
-format it reports in, and no calibration can paper over it. One `SendLog` of `accel.norm()` on
-the bench settles it.
-
-The Mahony PI bias term is gated behind the same band, so what `bias_` converges to — and
-therefore whether a stored gyro offset is needed at all — is unanswered. The residual to beat is
-0.910 dps, and the gyro stillness gate of 64 raw counts wants checking against a still board.
+The pose bands and the hold time are PX4's numbers carried across, and a hand-held airframe
+resting against a bench is not the jig they were chosen for. A run that classifies poses too
+readily accepts a corner; one that classifies too reluctantly never advances, and both look the
+same to an operator.
 
 #### Calibration needs a GCS
 
@@ -885,11 +874,11 @@ Four states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them h
 
 | State | STM32 | FcLink | Telem UART | Wanted |
 | --- | --- | --- | --- | --- |
-| Service, waiting for a host | Idle, running | free | free | on |
-| WifiLog, waiting for a host | Idle, running | free | free | on |
+| Service, waiting for a host | Standby, running | free | free | on |
+| WifiLog, waiting for a host | Standby, running | free | free | on |
 | EscConfig | suspended | MSP relay | MAVLink, full | not-ready |
 | UsbLog (MSC) | suspended | grant only | free | on, not-ready |
-| LogPull, transferring | Idle, running | saturated | free | narrowed |
+| LogPull, transferring | Standby, running | saturated | free | narrowed |
 | Program, flashing | ROM bootloader | held by Programmer | free | dark |
 
 `ServiceState` and `WifiLogState` never touch the flight controller — they start the network and
@@ -1306,11 +1295,10 @@ present. #36 carries the notification.
 
 ## Codebase and tooling
 
-### #7 — Two leftovers from the state split — 🟢 SUPPORTING
+### #7 — A failsafe state — 🟢 SUPPORTING
 
-- **Rename `IdleState`.** It runs the full flight cascade — the name is left over from the
-  single-state design and misdescribes the code.
-- **A failsafe state**, once #15 decides what a trip does.
+The state machine has no state for a tripped failsafe, because every procedure is still
+"disarm". #15 decides what a trip does, and #52 works out which states that needs.
 
 ### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
 
