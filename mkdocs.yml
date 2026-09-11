@@ -59,6 +59,9 @@ markdown_extensions:
   - md_in_html
   - toc:
       permalink: true
+      toc_depth: 2
+      # Categories only. The roadmap carries 45 item headings and the right-hand
+      # pane cannot hold them; every other page's h2s are its real sections.
 
 # Under `mkdocs build --strict` every `warn` below becomes a hard error, so
 # stale docs fail CI instead of shipping:

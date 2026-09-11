@@ -19,7 +19,9 @@ never reused, so gaps are expected.
 
 ---
 
-## 1. Handbook
+---
+
+## Handbook
 
 The build guide is being written alongside the first from-scratch prototype assembly. These
 are the gaps that assembly is expected to close.
@@ -76,42 +78,326 @@ section on **Sensors and peripherals** is a `TBD(#6)` stub.
 Needed: the part used and whether it is an active or passive type, how it is wired to
 `GPIO10`, where it mounts, and what the firmware actually sounds it for.
 
+
 ---
 
-## 2. Firmware
+## Safety and failsafe
 
-### #7 — Two leftovers from the state split — 🟢 SUPPORTING
+### #15 — The failsafe conditions besides RC loss — 🎯 CRITICAL
 
-- **Rename `IdleState`.** It runs the full flight cascade — the name is left over from the
-  single-state design and misdescribes the code.
-- **A failsafe state**, once #15 decides what a trip does.
+RC loss is the only condition Sentinel answers. The others are not, and the rule that resolves
+them against each other does not exist.
 
-### #9 — Share the FcLink frame parser — 🧊 DEFERRED
+#### Both links have to be considered together
 
-The byte-at-a-time receive state machine exists twice, in `stm32/Services/fc_link.cpp` and
-`esp32/services/fc_link.cpp` — same states, same transitions, plus an `RxState` enum and an
-`rx_pkt_internal_` struct declared identically in both headers.
+RC loss should not be fatal while the pilot still holds authority over the telemetry link, and
+with a 900 MHz radio as the primary link that is the *expected* case rather than an edge one —
+it will likely outlive 2.4 GHz control. PX4 models this as two independent conditions,
+`manual_control_signal_lost` and `gcs_connection_lost`, each with its own action parameter.
 
-The reason to fix it is not the line count. **CRC verification is implemented twice,
-differently.** The STM32 rebuilds header and payload into one contiguous buffer and runs
-`checksum::XModem` over it; the ESP32 feeds `XModemUpdate` byte by byte across magic, id, length
-and payload. The two agree only for as long as `message::Header` stays packed as exactly
-`{magic[2], id, len}`, and a divergence would not fail loudly — the link would simply stop
-carrying packets.
+Two pieces are missing before that rule can be evaluated at all:
 
-What differs between the two sides is policy, not parsing. The STM32 resyncs silently and
-dispatches inline; the ESP32 counts invalid frames, logs them, sounds the error tone, panics
-past a threshold, and queues rather than dispatching.
+- **The GCS cannot arm or disarm.** `mavlink_cmd.cpp` handles `START_RX_PAIR`,
+  `REQUEST_MESSAGE` and `PREFLIGHT_CALIBRATION`; everything else returns `MAV_RESULT_UNSUPPORTED`.
+  `MAV_CMD_COMPONENT_ARM_DISARM` needs wiring to the `kPrivilegedArm` path that already exists.
+- **The STM32 cannot tell whether a GCS is connected.** `MAVLINK_MSG_ID_HEARTBEAT` reaches
+  `Mavlink::HandleMessage` and only blinks the LED — no timestamp kept, nothing forwarded over
+  FcLink.
 
-- Add a policy-free parser to `libs/`: one byte in, one verdict out — need-more, bad magic,
-  bad length, bad CRC, packet complete — so each firmware keeps its own reaction to each.
-- Leave `Poll`, transmit, handshake, the ring buffers and the read budgets where they are.
-  Those genuinely differ: an interrupt-fed byte ring on one side, block reads from the ESP-IDF
-  driver on the other.
+FcLink peer loss is the third condition this rule reads, and it belongs to #16 and #17 —
+each side needs its own, because the premise is that the other side is gone.
 
-Deferred rather than supporting because it rewrites the receive hot path on both firmwares. Do
-it once the ESC configurator work has been confirmed on hardware, so that a misbehaving bench
-session has one candidate cause instead of two.
+#### The other three flags
+
+`kVehicleFailsafeFlagBattery` is still never set. A pack too flat to fly now refuses to arm, but
+that is a ground interlock on the resting voltage; the in-flight condition is a different
+reading — it sags with throttle and recovers when it drops — and what it should *do* is #50's
+landing rather than a cut. `kVehicleFailsafeFlagImu` reaches the ground as a critical state and nothing acts on it: deciding
+what an IMU failsafe does in the air is this item's job. `kVehicleFailsafeFlagGps` stays zero
+until something actually navigates by GPS.
+
+#### Arbitration is what none of the conditions owns
+
+Conditions overlap and their preferred actions contradict, so what is needed is one ranked
+resolution evaluated every pass rather than four handlers each acting alone. That resolution,
+and the ranked action vocabulary it needs, is #50's — this item is the *policy* feeding it:
+which conditions count and how fast. Where the policy lives and what enforces it is #16.
+
+### #16 — Sentinel, one owner for arming and failsafe authority — 🎯 CRITICAL
+
+Sentinel is the single owner of the arm decision and of every failsafe condition #15 defines.
+It owns the arm path and the IMU conditions. Three things are still outside it: the remaining
+failsafe conditions, FcLink peer loss, and the watchdog.
+
+#### The conditions still live in a telemetry builder
+
+`TelemetryPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
+moving detection into Sentinel is *relocating* that computation rather than writing a second
+copy of it. `Sentinel::Supervise` is the slot.
+
+**It must live on the STM32**, because its whole purpose is to keep working when the ESP32 is
+gone. That is also why FcLink peer loss is Sentinel's to detect on this side (#17 owns the
+other): `FcLink` stamps every CRC-passing frame into `FcLinkData::timestamp_us`, and nothing
+evaluates that stamp. An ESP32 failure while armed takes the GCS, the telemetry and every
+annunciation the pilot has, and nothing on the board knows to say so.
+
+#### What "high priority" means without an RTOS
+
+The STM32 is a superloop, so priority is placement rather than a number: `Supervise` runs first
+in `System::Poll` and has to stay there, since a failsafe skipped under load is a failsafe that
+does not exist. Any future work-shedding under load inherits that constraint rather than
+negotiating with it.
+
+The shape to keep aiming at is an interlock that makes a state impossible rather than one that
+polls for it — the former costs nothing per pass, the latter costs something forever.
+
+#### Sentinel should own the watchdog
+
+`Wdg().Kick()` sits unconditional in the superloop in `main.cpp`, so it proves only that the
+superloop iterates. A wedged control loop under a healthy superloop is still fed — at 2048 Hz
+against a ~681 ms worst-case IWDG, that is well over a thousand missed control cycles. The
+stall is already reported, through `ControlLoopLoad::timestamp_us` and
+`kSystemStatusFlagLoopAlive`, but nothing resets the board on it. Kicking only after Sentinel
+has confirmed that stamp advanced turns the watchdog from "the loop turns" into "the control
+loop is running".
+
+Two constraints:
+
+- **Three paths already kick outside the superloop, deliberately.** `EscBootloader` during ESC
+  flashing, `Sdio`'s blocking waits, and `LogService::DrainFlush` at disarm. None of them has the
+  control loop as its liveness criterion, so the kick policy has to be mode-aware or each of
+  them resets the board mid-operation.
+- **WWDG is unused and is not redundant.** The F407's second watchdog is a *window* watchdog
+  off PCLK1: it resets when fed too early as well as too late, catching a loop running
+  wrong-fast, which IWDG structurally cannot. Its ceiling is short — order of 50 ms at typical
+  PCLK1 — which suits it to the control loop while IWDG stays on the superloop. Unlike IWDG it
+  runs off the main clock, so it does not survive a clock failure.
+
+### #17 — Doctor, health observation on the ESP32 — 🟢 SUPPORTING
+
+The counterpart to #16, and the split between them is **authority, not location**. Sentinel
+decides and acts; Doctor observes, correlates and reports, and has no authority at all. Draw
+the line anywhere else and conditions like IMU health become ambiguous — with this line, Doctor
+describes the IMU's condition and Sentinel decides whether that condition grounds the aircraft.
+Doctor being wrong must be harmless, which is what allows it to live across a link that can die.
+
+It does not duplicate `TelemetryPublisher`, which reports STM32-local health because only the STM32
+can see it. Doctor adds what only the ESP32 can see — heap, task stack headroom at run time
+rather than only through `esp32_stack_check.py` statically, WiFi, flash, transport link stats —
+and correlates across FcLink. FreeRTOS makes it a task with a real priority, unlike #16.
+
+#### The part worth doing before the service exists
+
+`Mavlink::StartHeartbeatFrame` gates the armed state and the mode flags on `vehicle_fresh`
+and the whole `MAV_STATE` ladder on `kMavlinkSystemStatusFreshMs`, so a silent STM32 reads as
+`MAV_STATE_CRITICAL` rather than a stale vehicle. One read is deliberately ungated:
+`vehicle_failsafe` tests `have_data` only, because a stale failsafe can only hold the state at
+CRITICAL and a link that died with one raised is not the moment to stop saying so.
+
+What is left is narrower than a service: nothing tells the GCS *why* the peer went quiet,
+and #41 is the reason it goes quiet most often.
+
+#### A condition it should carry: the card that left
+
+`LogService` panics at boot on a missing or unusable card, then tolerates the same condition in
+near silence afterwards. The only notice is a write failing, and writes only happen while armed,
+so a card pulled on the bench produces nothing at all until the next arm and then a warning a few
+tens of milliseconds into the flight. The aircraft spends that gap believing it is logging.
+
+Nothing detects removal on its own. There is no card-detect line — the pin map carries only the
+six bus signals — and `Sdio` has no ISR at all, so presence can only be established by asking over
+the bus with CMD13. A periodic probe would put a bench-only concern on the flight path for the
+sake of a question nobody is asking in the air, which is why the driver stays demand-driven. The
+cheap trigger is `StartFlight`: it runs at the one moment the answer changes a decision, and costs
+a single command with no data phase.
+
+Doctor cannot ask the question itself, since only the STM32 touches the card. So the probe stays
+on the STM32 and Doctor takes the reporting: the fact joins the logger counters `TelemetryPublisher`
+already carries, and Doctor is what turns "mandatory at boot, absent now" into something a GCS
+sees rather than a tone nobody is standing next to.
+
+#### The same shape, on the other storage
+
+A failed parameter save is as silent as a failed log write, and for a simpler reason: nothing
+reads the answer. `EE::Read` and `EE::Write` return `bool`, `EeConfigStorage` propagates it, and
+`RcReceiver::SaveCalibration` returns it -- to no caller anywhere in the tree. So an RC
+calibration, an RC map or an accel calibration that did not reach the EEPROM is discovered on the
+next boot, as settings that quietly reverted.
+
+Card conditions and parameter-write conditions want the same answer, which is why they belong
+together: a `bool` at the call that suffered it is more precise than any counter, and it reaches
+nobody. Give the outcome a reader before adding any instrument beside it.
+
+#### Constraint
+
+Doctor reports to MAVLink and the logs, **not to the OLED**. The display stays a bench tool and
+flight state stays off it.
+
+### #20 — Sentinel watchdogs on the IMU and the control path — 🎯 CRITICAL
+
+Sentinel weighs the IMU counters and answers per arm state. Every threshold it uses is asserted
+rather than measured, and the one recovery it can order does not work in the case it exists for.
+
+#### Every threshold is a guess
+
+| Threshold | Value | Guards |
+| --- | --- | --- |
+| `imu_loss_threshold_samples` | 5 per mille of gyro ODR, 3 consecutive windows | unclaimed sample bursts |
+| `imu_fault_threshold` | 3 path faults in 1 second | sample-path faults |
+| `imu_stall_timeout_us` | 20 ms | sample-path silence |
+
+What the loss rule counts is real: `PENDSVSET` is a bit, not a queue, so two bursts published
+inside one control tick collapse to one PendSV run and the older is dropped. That is the
+measurement that says whether the cascade fits its budget — **and the loop was raised to
+2048 Hz without it**, argued from the aliasing corner and the DShot budget rather than measured.
+
+The blackbox `imu_health` record already carries every counter to the card at 5 Hz, so the
+reading needed is a bench one rather than a wire change: `missed_samples` across the four cases
+that load the loop — disarmed idle, armed at motor idle, throttle sweeping, and every link
+streaming at once.
+
+#### The stall recovery cannot clear
+
+A stall with `inflight_` stuck true — a DMA that started and never completed — survives
+`RestartSampling`, because nothing clears it or the SPI driver's `busy_`. Aborting a live DMA is
+real surgery and belongs here rather than in the driver.
+
+### #50 — The four failsafe conditions, once there is somewhere to go — 🧊 DEFERRED
+
+Item #15 decides the policy for an aircraft with no altitude source and no position: detect,
+then disarm. This item is what those same four conditions become once autoland and return-to-home
+exist, and it is deferred because the prerequisites are hard rather than because the policy is
+unclear. Sentinel stays the owner (#16); what changes is what its conditions are allowed to ask
+for, and #52 is where the asking lands -- the vehicle states a procedure needs in order to be
+sequenced rather than run from inside the safety authority.
+
+**Four things have to exist first, and all four are gates, not sequencing.** #46 for an altitude
+source, without which a descent is a timed throttle and an invented constant. #27 for position
+and velocity, without which there is no home vector to fly. #45 for heading, since yaw currently
+wanders by design and nothing can hold a course. #49 for a fix worth trusting, because RTH
+consumes GPS as a *flight input* rather than as a display field.
+
+#### What each condition becomes
+
+- **RC loss** is the case RTH was invented for: the operator is still there and the link may
+  come back. Detection is unchanged -- Sentinel's timeout against `RcData::timestamp_us`, since
+  CRSF carries no receiver-asserted failsafe bit. The action changes, and so does the recovery
+  rule: a link that flaps must not toggle the aircraft between returning and manual, so handing
+  control back wants Betaflight's shape -- sustained clean frames plus a deliberate pilot
+  action, not the first good packet.
+- **FcLink loss** is where RTH is most right and least helped: the GCS has no picture, and
+  Sentinel has to run the whole manoeuvre on the STM32 with the companion gone. But it is only a
+  failsafe *together with* RC loss. A live transmitter and a dead FcLink is a pilot with full
+  authority, and treating that as an emergency takes the aircraft away from someone flying it.
+- **GPS loss** is the difficult one, because it is the input the response runs on. Lost before a
+  failsafe, RTH is simply unavailable and the fallback is landing where it stands. Lost *during*
+  one, the manoeuvre has to degrade mid-flight rather than continue against a dead-reckoned
+  position. This is also where #49's integrity messages stop being diagnostics: a fix that is
+  absent is safe, and a fix that is *lying* flies the aircraft somewhere. A spoofed position
+  reports excellent `hAcc`, so accuracy fields cannot detect it and NAV-STATUS and SEC-SIG
+  become flight inputs.
+- **Low battery** is the only one that is a continuous function rather than an edge, and the
+  only one that must be able to *preempt* the others. Returning costs energy, so a threshold
+  that triggers RTH too late strands the aircraft further from home than landing would have.
+  That makes the return threshold a function of distance-to-home rather than a fixed voltage --
+  a point-of-no-return calculation -- with a second, lower threshold that lands immediately
+  wherever it is. `BatteryData::current` is an `optional`, so on a board without current sense
+  there is no mAh integration and the estimate degrades to voltage under load, which sags with
+  throttle and reads worst exactly while climbing.
+
+#### Arbitration is the part none of the four items owns
+
+Conditions overlap, and their preferred actions contradict: RC loss asks to return, low battery
+asks to land now, GPS loss says returning is not possible. Four independent handlers each acting
+on their own condition is the failure mode -- what is needed is one ranked resolution evaluated
+every pass, which is how PX4 models it.
+
+Ranking the actions by severity makes "most severe wins" a property of the type rather than a
+chain of conditionals, and each condition reports what it *wants* rather than doing anything:
+
+```cpp
+enum class FailsafeAction : uint8_t { kNone, kWarn, kReturn, kLand, kDisarm };
+```
+
+The resolution has to latch downward. An aircraft that entered land-now must not be talked back
+into returning by a battery reading that recovered when the throttle dropped -- which it will,
+since that sag is what triggered it.
+
+#### Two things it needs that do not exist
+
+- **A mode Sentinel can command.** Autoland and RTH are flight modes, and the cascade in
+  `states.cpp` is what flies the aircraft. If Sentinel executes the manoeuvre itself there are
+  two things commanding motors, which is the duplication #19 exists to prevent. Sentinel selects
+  the mode and holds the authority to; the mode flies.
+- **A home position, captured at arm.** No home means no RTH regardless of which condition
+  fired, so it is a pre-arm check rather than a runtime one. That is the point where #48 stops
+  being a bench convenience: a degraded fix at arming time is currently harmless because nothing
+  navigates, and the moment this item lands it decides whether the aircraft has anywhere to
+  return to.
+
+PX4's `_manual_control_lost_at_arming` rule, which Sentinel already applies -- RC absent at
+arming does not count as a loss until RC has been seen once -- gains a sibling here, since the
+same argument applies to a home position that was never captured.
+
+### #52 — The vehicle states a failsafe procedure needs — 🧊 DEFERRED
+
+Today the state machine has four states and only two of them fly: `Idle` and `Armed`, with
+`EscConfig` and `Msc` as bench modes that suspend the cascade. That is enough while every
+failsafe procedure is "disarm", because a disarm is not sequencing -- Sentinel writes
+`armed_`, `ArmedState::OnStep` sees it and transitions to `Idle`, and no new state was needed
+to express it.
+
+`Sentinel::RcLinkPhase` is deliberately not a fifth state. Its three phases -- `kUp`, `kGuard`,
+`kRecovering` -- change how much the RC input is believed, not what the vehicle does: `kGuard`
+flies the pilot's last frame exactly as `kUp` does, and `kRecovering` is an arming interlock on
+a vehicle already sitting disarmed. Conditions and hysteresis are Sentinel's (#16); behaviour is
+the state machine's.
+
+**That stops being enough the moment a procedure has somewhere to go.** A descent or a return is
+sequencing by definition: it sources setpoints from something other than the pilot, for a
+bounded time, with its own exit rules. Running that from inside Sentinel would make the safety
+authority a flight-mode sequencer, which is the one thing #16 says it must not become.
+
+#### The states, and what each one changes
+
+- **`Failsafe`** -- entered on a condition Sentinel raises while armed, exited when the pilot
+  takes the aircraft back. It is the parent, not a behaviour: what it *does* is whichever
+  procedure the condition selected, and #50 decides that mapping per condition.
+- **`ReturnHome`** -- setpoints from a navigator against the home vector. Gated on #27 for
+  position and #45 for heading, since a course cannot be held by an estimator that lets yaw
+  wander by design.
+- **`Landing`** -- a controlled descent, which means closed-loop on altitude (#46). A fixed
+  throttle and a timer is not a landing, and shipping it under that name is worse than having no
+  descent at all.
+
+#### What has to be decided when they land
+
+**Who transitions.** Sentinel decides *that* a failsafe applies; the state machine decides what
+running it looks like. The request has to be explicit -- a blackboard field the machine reads,
+the way `armed_` already works -- rather than Sentinel calling `ReqTransition`, or the layering
+inverts again.
+
+**Where setpoints come from.** `ControlTickFlightLoop` reads `RcData` directly today. A
+navigator-driven state needs that source switchable at one point, not patched per stick: a
+procedure that reached some readers and not others would fly a blend of the pilot's last frame
+and the procedure's.
+
+**How the pilot takes it back.** Betaflight requires sustained clean frames *plus* a deliberate
+stick or switch action, because a link that flaps must not toggle the aircraft between
+returning and manual. `RcLinkPhase::kRecovering` already carries the first half.
+
+**What `IControlTickState` means for them.** `Idle` and `Armed` implement it and the bench states
+do not, which is what `IsControlLoopRunning()` reports. Every state here flies, so all of them
+implement it -- and `kArmBlockNotIdle`, currently derived as "control loop running and not
+armed", needs re-deriving once more than one flying state is disarmed-and-armable.
+
+Deferred behind the same four gates as #50 -- #46, #27, #45, #49 -- because a procedure with no
+altitude, position, heading or trusted fix has nothing to sequence.
+
+
+---
+
+## Motors and ESCs
 
 ### #10 — More than four motors — 🧊 DEFERRED
 
@@ -186,256 +472,518 @@ Deferred because no planned flight mode wants it. Autolevel and autonomous fligh
 a motor for *less* lift, never for lift in the other direction; reverse thrust is an acro
 capability, and this airframe is not being built for acro.
 
-Until then the mode is refused rather than flown. `EscService::CheckEscFirmware` panics with
-`kEsc3dModeEnabled` when a motor reports it, because an ESC in 3D reads everything below half
-throttle as reverse — so the forward-only values `ThrustToDshot` produces would drive that
-motor backwards across the bottom half of its range, on an aircraft whose mixer believes it is
-commanding lift.
+### #24 — Bidirectional DShot — 🟢 SUPPORTING
 
-### #15 — The failsafe conditions besides RC loss — 🎯 CRITICAL
+The RPM filter in #23 needs motor frequency every loop, and the KISS serial telemetry we poll
+cannot give it: one motor at a time, tens of Hz, so a notch chasing a throttle punch would sit on
+50 ms-stale RPM. Betaflight feeds its filter from bidirectional DShot instead — the ESC answers
+each frame on the same wire.
 
-RC loss is answered: Sentinel times the receiver out, rides out a guard, disarms, and holds
-arming shut until frames stream cleanly again. The other conditions are not, and the rule that
-resolves them against each other does not exist.
+Bigger than it sounds, but it does **not** cost the burst-DMA design. The trap to avoid is
+Betaflight's timer-capture path: latching edge timestamps into CCR1-4 needs four edge-triggered
+DMA streams, because four ESCs reply on their own schedules and a DMAR burst has exactly one
+trigger — which is why their code makes burst and telemetry mutually exclusive. That is a
+constraint of *capture*, not of receiving. Their own default (bit-bang) receives the way we
+transmit: one DMA stream on a fixed cadence — pointed at `GPIOE->IDR`, where one 16-bit read
+carries all four pins' levels at once. Cadence-sampling levels scales to four asynchronous
+repliers; edge-latching timestamps never can.
 
-#### Both links have to be considered together
+So the transaction becomes: DMAR burst out of CCR1-4 (unchanged) → one MODER write flips
+PE9/11/13/14 to input → the same stream retargeted at IDR samples at ~3× the GCR rate → flip
+back. What it costs:
 
-RC loss should not be fatal while the pilot still holds authority over the telemetry link, and
-with a 900 MHz radio as the primary link that is the *expected* case rather than an edge one —
-it will likely outlive 2.4 GHz control. PX4 models this as two independent conditions,
-`manual_control_signal_lost` and `gcs_connection_lost`, each with its own action parameter.
+- **The signal inverts.** Bidir DShot idles high, ours idles low, so the output stage changes.
+- **The budget is tight but fits.** At DSHOT600 the whole transaction is ~27 µs frame + ~30 µs
+  turnaround + ~35 µs reply ≈ **92 µs**, against a 488 µs tick at 2048 Hz — 19%. It would be 75%
+  of a 122 µs tick at 8192 Hz, which is why Betaflight forces `pid_process_denom >= 2` on F4
+  with bidir. Any further `STM32_CONTROL_LOOP_HZ` increase and this constrain each other and
+  want deciding together.
+- **Undoing GCR is ~400 lines of software** (`dshot_bitbang_decode.c`): edge-find over the
+  sample buffer, 21 bits at 5/4 the DShot rate, transition-decoded, 5-to-4 GCR lookup, CRC.
 
-Two pieces are missing before that rule can be evaluated at all:
+One thing falls our way: port sampling needs every motor on one GPIO port, and ours are PE9,
+PE11, PE13 and PE14 — all GPIOE. AM32 supports the protocol (input type 4, EDT) and
+`EscTelemetry::Info::bidirectional` already decodes the flag.
 
-- **The GCS cannot arm or disarm.** `mavlink_cmd.cpp` handles `START_RX_PAIR`,
-  `REQUEST_MESSAGE` and `PREFLIGHT_CALIBRATION`; everything else returns `MAV_RESULT_UNSUPPORTED`.
-  `MAV_CMD_COMPONENT_ARM_DISARM` needs wiring to the `kPrivilegedArm` path that already exists.
-- **The STM32 cannot tell whether a GCS is connected.** `MAVLINK_MSG_ID_HEARTBEAT` reaches
-  `Mavlink::HandleMessage` and only blinks the LED — no timestamp kept, nothing forwarded over
-  FcLink.
+#### Where each piece lives
 
-FcLink peer loss is the third condition this rule reads, and it belongs to #16 and #17 —
-each side needs its own, because the premise is that the other side is gone.
+The IMU path already answers this, layer for layer:
 
-#### The other three flags
+- **Sampler and phase machine → `DShotTim1`.** The turnaround is the same transaction as
+  transmit — same timer, same stream, same pins — and a phase machine split across files
+  would give one DMA stream two owners.
+- **GCR decode → a pure function beside `DShotCodec`**, encode's mirror: samples in, eRPM
+  out, no hardware. Pure is what lets 400 lines of bit-twiddling be tested off-target against
+  canned buffers.
+- **Publish → the driver, from the RX-complete ISR**, exactly as `Icm42688p` parses and
+  publishes `ImuHealth` from its DMA-done ISR. Into a **new** blackboard struct —
+  `MotorRpmData { timestamp_us, erpm[4], valid_mask, crc_error_count }` — not into
+  `EscTelemetryMotorData::rpm`, which has one writer (#19) and keeps it. KISS telemetry stays the
+  volts/amps/temp source and its slow rpm becomes the cross-check on the fast one.
+- **Consumers read the blackboard, nothing holds a `DShotTim1 *`.** The RPM filter (#23) in
+  PendSV, the desync detector (#12) in Sentinel, `telemetry_publisher` if the wire wants it. The
+  struct's timestamp is load-bearing from day one: it is what lets the filter fade a stale
+  notch the way Betaflight's `rpm_filter_fade_range_hz` does.
 
-`kVehicleFailsafeFlagBattery` is still never set. A pack too flat to fly now refuses to arm, but
-that is a ground interlock on the resting voltage; the in-flight condition is a different
-reading — it sags with throttle and recovers when it drops — and what it should *do* is #50's
-landing rather than a cut. `kVehicleFailsafeFlagImu` is raised and nothing reads it: deciding
-what an IMU failsafe does in the air is this item's job. `kVehicleFailsafeFlagGps` stays zero
-until something actually navigates by GPS.
+#### Two files, split by purity rather than direction
 
-#### Arbitration is what none of the conditions owns
+A `dshot_tx` / `dshot_rx` pair is the one arrangement to avoid. They are not two things: the
+turnaround is a single transaction over one timer, one DMA stream retargeted mid-flight, one
+set of pins and one phase machine. Separate files give that stream two owners, or have one file
+reach into the other's state.
 
-Conditions overlap and their preferred actions contradict, so what is needed is one ranked
-resolution evaluated every pass rather than four handlers each acting alone. That resolution,
-and the ranked action vocabulary it needs, is #50's — this item is the *policy* feeding it:
-which conditions count and how fast. Where the policy lives and what enforces it is #16.
+- **`dshot_tim1.*` keeps the whole transaction**: burst out, MODER flip, IDR sampling, flip
+  back, phase machine. Meaning-free throughout.
+- **The GCR decoder gets its own file, not a half of `DShotCodec`.** ~400 lines onto a 133-line
+  codec would leave the codec 80% decoder, and the two are not an encode/decode pair anyway:
+  outbound is 16 bits (11 throttle + 1 telemetry request + 4 CRC), inbound is 21 bits of
+  transition-encoded GCR carrying a 12-bit period, a 4-bit exponent and a CRC. Two protocols
+  sharing a wire.
 
-### #16 — Sentinel, one owner for arming and failsafe authority — 🎯 CRITICAL
+The decoder should be genuinely pure — `<array>`, `<cstdint>`, no hardware header — which
+puts it in `libs/` rather than under `stm32/`, so anything host-side can feed it canned sample
+buffers without dragging in STM32 headers.
 
-Sentinel is the single owner of the arm decision and of every failsafe condition #15 defines.
-It owns the arm path and the IMU conditions. Three things are still outside it: the remaining
-failsafe conditions, FcLink peer loss, and the watchdog.
+Worth noting on the way past: `DShotCodec` is *not* pure today. `dshot_codec.cpp` includes
+`dshot_tim1.hpp`, so the codec already reaches into the driver. That coupling is worth undoing
+whether or not bidir ever lands.
 
-#### The conditions still live in a telemetry builder
+It pays for itself twice. Besides #23, per-motor eRPM every loop is the desync detector #12 is
+looking for.
 
-`TelemetryPublisher::BuildSystemStatusMsg` derives GPS, battery and RC health from freshness, so
-moving detection into Sentinel is *relocating* that computation rather than writing a second
-copy of it. `Sentinel::Supervise` is the slot.
 
-**It must live on the STM32**, because its whole purpose is to keep working when the ESP32 is
-gone. That is also why FcLink peer loss is Sentinel's to detect on this side (#17 owns the
-other): `FcLink` exposes `Poll` and the `Send*` helpers and nothing that notices silence. An
-ESP32 failure while armed no longer takes the disarm path with it, since the arm switch is on
-the RC side, but it does take the GCS, the telemetry and every annunciation the pilot has --
-and nothing on the board knows to say so.
+---
 
-#### What "high priority" means without an RTOS
+## Sensors and estimation
 
-The STM32 is a superloop, so priority is placement rather than a number: `Supervise` runs first
-in `MainTick` and has to stay there, since a failsafe skipped under load is a failsafe that does
-not exist. Any future work-shedding under load inherits that constraint rather than negotiating
-with it.
+### #23 — Nothing filters the gyro in software — 🟢 SUPPORTING
 
-The shape to keep aiming at is an interlock that makes a state impossible rather than one that
-polls for it — the former costs nothing per pass, the latter costs something forever.
+The entire gyro path is `gyro_accum / burst.count` in `Ahrs::Process`. **Nothing filters it** —
+no notch, no lowpass, no RPM tracking, and no biquad anywhere in the repo. The first-order
+lowpasses that exist sit on the PID's D-input and the yaw output, downstream of the sample.
+The chip's own hardware notch exists and is configured `enabled = false`. Betaflight runs five
+stages before its PID sees a sample.
 
-#### Sentinel should own the watchdog
+Which of those stages earn their place is not obvious, and two of them do not:
 
-`Wdg().Kick()` sits unconditional in the superloop in `main.cpp`, so it proves only that the
-superloop iterates. A wedged control loop under a healthy superloop is still fed — at 2048 Hz
-against a ~681 ms worst-case IWDG, that is well over a thousand missed control cycles that
-nothing detects. Kicking only after Sentinel has confirmed the control-loop counter advanced
-turns the watchdog from "the loop turns" into "the control loop is running".
+- **Static notches default to off** (`gyro_notch1_hz = 0`), and have since the 3.4 defaults pass
+  that introduced the dynamic notch. A fixed notch fights a peak that sweeps ~80–800 Hz with
+  throttle, paying its phase cost for the whole flight to intersect the noise for a fraction of
+  it. They survive for fixed frame resonances, found by hand from a log.
+- **The RPM filter is the one that works**, and it is the one we are best placed to build: it
+  needs per-motor frequency, and `EscTelemetryMotorData::rpm` is already on the blackboard.
+  Four motors × three harmonics × three axes is 36 biquads; coefficient updates need sin/cos,
+  which is why Betaflight uses polynomial approximations and staggers one motor per loop.
+- **The dynamic notch** tracks peaks with a sliding DFT when no RPM reference exists. A real
+  project, and largely redundant once the RPM filter runs.
 
-Two constraints:
+The filter itself is trivial — one biquad struct, five multiplies and four adds per apply.
 
-- **Three paths already kick outside the superloop, deliberately.** `EscBootloader` during ESC
-  flashing, `Sdio`'s blocking waits, and `LogService::DrainFlush` at disarm. None of them has the
-  control loop as its liveness criterion, so the kick policy has to be mode-aware or each of
-  them resets the board mid-operation.
-- **WWDG is unused and is not redundant.** The F407's second watchdog is a *window* watchdog
-  off PCLK1: it resets when fed too early as well as too late, catching a loop running
-  wrong-fast, which IWDG structurally cannot. Its ceiling is short — order of 50 ms at typical
-  PCLK1 — which suits it to the control loop while IWDG stays on the superloop. Unlike IWDG it
-  runs off the main clock, so it does not survive a clock failure.
+**Where the burst lets us beat the reference.** Betaflight filters one sample per interrupt and
+runs its notches *after* decimation. Our burst gives the same per-sample rate at a quarter of
+the interrupt cost and lets the notches run **before** the decimation. That still matters at
+2048 Hz: the loop's Nyquist is 1024 Hz, while the 2nd and 3rd motor harmonics reach roughly
+1600 and 2400 Hz at full throttle and fold into the loop band before any post-decimation filter
+can see them. The pre-decimation stream is at 8192 Hz, so a notch there has 4096 Hz of Nyquist
+to work in and catches all three harmonics while they are still real.
 
-### #17 — Doctor, health observation on the ESP32 — 🟢 SUPPORTING
+Wants #24 for an RPM source worth tracking.
 
-The counterpart to #16, and the split between them is **authority, not location**. Sentinel
-decides and acts; Doctor observes, correlates and reports, and has no authority at all. Draw
-the line anywhere else and conditions like IMU health become ambiguous — with this line, Doctor
-describes the IMU's condition and Sentinel decides whether that condition grounds the aircraft.
-Doctor being wrong must be harmless, which is what allows it to live across a link that can die.
+### #25 — No calibration number has been checked on hardware — 🎯 CRITICAL
 
-It does not duplicate `TelemetryPublisher`, which reports STM32-local health because only the STM32
-can see it. Doctor adds what only the ESP32 can see — heap, task stack headroom at run time
-rather than only through `esp32_stack_check.py` statically, WiFi, flash, transport link stats —
-and correlates across FcLink. FreeRTOS makes it a task with a real priority, unlike #16.
+The six-pose fit runs from a GCS and the estimator applies what it produces. Every number it
+turns on is still an assumption.
 
-#### The part worth doing before the service exists
+The pose bands, the stillness threshold and the hold
+time are PX4's numbers carried across, and a hand-held airframe resting against a bench is not
+the jig they were chosen for. A run that classifies poses too readily accepts a corner; one that
+classifies too reluctantly never advances, and both look the same to an operator.
 
-`Mavlink::StartHeartbeatFrame` gates the armed state and the mode flags on `vehicle_fresh`
-and the whole `MAV_STATE` ladder on `kMavlinkSystemStatusFreshMs`, so a silent STM32 reads as
-`MAV_STATE_CRITICAL` rather than a stale vehicle. One read is deliberately ungated:
-`vehicle_failsafe` tests `have_data` only, because a stale failsafe can only hold the state at
-CRITICAL and a link that died with one raised is not the moment to stop saying so.
+**|a| at rest is unknown and decides how much any of this matters.** The accel-trust band gates
+the whole Mahony correction on the magnitude being near 1 g, so a scale that is wrong holds the
+gate shut and the attitude estimate is pure gyro integration. The scale factor derives correctly from the configured full-scale range, so if |a| is
+still wrong the cause is a mismatch between the range the chip is programmed with and the packet
+format it reports in, and no calibration can paper over it. One `SendLog` of `accel.norm()` on
+the bench settles it.
 
-What is left is narrower than a service: nothing tells the GCS *why* the peer went quiet, and
-#41 is the reason it goes quiet most often.
+The Mahony PI bias term is gated behind the same band, so what `bias_` converges to — and
+therefore whether a stored gyro offset is needed at all — is unanswered. The residual to beat is
+0.910 dps, and the gyro stillness gate of 64 raw counts wants checking against a still board.
 
-#### A condition it should carry: the card that left
+#### Calibration needs a GCS
 
-`LogService` panics at boot on a missing or unusable card, then tolerates the same condition in
-near silence afterwards. The only notice is a write failing, and writes only happen while armed,
-so a card pulled on the bench produces nothing at all until the next arm and then a warning a few
-tens of milliseconds into the flight. The aircraft spends that gap believing it is logging.
+`MAV_CMD_PREFLIGHT_CALIBRATION` is the only way in, so calibrating means a laptop and a link.
+Both reference stacks are the same, and both are wrong about it for a bench: the ESP32 already
+carries a display, a buzzer and a button, which is every input a six-pose routine needs. A
+calibration page there would run the same `AccelCal` over FcLink with no GCS at all, and the
+pose set is small enough to render — a name and a progress count. The wire already carries what
+it would draw: `kAccelCalStatus` reports the state and the captured-side mask on every edge.
 
-Nothing detects removal on its own. There is no card-detect line — the pin map carries only the
-six bus signals — and `Sdio` has no ISR at all, so presence can only be established by asking over
-the bus with CMD13. A periodic probe would put a bench-only concern on the flight path for the
-sake of a question nobody is asking in the air, which is why the driver stays demand-driven. The
-cheap trigger is `StartFlight`: it runs at the one moment the answer changes a decision, and costs
-a single command with no data phase.
+### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
-Doctor cannot ask the question itself, since only the STM32 touches the card. So the probe stays
-on the STM32 and Doctor takes the reporting: the fact joins the logger counters `TelemetryPublisher`
-already carries, and Doctor is what turns "mandatory at boot, absent now" into something a GCS
-sees rather than a tone nobody is standing next to.
+Autonomy needs a state estimate the rate loop does not: position, velocity, and an attitude that
+stays consistent through aggressive manoeuvring. An invariant EKF is the interesting choice —
+its error dynamics are trajectory-independent, which is exactly the regime a fast autonomous
+craft lives in, and neither PX4 nor ArduPilot ships one.
 
-#### The same shape, on the other storage
+The architecture is half-built already. The control loop iterates the burst once and produces two
+things at different rates: filtered gyro for control (#23), and delta-angle / delta-velocity
+increments accumulated per sample for the estimator, the way PX4's `ImuDownSampler` does with
+coning and sculling corrections. Those increments are rate-decoupled by construction, and safe
+on the blackboard precisely because an accumulator tolerates a missed read where a stateful
+filter does not.
 
-A failed parameter save is as silent as a failed log write, and for a simpler reason: nothing
-reads the answer. `EE::Read` and `EE::Write` return `bool`, `EeConfigStorage` propagates it, and
-`RcReceiver::SaveCalibration` returns it -- to no caller anywhere in the tree. So an RC
-calibration, an RC map or an accel calibration that did not reach the EEPROM is discovered on the
-next boot, as settings that quietly reverted.
+Two things are not the filter's algebra, and are where the time actually goes: the delayed-time
+fusion shell that lets 100 ms-old GPS fuse correctly, and the innovation gating that decides
+when a sensor is lying. EKF2's real value is that shell, not its equations.
 
-Card conditions and parameter-write conditions want the same answer, which is why they belong
-together: a `bool` at the call that suffered it is more precise than any counter, and it reaches
-nobody. Give the outcome a reader before adding any instrument beside it.
+One rule if it lands: **attitude gets a single owner.** Mahony and an IEKF both estimate it, and
+both writing `EstimatorState::attitude_world_to_body` is the duplication this repo has spent
+real effort removing. PX4 retires the complementary filter into an output predictor; ArduPilot
+keeps DCM as an explicit fallback lane. Either is fine; two writers is not.
 
-#### Constraint
+### #30 — Name the IMU orientations rather than configuring a triple — 🟢 SUPPORTING
 
-Doctor reports to MAVLink and the logs, **not to the OLED**. The display stays a bench tool and
-flight state stays off it.
+`axis_map` is hardcoded identity in `stm32_config.hpp.j2`, with a comment saying to promote it
+to Kconfig when a board rotates the chip. Promote it as a **named choice**, not as the signed
+permutation the struct stores.
 
-### #50 — The four failsafe conditions, once there is somewhere to go — 🧊 DEFERRED
+A signed permutation has 6 orderings × 8 sign combinations = 48 settings, and only 24 are
+rotations. The other 24 have determinant −1: reflections no rigid mount can produce.
+`AxisMapIsPermutation` does not catch them — it asserts the ordering is a permutation of
+{0,1,2} and never looks at the signs — so `x_from=1, y_from=0, z_from=2` all-positive passes,
+swaps X and Y, and hands the AHRS a left-handed frame.
 
-#15 decides the policy for an aircraft with no altitude source and no position: detect, then
-disarm. This item is what those same four conditions become once autoland and return-to-home
-exist, and it is deferred because the prerequisites are hard rather than because the policy is
-unclear. Sentinel stays the owner (#16); what changes is what its conditions are allowed to ask
-for, and #52 is where the asking lands -- the vehicle states a procedure needs in order to be
-sequenced rather than run from inside the safety authority.
+Betaflight's set is the right size: 8 orientations, 4 yaw × {upright, flipped}
+(`common/sensor_alignment.h`), plus a sentinel for the driver default and one custom escape.
+It covers every mount anyone builds on a board they designed, stays a signed permutation so
+`MapAxes` remains a table lookup, and structurally cannot express a reflection. PX4 carries
+41 rotations behind an Euler table and a DCM multiply, including 45-degree steps and one
+`ROTATION_ROLL_90_PITCH_68_YAW_293`, because it runs on airframes somebody else laid out. That
+generality is a liability here, not a feature.
 
-**Four things have to exist first, and all four are gates, not sequencing.** #46 for an altitude
-source, without which a descent is a timed throttle and an invented constant. #27 for position
-and velocity, without which there is no home vector to fly. #45 for heading, since yaw currently
-wanders by design and nothing can hold a course. #49 for a fix worth trusting, because RTH
-consumes GPS as a *flight input* rather than as a display field.
+Shape: a Kconfig choice, expanded by the generator into the permutation and signs the driver
+already consumes, with a determinant check in the generator so a bad expansion fails the build
+instead of the flight. Nothing in the control path changes.
 
-#### What each condition becomes
+**The calibration hazard is handled but stays load-bearing.** `OFFSET_USER` is per chip axis, so
+`ApplyGyroOffsets` runs the body-frame mean back through `ChipFromBody` before writing.
+That inversion is exact only because the map is a signed permutation — one chip axis per body
+axis — and a general rotation would need a transpose instead. The write is permanent, silent
+when wrong, and shows up as drift on an axis that was never calibrated, so any change to how the
+map is expressed has to keep `ChipFromBody` its exact inverse. Naming the orientations narrows
+that risk rather than removing it.
 
-- **RC loss** is the case RTH was invented for: the operator is still there and the link may
-  come back. Detection is unchanged -- Sentinel's timeout against `RcData::timestamp_us`, since
-  CRSF carries no receiver-asserted failsafe bit. The action changes, and so does the recovery
-  rule: a link that flaps must not toggle the aircraft between returning and manual, so handing
-  control back wants Betaflight's shape -- sustained clean frames plus a deliberate pilot
-  action, not the first good packet.
-- **FcLink loss** is where RTH is most right and least helped: the GCS has no picture, and
-  Sentinel has to run the whole manoeuvre on the STM32 with the companion gone. But it is only a
-  failsafe *together with* RC loss. A live transmitter and a dead FcLink is a pilot with full
-  authority, and treating that as an emergency takes the aircraft away from someone flying it.
-- **GPS loss** is the difficult one, because it is the input the response runs on. Lost before a
-  failsafe, RTH is simply unavailable and the fallback is landing where it stands. Lost *during*
-  one, the manoeuvre has to degrade mid-flight rather than continue against a dead-reckoned
-  position. This is also where #49's integrity messages stop being diagnostics: a fix that is
-  absent is safe, and a fix that is *lying* flies the aircraft somewhere. A spoofed position
-  reports excellent `hAcc`, so accuracy fields cannot detect it and NAV-STATUS and SEC-SIG
-  become flight inputs.
-- **Low battery** is the only one that is a continuous function rather than an edge, and the
-  only one that must be able to *preempt* the others. Returning costs energy, so a threshold
-  that triggers RTH too late strands the aircraft further from home than landing would have.
-  That makes the return threshold a function of distance-to-home rather than a fixed voltage --
-  a point-of-no-return calculation -- with a second, lower threshold that lands immediately
-  wherever it is. `BatteryData::current` is an `optional`, so on a board without current sense
-  there is no mAh integration and the estimate degrades to voltage under load, which sags with
-  throttle and reads worst exactly while climbing.
+Pairs with #25: a rotated mount invalidates the stored accel calibration as well, so the two
+land together or not at all.
 
-#### Arbitration is the part none of the four items owns
+### #45 — Magnetometer, MMC5983MA — 🟢 SUPPORTING
 
-Conditions overlap, and their preferred actions contradict: RC loss asks to return, low battery
-asks to land now, GPS loss says returning is not possible. Four independent handlers each acting
-on their own condition is the failure mode -- what is needed is one ranked resolution evaluated
-every pass, which is how PX4 models it.
+No heading reference exists. `ControlTickFlightLoop` says so twice: yaw bypasses the attitude
+loop entirely, and the swing-twist decoupling is there to stop yaw drift bleeding into roll and
+pitch. Stabilize holds tilt but lets heading wander, and nothing can hold a course.
 
-Ranking the actions by severity makes "most severe wins" a property of the type rather than a
-chain of conditionals, and each condition reports what it *wants* rather than doing anything:
+The part is chosen (MMC5983MA, 3-axis AMR) and I2C1 is already built and brought up for it.
+What remains is a driver, a blackboard fact with its own timestamp, and a `MagCal` sibling in
+`SensorCalService`.
 
-```cpp
-enum class FailsafeAction : uint8_t { kNone, kWarn, kReturn, kLand, kDisarm };
-```
+That calibration is not the gyro's shape. Hard-iron offset plus soft-iron matrix is an ellipsoid
+fit over many orientations, so it is operator-guided and takes tens of seconds. It joins as a
+tenant with its own feed and its own fit, sharing only the reporting and the one-run-at-a-time
+interlock. The part's internal SET/RESET degauss is what removes the sensor's own offset drift
+and is a separate step from the vehicle's iron.
 
-The resolution has to latch downward. An aircraft that entered land-now must not be talked back
-into returning by a battery reading that recovered when the throttle dropped -- which it will,
-since that sag is what triggered it.
+### #46 — Barometer, DPS310 — 🟢 SUPPORTING
 
-#### Two things it needs that do not exist
+There is no barometric altitude source, which is why #15 cannot offer a rescue descent and why
+the airframe has no altitude hold. GPS carries an MSL figure, but nothing closes a loop on it.
+The part is chosen (Infineon DPS310, pressure plus die temperature) and, like #45, shares the
+I2C1 bus that is already built.
 
-- **A mode Sentinel can command.** Autoland and RTH are flight modes, and the cascade in
-  `states.cpp` is what flies the aircraft. If Sentinel executes the manoeuvre itself there are
-  two things commanding motors, which is the duplication #19 exists to prevent. Sentinel selects
-  the mode and holds the authority to; the mode flies.
-- **A home position, captured at arm.** No home means no RTH regardless of which condition
-  fired, so it is a pre-arm check rather than a runtime one. That is the point where #48 stops
-  being a bench convenience: a degraded fix at arming time is currently harmless because nothing
-  navigates, and the moment this item lands it decides whether the aircraft has anywhere to
-  return to.
+Needed: a driver and a blackboard fact. Calibration is the one place it does *not* follow #45 -- a baro's zero is a ground reference
+re-established at every arm, not a stored constant, so it belongs with the estimator rather than
+in `SensorCalService`. PX4 treats it the same way: `baro_calibration.cpp` is an EKF-driven bias
+estimate, not a bench procedure.
 
-PX4's `_manual_control_lost_at_arming` rule, which Sentinel already applies -- RC absent at
-arming does not count as a loss until RC has been seen once -- gains a sibling here, since the
-same argument applies to a home position that was never captured.
+Its own temperature reading matters more than it looks: pressure output is temperature-
+compensated by coefficients read from the part at boot, so a driver that skips them reports
+plausible nonsense rather than failing.
 
-### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
+**Two CRSF frames wait on this and on #27**, and are worth landing with the driver rather than
+after it, since the handset is the only display this aircraft has in flight. `0x09`
+BARO_ALTITUDE carries altitude, which is the ground reference above -- a raw pressure reading
+sent as altitude is wrong by the day's weather. `0x07` VARIO carries climb rate, which is not a
+reading at all but a derivative, so it comes from the estimator or it comes from differentiating
+noise. The encoders are a few lines each; the part they wait on is the number being meaningful.
 
-`make flash-wifi` flashes everything every time, and when two images disagree neither can say
-which of them is the stale one. The ESP32 owns the STM32's only flash path — `Programmer`
-drives BOOT0 and the shared FcLink UART — so one device deciding what to flash is mostly
-wiring parts that are already there.
+### #48 — Decide whether GPS quality gates arming — 🟢 SUPPORTING
 
-- Read both build identities, compare against the build, skip what already matches. The ESP32
-  has `kMavlinkFlightSwVersion` and `kMavlinkGitHashShort` from `generate_esp32_config.py`; the
-  STM32 has no identity at all, which is also what #31 wants for the ULog header.
-- Identity is information, not a gate. What it buys over the handshake's refusal is knowing
-  which image to flash.
-- If it becomes one addressed binary, order matters: the ESP32 last means a failure leaves a
-  matched STM32 and a stale ESP32, which is recoverable over WiFi. The reverse can leave a
-  half-flashed ESP32 that can no longer program the STM32 it was meant to fix.
+`hDOP` is plumbed end to end and read by nobody as a condition: `M10Service` publishes it,
+`TelemetryPublisher` puts it on the wire, and `Mavlink` re-emits it as `eph`. Nothing compares it
+against anything. Sentinel's arm path takes no view of GPS at all. It is also zero on every
+build, because NAV-DOP is not enabled -- #49 has to land before any of this can be written.
 
-Refusing to arm on a protocol mismatch is Sentinel's call, not the flasher's — see #16.
+The decision is not the comparison, it is what a bad number is allowed to do. A quad that
+refuses to arm indoors because it cannot see satellites is broken for the bench, and this
+aircraft spends most of its life there — so a hard gate is wrong on the current airframe, and
+"warn, do not refuse" is the honest default while no mode navigates by GPS.
+
+- **`num_sats` and `fix_type` are the coarse conditions**, and `hDOP` is the one that says the
+  fix is *degraded* rather than absent. A gate written against DOP alone reads a good number
+  from a receiver reporting no fix at all, because DOP describes satellite geometry, not
+  whether a position was computed from it.
+- **Which way it points depends on #27 and #45.** Nothing navigates today, so a poor fix costs
+  nothing in the air; the moment an estimator consumes position, arming on a degraded fix stops
+  being a bench convenience and starts being a flyaway.
+- **The threshold cannot be picked from the datasheet.** DOP under an open sky and DOP beside a
+  building differ by more than any published figure predicts, so this wants numbers off the
+  actual card before a constant is written down — which is #33's job, since `hDOP` is among the
+  18 `GpsData` fields the log does not record, and #49's, since it is among the fields the
+  receiver is not asked to send.
+
+Whatever it becomes, it is a Sentinel condition and not a check in the GPS driver: #16 owns the
+arm decision, and a second component holding a veto is the shape #19 exists to prevent.
+
+### #49 — Match PX4's UBX message set, and use it to decide the fix is trustworthy — 🟢 SUPPORTING
+
+**NAV-DOP is disabled and four DOP fields are plumbed anyway.** `stm32_config.hpp` renders
+`.nav_dop = false`, so `kIdNavDop` never dispatches, `dop_data_` is never written, and the
+`gDOP`/`pDOP`/`hDOP`/`vDOP` that `BuildGpsData` copies out of it are structurally zero. MAVLink
+survives it -- `mavlink_tx.cpp` sends `UINT16_MAX` for a zero DOP, which is the wire's word for
+unknown. The log does not: `GpsRecord.hdop` writes `0` every 100 ms, and `0.00` reads as a
+*perfect* fix in any viewer, which is worse than the field being absent. Turning the message on
+is a one-line config change; everything downstream is already built for it.
+
+**The enabled set is close to inverted against PX4's.** Comparison is against the `u_blox10`
+path in `PX4-GPSDrivers/src/ubx.cpp`, which is the same receiver generation.
+
+| Message | PX4 | 32Raven |
+| --- | --- | --- |
+| NAV-PVT | yes | yes |
+| NAV-DOP | yes | **no** |
+| NAV-STATUS | yes | no |
+| MON-RF | yes | no |
+| SEC-SIG | yes, non-fatal on NAK | no |
+| RXM-COR | yes | no |
+| NAV-SAT | only when satellite info is asked for | no |
+| NAV-COV | **no** | yes |
+| NAV-EOE | **no** | yes |
+
+PX4 also explicitly writes zero to NAV-TIMEGPS and RXM-SFRBX, because another firmware may have
+left them enabled in the receiver's non-volatile config. Receiver bandwidth is something it
+reclaims, not merely something it declines to spend.
+
+**The covariance goes.** `NAV_COV` does not appear anywhere in PX4's driver -- not unused,
+absent -- and `sensor_gps` carries no covariance field for it to land in. EKF2 builds R from
+three scalars instead: `pos_noise = max(hacc, EKF2_GPS_P_NOISE)` and
+`vel_var = sq(max(sacc, EKF2_GPS_V_NOISE, 0.01f))`, one isotropic variance across all three
+velocity axes. It computes `pdop` as `sqrt(hdop² + vdop²)` rather than reading the receiver's.
+So the three `posCov*` floats `GpsData` carries are for a shape no reference estimator consumes,
+at 640 B/s on a 11.5 kB/s line.
+
+**What replaces them is already parsed and thrown away.** `M10PVTData` holds `sAcc`, `headAcc`
+and `velN`/`velE`/`velD`; `GpsData` keeps none of the five. `sAcc` is exactly the field PX4's
+velocity R comes from, and `vel`/`hdg` are derived from `gSpeed`/`headMot`, which are planar --
+vertical velocity is not recoverable from what is kept, and an estimator fusing GPS velocity
+needs it. Add those five plus `hAcc`/`vAcc`, drop `posCov*`, and the struct gets smaller while
+saying more.
+
+**NAV-EOE stays, and is ours on purpose.** PX4 sets `_use_nav_pvt` and publishes straight off
+NAV-PVT, so it never needs an epoch barrier. `M10Service` joins several messages and uses EOE
+plus a matching `iTOW` to publish the set atomically -- 12 B/epoch for a guarantee PX4 does not
+need because it does not join. That reasoning holds only while the join has more than one
+message in it: drop NAV-COV while NAV-DOP is still off and the epoch is NAV-PVT alone, at which
+point EOE is pure overhead. The two changes are one change.
+
+**The integrity half is the point.** NAV-STATUS, MON-RF and SEC-SIG are where PX4's jamming,
+spoofing, AGC and noise fields come from, and 32Raven has no equivalent for any of them. They
+describe whether the fix can be *believed*, which is a different question from the accuracy
+fields describing how precise it claims to be -- a spoofed position reports excellent `hAcc`.
+That distinction is what #48 needs and does not currently have: `num_sats` and `fix_type` say a
+fix exists, DOP says the geometry is good, and only these say the signal is real. A receiver
+under a jammer degrades in a way DOP alone will not show.
+
+Budget, at the 100 ms measurement rate: the current PVT+COV+EOE set costs 1760 B/s of a
+11.5 kB/s line. PVT+DOP+EOE costs 1380 B/s, leaving room for the integrity messages at a
+divided rate -- PX4 runs NAV-SAT at every tenth epoch for the same reason.
+
+Sequencing: the message-set and `GpsData` changes are independent of everything and can land
+alone. #33 records the new fields once they exist. #48 cannot pick a threshold until #33 has put
+real numbers on a card, and should be rewritten against integrity state rather than DOP alone
+once the messages arrive. #27 and #45 are what eventually consume `sAcc` and the NED velocities.
+
+### #51 — Per-cell voltage, sensed rather than divided — 🟢 SUPPORTING
+
+`Battery::EstimatePercentage` divides pack voltage by `STM32_BATTERY_CELL_COUNT` and maps the
+result linearly between the empty and full cell thresholds. That is the only per-cell figure the
+aircraft has, it never leaves the function, and it is wrong in two independent ways.
+
+**It cannot see imbalance.** One cell sagging is the failure that ruins packs and costs thrust,
+and it is exactly the failure a divided average hides: five healthy cells carry the mean while
+the sixth collapses. The number looks best when the pack is worst.
+
+**The map is linear and the discharge curve is not.** A lithium cell is flat through the middle
+of its range, so a straight line between two thresholds moves the percentage too slowly there
+and too quickly at both ends. Under load it reads low as well, since the sag is current, not
+charge -- `filtered_voltage_v_` smooths the noise, not the offset.
+
+Sensing it needs a balance-lead tap: one divider per cell into an ADC network, or a dedicated
+front end. That is a board change, not firmware, which is why the estimate stands in the
+meantime rather than being deleted.
+
+Three things unblock together when it lands:
+
+- **CRSF `0x0E` CELLS**, which EdgeTX renders per cell. Sending the divided figure would draw a
+  perfectly balanced pack however far one cell had gone, so it stays unsent until the reading is
+  real -- an encoder is a few lines once it is.
+- **A battery failsafe that trips on imbalance**, not only on pack voltage. #50 treats low
+  battery as a continuous condition against distance-to-home; a single dying cell is a different
+  condition with a different answer, and today nothing can express it.
+- **A state of charge worth the name.** `EscTelemetryData::consumption_mah` already carries
+  integrated charge wherever the ESCs have a shunt, which is a better basis than voltage under
+  load; the two together beat either alone.
+
+
+---
+
+## Links and telemetry
+
+### #9 — Share the FcLink frame parser — 🧊 DEFERRED
+
+The byte-at-a-time receive state machine exists twice, in `stm32/Services/fc_link.cpp` and
+`esp32/services/fc_link.cpp` — same states, same transitions, plus an `RxState` enum and an
+`rx_pkt_internal_` struct declared identically in both headers.
+
+The reason to fix it is not the line count. **CRC verification is implemented twice,
+differently.** The STM32 rebuilds header and payload into one contiguous buffer and runs
+`checksum::XModem` over it; the ESP32 feeds `XModemUpdate` byte by byte across magic, id, length
+and payload. The two agree only for as long as `message::Header` stays packed as exactly
+`{magic[2], id, len}`, and a divergence would not fail loudly — the link would simply stop
+carrying packets.
+
+What differs between the two sides is policy, not parsing. The STM32 resyncs silently and
+dispatches inline; the ESP32 counts invalid frames, logs them, sounds the error tone, panics
+past a threshold, and queues rather than dispatching.
+
+- Add a policy-free parser to `libs/`: one byte in, one verdict out — need-more, bad magic,
+  bad length, bad CRC, packet complete — so each firmware keeps its own reaction to each.
+- Leave `Poll`, transmit, handshake, the ring buffers and the read budgets where they are.
+  Those genuinely differ: an interrupt-fed byte ring on one side, block reads from the ESP-IDF
+  driver on the other.
+
+Deferred rather than supporting because it rewrites the receive hot path on both firmwares. Do
+it once the ESC configurator work has been confirmed on hardware, so that a misbehaving bench
+session has one candidate cause instead of two.
+
+### #41 — The radio goes dark on every bench page — 🎯 CRITICAL
+
+The Telem UART is the aircraft's MAVLink link: `TelemUartServer` on GPIO20/21 at 57600, the
+SiK default, brought up by `ServingState` which is where `main.cpp` starts the machine. The
+WiFi and USB MAVLink modes are bench transports reached from the menu, not the vehicle's link.
+
+Four states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them has a reason.
+
+| State | STM32 | FcLink | Telem UART | Wanted |
+| --- | --- | --- | --- | --- |
+| Service, waiting for a host | Idle, running | free | free | on |
+| WifiLog, waiting for a host | Idle, running | free | free | on |
+| EscConfig | suspended | MSP relay | MAVLink, full | not-ready |
+| UsbLog (MSC) | suspended | grant only | free | on, not-ready |
+| LogPull, transferring | Idle, running | saturated | free | narrowed |
+| Program, flashing | ROM bootloader | held by Programmer | free | dark |
+
+`ServiceState` and `WifiLogState` never touch the flight controller — they start the network and
+wait, indefinitely, while it runs normally. `ProgramState` is the only one with a physical
+reason: BOOT0 is asserted, `Programmer` owns USART1, and no firmware is left to publish.
+Recovery Service mode is a seventh case, where the STM32 is halted in its panic loop and the
+ESP32 holds the only fact worth sending — which is #40's.
+
+A dark link and a dead board are the same thing from the ground. That is the ambiguity #42
+removes from the fields, and there is no point making the values honest while the link that
+carries them disappears on the pages that make them interesting.
+
+#### The page should pick a profile, not own the radio
+
+`SetTelemetryLink(bool)` from `OnEnter` is a menu switching off a permanent fixture of the
+aircraft. A page should narrow the stream instead — full, heartbeat-plus-status, or nothing,
+with only Program picking nothing. That also answers the one real contention: `LogPullState`
+saturates FcLink's 64 B/ms TX budget with chunks, so fresh SystemStatus competes with the
+transfer while the Telem UART itself sits idle.
+
+`SetTransport` has the same shape. The four states never call it, so they inherit whatever the
+last page left — UDP after MavlinkWifi, CDC after MavlinkUsb. And `Mavlink().Poll()` is called
+only from the four states that stream today, so raising the flag is not sufficient on its own.
+
+#### boot_state is a readiness state, not a boot phase
+
+On the bench pages `boot_state` reads `kBooting` — "starting up" — when the truth is "a
+configurator holds the motor lines". `MAV_STATE_CALIBRATING` is the honest value, and PX4
+sends exactly that for `in_esc_calibration_mode`. It needs a `kNotReady` enumerator in
+`libs/message.hpp`, so it costs a dual flash and wants to travel with #42's wire additions.
+
+Of the nine `MAV_STATE` values, four are ever sent: BOOT, STANDBY, ACTIVE, CRITICAL. UNINIT,
+CALIBRATING, EMERGENCY, POWEROFF and FLIGHT_TERMINATION are unreachable. EMERGENCY is the
+other absence worth closing — "lost control over parts or the whole airframe" is a real
+distinction from CRITICAL's "can however still navigate", and #15 is what would decide it.
+
+### #42 — SystemStatus reports values nothing produces — 🟢 SUPPORTING
+
+Two fields the STM32 still fills with constants.
+
+| Field | Today | Wanted |
+| --- | --- | --- |
+| `error_code` | `kOk`, always | Sentinel's latched fault code |
+| `errors_count1..4` | four literal zeros in the pack call | four of the `ImuHealth` counters |
+
+**`error_code` has a producer for the first time.** A panic halts the board, so a running
+board had nothing to report and `kOk` was defensible. `Sentinel::imu_fault_latched_` ends
+that — an aircraft flying on a deferred fault holds a real code in a private member and
+nothing carries it. `failsafe_flags` says something is wrong; this says which.
+
+Four of the IMU counters fit `errors_count1..4`. A wire change, so it wants #21's reset cause
+and #41's `kNotReady` in the same flash.
+
+Reading any of it needs #41 first.
+
+### #43 — A current reading is trusted as far as it can saturate an int — 🟢 SUPPORTING
+
+Blocked on a real sensor reaching `PC1`. When one does: `STM32_BATTERY_CAPACITY_MAH` and a
+max-current knob inside the current-monitoring menu, a plausibility bound in the driver where
+the negative clamp and deadband already live (a reading above what the pack can deliver is
+provably false), and an over-current condition feeding #15's battery flag. The bound cannot
+detect an absent sensor — a floating pin reads amps that fit any 6S budget — which is what
+the build-time knob is for.
+
+### #53 — The LR900-P replaces WiFi as the MAVLink link — 🧊 DEFERRED
+
+The Telem UART is already the aircraft's link (#41), 57600 and SiK-shaped, and the MicoAir
+LR900-P goes on it: 2.1 KB/s over the air by default, which MicoAir recommends for a flight
+controller, 1.1 and 0.4 KB/s below that, and 3.2 KB/s downlink in its FHSS mode. The build
+already checks the MAVLink ladder against `ESP32_MAVLINK_TX_LINK_AIR_RATE` — every periodic
+message at its longest, against the declared air rate or the UART's line rate, whichever is
+lower, with a 20 % margin — and the choice sits at UART-bound until a radio is on the port. So
+landing the radio is setting that choice to the mode the radio is configured in, and reading
+what the build says.
+
+What it will say: the ladder at its defaults is ~1.57 KB/s, and RC_CHANNELS every 40 ms is
+1.35 KB/s of it. At 2.1 KB/s the ladder fits with 7 % of the margin to spare; at 1.1 or
+0.4 KB/s it does not, and RC_CHANNELS is the first knob to turn — deliberately, since 40 ms is
+the rate the GCS's stick display was tuned to, not a default nobody chose.
+
+Open with the radio, not before:
+
+- The uplink is the narrower direction in FHSS mode (1.6 KB/s) and carries the GCS's commands
+  and parameter traffic, which the check does not model.
+- The bench pages in #41 should narrow the stream to a profile; with a budget declared, a
+  profile is a budget.
+- Whether the ladder should stretch to the link at runtime the way the CRSF one does, or stay
+  a build-time check. A radio's air rate cannot change underneath the config the way a handset's
+  ratio can, so a check is probably all it needs.
+
+
+---
+
+## Operator interface
 
 ### #36 — Notifications the display can carry — 🟢 SUPPORTING
 
@@ -501,515 +1049,17 @@ Worth deciding what the LED *means* before adding patterns to it — page identi
 liveness on the ESP32, armed on the STM32 — because it attempts all three with no priority
 between them.
 
-### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
-`SharedState` is a const-correct store, not an access-controlled one. Readers get `const &` so
-they cannot mutate shared state, but fourteen of its sixteen setters are **public**, so the
-pattern governs *how* a write happens and never *who* performs it. `UpdateEstimate` is meant to
-be the AHRS path's alone and `UpdateRc` `RcReceiver`'s alone; nothing says so and nothing checks.
+---
 
-`armed_` and `failsafe_flags_` are the two with a real owner — private, with
-`friend class Sentinel` — because a second writer there spins motors.
-
-#### The failure it prevents
-
-Two components each holding their own copy of one fact, kept in step only by every writer
-remembering to update both. On `armed` that shape put the ESCs disarmed while the mixer kept
-producing torque, and only `friend class Sentinel` closes it. Every other field is still open to
-it, and the next occurrence will not announce itself either — the compiler has nothing to say
-about a setter anyone may call.
-
-#### Shape
-
-The passkey idiom, one key per producer:
-
-```cpp
-class GpsKey { friend class M10Service; GpsKey() = default; };
-void UpdateGps(const GpsData &data, GpsKey) { gps_ = data; }
-```
-
-`UpdateGps` stays public, but only `M10Service` can construct the key, so only `M10Service` can
-call it. An empty class is elided entirely — identical generated code, no RAM, no indirection
-in the control path. Roughly twenty lines in `shared_state.hpp` plus a `{}` at each call site.
-
-It also narrows what exists today: `friend class Sentinel` opens *every* private in
-`SharedState` to Sentinel, and the `Icm42688p`/`Ahrs` friendship on the sample mailbox is the
-same shape. A key exposes exactly one function.
-
-#### Why not the alternatives
-
-- **A lint** counting call sites per setter measures a proxy. The property wanted is exclusive
-  ownership — not how often the owner writes, but whether anything else can. C++ states that
-  directly, and a compile-time guarantee needs no exceptions file.
-- **A writer handle** (`SharedState::GpsWriter`, constructed once and stored by its producer) is
-  the most principled: it is the only option giving real least privilege, since services today
-  hold a whole `SharedState *`. Costs a pointer per writer, makes the single-owner property
-  runtime rather than compile-time, and touches every service's `Init`. Revisit it if the replay
-  harness needs to substitute a producer — a handle is trivially redirectable, a passkey is not.
-
-### #20 — Sentinel watchdogs on the IMU and the control path — 🎯 CRITICAL
-
-Sentinel weighs the IMU counters and answers per arm state. Every threshold it uses is asserted
-rather than measured, and the one recovery it can order does not work in the case it exists for.
-
-#### Every threshold is a guess
-
-| Threshold | Value | Guards |
-| --- | --- | --- |
-| `kLossPerSecThreshold` | 0.5% of gyro ODR, 3 consecutive seconds | unclaimed sample bursts |
-| `overrun_threshold` | 3 path faults in 1 second | sample-path faults |
-| `kImuStallTimeoutUs` | 20 ms | sample-path silence |
-
-What the loss rule counts is real: `PENDSVSET` is a bit, not a queue, so two bursts published
-inside one control tick collapse to one PendSV run and the older is dropped. That is the
-measurement that says whether the cascade fits its budget — **and the loop was raised to
-2048 Hz without it**, argued from the aliasing corner and the DShot budget rather than measured.
-
-**The numbers cannot leave the board.** `ImuHealth` carries ten counters and every consumer
-reduces them to a boolean — an LED blink, a health bit, a threshold comparison. `SystemStatusMsg`
-has no field for any of them. An honest threshold needs at least `missed_samples` on the wire,
-read across the four cases that load the loop: disarmed idle, armed at motor idle, throttle
-sweeping, and every link streaming at once. Worth landing with #21 — both are `SystemStatusMsg`
-additions, and one wire break costs one dual-flash.
-
-#### The stall recovery cannot clear
-
-A stall with `inflight_` stuck true — a DMA that started and never completed — survives
-`RestartSampling`, because nothing clears it or the SPI driver's `busy_`. Aborting a live DMA is
-real surgery and belongs here rather than in the driver.
-
-### #21 — Know why the board restarted — 🟢 SUPPORTING
-
-`RCC->CSR` records what caused the last reset — power-on, brownout, IWDG, window watchdog,
-software, pin. `System` reads it at boot and clears `RMVF`, but `GetResetCause()` has no
-consumer, so an in-flight watchdog reset still reaches the ground indistinguishable from a cable
-glitch: the FC silently restarts and the GCS sees the handshake replay. #20 names one concrete
-route to exactly that.
-
-What remains is carrying it in `SystemStatusMsg`, which turns a silent restart into a reported
-one. Worth landing alongside #20's counters, since both are `SystemStatusMsg` additions and one
-wire break costs one dual-flash.
-
-#### A reset silently discards the gyro calibration
-
-`Init` calls `ClearUserOffsets()` on every boot and nothing puts a value back, so a board that
-restarts in flight keeps flying on zeroed offsets and says nothing. Calibration is operator-
-triggered over MAVLink and refuses while armed, so it cannot re-run on its own — which leaves
-the reported reset cause as the only thing that would explain why the bias came back.
-
-#### In-flight restart recovery is a separate project — 🧊 DEFERRED
-
-Persisting prior state is the easy half, and it belongs in a `.noinit` SRAM section rather than
-on the ESP32: a reset does not clear SRAM, so the marker is readable microseconds in, with no
-FcLink handshake to wait on and no second MCU to depend on. A brownout deep enough to lose that
-RAM took the ESP32 with it anyway — they share a battery.
-
-The hard half is that the attitude is gone. Gyro bias is a second-order term — `Ahrs::bias_`
-already estimates it in flight, and a few degrees of drift is nothing beside a quaternion reset
-to identity. In free fall the accelerometer reads about zero g in every direction, so it cannot
-say which way is up: rate can be held, level cannot be recovered.
-
-Auto-arming also inverts #16's charter. A bench reset would spin props on the table unless a
-trustworthy airborne test gates it, and sustained near-zero-g is about the only honest one — a
-signal that only arrives once things have already gone wrong. Fixing what causes the reset is
-worth more than recovering from it.
-
-### #40 — Faults that survive the battery being pulled — 🟢 SUPPORTING
-
-An IMU fault raised in flight is held in `Sentinel::imu_fault_latched_` and answered at the
-disarm edge. That latch lives in SRAM, so a pilot who lands and pulls the battery — rather than
-disarming and letting the board sit — takes the only record of the fault with them, and the next
-boot is clean with no one the wiser. Every fault this board can defer has the same hole.
-
-Car ECUs answer it with diagnostic trouble codes: a fault writes a code to non-volatile storage,
-the lamp stays lit across power cycles, and the code clears only when a tool reads it and is told
-to. The value is not the storage, it is the refusal to forget without someone acknowledging.
-
-`.noinit` SRAM is the wrong home, and #21 reaches the opposite conclusion for a different case:
-it survives a *reset*, which is what an in-flight watchdog restart needs, but not a power cycle,
-which is the case here. The ESP32 has NVS, already owns the display that would carry the
-indicator, and is the thing the operator connects to on the bench.
-
-#### Shape
-
-A fault code and the flight index it was raised in, sent over FcLink when Sentinel raises it and
-again on handshake so a fault raised while the link was down is not lost. The ESP32 appends to a
-small NVS ring — bounded, oldest dropped — and the UI shows a pending-fault indicator until it
-is cleared. Clearing is explicit and confirmed on the page that shows the faults; nothing
-clears on boot, on read, or on a good flight.
-
-`ErrorCode` is already the shared vocabulary, so the wire carries a code the ESP32 can name
-through `error_code.cpp` rather than a second enum invented for the purpose.
-
-#### The boot policy stays with Sentinel
-
-A stored fault must not become a thing that refuses to boot. The ESP32 records and reports; what
-a fault *means* — halt, refuse to arm, or warn — stays where #16 put it, and the STM32 must come
-up fully with a card full of history. Otherwise a stale code from a fixed problem grounds an
-airworthy aircraft, which is the failure mode ECUs are most criticised for.
-
-Pairs with #17: Doctor is the natural reader, and a fault log is the first thing it should
-present. #36 carries the notification.
-
-### #41 — The radio goes dark on every bench page — 🎯 CRITICAL
-
-The Telem UART is the aircraft's MAVLink link: `TelemUartServer` on GPIO20/21 at 57600, the
-SiK default, brought up by `ServingState` which is where `main.cpp` starts the machine. The
-WiFi and USB MAVLink modes are bench transports reached from the menu, not the vehicle's link.
-
-Four states call `Mavlink().SetTelemetryLink(false)` in `OnEnter`. One of them has a reason.
-
-| State | STM32 | FcLink | Telem UART | Wanted |
-| --- | --- | --- | --- | --- |
-| Service, waiting for a host | Idle, running | free | free | on |
-| WifiLog, waiting for a host | Idle, running | free | free | on |
-| EscConfig | suspended | MSP relay | MAVLink, full | not-ready |
-| UsbLog (MSC) | suspended | grant only | free | on, not-ready |
-| LogPull, transferring | Idle, running | saturated | free | narrowed |
-| Program, flashing | ROM bootloader | held by Programmer | free | dark |
-
-`ServiceState` and `WifiLogState` never touch the flight controller — they start the network and
-wait, indefinitely, while it runs normally. `ProgramState` is the only one with a physical
-reason: BOOT0 is asserted, `Programmer` owns USART1, and no firmware is left to publish.
-Recovery Service mode is a seventh case, where the STM32 is halted in its panic loop and the
-ESP32 holds the only fact worth sending — which is #40's.
-
-A dark link and a dead board are the same thing from the ground. That is the ambiguity #42
-removes from the fields, and there is no point making the values honest while the link that
-carries them disappears on the pages that make them interesting.
-
-#### The page should pick a profile, not own the radio
-
-`SetTelemetryLink(bool)` from `OnEnter` is a menu switching off a permanent fixture of the
-aircraft. A page should narrow the stream instead — full, heartbeat-plus-status, or nothing,
-with only Program picking nothing. That also answers the one real contention: `LogPullState`
-saturates FcLink's 64 B/ms TX budget with chunks, so fresh SystemStatus competes with the
-transfer while the Telem UART itself sits idle.
-
-`SetTransport` has the same shape. The four states never call it, so they inherit whatever the
-last page left — UDP after MavlinkWifi, CDC after MavlinkUsb. And `Mavlink().Poll()` is called
-only from the four states that stream today, so raising the flag is not sufficient on its own.
-
-#### boot_state is a readiness state, not a boot phase
-
-On the bench pages `boot_state` reads `kBooting` — "starting up" — when the truth is "a
-configurator holds the motor lines". `MAV_STATE_CALIBRATING` is the honest value, and PX4
-sends exactly that for `in_esc_calibration_mode`. It needs a `kNotReady` enumerator in
-`libs/message.hpp`, so it costs a dual flash and wants to travel with #42's wire additions.
-
-Of the nine `MAV_STATE` values, four are ever sent: BOOT, STANDBY, ACTIVE, CRITICAL. UNINIT,
-CALIBRATING, EMERGENCY, POWEROFF and FLIGHT_TERMINATION are unreachable. EMERGENCY is the
-other absence worth closing — "lost control over parts or the whole airframe" is a real
-distinction from CRITICAL's "can however still navigate", and #15 is what would decide it.
-
-### #53 — The LR900-P replaces WiFi as the MAVLink link — 🧊 DEFERRED
-
-The Telem UART is already the aircraft's link (#41), 57600 and SiK-shaped, and the MicoAir
-LR900-P goes on it: 2.1 KB/s over the air by default, which MicoAir recommends for a flight
-controller, 1.1 and 0.4 KB/s below that, and 3.2 KB/s downlink in its FHSS mode. The build
-already checks the MAVLink ladder against `ESP32_MAVLINK_TX_LINK_AIR_RATE` — every periodic
-message at its longest, against the declared air rate or the UART's line rate, whichever is
-lower, with a 20 % margin — and the choice sits at UART-bound until a radio is on the port. So
-landing the radio is setting that choice to the mode the radio is configured in, and reading
-what the build says.
-
-What it will say: the ladder at its defaults is ~1.57 KB/s, and RC_CHANNELS every 40 ms is
-1.35 KB/s of it. At 2.1 KB/s the ladder fits with 7 % of the margin to spare; at 1.1 or
-0.4 KB/s it does not, and RC_CHANNELS is the first knob to turn — deliberately, since 40 ms is
-the rate the GCS's stick display was tuned to, not a default nobody chose.
-
-Open with the radio, not before:
-
-- The uplink is the narrower direction in FHSS mode (1.6 KB/s) and carries the GCS's commands
-  and parameter traffic, which the check does not model.
-- The bench pages in #41 should narrow the stream to a profile; with a budget declared, a
-  profile is a budget.
-- Whether the ladder should stretch to the link at runtime the way the CRSF one does, or stay
-  a build-time check. A radio's air rate cannot change underneath the config the way a handset's
-  ratio can, so a check is probably all it needs.
-
-### #42 — SystemStatus reports values nothing produces — 🟢 SUPPORTING
-
-Two fields the STM32 fills with constants, and one whose health bits latch. #20 owns
-`kSystemStatusFlagLoopAlive`; these are the rest.
-
-| Field | Today | Wanted |
-| --- | --- | --- |
-| `sensor_health_flags` | gated on since-boot counters being zero | a windowed delta |
-| `error_code` | `kOk`, always | Sentinel's latched fault code |
-| `errors_count1..4` | four literal zeros in the pack call | four of the ten `ImuHealth` counters |
-
-**The health bits latch red and never recover.** `path_faults`, `rx_dma_error_count` and
-`uart_error_count` are cumulative since boot, so one transient fault ever leaves that sensor
-unhealthy for the rest of the session while the freshness test beside it reads fine. The
-windowed delta Sentinel already uses fixes it, with no wire change. It became easier to reach
-once the path-fault panic left the driver: those faults now accumulate instead of halting.
-
-**`error_code` has a producer for the first time.** A panic halts the board, so a running
-board had nothing to report and `kOk` was defensible. `Sentinel::imu_fault_latched_` ends
-that — an aircraft flying on a deferred fault holds a real code in a private member and
-nothing carries it. `failsafe_flags` says something is wrong; this says which.
-
-**The counters cannot leave the board**, which is #20's blocker for setting any threshold
-honestly. Four of the ten fit `errors_count1..4`, and `missed_samples` is the one #20 needs
-first. A wire change, so it wants #21's reset cause and #41's `kNotReady` in the same flash.
-
-Reading any of it needs #41 first.
-
-### #43 — A current reading is trusted as far as it can saturate an int — 🟢 SUPPORTING
-
-Blocked on a real sensor reaching `PC1`. When one does: `STM32_BATTERY_CAPACITY_MAH` and a
-max-current knob inside the current-monitoring menu, a plausibility bound in the driver where
-the negative clamp and deadband already live (a reading above what the pack can deliver is
-provably false), and an over-current condition feeding #15's battery flag. The bound cannot
-detect an absent sensor — a floating pin reads amps that fit any 6S budget — which is what
-the build-time knob is for.
-
-### #22 — Nothing finds dead code — 🟢 SUPPORTING
-
-`-Wunused` fires only for internal-linkage functions, so an unused public header-inline accessor
-is invisible to every build: no TU odr-uses it, so no TU emits it, so it costs no flash and
-raises no warning. `Icm42688p::GetAccelCalibration()` is one sitting in the tree right now, and
-it is the accessor #25 is about — the calibration has no consumer, and nothing says so. Three
-tools each catch part of the gap, and they do not overlap:
-
-- `-Wl,--print-gc-sections` — ground truth on the binary. Finds unused data, vtables and
-  transitively dead code. Blind to never-emitted inline functions, which is most of what
-  accumulates here.
-- `cppcheck --enable=unusedFunction` — source-level, so it does see inline accessors. Weak on
-  virtual and function-pointer dispatch, and needs the whole program in one pass.
-- clang `-Wunused-private-field` — the only one that finds unused *data members*. Needs nothing
-  but `-fsyntax-only`.
-
-All three stay advisory. A whole-program "unused" verdict is only as good as its view of the
-callers, and a public API has callers no single-tree pass can see — a list to review, never a
-build gate.
-
-### #34 — Linter exceptions are scattered, and no rule can be silenced on one line — 🟢 SUPPORTING
-
-Eighteen scripts in `scripts/lint/` gate this repo, and the answer to "why does this file not
-have to obey" is in a different place for each of them:
-
-- **Two read an exceptions file, in two grammars that disagree.** `comment_exceptions.txt` takes
-  `<path>:<rule>`. `forbidden_exceptions.txt` takes a bare substring matched against either
-  `path:line:col` *or* the offending source text, so one entry can excuse a construct everywhere
-  rather than excuse a file — and it arrives through a `--exceptions` flag rather than a fixed
-  path. Both files are empty today, which is the only reason the difference has cost nothing yet.
-- **Three carry the list as Python constants, and not in the same shape.**
-  `check_timer_access.py`'s `ALLOWED` (three paths) and `check_license.py`'s `EXEMPT_PATTERNS`
-  (fourteen globs) excuse a path outright; `check_singleton_style.py`'s `ALLOWED` maps a path to
-  a *set of rule names*, so it excuses per rule. All three already demand a written reason per
-  entry, in a comment — the discipline is right, the storage is wrong.
-- **The hook config is a third location, and it is honoured in only one of the two runs.**
-  `.pre-commit-config.yaml` scopes each hook with `files:`/`exclude:` and a shared `&not_ours`
-  anchor, while `.github/workflows/lint.yml` runs every script bare over the whole tree. An
-  exclusion that lives only in the hook config is silently absent from CI.
-
-`check_tidy.py`'s `EXCLUDED` and `check_error_codes.py`'s `EXCLUDE_PATHS` look like the same
-thing and are not: one is the rule set itself, the other is the enum's own two definition files.
-Neither is an exception and neither should move.
-
-**Nothing has a per-line escape.** No script honours an inline suppression for its own rules.
-The single mention of one is `check_comments.py`'s `NOLINT_RE`, which *polices* clang-tidy's
-`NOLINT` — rejecting any that carries neither a check name nor a reason — rather than obeying it.
-Silencing `check_forbidden` for one honest line means editing the script.
-
-Shape: one loader shared by every script, one file format carrying path, rule and a mandatory
-reason, plus an inline `// LINT(<rule>): <reason>` for the single-line case, held to the same
-standard `check_comments.py` already imposes on `NOLINT`. Stale entries should fail — a rule that
-quietly stopped applying is worse than one that was never written.
-
-The counter-pressure is real and belongs in the design: thirteen of the eighteen have no
-exemption mechanism at all, and that is why they hold. A shared escape hatch makes suppression
-cheap for rules that currently cost an argument, so the inline form has to name the rule and the
-reason in the diff the reviewer reads, and the thirteen keep having no entries until something
-real needs one.
-
-### #23 — Nothing filters the gyro in software — 🟢 SUPPORTING
-
-The entire gyro path is `gyro_accum / batch.count` in `Ahrs::Process`. **No software filter
-exists at all** — no notch, no lowpass, no RPM tracking, and no biquad anywhere in the repo.
-The chip's own hardware notch exists and is configured `enabled = false`. Betaflight runs five
-stages before its PID sees a sample.
-
-Which of those stages earn their place is not obvious, and two of them do not:
-
-- **Static notches default to off** (`gyro_notch1_hz = 0`), and have since the 3.4 defaults pass
-  that introduced the dynamic notch. A fixed notch fights a peak that sweeps ~80–800 Hz with
-  throttle, paying its phase cost for the whole flight to intersect the noise for a fraction of
-  it. They survive for fixed frame resonances, found by hand from a log.
-- **The RPM filter is the one that works**, and it is the one we are best placed to build: it
-  needs per-motor frequency, and `EscTelemetryMotorData::rpm` is already on the blackboard.
-  Four motors × three harmonics × three axes is 36 biquads; coefficient updates need sin/cos,
-  which is why Betaflight uses polynomial approximations and staggers one motor per loop.
-- **The dynamic notch** tracks peaks with a sliding DFT when no RPM reference exists. A real
-  project, and largely redundant once the RPM filter runs.
-
-The filter itself is trivial — one biquad struct, five multiplies and four adds per apply.
-
-**Where the burst lets us beat the reference.** Betaflight filters one sample per interrupt and
-runs its notches *after* decimation. Our burst gives the same per-sample rate at a quarter of
-the interrupt cost and lets the notches run **before** the decimation. That still matters at
-2048 Hz: the loop's Nyquist is 1024 Hz, while the 2nd and 3rd motor harmonics reach roughly
-1600 and 2400 Hz at full throttle and fold into the loop band before any post-decimation filter
-can see them. The pre-decimation stream is at 8192 Hz, so a notch there has 4096 Hz of Nyquist
-to work in and catches all three harmonics while they are still real.
-
-Wants #24 for an RPM source worth tracking.
-
-### #24 — Bidirectional DShot — 🟢 SUPPORTING
-
-#23's RPM filter needs motor frequency every loop, and the KISS serial telemetry we poll cannot
-give it: one motor at a time, tens of Hz, so a notch chasing a throttle punch would sit on
-50 ms-stale RPM. Betaflight feeds its filter from bidirectional DShot instead — the ESC answers
-each frame on the same wire.
-
-Bigger than it sounds, but it does **not** cost the burst-DMA design. The trap to avoid is
-Betaflight's timer-capture path: latching edge timestamps into CCR1-4 needs four edge-triggered
-DMA streams, because four ESCs reply on their own schedules and a DMAR burst has exactly one
-trigger — which is why their code makes burst and telemetry mutually exclusive. That is a
-constraint of *capture*, not of receiving. Their own default (bit-bang) receives the way we
-transmit: one DMA stream on a fixed cadence — pointed at `GPIOE->IDR`, where one 16-bit read
-carries all four pins' levels at once. Cadence-sampling levels scales to four asynchronous
-repliers; edge-latching timestamps never can.
-
-So the transaction becomes: DMAR burst out of CCR1-4 (unchanged) → one MODER write flips
-PE9/11/13/14 to input → the same stream retargeted at IDR samples at ~3× the GCR rate → flip
-back. What it costs:
-
-- **The signal inverts.** Bidir DShot idles high, ours idles low, so the output stage changes.
-- **The budget is tight but fits.** At DSHOT600 the whole transaction is ~27 µs frame + ~30 µs
-  turnaround + ~35 µs reply ≈ **92 µs**, against a 488 µs tick at 2048 Hz — 19%. It would be 75%
-  of a 122 µs tick at 8192 Hz, which is why Betaflight forces `pid_process_denom >= 2` on F4
-  with bidir. Any further `STM32_CONTROL_LOOP_HZ` increase and this constrain each other and
-  want deciding together.
-- **Undoing GCR is ~400 lines of software** (`dshot_bitbang_decode.c`): edge-find over the
-  sample buffer, 21 bits at 5/4 the DShot rate, transition-decoded, 5-to-4 GCR lookup, CRC.
-
-One thing falls our way: port sampling needs every motor on one GPIO port, and ours are PE9,
-PE11, PE13 and PE14 — all GPIOE. AM32 supports the protocol (input type 4, EDT) and
-`EscTelemetry::Info::bidirectional` already decodes the flag.
-
-#### Where each piece lives
-
-The IMU path already answers this, layer for layer:
-
-- **Sampler and phase machine → `DShotTim1`.** The turnaround is the same transaction as
-  transmit — same timer, same stream, same pins — and a phase machine split across files
-  would give one DMA stream two owners.
-- **GCR decode → a pure function beside `DShotCodec`**, encode's mirror: samples in, eRPM
-  out, no hardware. Pure is what lets 400 lines of bit-twiddling be tested off-target against
-  canned buffers.
-- **Publish → the driver, from the RX-complete ISR**, exactly as `Icm42688p` parses and
-  publishes `ImuHealth` from its DMA-done ISR. Into a **new** blackboard struct —
-  `MotorRpmData { timestamp_us, erpm[4], valid_mask, crc_error_count }` — not into
-  `EscTelemetryData::rpm`, which has one writer (#19) and keeps it. KISS telemetry stays the
-  volts/amps/temp source and its slow rpm becomes the cross-check on the fast one.
-- **Consumers read the blackboard, nothing holds a `DShotTim1 *`.** The RPM filter (#23) in
-  PendSV, the desync detector (#12) in Sentinel, `telemetry_publisher` if the wire wants it. The
-  struct's timestamp is load-bearing from day one: it is what lets the filter fade a stale
-  notch the way Betaflight's `rpm_filter_fade_range_hz` does.
-
-#### Two files, split by purity rather than direction
-
-A `dshot_tx` / `dshot_rx` pair is the one arrangement to avoid. They are not two things: the
-turnaround is a single transaction over one timer, one DMA stream retargeted mid-flight, one
-set of pins and one phase machine. Separate files give that stream two owners, or have one file
-reach into the other's state.
-
-- **`dshot_tim1.*` keeps the whole transaction**: burst out, MODER flip, IDR sampling, flip
-  back, phase machine. Meaning-free throughout.
-- **The GCR decoder gets its own file, not a half of `DShotCodec`.** ~400 lines onto a 133-line
-  codec would leave the codec 80% decoder, and the two are not an encode/decode pair anyway:
-  outbound is 16 bits (11 throttle + 1 telemetry request + 4 CRC), inbound is 21 bits of
-  transition-encoded GCR carrying a 12-bit period, a 4-bit exponent and a CRC. Two protocols
-  sharing a wire.
-
-The decoder should be genuinely pure — `<array>`, `<cstdint>`, no hardware header — which
-puts it in `libs/` rather than under `stm32/`, so anything host-side can feed it canned sample
-buffers without dragging in STM32 headers.
-
-Worth noting on the way past: `DShotCodec` is *not* pure today. `dshot_codec.cpp` includes
-`dshot_tim1.hpp`, so the codec already reaches into the driver. That coupling is worth undoing
-whether or not bidir ever lands.
-
-It pays for itself twice. Besides #23, per-motor eRPM every loop is the desync detector #12 is
-looking for.
-
-### #25 — Calibration never reaches a sample — 🎯 CRITICAL
-
-The six-pose fit runs from a GCS and the estimator applies what it produces. What is left is
-the bench work none of it can substitute for.
-
-**Nothing has been measured on hardware.** The pose bands, the stillness threshold and the hold
-time are PX4's numbers carried across, and a hand-held airframe resting against a bench is not
-the jig they were chosen for. A run that classifies poses too readily accepts a corner; one that
-classifies too reluctantly never advances, and both look the same to an operator.
-
-**|a| at rest is unknown and decides how much any of this matters.** The accel-trust band gates
-the whole Mahony correction on the magnitude being near 1 g, so a scale that is wrong holds the
-gate shut and the attitude estimate is pure gyro integration — which is what the board has been
-flying. The scale factor derives correctly from the configured full-scale range, so if |a| is
-still wrong the cause is a mismatch between the range the chip is programmed with and the packet
-format it reports in, and no calibration can paper over it. One `SendLog` of `accel.norm()` on
-the bench settles it.
-
-**The Mahony PI bias term has still never executed**, for the same reason, so what `bias_`
-converges to — and therefore whether a stored gyro offset is needed at all — remains unanswered.
-The residual to beat is 0.910 dps, and the gyro stillness gate of 64 raw counts has never been
-checked against a still board either.
-
-No gyro record beside `ImuAccelCalibration`, by decision: bias moves with die temperature, so a
-stored offset is a stale number, and neither reference implementation trusts one. Accel keeps
-its record because a 6-point fit measures a mechanical property that does not drift the same way.
-
-#### Calibration needs a GCS
-
-`MAV_CMD_PREFLIGHT_CALIBRATION` is the only way in, so calibrating means a laptop and a link.
-Both reference stacks are the same, and both are wrong about it for a bench: the ESP32 already
-carries a display, a buzzer and a button, which is every input a six-pose routine needs. A
-calibration page there would run the same `AccelCal` over FcLink with no GCS at all, and the
-pose set is small enough to render — a name and a progress count. The wire already carries what
-it would draw: `kAccelCalStatus` reports the state and the captured-side mask on every edge.
+## Logging
 
 ### #26 — Blackbox logging — 🟢 SUPPORTING
 
-What the bench pass never reached is the two retrieval paths: the `SdCard` menu entry mounting
-on a PC over MSC, and `tools/pull_logs.py` returning a byte-identical copy over WiFi. Both are
-still unexercised.
+Neither retrieval path has been exercised: the USB Log page mounting the card on a PC over MSC,
+and `tools/pull_logs.py` returning a byte-identical copy over WiFi.
 
-Content gaps are #31 and #33; a card that fills is #37; formatting is #32.
-
-### #47 — Nothing starts a log without arming — 🟢 SUPPORTING
-
-`ArmedState::OnEnter` is the only caller of `StartFlight`, so every measurement the card can hold
-costs an arm. On a built aircraft that means spinning props for a capture that has nothing to do
-with flying, and it puts the one interlock that matters between the operator and a number they
-wanted on the bench.
-
-Nothing else is missing. The control tick produces IMU bursts while disarmed, the scheduled topics
-run off the main tick, and `StartFlight`/`StopFlight` already open, close and report a session --
-only the second caller is absent.
-
-- **A session command on the ctrl channel.** `LOG START` / `LOG STOP` where the host already
-  speaks, forwarded over FcLink as one `MsgId`. Refused while armed, since arming owns the
-  session -- the same refusal the calibration request takes.
-- **A scalar result goes back as a log line.** `FcLink::SendLog` already reaches the host, and
-  #33 already wants that stream mirrored into the ULog as `'L'` records -- so one call site
-  gives both the terminal readout now and the same text on the plot timeline later.
-- **A time series stays in the log.** Loop rate, jitter and tick load sampled over a minute are
-  data rather than verdicts; they belong as recorded topics, where a viewer already draws them,
-  and streaming them would fight FcLink's 64 B/ms TX budget for nothing.
-- **The card benchmark must not write through the logger.** The logger's own writes are the
-  load under test, so a result recorded through it changes the number it reports.
-- **Chaining is the host's job.** One command opens a session, runs the sequence, closes it and
-  pulls the file back; `tools/pull_logs.py` is already the retrieval half (#26).
-
-Worth measuring once the session exists: card write throughput against the preallocation, the
-control-loop rate and its jitter, tick load, and the bus counters #42 wants on the wire anyway.
-
-A wire addition, so it travels with #21's reset cause and #42's counters rather than costing a
-dual flash of its own.
+Content gaps are #31 and #33; formatting is #32.
 
 ### #31 — Tuning-grade log content — 🟢 SUPPORTING
 
@@ -1046,52 +1096,13 @@ So it is a deliberate act, and the UI is what makes it one:
 - **Hold-to-confirm** with the card's capacity and volume label shown, so the operator is
   looking at what they are about to erase.
 - **Refused while armed**, on the same interlock as the MSC grant — it is a card-owning
-  operation, so it belongs in the `SdCard` state after `LogService::ReleaseCard()`.
+  operation, so it belongs in `MscState` after `LogService::ReleaseCard()`.
 - **Bounded and fed.** A FAT32 mkfs writes both FAT copies — several MB on a large card. The
   blocking waits in `Sdio` already kick the watchdog, but `f_mkfs` itself must be checked
   against the ~700 ms window rather than assumed to fit.
 
-Worth doing when the SD path has flown and its failure modes are known, not before: the whole
-argument for a hidden format is that the operator understands what they are erasing, and right
-now nobody has lost a log yet.
-
-### #37 — Reuse the card when it fills, rather than refusing to boot — 🟢 SUPPORTING
-
-A full card is not a fault, it is where the feature ends up. Every flight consumes one whole
-preallocation whatever its length, so a 30-second hover costs the same 256 MB as a full pack:
-124 flights on a 32 GB card, 62 on a 16 GB one. That is a season, not a lifetime.
-
-What happens at the end of it is a panic. `f_expand` returns `FR_DENIED`, `PrepareNextFile`
-raises `kSdCardFull`, and because that call sits in `Init` and `RemountAfterMsc` as well as
-`StopFlight`, the board stops booting. The card filling on the last flight of a day panics *at
-disarm, after landing*, the vehicle then refuses to start until a PC has been found, and an MSC
-session that ends without freeing space panics again on remount.
-
-#### The ring is cheap here
-
-`PrepareNextFile` already walks the root for `LOGnnnnn.ULG` tracking the highest index; the
-lowest comes out of the same loop. `f_unlink` the oldest, retry `f_expand`. Uniform file sizes
-are what make this trivial — one deletion always frees exactly one preallocation, so none of
-the fragmentation reasoning that usually makes ring recording awkward applies.
-
-#### It is a knob, and the default keeps today's behaviour
-
-Overwriting flight data has to be something the operator chose, on #32's reasoning: the card
-that fills is also the card holding the incident nobody has looked at yet. So a Kconfig knob,
-default off.
-
-- **Off:** `kSdCardFull` panics, exactly as now.
-- **On:** the oldest log is reclaimed and the condition is announced instead — which is what
-  makes this wait for #36. A panic is a poor way to say "the card wrapped"; a notification at
-  startup is the right one, and before #36 there is no way to say it that does not need a
-  cable.
-- **Never the current flight's own log.** The file `StartFlight` is recording into is the one
-  the operator most likely wants, so the victim is the oldest *closed* log, and a card holding
-  only one log is full rather than wrapping.
-
-Pairs with #32: both are card-owning operations that destroy data deliberately, and both are
-worth doing only once the SD path has flown and somebody has an opinion about which logs they
-would rather lose.
+Sequenced after the SD path has flown: the whole argument for a hidden format is that the
+operator understands what they are erasing.
 
 ### #33 — The log records less than the vehicle already knows — 🟢 SUPPORTING
 
@@ -1182,290 +1193,235 @@ pinned at the 20-bit rail is indistinguishable from a real reading once it is in
 exactly that, and nothing here detects it -- `invalid_samples` counts the chip's no-fresh-data
 sentinel, which is a different thing.
 
-### #45 — Magnetometer, MMC5983MA — 🟢 SUPPORTING
+### #47 — Nothing starts a log without arming — 🟢 SUPPORTING
 
-No heading reference exists. `ControlTickFlightLoop` says so twice: yaw bypasses the attitude
-loop entirely, and the swing-twist decoupling is there to stop yaw drift bleeding into roll and
-pitch. Stabilize holds tilt but lets heading wander, and nothing can hold a course.
+`ArmedState::OnEnter` is the only caller of `StartFlight`, so every measurement the card can hold
+costs an arm. On a built aircraft that means spinning props for a capture that has nothing to do
+with flying, and it puts the one interlock that matters between the operator and a number they
+wanted on the bench.
 
-The part is chosen (MMC5983MA, 3-axis AMR, SPI or I2C) but nothing is wired or written. Needed:
-a bus and a free chip select on the STM32 -- unverified, and the answer decides whether this is
-a wiring change or a board change -- a driver, a blackboard fact with its own timestamp, and a
-`MagCal` sibling in `SensorCalService`.
+Nothing else is missing. The control tick produces IMU bursts while disarmed, the scheduled topics
+run off the main tick, and `StartFlight`/`StopFlight` already open, close and report a session --
+only the second caller is absent.
 
-Landing on SPI2 costs more than a chip select. `SystemHealth::imu_spi` is named for the single
-device on that bus, and `ImuHealth::path_faults` folds every fault SPI2 counts into the IMU's
-own total — a second tenant makes a magnetometer's timeouts read as the IMU's, in the blackbox
-and in TelemetryPublisher's sensor health bit alike. Sharing the bus means splitting that record by
-device first, which is cheaper to decide here than to discover from a log that blames the wrong
-part.
+- **A session command on the ctrl channel.** `LOG START` / `LOG STOP` where the host already
+  speaks, forwarded over FcLink as one `MsgId`. Refused while armed, since arming owns the
+  session -- the same refusal the calibration request takes.
+- **A scalar result goes back as a log line.** `FcLink::SendLog` already reaches the host, and
+  #33 already wants that stream mirrored into the ULog as `'L'` records -- so one call site
+  gives both the terminal readout now and the same text on the plot timeline later.
+- **A time series stays in the log.** Loop rate, jitter and tick load sampled over a minute are
+  data rather than verdicts; they belong as recorded topics, where a viewer already draws them,
+  and streaming them would fight FcLink's 64 B/ms TX budget for nothing.
+- **The card benchmark must not write through the logger.** The logger's own writes are the
+  load under test, so a result recorded through it changes the number it reports.
+- **Chaining is the host's job.** One command opens a session, runs the sequence, closes it and
+  pulls the file back; `tools/pull_logs.py` is already the retrieval half (#26).
 
-That calibration is not the gyro's shape. Hard-iron offset plus soft-iron matrix is an ellipsoid
-fit over many orientations, so it is operator-guided and takes tens of seconds. It joins as a
-tenant with its own feed and its own fit, sharing only the reporting and the one-run-at-a-time
-interlock. The part's internal SET/RESET degauss is what removes the sensor's own offset drift
-and is a separate step from the vehicle's iron.
+Worth measuring once the session exists: card write throughput against the preallocation, the
+control-loop rate and its jitter, tick load, and the bus counters #42 wants on the wire anyway.
 
-### #51 — Per-cell voltage, sensed rather than divided — 🟢 SUPPORTING
+A wire addition, so it travels with #21's reset cause and #42's counters rather than costing a
+dual flash of its own.
 
-`Battery::EstimatePercentage` divides pack voltage by `STM32_BATTERY_CELL_COUNT` and maps the
-result linearly between the empty and full cell thresholds. That is the only per-cell figure the
-aircraft has, it never leaves the function, and it is wrong in two independent ways.
 
-**It cannot see imbalance.** One cell sagging is the failure that ruins packs and costs thrust,
-and it is exactly the failure a divided average hides: five healthy cells carry the mean while
-the sixth collapses. The number looks best when the pack is worst.
+---
 
-**The map is linear and the discharge curve is not.** A lithium cell is flat through the middle
-of its range, so a straight line between two thresholds moves the percentage too slowly there
-and too quickly at both ends. Under load it reads low as well, since the sag is current, not
-charge -- `filtered_voltage_v_` smooths the noise, not the offset.
+## Diagnostics after the fact
 
-Sensing it needs a balance-lead tap: one divider per cell into an ADC network, or a dedicated
-front end. That is a board change, not firmware, which is why the estimate stands in the
-meantime rather than being deleted.
+### #21 — Know why the board restarted — 🟢 SUPPORTING
 
-Three things unblock together when it lands:
+`RCC->CSR` records what caused the last reset — power-on, brownout, IWDG, window watchdog,
+software, pin. `System` reads it at boot and clears `RMVF`, but `GetResetCause()` has no
+consumer, so an in-flight watchdog reset still reaches the ground indistinguishable from a cable
+glitch: the FC silently restarts and the GCS sees the handshake replay. #20 names one concrete
+route to exactly that.
 
-- **CRSF `0x0E` CELLS**, which EdgeTX renders per cell. Sending the divided figure would draw a
-  perfectly balanced pack however far one cell had gone, so it stays unsent until the reading is
-  real -- an encoder is a few lines once it is.
-- **A battery failsafe that trips on imbalance**, not only on pack voltage. #50 treats low
-  battery as a continuous condition against distance-to-home; a single dying cell is a different
-  condition with a different answer, and today nothing can express it.
-- **A state of charge worth the name.** `EscTelemetryData::consumption_mah` already carries
-  integrated charge wherever the ESCs have a shunt, which is a better basis than voltage under
-  load; the two together beat either alone.
+What remains is carrying it in `SystemStatusMsg`, which turns a silent restart into a reported
+one. #42 wants the same field in the same flash.
 
-### #46 — Barometer, DPS310 — 🟢 SUPPORTING
+#### A reset silently discards the gyro calibration
 
-There is no altitude source, which is why #15 cannot offer a rescue descent and why the airframe
-has no altitude hold. The part is chosen (Infineon DPS310, pressure plus die temperature, SPI or
-I2C) and, like #45, nothing is wired or written.
+`Init` calls `ClearUserOffsets()` on every boot and nothing puts a value back, so a board that
+restarts in flight keeps flying on zeroed offsets and says nothing. Calibration is operator-
+triggered over MAVLink and refuses while armed, so it cannot re-run on its own — which leaves
+the reported reset cause as the only thing that would explain why the bias came back.
 
-Needed: bus and chip select, a driver, and a blackboard fact. The bus choice carries #45's
-health-attribution consequence unchanged, and carries it twice over if both parts land on SPI2.
-Calibration is the one place it does *not* follow #45 -- a baro's zero is a ground reference
-re-established at every arm, not a stored constant, so it belongs with the estimator rather than
-in `SensorCalService`. PX4 treats it the same way: `baro_calibration.cpp` is an EKF-driven bias
-estimate, not a bench procedure.
+#### In-flight restart recovery is a separate project — 🧊 DEFERRED
 
-Its own temperature reading matters more than it looks: pressure output is temperature-
-compensated by coefficients read from the part at boot, so a driver that skips them reports
-plausible nonsense rather than failing.
+Persisting prior state is the easy half, and it belongs in a `.noinit` SRAM section rather than
+on the ESP32: a reset does not clear SRAM, so the marker is readable microseconds in, with no
+FcLink handshake to wait on and no second MCU to depend on. A brownout deep enough to lose that
+RAM took the ESP32 with it anyway — they share a battery.
 
-**Two CRSF frames wait on this and on #27**, and are worth landing with the driver rather than
-after it, since the handset is the only display this aircraft has in flight. `0x09`
-BARO_ALTITUDE carries altitude, which is the ground reference above -- a raw pressure reading
-sent as altitude is wrong by the day's weather. `0x07` VARIO carries climb rate, which is not a
-reading at all but a derivative, so it comes from the estimator or it comes from differentiating
-noise. The encoders are a few lines each; the part they wait on is the number being meaningful.
+The hard half is that the attitude is gone. Gyro bias is a second-order term — `Ahrs::bias_`
+already estimates it in flight, and a few degrees of drift is nothing beside a quaternion reset
+to identity. In free fall the accelerometer reads about zero g in every direction, so it cannot
+say which way is up: rate can be held, level cannot be recovered.
 
-### #27 — An estimator tier below the control loop — 🧊 DEFERRED
+Auto-arming also inverts #16's charter. A bench reset would spin props on the table unless a
+trustworthy airborne test gates it, and sustained near-zero-g is about the only honest one — a
+signal that only arrives once things have already gone wrong. Fixing what causes the reset is
+worth more than recovering from it.
 
-Autonomy needs a state estimate the rate loop does not: position, velocity, and an attitude that
-stays consistent through aggressive manoeuvring. An invariant EKF is the interesting choice —
-its error dynamics are trajectory-independent, which is exactly the regime a fast autonomous
-craft lives in, and neither PX4 nor ArduPilot ships one.
+### #40 — Faults that survive the battery being pulled — 🟢 SUPPORTING
 
-The architecture is half-built already. The control loop iterates the burst once and produces two
-things at different rates: filtered gyro for control (#23), and delta-angle / delta-velocity
-increments accumulated per sample for the estimator, the way PX4's `ImuDownSampler` does with
-coning and sculling corrections. Those increments are rate-decoupled by construction, and safe
-on the blackboard precisely because an accumulator tolerates a missed read where a stateful
-filter does not.
+An IMU fault raised in flight is held in `Sentinel::imu_fault_latched_` and answered at the
+disarm edge. That latch lives in SRAM, so a pilot who lands and pulls the battery — rather than
+disarming and letting the board sit — takes the only record of the fault with them, and the next
+boot is clean with no one the wiser. Every fault this board can defer has the same hole.
 
-Two things are not the filter's algebra, and are where the time actually goes: the delayed-time
-fusion shell that lets 100 ms-old GPS fuse correctly, and the innovation gating that decides
-when a sensor is lying. EKF2's real value is that shell, not its equations.
+Car ECUs answer it with diagnostic trouble codes: a fault writes a code to non-volatile storage,
+the lamp stays lit across power cycles, and the code clears only when a tool reads it and is told
+to. The value is not the storage, it is the refusal to forget without someone acknowledging.
 
-One rule if it lands: **attitude gets a single owner.** Mahony and an IEKF both estimate it, and
-both writing `EstimatorState::attitude_world_to_body` is the duplication this repo has spent
-real effort removing. PX4 retires the complementary filter into an output predictor; ArduPilot
-keeps DCM as an explicit fallback lane. Either is fine; two writers is not.
+`.noinit` SRAM is the wrong home, and #21 reaches the opposite conclusion for a different case:
+it survives a *reset*, which is what an in-flight watchdog restart needs, but not a power cycle,
+which is the case here. The ESP32 has NVS, already owns the display that would carry the
+indicator, and is the thing the operator connects to on the bench.
 
-### #49 — Match PX4's UBX message set, and use it to decide the fix is trustworthy — 🟢 SUPPORTING
+#### Shape
 
-**NAV-DOP is disabled and four DOP fields are plumbed anyway.** `stm32_config.hpp` renders
-`.nav_dop = false`, so `kIdNavDop` never dispatches, `dop_data_` is never written, and the
-`gDOP`/`pDOP`/`hDOP`/`vDOP` that `BuildGpsData` copies out of it are structurally zero. MAVLink
-survives it -- `mavlink_tx.cpp` sends `UINT16_MAX` for a zero DOP, which is the wire's word for
-unknown. The log does not: `GpsRecord.hdop` writes `0` every 100 ms, and `0.00` reads as a
-*perfect* fix in any viewer, which is worse than the field being absent. Turning the message on
-is a one-line config change; everything downstream is already built for it.
+A fault code and the flight index it was raised in, sent over FcLink when Sentinel raises it and
+again on handshake so a fault raised while the link was down is not lost. The ESP32 appends to a
+small NVS ring — bounded, oldest dropped — and the UI shows a pending-fault indicator until it
+is cleared. Clearing is explicit and confirmed on the page that shows the faults; nothing
+clears on boot, on read, or on a good flight.
 
-**The enabled set is close to inverted against PX4's.** Comparison is against the `u_blox10`
-path in `PX4-GPSDrivers/src/ubx.cpp`, which is the same receiver generation.
+`ErrorCode` is already the shared vocabulary, so the wire carries a code the ESP32 can name
+through `error_code.cpp` rather than a second enum invented for the purpose.
 
-| Message | PX4 | 32Raven |
-| --- | --- | --- |
-| NAV-PVT | yes | yes |
-| NAV-DOP | yes | **no** |
-| NAV-STATUS | yes | no |
-| MON-RF | yes | no |
-| SEC-SIG | yes, non-fatal on NAK | no |
-| RXM-COR | yes | no |
-| NAV-SAT | only when satellite info is asked for | no |
-| NAV-COV | **no** | yes |
-| NAV-EOE | **no** | yes |
+#### The boot policy stays with Sentinel
 
-PX4 also explicitly writes zero to NAV-TIMEGPS and RXM-SFRBX, because another firmware may have
-left them enabled in the receiver's non-volatile config. Receiver bandwidth is something it
-reclaims, not merely something it declines to spend.
+A stored fault must not become a thing that refuses to boot. The ESP32 records and reports; what
+a fault *means* — halt, refuse to arm, or warn — stays where #16 put it, and the STM32 must come
+up fully with a card full of history. Otherwise a stale code from a fixed problem grounds an
+airworthy aircraft, which is the failure mode ECUs are most criticised for.
 
-**The covariance goes.** `NAV_COV` does not appear anywhere in PX4's driver -- not unused,
-absent -- and `sensor_gps` carries no covariance field for it to land in. EKF2 builds R from
-three scalars instead: `pos_noise = max(hacc, EKF2_GPS_P_NOISE)` and
-`vel_var = sq(max(sacc, EKF2_GPS_V_NOISE, 0.01f))`, one isotropic variance across all three
-velocity axes. It computes `pdop` as `sqrt(hdop² + vdop²)` rather than reading the receiver's.
-So the three `posCov*` floats `GpsData` carries are for a shape no reference estimator consumes,
-at 640 B/s on a 11.5 kB/s line.
+Pairs with #17: Doctor is the natural reader, and a fault log is the first thing it should
+present. #36 carries the notification.
 
-**What replaces them is already parsed and thrown away.** `M10PVTData` holds `sAcc`, `headAcc`
-and `velN`/`velE`/`velD`; `GpsData` keeps none of the five. `sAcc` is exactly the field PX4's
-velocity R comes from, and `vel`/`hdg` are derived from `gSpeed`/`headMot`, which are planar --
-vertical velocity is not recoverable from what is kept, and an estimator fusing GPS velocity
-needs it. Add those five plus `hAcc`/`vAcc`, drop `posCov*`, and the struct gets smaller while
-saying more.
 
-**NAV-EOE stays, and is ours on purpose.** PX4 sets `_use_nav_pvt` and publishes straight off
-NAV-PVT, so it never needs an epoch barrier. `M10Service` joins several messages and uses EOE
-plus a matching `iTOW` to publish the set atomically -- 12 B/epoch for a guarantee PX4 does not
-need because it does not join. That reasoning holds only while the join has more than one
-message in it: drop NAV-COV while NAV-DOP is still off and the epoch is NAV-PVT alone, at which
-point EOE is pure overhead. The two changes are one change.
+---
 
-**The integrity half is the point.** NAV-STATUS, MON-RF and SEC-SIG are where PX4's jamming,
-spoofing, AGC and noise fields come from, and 32Raven has no equivalent for any of them. They
-describe whether the fix can be *believed*, which is a different question from the accuracy
-fields describing how precise it claims to be -- a spoofed position reports excellent `hAcc`.
-That distinction is what #48 needs and does not currently have: `num_sats` and `fix_type` say a
-fix exists, DOP says the geometry is good, and only these say the signal is real. A receiver
-under a jammer degrades in a way DOP alone will not show.
+## Codebase and tooling
 
-Budget, at the 100 ms measurement rate: the current PVT+COV+EOE set costs 1760 B/s of a
-11.5 kB/s line. PVT+DOP+EOE costs 1380 B/s, leaving room for the integrity messages at a
-divided rate -- PX4 runs NAV-SAT at every tenth epoch for the same reason.
+### #7 — Two leftovers from the state split — 🟢 SUPPORTING
 
-Sequencing: the message-set and `GpsData` changes are independent of everything and can land
-alone. #33 records the new fields once they exist. #48 cannot pick a threshold until #33 has put
-real numbers on a card, and should be rewritten against integrity state rather than DOP alone
-once the messages arrive. #27 and #45 are what eventually consume `sAcc` and the NED velocities.
+- **Rename `IdleState`.** It runs the full flight cascade — the name is left over from the
+  single-state design and misdescribes the code.
+- **A failsafe state**, once #15 decides what a trip does.
 
-### #48 — Decide whether GPS quality gates arming — 🟢 SUPPORTING
+### #18 — Flash the two firmwares as one thing — 🟢 SUPPORTING
 
-`hDOP` is plumbed end to end and read by nobody as a condition: `M10Service` publishes it,
-`TelemetryPublisher` puts it on the wire, and `Mavlink` re-emits it as `eph`. Nothing compares it
-against anything. Sentinel's arm path takes no view of GPS at all. It is also zero on every
-build, because NAV-DOP is not enabled -- #49 has to land before any of this can be written.
+The flash targets rebuild and rewrite everything every time, and when two images disagree
+neither can say which of them is the stale one. The ESP32 owns both of the STM32's flash paths,
+WiFi and the bridge's own USB — `Programmer` drives BOOT0 and the shared FcLink UART — so one
+device deciding what to flash is mostly wiring parts that are already there.
 
-The decision is not the comparison, it is what a bad number is allowed to do. A quad that
-refuses to arm indoors because it cannot see satellites is broken for the bench, and this
-aircraft spends most of its life there — so a hard gate is wrong on the current airframe, and
-"warn, do not refuse" is the honest default while no mode navigates by GPS.
+- Read both build identities, compare against the build, skip what already matches. The ESP32
+  has `kMavlinkFlightSwVersion` and `kMavlinkGitHashShort` from `generate_esp32_config.py`; the
+  STM32 has no identity at all, which is also what #31 wants for the ULog header.
+- Identity is information, not a gate. What it buys over the handshake's refusal is knowing
+  which image to flash.
 
-- **`num_sats` and `fix_type` are the coarse conditions**, and `hDOP` is the one that says the
-  fix is *degraded* rather than absent. A gate written against DOP alone reads a good number
-  from a receiver reporting no fix at all, because DOP describes satellite geometry, not
-  whether a position was computed from it.
-- **Which way it points depends on #27 and #45.** Nothing navigates today, so a poor fix costs
-  nothing in the air; the moment an estimator consumes position, arming on a degraded fix stops
-  being a bench convenience and starts being a flyaway.
-- **The threshold cannot be picked from the datasheet.** DOP under an open sky and DOP beside a
-  building differ by more than any published figure predicts, so this wants numbers off the
-  actual card before a constant is written down — which is #33's job, since `hDOP` is among the
-  18 `GpsData` fields the log does not record, and #49's, since it is among the fields the
-  receiver is not asked to send.
+Refusing to arm on a protocol mismatch is Sentinel's call, not the flasher's — see #16.
 
-Whatever it becomes, it is a Sentinel condition and not a check in the GPS driver: #16 owns the
-arm decision, and a second component holding a veto is the shape #19 exists to prevent.
+### #19 — Give every SharedState field an owner the compiler knows about — 🟢 SUPPORTING
 
-### #30 — Name the IMU orientations rather than configuring a triple — 🟢 SUPPORTING
+`SharedState` is a const-correct store, not an access-controlled one. Readers get `const &` so
+they cannot mutate shared state, but fourteen of its sixteen setters are **public**, so the
+pattern governs *how* a write happens and never *who* performs it. `UpdateRc` is meant to be
+`RcReceiver`'s alone; nothing says so and nothing checks.
 
-`axis_map` is hardcoded identity in `stm32_config.hpp.j2`, with a comment saying to promote it
-to Kconfig when a board rotates the chip. Promote it as a **named choice**, not as the signed
-permutation the struct stores.
+`armed_` and `failsafe_flags_` are the two with a real owner — private, with
+`friend class Sentinel` — because a second writer there spins motors.
 
-A signed permutation has 6 orderings × 8 sign combinations = 48 settings, and only 24 are
-rotations. The other 24 have determinant −1: reflections no rigid mount can produce.
-`AxisMapIsPermutation` does not catch them — it asserts the ordering is a permutation of
-{0,1,2} and never looks at the signs — so `x_from=1, y_from=0, z_from=2` all-positive passes,
-swaps X and Y, and hands the AHRS a left-handed frame.
+#### Shape
 
-Betaflight's set is the right size: 8 orientations, 4 yaw × {upright, flipped}
-(`common/sensor_alignment.h`), plus a sentinel for the driver default and one custom escape.
-It covers every mount anyone builds on a board they designed, stays a signed permutation so
-`MapAxes` remains a table lookup, and structurally cannot express a reflection. PX4 carries
-41 rotations behind an Euler table and a DCM multiply, including 45-degree steps and one
-`ROTATION_ROLL_90_PITCH_68_YAW_293`, because it runs on airframes somebody else laid out. That
-generality is a liability here, not a feature.
+The passkey idiom, one key per producer:
 
-Shape: a Kconfig choice, expanded by the generator into the permutation and signs the driver
-already consumes, with a determinant check in the generator so a bad expansion fails the build
-instead of the flight. Nothing in the control path changes.
+```cpp
+class GpsKey { friend class M10Service; GpsKey() = default; };
+void UpdateGps(const GpsData &data, GpsKey) { gps_ = data; }
+```
 
-**The calibration hazard is handled but stays load-bearing.** `OFFSET_USER` is per chip axis, so
-`ApplyGyroOffsets` runs the body-frame mean back through `ChipFromBody` before writing.
-That inversion is exact only because the map is a signed permutation — one chip axis per body
-axis — and a general rotation would need a transpose instead. The write is permanent, silent
-when wrong, and shows up as drift on an axis that was never calibrated, so any change to how the
-map is expressed has to keep `ChipFromBody` its exact inverse. Naming the orientations narrows
-that risk rather than removing it.
+`UpdateGps` stays public, but only `M10Service` can construct the key, so only `M10Service` can
+call it. An empty class is elided entirely — identical generated code, no RAM, no indirection
+in the control path. Roughly twenty lines in `shared_state.hpp` plus a `{}` at each call site.
 
-Pairs with #25: a rotated mount invalidates the stored accel calibration as well, so the two
-land together or not at all.
+It also narrows what exists today: `friend class Sentinel` opens *every* private in
+`SharedState` to Sentinel, and the `Icm42688p`/`Ahrs` friendship on the sample mailbox is the
+same shape. A key exposes exactly one function.
 
-### #52 — The vehicle states a failsafe procedure needs — 🧊 DEFERRED
+#### Why not the alternatives
 
-Today the state machine has four states and only two of them fly: `Idle` and `Armed`, with
-`EscConfig` and `Msc` as bench modes that suspend the cascade. That is enough while every
-failsafe procedure is "disarm", because a disarm is not sequencing -- Sentinel writes
-`armed_`, `ArmedState::OnStep` sees it and transitions to `Idle`, and no new state was needed
-to express it.
+- **A lint** counting call sites per setter measures a proxy. The property wanted is exclusive
+  ownership — not how often the owner writes, but whether anything else can. C++ states that
+  directly, and a compile-time guarantee needs no exceptions file.
+- **A writer handle** (`SharedState::GpsWriter`, constructed once and stored by its producer) is
+  the most principled: it is the only option giving real least privilege, since services today
+  hold a whole `SharedState *`. Costs a pointer per writer, makes the single-owner property
+  runtime rather than compile-time, and touches every service's `Init`. Revisit it if the replay
+  harness needs to substitute a producer — a handle is trivially redirectable, a passkey is not.
 
-`Sentinel::RcLinkPhase` is deliberately not a fifth state. Its three phases -- `kUp`, `kGuard`,
-`kRecovering` -- change how much the RC input is believed, not what the vehicle does: `kGuard`
-flies the pilot's last frame exactly as `kUp` does, and `kRecovering` is an arming interlock on
-a vehicle already sitting disarmed. Conditions and hysteresis are Sentinel's (#16); behaviour is
-the state machine's.
+### #22 — Nothing finds dead code — 🟢 SUPPORTING
 
-**That stops being enough the moment a procedure has somewhere to go.** A descent or a return is
-sequencing by definition: it sources setpoints from something other than the pilot, for a
-bounded time, with its own exit rules. Running that from inside Sentinel would make the safety
-authority a flight-mode sequencer, which is the one thing #16 says it must not become.
+`-Wunused` fires only for internal-linkage functions, so an unused public header-inline accessor
+is invisible to every build: no TU odr-uses it, so no TU emits it, so it costs no flash and
+raises no warning, so nothing in the build can tell an accessor nobody calls from one every
+caller needs. Three tools each catch part of the gap, and they do not overlap:
 
-#### The states, and what each one changes
+- `-Wl,--print-gc-sections` — ground truth on the binary. Finds unused data, vtables and
+  transitively dead code. Blind to never-emitted inline functions, which is most of what
+  accumulates here.
+- `cppcheck --enable=unusedFunction` — source-level, so it does see inline accessors. Weak on
+  virtual and function-pointer dispatch, and needs the whole program in one pass.
+- clang `-Wunused-private-field` — the only one that finds unused *data members*. Needs nothing
+  but `-fsyntax-only`.
 
-- **`Failsafe`** -- entered on a condition Sentinel raises while armed, exited when the pilot
-  takes the aircraft back. It is the parent, not a behaviour: what it *does* is whichever
-  procedure the condition selected, and #50 decides that mapping per condition.
-- **`ReturnHome`** -- setpoints from a navigator against the home vector. Gated on #27 for
-  position and #45 for heading, since a course cannot be held by an estimator that lets yaw
-  wander by design.
-- **`Landing`** -- a controlled descent, which means closed-loop on altitude (#46). The open-loop
-  version was written and deleted during #15's work: a fixed throttle and a timer is not a
-  landing, and shipping it under that name is worse than dropping honestly.
+All three stay advisory. A whole-program "unused" verdict is only as good as its view of the
+callers, and a public API has callers no single-tree pass can see — a list to review, never a
+build gate.
 
-#### What has to be decided when they land
+### #34 — Linter exceptions are scattered, and no rule can be silenced on one line — 🟢 SUPPORTING
 
-**Who transitions.** Sentinel decides *that* a failsafe applies; the state machine decides what
-running it looks like. The request has to be explicit -- a blackboard field the machine reads,
-the way `armed_` already works -- rather than Sentinel calling `ReqTransition`, or the layering
-inverts again.
+Twenty scripts in `scripts/lint/` gate this repo, and the answer to "why does this file not
+have to obey" is in a different place for each of them:
 
-**Where setpoints come from.** `ControlTickFlightLoop` reads `RcData` directly today. A
-navigator-driven state needs that source switchable at one point, not patched per stick: a
-procedure that reached some readers and not others would fly a blend of the pilot's last frame
-and the procedure's.
+- **Two read an exceptions file, in two grammars that disagree.** `comment_exceptions.txt` takes
+  `<path>:<rule>`. `forbidden_exceptions.txt` takes a bare substring matched against either
+  `path:line:col` *or* the offending source text, so one entry can excuse a construct everywhere
+  rather than excuse a file — and it arrives through a `--exceptions` flag rather than a fixed
+  path. Both files are empty today, which is the only reason the difference has cost nothing yet.
+- **Four carry the list as Python constants, and not in the same shape.**
+  `check_timer_access.py`'s `ALLOWED` (four paths) and `check_license.py`'s `EXEMPT_PATTERNS`
+  (ten globs) excuse a path outright; `check_singleton_style.py`'s `ALLOWED` maps a path to a
+  *set of rule names*, so it excuses per rule, and `check_config_reach.py`'s `ALLOWED` keys on a
+  qualified name. All four already demand a written reason per entry, in a comment — the
+  discipline is right, the storage is wrong. Two more stores are not even called `ALLOWED`:
+  `check_comments.py`'s `EXEMPT_PREFIXES` and `check_forbidden.py`'s `REACH_EXEMPT`.
+- **The hook config is a third location, and it is honoured in only one of the two runs.**
+  `.pre-commit-config.yaml` scopes each hook with `files:`/`exclude:` and a shared `&not_ours`
+  anchor, while `.github/workflows/lint.yml` runs fifteen of them bare over the whole tree. An
+  exclusion that lives only in the hook config is silently absent from CI.
 
-**How the pilot takes it back.** Betaflight requires sustained clean frames *plus* a deliberate
-stick or switch action, because a link that flaps must not toggle the aircraft between
-returning and manual. `RcLinkPhase::kRecovering` already carries the first half.
+`check_tidy.py`'s `EXCLUDED` and `check_error_codes.py`'s `EXCLUDE_PATHS` look like the same
+thing and are not: one is the rule set itself, the other is the enum's own two definition files.
+Neither is an exception and neither should move.
 
-**What `IControlTickState` means for them.** `Idle` and `Armed` implement it and the bench states
-do not, which is what `IsControlLoopRunning()` reports. Every state here flies, so all of them
-implement it -- and `kArmBlockNotIdle`, currently derived as "control loop running and not
-armed", needs re-deriving once more than one flying state is disarmed-and-armable.
+**Nothing has a per-line escape.** No script honours an inline suppression for its own rules.
+The single mention of one is `check_comments.py`'s `NOLINT_RE`, which *polices* clang-tidy's
+`NOLINT` — rejecting any that carries neither a check name nor a reason — rather than obeying it.
+Silencing `check_forbidden` for one honest line means editing the script.
 
-Deferred behind the same four gates as #50 -- #46, #27, #45, #49 -- because a procedure with no
-altitude, position, heading or trusted fix has nothing to sequence.
+Shape: one loader shared by every script, one file format carrying path, rule and a mandatory
+reason, plus an inline `// LINT(<rule>): <reason>` for the single-line case, held to the same
+standard `check_comments.py` already imposes on `NOLINT`. Stale entries should fail — a rule that
+quietly stopped applying is worse than one that was never written.
+
+The counter-pressure is real and belongs in the design: fourteen of the twenty have no
+exemption mechanism at all, and that is why they hold. A shared escape hatch makes suppression
+cheap for rules that currently cost an argument, so the inline form has to name the rule and the
+reason in the diff the reviewer reads, and the fourteen keep having no entries until something
+real needs one.
