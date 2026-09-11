@@ -60,10 +60,10 @@ int UsbCdcServer::Send(std::span<const uint8_t> bytes) {
 }
 
 bool UsbCdcServer::IsReady() const {
-  // ESP-IDF exposes usb_serial_jtag_is_connected() in 5.x. Treat the driver
-  // being installed as readiness — sends queue into the TX FIFO and drain
-  // when a host attaches; we don't gate on enumeration state.
-  return driver_installed_;
+  // Nothing drains the TX ring while no host is attached, so a sender that
+  // ignored this would fill it and then pay kSendTimeoutTicks per frame on
+  // the app tick.
+  return driver_installed_ && HostAttached();
 }
 
 bool UsbCdcServer::HostAttached() const {
