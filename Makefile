@@ -72,7 +72,7 @@ CLEAN_FILES := \
 	config/32raven.config.old \
 	config/defconfig
 
-.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 flash-stm32 flash-all flash-wifi-all monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs doctor install-deps
+.PHONY: help configure all stm32 esp32 clean distclean flash-esp32 flash-stm32 flash-all flash-wifi-all monitor-esp32 idf-install 32raven-menuconfig format-cpp format-py format lint-py enable-docker disable-docker docker-image setup-vscode docs docs-serve pull-wifi-logs doctor install-deps param-metadata
 
 help:
 	@echo "Targets:"
@@ -98,6 +98,7 @@ help:
 	@echo "  flash-all           - Flash STM32 then ESP32, both via USB"
 	@echo "  flash-wifi-all      - Flash STM32 then ESP32, both via WiFi"
 	@echo "  pull-wifi-logs      - Pull blackbox logs over WiFi (LOG=<name> skips the picker)"
+	@echo "  param-metadata      - Write the ground station's parameter dictionary (OUT=<path>)"
 	@echo "  idf-install         - Install local ESP-IDF tools for third_party/esp-idf"
 	@echo "  enable-docker       - Persist USE_DOCKER=1 in .build-mode (builds run in container)"
 	@echo "  disable-docker      - Remove .build-mode (builds run on host)"
@@ -160,6 +161,17 @@ lint-py:
 
 32raven-menuconfig:
 	$(RUN) uv run --quiet --script scripts/32raven_menuconfig.py --kconfig config/Kconfig --config config/32raven.config
+
+# Read by the ground station, not by either firmware, so it is generated on
+# demand rather than by a build: point OUT at the fork's custom/resources to
+# refresh the copy it compiles in.
+PARAM_METADATA_OUT ?= $(BUILD_DIR)/32RavenParameterFactMetaData.json
+
+param-metadata:
+	@uv run --quiet --script scripts/lint/check_param_metadata.py
+	@uv run --quiet --script scripts/generate_param_metadata.py \
+		--output "$(if $(OUT),$(OUT),$(PARAM_METADATA_OUT))"
+	@echo "param-metadata: wrote $(if $(OUT),$(OUT),$(PARAM_METADATA_OUT))"
 
 # Host-side, no $(RUN): the build image carries the firmware toolchain, not
 # MkDocs. The 'docs' uv group is opt-in, so uv resolves it on demand here.

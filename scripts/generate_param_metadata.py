@@ -33,21 +33,19 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 PARAM_SOURCE = REPO_ROOT / "esp32" / "services" / "mavlink_param.cpp"
 METADATA_SOURCE = REPO_ROOT / "config" / "mavlink_params.toml"
 
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
-
-from generate_firmware_ver import resolve_firmware_version  # noqa: E402
-
-# The schema's spelling of each MAVLink type. Only the ones kParamTable uses:
-# a type appearing there without a row here is a new type nobody has decided
-# how to describe, which should stop the build rather than be guessed.
+# Spelled as the schema's enum spells them: FactMetaData::stringToType
+# compares case-insensitively and would take any casing, but the file claims
+# to follow the schema and a validator holds it to the letter. Only the types
+# kParamTable uses appear -- a new one should stop the build rather than be
+# guessed at here.
 MAV_TYPE_TO_SCHEMA = {
-    "MAV_PARAM_TYPE_UINT8": "UINT8",
-    "MAV_PARAM_TYPE_INT8": "INT8",
-    "MAV_PARAM_TYPE_UINT16": "UINT16",
-    "MAV_PARAM_TYPE_INT16": "INT16",
-    "MAV_PARAM_TYPE_UINT32": "UINT32",
-    "MAV_PARAM_TYPE_INT32": "INT32",
-    "MAV_PARAM_TYPE_REAL32": "FLOAT",
+    "MAV_PARAM_TYPE_UINT8": "Uint8",
+    "MAV_PARAM_TYPE_INT8": "Int8",
+    "MAV_PARAM_TYPE_UINT16": "Uint16",
+    "MAV_PARAM_TYPE_INT16": "Int16",
+    "MAV_PARAM_TYPE_UINT32": "Uint32",
+    "MAV_PARAM_TYPE_INT32": "Int32",
+    "MAV_PARAM_TYPE_REAL32": "Float",
 }
 
 # Optional per-parameter keys, in the order the schema lists them so a diff
@@ -175,13 +173,11 @@ def build_metadata() -> dict:
             )
         parameters.append(_entry(name, schema_type, entry))
 
+    # No firmware stamp, however useful one would be for catching a stale
+    # copy: the schema sets additionalProperties false, so any key of ours
+    # makes the file invalid against the schema it claims to follow.
     return {
         "version": int(described.get("schema_version", 1)),
-        # Not the schema's `version`, and deliberately under a key the schema
-        # does not define: a ground station that cached this file keys on the
-        # schema version, and stamping the firmware there would make every
-        # build look like a new format.
-        "firmwareVersion": resolve_firmware_version(),
         "parameters": parameters,
     }
 
