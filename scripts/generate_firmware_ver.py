@@ -18,6 +18,12 @@ VERSION_PATH = REPO_ROOT / "VERSION"
 DEFAULT_VERSION_REF = "HEAD"
 VERSION_RE = re.compile(r"\bv?(\d+)\.(\d+)(?:\.(?:x|\d+))?(?:\s+Stable)?\b")
 
+# The tag a release build carries, and the only shape of it: the version the
+# generator derives, spelled `vMAJOR.MINOR.PATCH`. A suffixed tag -- `-rc1`,
+# `-beta` -- is deliberately not a match, because such a build is not the
+# release and must not describe itself as one.
+RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+
 
 @dataclass(frozen=True)
 class VersionSource:
@@ -138,10 +144,37 @@ def resolve_firmware_version(version_ref: str = DEFAULT_VERSION_REF) -> str:
     return f"{major}.{minor}.{patch}"
 
 
+def is_release_build(version_ref: str = DEFAULT_VERSION_REF) -> bool:
+    """Whether the ref is the commit its own release was cut from.
+
+    The firmware reports this to the ground station as MAVLink's version type,
+    and a station decides from it whether to check the build against the
+    published releases at all. Every build claiming to be a release makes that
+    check meaningless and the claim false, so it is asked of git rather than
+    assumed: the tag has to exist, point here, and agree with the version the
+    rest of this file derives.
+    """
+    ref_commit = _resolve_commit(version_ref)
+    version = resolve_firmware_version(version_ref)
+    tags = _git("tag", "--points-at", ref_commit).splitlines()
+    return any(
+        RELEASE_TAG_RE.match(tag) and tag == f"v{version}" for tag in tags
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ref", default=DEFAULT_VERSION_REF)
+    parser.add_argument(
+        "--release-build",
+        action="store_true",
+        help="print 'true' or 'false' instead of the version",
+    )
     args = parser.parse_args()
+
+    if args.release_build:
+        print("true" if is_release_build(args.ref) else "false")
+        return 0
 
     print(resolve_firmware_version(args.ref))
     return 0

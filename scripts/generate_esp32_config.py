@@ -16,7 +16,7 @@ import pathlib
 import subprocess
 
 import kconfiglib
-from generate_firmware_ver import resolve_firmware_version
+from generate_firmware_ver import is_release_build, resolve_firmware_version
 from kconfig_gen import (
     autogen_warning,
     choice_value,
@@ -31,6 +31,11 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 ESP32C3_GPIO_MIN = 0
 ESP32C3_GPIO_MAX = 21
+# MAVLink's FIRMWARE_VERSION_TYPE. A ground station decides from this whether
+# to check the build against the published releases, so only a build cut from
+# a release tag may claim OFFICIAL -- every other one is DEV, which is both
+# true and what stops a bench build being compared against a release list.
+MAVLINK_FIRMWARE_VERSION_TYPE_DEV = 0x00
 MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL = 0xFF
 
 # MAVLink runtime metadata (the parts that aren't Kconfig-tunable today).
@@ -149,7 +154,9 @@ def _git_head_short_hash() -> str:
     return value[:8]
 
 
-def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
+def _mavlink_flight_sw_version_from_version_string(
+    version_string: str, version_type: int
+) -> int:
     parts = version_string.strip().split(".")
     if len(parts) != 3:
         raise SystemExit(
@@ -178,8 +185,14 @@ def _mavlink_flight_sw_version_from_version_string(version_string: str) -> int:
         (major << 24)
         | (minor << 16)
         | (patch << 8)
-        | MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL
+        | version_type
     )
+
+
+def _mavlink_firmware_version_type() -> int:
+    if is_release_build():
+        return MAVLINK_FIRMWARE_VERSION_TYPE_OFFICIAL
+    return MAVLINK_FIRMWARE_VERSION_TYPE_DEV
 
 
 def _firmware_version_string() -> str:
@@ -571,6 +584,9 @@ def _mavlink_stream_period_ms(kconf: kconfiglib.Kconfig, key: str) -> int:
 def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     git_hash = _git_head_short_hash()
     firmware_version_string = _firmware_version_string()
+    flight_sw_version = _mavlink_flight_sw_version_from_version_string(
+        firmware_version_string, _mavlink_firmware_version_type()
+    )
     return {
         "identity": {
             "sysid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_SYSID"),
@@ -579,9 +595,7 @@ def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "system_status_fresh_ms": MAVLINK_SYSTEM_STATUS_FRESH_MS,
         "git_hash": git_hash,
         "version_string": firmware_version_string,
-        "flight_sw_version_hex": (
-            f"0x{_mavlink_flight_sw_version_from_version_string(firmware_version_string):08X}u"
-        ),
+        "flight_sw_version_hex": f"0x{flight_sw_version:08X}u",
         "tx": {
             "periods": {
                 "hb_ms": sym_int(kconf, "ESP32_MAVLINK_TX_PERIODS_HB_MS"),
