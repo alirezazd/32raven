@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
+#include <cmath>
 #include <cstdio>
 
 #include "mavlink.hpp"
@@ -22,6 +23,64 @@ void Mavlink::LogUnhandledCommandOnce(uint16_t command, uint32_t detail,
                   static_cast<unsigned>(command), (unsigned long)detail);
   }
   NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
+}
+
+// A message this firmware has decided not to produce, as opposed to one
+// nobody has looked at yet. Both are answered UNSUPPORTED -- the ack is the
+// protocol's whole answer -- but only the second is worth telling the operator
+// about, because only the second names something still to be built.
+bool Mavlink::IsDeclinedMessage(uint32_t message_id) {
+  switch (message_id) {
+    // Metadata describing this vehicle: served by the ground station's own
+    // build instead, so both the current message and its deprecated
+    // predecessor are refused on purpose.
+    case MAVLINK_MSG_ID_COMPONENT_METADATA:
+    case MAVLINK_MSG_ID_COMPONENT_INFORMATION:
+    // No gimbal is fitted. The capability bit for one is left clear, and this
+    // is the answer for a ground station that asks regardless.
+    case MAVLINK_MSG_ID_GIMBAL_MANAGER_INFORMATION:
+      return true;
+    default:
+      return false;
+  }
+}
+
+void Mavlink::HandleRequestMessage(const mavlink_command_long_t &cmd,
+                                   uint8_t source_system,
+                                   uint8_t source_component) {
+  const auto command = static_cast<uint16_t>(cmd.command);
+  const auto message_id = static_cast<uint32_t>(cmd.param1);
+
+  if (message_id == MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
+    QueueCommandAck(command, MAV_RESULT_ACCEPTED, source_system,
+                    source_component);
+    QueueAutopilotVersion();
+    return;
+  }
+
+  if (message_id == MAVLINK_MSG_ID_AVAILABLE_MODES) {
+    // param2 is the 1-based index, and zero is the ground station asking for
+    // the whole list in one go -- which this message cannot carry, so it is
+    // answered from the top and walked by number_modes like any other.
+    const long requested = std::lround(cmd.param2);
+    const long count = static_cast<long>(kFlightModes.size());
+    if (requested > count || requested < 0) {
+      QueueCommandAck(command, MAV_RESULT_DENIED, source_system,
+                      source_component);
+      return;
+    }
+    QueueCommandAck(command, MAV_RESULT_ACCEPTED, source_system,
+                    source_component);
+    QueueAvailableModes(
+        static_cast<uint8_t>(requested < 1 ? 1 : requested));
+    return;
+  }
+
+  QueueCommandAck(command, MAV_RESULT_UNSUPPORTED, source_system,
+                  source_component);
+  if (!IsDeclinedMessage(message_id)) {
+    LogUnhandledCommandOnce(command, message_id, "request-msg");
+  }
 }
 
 void Mavlink::HandleCommandMessage(const mavlink_message_t &msg) {
@@ -66,19 +125,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       break;
     }
     case MAV_CMD_REQUEST_MESSAGE:
-      if (static_cast<uint32_t>(cmd.param1) ==
-          MAVLINK_MSG_ID_AUTOPILOT_VERSION) {
-        QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
-                        source_system, source_component);
-        QueueAutopilotVersion();
-      } else {
-        QueueCommandAck(static_cast<uint16_t>(cmd.command),
-                        MAV_RESULT_UNSUPPORTED, source_system,
-                        source_component);
-        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
-                                static_cast<uint32_t>(cmd.param1),
-                                "request-msg");
-      }
+      HandleRequestMessage(cmd, source_system, source_component);
       break;
     case MAV_CMD_PREFLIGHT_CALIBRATION:
       // param1 is the gyro slot and param5 the accel, as the MAVLink command

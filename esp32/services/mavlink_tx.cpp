@@ -28,14 +28,6 @@ namespace {
 // an ESC sitting at rest reports zero amps and means it.
 constexpr float kUnknownFloat = std::numeric_limits<float>::quiet_NaN();
 
-// PX4's main_mode byte, from src/modules/commander/px4_custom_mode.h. That
-// header is not vendored, so these enumerators are the only record here.
-enum class Px4MainMode : uint8_t {
-  kUnset = 0,
-  kAcro = 5,
-  kStabilized = 7,
-};
-
 int64_t DaysFromCivil(int64_t year, unsigned month, unsigned day) {
   year -= month <= 2 ? 1 : 0;
   const int64_t era = (year >= 0 ? year : year - 399) / 400;
@@ -288,6 +280,10 @@ void Mavlink::QueueCommandAck(uint16_t command, uint8_t result,
 
 void Mavlink::QueueAutopilotVersion() { QueueTxItem(AutopilotVersion{}); }
 
+void Mavlink::QueueAvailableModes(uint8_t mode_index) {
+  QueueTxItem(AvailableModes{mode_index});
+}
+
 void Mavlink::QueueMissionCount(uint8_t target_system, uint8_t target_component,
                                 uint8_t mission_type) {
   QueueTxItem(MissionCount{target_system, target_component, mission_type});
@@ -308,6 +304,8 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartQueuedTxWorkFrame() {
           return StartCommandAckFrame(item);
         } else if constexpr (std::is_same_v<Item, AutopilotVersion>) {
           return StartAutopilotVersionFrame(item);
+        } else if constexpr (std::is_same_v<Item, AvailableModes>) {
+          return StartAvailableModesFrame(item);
         } else if constexpr (std::is_same_v<Item, MissionCount>) {
           return StartMissionCountFrame(item);
         } else if constexpr (std::is_same_v<Item, StatusText>) {
@@ -344,6 +342,30 @@ Mavlink::TxFrameState Mavlink::StartAutopilotVersionFrame(
                                      &m, capabilities, kMavlinkFlightSwVersion,
                                      0, 0, 0, kZeroHash, kZeroHash, kZeroHash,
                                      0, 0, 0, kZeroUid2);
+
+  return TxFrameState{m, /*is_heartbeat=*/false};
+}
+
+// One mode per frame, as the message is shaped: a ground station walks the
+// list by asking for index 1 and following `number_modes`.
+Mavlink::TxFrameState Mavlink::StartAvailableModesFrame(
+    const AvailableModes &work) {
+  // Clamped rather than trusted: the index is decided by HandleCommandLong
+  // from a float on the wire, and reading past the table would be worse than
+  // answering about the wrong mode.
+  const uint8_t count = static_cast<uint8_t>(kFlightModes.size());
+  const uint8_t index =
+      (work.mode_index >= 1u && work.mode_index <= count) ? work.mode_index : 1u;
+  const FlightModeInfo &info = kFlightModes[index - 1u];
+
+  char name[MAVLINK_MSG_AVAILABLE_MODES_FIELD_MODE_NAME_LEN] = {};
+  std::strncpy(name, info.name, sizeof(name) - 1);
+
+  mavlink_message_t m{};
+  mavlink_msg_available_modes_pack(
+      cfg_.identity.sysid, cfg_.identity.compid, &m, count, index,
+      MAV_STANDARD_MODE_NON_STANDARD,
+      static_cast<uint32_t>(info.px4_main_mode) << 16, info.properties, name);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
@@ -622,16 +644,17 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
     }
   }
 
-  // PX4 custom_mode layout: bytes [reserved(2), main_mode, sub_mode].
-  Px4MainMode main_mode = Px4MainMode::kUnset;
+  // PX4 custom_mode layout: bytes [reserved(2), main_mode, sub_mode]. Zero
+  // where the mode is not known, which is PX4's own "unset".
+  uint8_t main_mode = 0;
   if (vehicle_fresh) {
-    switch (static_cast<FlightMode>(vehicle_status_.value.flight_mode)) {
-      case FlightMode::kAcro:
-        main_mode = Px4MainMode::kAcro;
+    const auto flight_mode =
+        static_cast<FlightMode>(vehicle_status_.value.flight_mode);
+    for (const FlightModeInfo &info : kFlightModes) {
+      if (info.mode == flight_mode) {
+        main_mode = info.px4_main_mode;
         break;
-      case FlightMode::kStabilize:
-        main_mode = Px4MainMode::kStabilized;
-        break;
+      }
     }
   }
   const uint32_t custom_mode = static_cast<uint32_t>(main_mode) << 16;

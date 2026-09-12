@@ -16,6 +16,7 @@
 
 #include "error_code.hpp"
 #include "fc_link.hpp"
+#include "flight_mode.hpp"
 #include "mavlink_transport.hpp"
 #include "message.hpp"  // for message::GpsData
 #include "panic.hpp"
@@ -289,7 +290,37 @@ class Mavlink {
     uint8_t target_component = 0;
   };
 
+  // Every mode this vehicle flies, and the only list of them: the heartbeat's
+  // custom_mode and the AVAILABLE_MODES answer are both built from here, so a
+  // mode added to one cannot go missing from the other.
+  struct FlightModeInfo {
+    FlightMode mode;
+    // PX4's main_mode byte, from src/modules/commander/px4_custom_mode.h.
+    // That header is not vendored, so these values are the only record of it
+    // here -- and 32Raven declares a PX4 firmware class, so a ground station
+    // reads the mode out of custom_mode exactly the way PX4 writes it.
+    uint8_t px4_main_mode;
+    // Reported verbatim in AVAILABLE_MODES. A ground station shows this only
+    // for a non-standard mode, which both of these are: MAV_STANDARD_MODE has
+    // no entry for a rate or attitude mode.
+    const char *name;
+    uint32_t properties;  // MAV_MODE_PROPERTY bits
+  };
+
+  // No MAV_MODE_PROPERTY_ADVANCED on either: a ground station hides an
+  // advanced mode behind its own toggle, and Acro is the mode this aircraft
+  // is flown in rather than an expert corner of the list.
+  static constexpr std::array<FlightModeInfo, 2> kFlightModes = {{
+      {FlightMode::kAcro, 5, "Acro", 0},
+      {FlightMode::kStabilize, 7, "Stabilized", 0},
+  }};
+
   struct AutopilotVersion {};
+
+  // One mode index, 1-based as AVAILABLE_MODES counts them.
+  struct AvailableModes {
+    uint8_t mode_index = 1;
+  };
 
   struct MissionCount {
     uint8_t target_system = 0;
@@ -303,7 +334,7 @@ class Mavlink {
   };
 
   using TxQueueItem = std::variant<std::monostate, CommandAck, AutopilotVersion,
-                                   MissionCount, StatusText>;
+                                   AvailableModes, MissionCount, StatusText>;
 
   // The buffer is private so Bytes() is the only way to reach the frame: a
   // span over the raw array would cover all MAVLINK_MAX_PACKET_LEN bytes and
@@ -385,12 +416,17 @@ class Mavlink {
   }
   void ServiceUdpRx();
   void LogUnhandledMessageOnce(const mavlink_message_t &msg);
+  static bool IsDeclinedMessage(uint32_t message_id);
+  void HandleRequestMessage(const mavlink_command_long_t &cmd,
+                            uint8_t source_system,
+                            uint8_t source_component);
   void LogUnhandledCommandOnce(uint16_t command, uint32_t detail,
                                const char *reason);
   void QueueTxItem(const TxQueueItem &item);
   void QueueCommandAck(uint16_t command, uint8_t result, uint8_t target_system,
                        uint8_t target_component);
   void QueueAutopilotVersion();
+  void QueueAvailableModes(uint8_t mode_index);
   void QueueMissionCount(uint8_t target_system, uint8_t target_component,
                          uint8_t mission_type);
   void QueueStatusText(const char *text, uint8_t severity = MAV_SEVERITY_INFO);
@@ -411,6 +447,7 @@ class Mavlink {
   std::optional<TxFrameState> StartQueuedTxWorkFrame();
   TxFrameState StartCommandAckFrame(const CommandAck &ack);
   TxFrameState StartAutopilotVersionFrame(const AutopilotVersion &work);
+  TxFrameState StartAvailableModesFrame(const AvailableModes &work);
   TxFrameState StartMissionCountFrame(const MissionCount &work);
   TxFrameState StartStatusTextFrame(const StatusText &work);
   std::optional<TxFrameState> StartRcChannelsFrame(const Config::Tx &cfg_tx);
