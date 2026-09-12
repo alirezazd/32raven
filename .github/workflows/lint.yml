@@ -70,6 +70,9 @@ jobs:
       - name: Kconfig knobs that change nothing
         run: uv run --quiet --script scripts/lint/check_config_sweep.py
 
+      - name: Parameter dictionary matches what the bridge serves
+        run: uv run --quiet --script scripts/lint/check_param_metadata.py
+
       - name: Hook coverage
         run: uv run --quiet --script scripts/lint/check_hook_coverage.py
 

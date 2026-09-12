@@ -125,6 +125,13 @@ repos:
 
       # Reads the hook list it is part of, so it cannot be scoped to the staged
       # paths either: a workflow losing a step is what it exists to notice.
+      - id: check-param-metadata
+        name: Parameter dictionary matches what the bridge serves
+        entry: uv run --quiet --script scripts/lint/check_param_metadata.py
+        language: system
+        pass_filenames: false
+        files: '^(config/mavlink_params\.toml|esp32/services/mavlink_param\.cpp|libs/message\.hpp|scripts/(generate_param_metadata|lint/check_param_metadata)\.py)$'
+
       - id: check-hook-coverage
         name: Hook coverage
         entry: uv run --quiet --script scripts/lint/check_hook_coverage.py

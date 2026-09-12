@@ -1,0 +1,359 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Alireza Azadi
+
+# What the ground station says about each parameter the bridge serves over
+# MAVLink. Authored here rather than derived, because a description is the one
+# thing no table in the firmware holds -- and kept out of the firmware for the
+# same reason: none of this text has to reach flash to do its job.
+#
+# `scripts/generate_param_metadata.py` turns this plus `kParamTable` into the
+# dictionary the ground station loads, and `check_param_metadata` fails the
+# build when the two disagree in either direction.
+#
+# Read-only is the rule, not the exception: `TrySetFixedParam` answers
+# kUnsupported for everything except the four RC map entries, so a parameter
+# without `readOnly = false` below is one the vehicle will refuse to change.
+
+schema_version = 1
+
+# Names are MAVLink's, and MAVLink's names are PX4's, so the parameters below
+# fall into three groups: values this firmware actually holds, values a ground
+# station requires before it will render a page, and values that exist only to
+# say a sensor is absent. The descriptions say which, because a reader who is
+# told "Magnetometer 0 rotation" about a vehicle with no magnetometer has been
+# told something false.
+
+[params.SYSID_THISMAV]
+shortDesc = "System ID"
+longDesc = "MAVLink system ID this vehicle answers to. Fixed by the build."
+group = "Identity"
+category = "System"
+
+[params.MAV_SYS_ID]
+shortDesc = "System ID"
+longDesc = "Same value as SYSID_THISMAV, under the name a ground station looks for first."
+group = "Identity"
+category = "System"
+
+[params.SYS_COMP_ID]
+shortDesc = "Component ID"
+longDesc = "MAVLink component ID of the bridge. Fixed by the build."
+group = "Identity"
+category = "System"
+
+[params.CAL_ACC0_ID]
+shortDesc = "Accelerometer calibration ID"
+longDesc = """
+Identifier of the calibrated IMU, taken from the flight controller. A ground \
+station reads a non-zero value as "this sensor has been calibrated" and will \
+otherwise refuse to arm or offer to calibrate. One IMU serves both axes, so \
+this and CAL_GYRO0_ID report the same identifier."""
+group = "Calibration"
+category = "System"
+
+[params.CAL_GYRO0_ID]
+shortDesc = "Gyroscope calibration ID"
+longDesc = """
+Identifier of the calibrated IMU, taken from the flight controller. A ground \
+station reads a non-zero value as "this sensor has been calibrated"."""
+group = "Calibration"
+category = "System"
+
+[params.SENS_BOARD_ROT]
+shortDesc = "Board rotation"
+longDesc = """
+Always zero. The sensor orientation is a build-time setting on the flight \
+controller, not something the ground station can change, so no rotation is \
+reported here rather than one that could be edited and ignored."""
+group = "Calibration"
+category = "System"
+
+[params.SENS_DPRES_OFF]
+shortDesc = "Differential pressure offset"
+longDesc = """
+Always zero. No airspeed sensor is fitted; the parameter exists because a \
+ground station expects it to."""
+units = "Pa"
+group = "Sensors"
+category = "System"
+# Kept out of the parameter cache checksum, which is what `volatile` means to a
+# ground station, and which ComputeParamHash on the bridge has to agree with.
+volatile = true
+
+[params.SYS_HAS_MAG]
+shortDesc = "Magnetometer fitted"
+longDesc = "Always zero: no magnetometer is fitted."
+group = "Sensors"
+category = "System"
+[[params.SYS_HAS_MAG.values]]
+value = 0
+description = "Not fitted"
+
+[params.SYS_HAS_NUM_ASPD]
+shortDesc = "Airspeed sensors fitted"
+longDesc = "Always zero: no airspeed sensor is fitted."
+group = "Sensors"
+category = "System"
+[[params.SYS_HAS_NUM_ASPD.values]]
+value = 0
+description = "None fitted"
+
+[params.SYS_AUTOSTART]
+shortDesc = "Airframe ID"
+longDesc = """
+Airframe identifier the ground station uses to pick its airframe page. Fixed \
+by the build: the airframe is a property of the vehicle, not a setting."""
+group = "Airframe"
+category = "System"
+
+[params.COM_RC_IN_MODE]
+shortDesc = "RC input mode"
+longDesc = "Always zero: this vehicle is flown from an RC transmitter."
+group = "Radio"
+category = "System"
+[[params.COM_RC_IN_MODE.values]]
+value = 0
+description = "RC transmitter"
+
+[params.COM_RC_LOSS_T]
+shortDesc = "RC loss timeout"
+longDesc = """
+Reported as zero. The RC loss failsafe lives on the flight controller and is \
+not configurable from here yet."""
+units = "s"
+group = "Radio"
+category = "System"
+
+[params.RC_CHAN_CNT]
+shortDesc = "Calibrated channel count"
+longDesc = "Number of RC channels this firmware holds calibration for."
+group = "Radio"
+category = "System"
+
+# The four a radio calibration actually writes. 1..4 and no repeats: the map
+# is rejected whole if two sticks land on one channel.
+[params.RC_MAP_ROLL]
+shortDesc = "Roll channel"
+longDesc = "RC channel carrying roll. Must be 1-4, and no two sticks may share a channel."
+min = 1
+max = 4
+readOnly = false
+group = "Radio"
+category = "Standard"
+
+[params.RC_MAP_PITCH]
+shortDesc = "Pitch channel"
+longDesc = "RC channel carrying pitch. Must be 1-4, and no two sticks may share a channel."
+min = 1
+max = 4
+readOnly = false
+group = "Radio"
+category = "Standard"
+
+[params.RC_MAP_YAW]
+shortDesc = "Yaw channel"
+longDesc = "RC channel carrying yaw. Must be 1-4, and no two sticks may share a channel."
+min = 1
+max = 4
+readOnly = false
+group = "Radio"
+category = "Standard"
+
+[params.RC_MAP_THROTTLE]
+shortDesc = "Throttle channel"
+longDesc = "RC channel carrying throttle. Must be 1-4, and no two sticks may share a channel."
+min = 1
+max = 4
+readOnly = false
+group = "Radio"
+category = "Standard"
+
+# Present so the radio page renders, and pinned to zero. A write of 0 is
+# accepted so a ground station clearing them does not see an error; anything
+# else is refused.
+[params.RC_MAP_FLAPS]
+shortDesc = "Flaps channel"
+longDesc = "Unmapped. This airframe has no flaps."
+group = "Radio"
+category = "System"
+
+[params.RC_MAP_AUX1]
+shortDesc = "Aux 1 channel"
+longDesc = "Unmapped. Auxiliary channel mappings are not implemented."
+group = "Radio"
+category = "System"
+
+[params.RC_MAP_AUX2]
+shortDesc = "Aux 2 channel"
+longDesc = "Unmapped. Auxiliary channel mappings are not implemented."
+group = "Radio"
+category = "System"
+
+[params.RC_MAP_PARAM1]
+shortDesc = "Tuning channel 1"
+longDesc = "Unmapped. In-flight parameter tuning is not implemented."
+group = "Radio"
+category = "System"
+
+[params.RC_MAP_PARAM2]
+shortDesc = "Tuning channel 2"
+longDesc = "Unmapped. In-flight parameter tuning is not implemented."
+group = "Radio"
+category = "System"
+
+[params.RC_MAP_PARAM3]
+shortDesc = "Tuning channel 3"
+longDesc = "Unmapped. In-flight parameter tuning is not implemented."
+group = "Radio"
+category = "System"
+
+[params.RC_MAP_PAY_SW]
+shortDesc = "Payload switch channel"
+longDesc = "Unmapped. No payload is carried."
+group = "Radio"
+category = "System"
+
+# What the bridge actually streams. Read-only on purpose: these come from
+# Kconfig and change by rebuilding, and a value edited here that the next boot
+# discarded would be worse than one that cannot be edited at all.
+[params.MAV_HB_MS]
+shortDesc = "Heartbeat period"
+longDesc = "Interval between HEARTBEAT frames. Set at build time."
+units = "ms"
+min = 100
+max = 1000
+group = "Telemetry rates"
+category = "Standard"
+
+[params.MAV_GPS_MS]
+shortDesc = "GPS stream period"
+longDesc = "Interval between GPS_RAW_INT frames. Set at build time."
+units = "ms"
+min = 1
+max = 60000
+group = "Telemetry rates"
+category = "Standard"
+
+[params.MAV_ATT_MS]
+shortDesc = "Attitude stream period"
+longDesc = "Interval between ATTITUDE frames. Set at build time."
+units = "ms"
+min = 1
+max = 60000
+group = "Telemetry rates"
+category = "Standard"
+
+[params.MAV_GPOS_MS]
+shortDesc = "Global position stream period"
+longDesc = "Interval between GLOBAL_POSITION_INT frames. Set at build time."
+units = "ms"
+min = 1
+max = 60000
+group = "Telemetry rates"
+category = "Standard"
+
+[params.MAV_BATT_MS]
+shortDesc = "Battery stream period"
+longDesc = "Interval between BATTERY_STATUS frames. Set at build time."
+units = "ms"
+min = 1
+max = 60000
+group = "Telemetry rates"
+category = "Standard"
+
+[params.MAV_RC_MS]
+shortDesc = "RC channels stream period"
+longDesc = "Interval between RC_CHANNELS frames. Set at build time."
+units = "ms"
+min = 1
+max = 60000
+group = "Telemetry rates"
+category = "Standard"
+
+# Absent hardware, reported so the ground station stops asking. Three of each
+# because PX4's dictionary names three magnetometer slots and a station that
+# finds one missing treats the set as incomplete.
+[params.CAL_MAG0_ID]
+shortDesc = "Magnetometer 0 ID"
+longDesc = "Always zero: no magnetometer is fitted."
+group = "Sensors"
+category = "System"
+
+[params.CAL_MAG1_ID]
+shortDesc = "Magnetometer 1 ID"
+longDesc = "Always zero: no magnetometer is fitted."
+group = "Sensors"
+category = "System"
+
+[params.CAL_MAG2_ID]
+shortDesc = "Magnetometer 2 ID"
+longDesc = "Always zero: no magnetometer is fitted."
+group = "Sensors"
+category = "System"
+
+[params.CAL_MAG0_ROT]
+shortDesc = "Magnetometer 0 rotation"
+longDesc = "Always -1, the value for a magnetometer that is not fitted."
+group = "Sensors"
+category = "System"
+
+[params.CAL_MAG1_ROT]
+shortDesc = "Magnetometer 1 rotation"
+longDesc = "Always -1, the value for a magnetometer that is not fitted."
+group = "Sensors"
+category = "System"
+
+[params.CAL_MAG2_ROT]
+shortDesc = "Magnetometer 2 rotation"
+longDesc = "Always -1, the value for a magnetometer that is not fitted."
+group = "Sensors"
+category = "System"
+
+# The radio calibration, sixteen channels of it, written by the ground
+# station's calibration wizard and never by hand. `{n}` is the channel number.
+#
+# The firmware checks the three pulse fields against each other -- min below
+# max, trim between them -- and nothing else, so the bounds here are what a
+# stick can plausibly produce rather than a limit the vehicle enforces.
+[rc_calibration.MIN]
+shortDesc = "Channel {n} minimum"
+longDesc = "Pulse width at the low end of channel {n}, set by the radio calibration."
+units = "us"
+min = 800
+max = 2200
+readOnly = false
+group = "Radio calibration"
+category = "Standard"
+
+[rc_calibration.MAX]
+shortDesc = "Channel {n} maximum"
+longDesc = "Pulse width at the high end of channel {n}, set by the radio calibration."
+units = "us"
+min = 800
+max = 2200
+readOnly = false
+group = "Radio calibration"
+category = "Standard"
+
+[rc_calibration.TRIM]
+shortDesc = "Channel {n} centre"
+longDesc = "Pulse width with channel {n} centred, set by the radio calibration."
+units = "us"
+min = 800
+max = 2200
+readOnly = false
+group = "Radio calibration"
+category = "Standard"
+
+[rc_calibration.REV]
+shortDesc = "Channel {n} direction"
+longDesc = "Whether channel {n} is reversed. Only +1 and -1 are accepted."
+readOnly = false
+group = "Radio calibration"
+category = "Standard"
+[[rc_calibration.REV.values]]
+value = 1
+description = "Normal"
+[[rc_calibration.REV.values]]
+value = -1
+description = "Reversed"

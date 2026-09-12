@@ -171,6 +171,7 @@ jobs:
             build/Ninja/esp32/ota_data_initial.bin
             build/Ninja/esp32/bootloader/bootloader.bin
             build/Ninja/esp32/partition_table/partition-table.bin
+            build/Ninja/esp32/flasher_args.json
           if-no-files-found: error
 
       # The ESP32 half of the same three. See the stm32 job for why they cannot
