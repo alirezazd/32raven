@@ -163,6 +163,7 @@ jobs:
           print("| `SHA256SUMS` | checksums for everything above |")
           PY
 
+          printf '\n' >> notes.md
           gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
             -f tag_name="$GITHUB_REF_NAME" --jq .body >> notes.md
 
@@ -171,7 +172,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          args=(--notes-file notes.md)
+          # Titled explicitly: without it the release is published nameless
+          # rather than falling back to the tag.
+          args=(--title "$GITHUB_REF_NAME" --notes-file notes.md)
           if [ "$PRERELEASE" = true ]; then
             args+=(--prerelease)
           fi
