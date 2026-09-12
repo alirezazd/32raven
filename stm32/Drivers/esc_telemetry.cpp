@@ -20,6 +20,13 @@ static_assert(kEscTelemetryConfig.response_timeout_us >
               "a KISS frame takes at the ESC's fixed baud, so every request "
               "would expire mid-reply");
 
+// The two knobs sit in separate menus with nothing else pairing them.
+static_assert(kEscTelemetryConfig.response_timeout_us <
+                  kEscServiceConfig.telemetry_request_period_us,
+              "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US outlives the "
+              "request that opened it, so a reply landing inside the next "
+              "request's window would be credited to the wrong motor");
+
 static constexpr uint32_t kUsart3DmaChannel = 4u;
 
 static inline void DmaDisableAndWait(DMA_Stream_TypeDef *stream) {
@@ -113,16 +120,19 @@ void EscTelemetry::StartRxDma() {
   DMA1_Stream1->CR |= DMA_SxCR_EN;
 }
 
+// Each reply is a burst on an otherwise idle line, so a request is the frame
+// boundary: whatever the window still holds belongs to the previous one. Kept,
+// a reply that lost a byte never realigns within itself -- the next reply
+// slides in a byte at a time and fails the CRC on each, so one corrupt frame
+// is counted as up to nine.
 void EscTelemetry::ExpectMotor(uint8_t motor_index, uint32_t now_us) {
   if (motor_index >= kMotorCount) {
     return;
   }
   expected_motor_ = motor_index;
   expected_since_us_ = now_us;
-  if (expected_frame_size_ != kKissFrameSize) {
-    expected_frame_size_ = kKissFrameSize;
-    frame_len_ = 0;
-  }
+  expected_frame_size_ = kKissFrameSize;
+  frame_len_ = 0;
 }
 
 // The reply is 49 bytes rather than 10, so the sliding window has to be resized

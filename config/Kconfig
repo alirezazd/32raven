@@ -2939,10 +2939,19 @@ config STM32_ESC_TELEMETRY_HAS_CURRENT
 config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
     int "Response timeout (us)"
     range 100 100000
-    default 2500
+    default 3800
     help
       Maximum time to wait for an ESC telemetry frame after requesting one
-      before giving up and moving on.
+      before giving up and moving on. Measured to the frame's last byte, so
+      it covers the wire time as well as however long the ESC takes to start
+      answering -- AM32 replies once its current commutation is done, which
+      is not a fixed latency.
+
+      Bounded above by ESC_SERVICE_TELEMETRY_REQUEST_PERIOD_US, which the
+      driver asserts: the next request re-aims the shared line, so a reply
+      still arriving then would be credited to the wrong motor. Anything
+      short of that bound only discards replies that did arrive intact, and
+      counts each one as a fault against the propulsion health bit.
 
 endmenu
 
