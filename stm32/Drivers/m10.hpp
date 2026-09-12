@@ -67,6 +67,10 @@ class M10 {
 
   struct Config {
     BaudRate baud_rate;
+    // Scan for the module's actual rate when it does not answer at the one
+    // above, rather than panicking on a module that arrived provisioned
+    // differently.
+    bool autobaud;
 
     struct Uart1 {
       bool enabled;
@@ -132,6 +136,8 @@ class M10 {
 
   void Init(Uart2 &uart, const Config &config);
   void ApplyConfig(ValsetLayer layer);
+  // Drives one CFG-VALSET/ACK exchange at `baud`, retrying for window_ms.
+  [[nodiscard]] bool SyncAt(uint32_t baud, uint32_t window_ms);
 
   template <typename T>
   [[nodiscard]] Outcome SendCfgValSetRaw(uint32_t key, T value,

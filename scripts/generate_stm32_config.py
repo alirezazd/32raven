@@ -2158,6 +2158,7 @@ def _m10_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         },
         "config": {
             "baud_rate": choice_value(kconf, M10_BAUD_RATE_CHOICES),
+            "autobaud": sym_bool(kconf, "STM32_GPS_M10_AUTOBAUD"),
             "uart1": {
                 "enabled": sym_bool(kconf, "STM32_GPS_M10_UART_ENABLED"),
                 "stop_bits": choice_value(

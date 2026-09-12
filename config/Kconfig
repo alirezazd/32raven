@@ -1960,6 +1960,23 @@ config STM32_GPS_M10_BAUD_921600
 
 endchoice
 
+config STM32_GPS_M10_AUTOBAUD
+    bool "Find the module's baud rate before configuring it"
+    default y
+    help
+      A module keeps its line rate in its own non-volatile config, and a new
+      or replaced one arrives at whatever the vendor left -- u-blox's own
+      default is 38400, not the rate chosen above.
+
+      Without this, a mismatch cannot be recovered: the configuration that
+      would fix it is itself undeliverable, so boot panics with
+      kGpsNotResponding and takes the flight controller down with the GPS.
+
+      With it, the chosen rate is tried first and costs nothing on every
+      boot after the first; only a module that does not answer there is
+      scanned for, then moved to the chosen rate. Turn this off to demand an
+      already-provisioned module and fail fast if it is not.
+
 choice
     prompt "Word length"
     default STM32_GPS_M10_UART_WORD_LENGTH_8BITS

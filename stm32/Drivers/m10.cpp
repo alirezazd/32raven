@@ -86,26 +86,70 @@ M10 &M10::GetInstance() {
   return instance;
 }
 
-void M10::WaitForReady() {
+bool M10::SyncAt(uint32_t baud, uint32_t window_ms) {
   auto &uart = (*uart_);
   auto &time = System::GetInstance().Time();
+
+  uart.SetBaudRate(baud);
   const uint32_t start = time.Micros();
 
-  while ((uint32_t)(time.Micros() - start) < MillisToMicros(1000)) {
+  while ((uint32_t)(time.Micros() - start) < MillisToMicros(window_ms)) {
     uart.FlushRx();
 
-    // Discarded alone among these: this loop already retries for a second,
+    // Discarded alone among these: this loop already retries for its window,
     // and a refusal here means the ring has not drained yet, which the next
     // pass gives it 50 ms to do.
     (void)SendCfgValSetRaw<uint8_t>(kKeyUart1OutprotUbx, 1, ValsetLayer::kRam);
     if (WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
-      return;
+      return true;
     }
 
     time.DelayMicros(MillisToMicros(50));
   }
 
-  Panic(ErrorCode::Stm32::kGpsNotResponding);
+  return false;
+}
+
+void M10::WaitForReady() {
+  auto &time = System::GetInstance().Time();
+  const uint32_t configured = ToBaudRateValue(config_.baud_rate);
+
+  // Configured rate first and with the long window: it is the answer on every
+  // boot but the first after a swap, and paying the scan there costs a second.
+  if (!SyncAt(configured, 1000)) {
+    if (!config_.autobaud) {
+      Panic(ErrorCode::Stm32::kGpsNotResponding);
+    }
+
+    static constexpr uint32_t kCandidates[] = {38400, 9600,   115200, 57600,
+                                               19200, 230400, 460800, 921600};
+    uint32_t found = 0;
+    for (const uint32_t candidate : kCandidates) {
+      if (candidate == configured) {
+        continue;
+      }
+      if (SyncAt(candidate, 150)) {
+        found = candidate;
+        break;
+      }
+    }
+    if (found == 0) {
+      Panic(ErrorCode::Stm32::kGpsNotResponding);
+    }
+
+    // Move the module alone, then follow it. ApplyConfig re-asserts this key
+    // among the rest, where it is then a no-op.
+    if (!SendCfgValSet(kKeyUart1Baudrate, configured, ValsetLayer::kRam)) {
+      Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
+    }
+    // The ACK is emitted at the old rate and the switch follows it, so the
+    // line must be given time to go quiet before it is reprogrammed.
+    time.DelayMicros(MillisToMicros(100));
+
+    if (!SyncAt(configured, 1000)) {
+      Panic(ErrorCode::Stm32::kGpsNotResponding);
+    }
+  }
 }
 
 template bool M10::SendCfgValSet<uint8_t>(uint32_t, uint8_t, M10::ValsetLayer);

@@ -327,6 +327,7 @@ inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
 
 inline constexpr M10::Config kM10Config = {
     .baud_rate = {{ m10.config.baud_rate }},
+    .autobaud = {{ m10.config.autobaud | cpp_bool }},
     .uart1 = {
         .enabled = {{ m10.config.uart1.enabled | cpp_bool }},
         .stop_bits = {{ m10.config.uart1.stop_bits }},
