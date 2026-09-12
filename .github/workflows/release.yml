@@ -1,0 +1,111 @@
+# A release is a claim the firmware makes about itself: a build cut from a
+# release tag reports MAVLink's OFFICIAL version type, and a ground station
+# checks OFFICIAL builds against the releases published here. So the tag, the
+# version the generator derives, and the release name all have to agree, and
+# this workflow refuses to publish when they do not.
+name: release
+
+on:
+  push:
+    tags:
+      # Both the plain form and suffixed prereleases; which is which is
+      # decided below, from the tag rather than from who pushed it.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+jobs:
+  # The same build every push already goes through, including its linters:
+  # a tag is not a reason to publish something that was never checked.
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # Whole history, for the same reason the esp32 build job needs it: the
+      # version is derived from it, and this job has to derive the same one.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v9.0.0
+
+      # The gate. A tag naming a version the tree does not produce would ship
+      # binaries that report something else, and the mismatch would only ever
+      # be found from a vehicle in the field.
+      - name: Tag agrees with the generated version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="$(uv run --quiet --script \
+            scripts/generate_firmware_ver.py --ref HEAD)"
+
+          case "$tag" in
+            *-*)
+              prerelease=true
+              ;;
+            *)
+              prerelease=false
+
+              if [ "$tag" != "v$version" ]; then
+                echo "::error::tag $tag names a version the tree does not" \
+                     "produce (v$version)" >&2
+                exit 1
+              fi
+
+              release_build="$(uv run --quiet --script \
+                scripts/generate_firmware_ver.py --release-build)"
+              if [ "$release_build" != true ]; then
+                echo "::error::$tag does not point at HEAD, so the firmware" \
+                     "would report itself as a development build" >&2
+                exit 1
+              fi
+              ;;
+          esac
+
+          printf 'prerelease=%s\n' "$prerelease" >> "$GITHUB_OUTPUT"
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+      - name: Firmware
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+
+      # Flattened, with the ESP32's support binaries prefixed: `bootloader.bin`
+      # and `partition-table.bin` do not say whose they are, and the release
+      # page is where someone reads them a year later.
+      - name: Stage release assets
+        run: |
+          mkdir -p dist
+          cp artifacts/firmware-stm32/32Raven_stm32.bin dist/
+          cp artifacts/firmware-stm32/32Raven_stm32.elf dist/
+          cp artifacts/firmware-esp32/32Raven_esp32.bin dist/
+          cp artifacts/firmware-esp32/bootloader.bin dist/esp32-bootloader.bin
+          cp artifacts/firmware-esp32/partition-table.bin \
+            dist/esp32-partition-table.bin
+          cp artifacts/firmware-esp32/ota_data_initial.bin \
+            dist/esp32-ota_data_initial.bin
+          ls -l dist
+
+      # The configuration is what this firmware is, and it is not recoverable
+      # from the binaries. Shipped beside them so a release can be rebuilt.
+      - name: Stage the configuration
+        run: cp config/32raven.config dist/32raven.config
+
+      # Marked rather than named: the ground station reads the releases API's
+      # `latest`, which excludes a prerelease on its own, so the distinction
+      # has to live in the flag and not in the title.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          args=(--generate-notes)
+          if [ "$PRERELEASE" = true ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${args[@]}" dist/*

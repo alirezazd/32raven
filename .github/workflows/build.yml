@@ -8,6 +8,9 @@ on:
   push:
     branches: [master]
   pull_request:
+  # Called by release.yml so a release is cut from the same build every push
+  # already goes through, rather than from a second recipe that can drift.
+  workflow_call:
 
 jobs:
   stm32:
@@ -86,6 +89,17 @@ jobs:
       - name: Size
         run: arm-none-eabi-size build/Ninja/stm32/32Raven_stm32.elf
 
+      # The .elf comes along because it is what an addr2line on a panic
+      # traceback needs, and the binary alone cannot answer that later.
+      - name: Firmware
+        uses: actions/upload-artifact@v5
+        with:
+          name: firmware-stm32
+          path: |
+            build/Ninja/stm32/32Raven_stm32.bin
+            build/Ninja/stm32/32Raven_stm32.elf
+          if-no-files-found: error
+
       # These three read the compilation database this build just produced, and
       # skip when there is none -- which is every run outside a build job, so
       # this is the only place they are enforced. Each job sees only its own
@@ -110,9 +124,15 @@ jobs:
   esp32:
     runs-on: ubuntu-latest
     steps:
+      # Whole history and the tags with it: the generated config carries the
+      # firmware version, which is derived from how far the tree has come since
+      # VERSION last moved and from whether a release tag points here. A
+      # shallow clone can answer neither, and answers both wrongly rather than
+      # failing -- patch 1, and never a release.
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - uses: astral-sh/setup-uv@v9.0.0
 
@@ -139,6 +159,19 @@ jobs:
 
       - name: Build
         run: make esp32 USE_DOCKER=0
+
+      # All four, not just the app: a blank part needs the bootloader and the
+      # partition table too, and ota_data_initial decides which slot boots.
+      - name: Firmware
+        uses: actions/upload-artifact@v5
+        with:
+          name: firmware-esp32
+          path: |
+            build/Ninja/esp32/32Raven_esp32.bin
+            build/Ninja/esp32/ota_data_initial.bin
+            build/Ninja/esp32/bootloader/bootloader.bin
+            build/Ninja/esp32/partition_table/partition-table.bin
+          if-no-files-found: error
 
       # The ESP32 half of the same three. See the stm32 job for why they cannot
       # run anywhere but a build.
