@@ -943,6 +943,63 @@ provably false), and an over-current condition feeding #15's battery flag. The b
 detect an absent sensor — a floating pin reads amps that fit any 6S budget — which is what
 the build-time knob is for.
 
+### #55 — A byte count is summed into the ESC fault total — 🟢 SUPPORTING
+
+`EscTelemetryData::Total()` adds `rx_drop_bytes` to four event counters. Every other fault
+struct — `UartFaults`, `SpiFaults`, `AdcFaults` — sums like with like, and
+`TelemetryPublisher::UpdateFaultWindows` reads all five the same way: a per-window allowance
+counted in events, which the ESC bus holds at a couple per second. One DMA drain that outruns
+the ring adds as many to that total as there were bytes in flight, so a single overflow reads
+as hundreds of faults and drops the propulsion health bit on a bus that lost one burst. It
+also forces a `PublishIfChanged` republish for the same reason.
+
+The shape the other structs already have: count the overflowing drain as one event and put
+that in `Total()`, keeping `rx_drop_bytes` as the magnitude beside it. The ULog
+`system_health` record names `esc_rx_drop_bytes` and should keep it, so the new counter is a
+field added to the schema — a wire change, wanting the same flash as #42's.
+
+Reads zero on a bench with four ESCs answering, so nothing observes it until the ring is
+actually pressed.
+
+### #54 — The GCS describes our parameters using PX4's dictionary — 🟢 SUPPORTING
+
+`Vehicle::px4Firmware()` is true for 32Raven, so QGC resolves every parameter against the PX4
+metadata compiled into its own binary. Where a name collides it shows PX4's description, units
+and limits applied to our value; where it does not, `CompInfoParam::_resolveMetaData` falls
+through to a bare `FactMetaData` with the group taken from the text before the first underscore.
+Neither is our parameter.
+
+The way out is `COMPONENT_INFORMATION`, which QGC asks for with `MAV_CMD_REQUEST_MESSAGE` on
+every connect and the bridge currently refuses. It carries a URI to a general JSON listing the
+metadata that exists, and that in turn points at the parameter JSON. Both schemas ship with
+MAVLink: `component_metadata/general.schema.json` wants `version` and `metadataTypes`, each
+entry `type` and `uri`; `parameter.schema.json` wants `version` and `parameters`, and per entry
+only `name` is required, with `shortDesc`, `longDesc`, `units`, `min`, `max`, `default`,
+`increment`, `decimalPlaces`, `group`, `category`, `rebootRequired`, `readOnly`, `volatile`,
+`values` and `bitmask` optional.
+
+Two of the optional fields do more than decorate. `values` is what makes an integer a named
+dropdown rather than a number to look up. `volatile` excludes a parameter from the hash QGC
+builds over its cache, so anything marked there has to be skipped by `ComputeParamHash` too or
+the cache never matches again.
+
+#### Where the file lives decides how much has to be built
+
+`RequestMetaDataTypeStateMachine::_uriIsMAVLinkFTP` tests the scheme and nothing else: an
+`mftp://` URI is fetched from the vehicle, anything else over HTTPS and cached with a max age.
+Hosting the JSON means the bridge only has to emit a string, at the cost of the file having to
+match the firmware actually running -- which is what `fileCrc` and a versioned path are for.
+Serving it from the vehicle is always correct and needs no network, and needs a MAVLink FTP
+server that does not exist yet.
+
+#### The generator has to be told what the parameters are
+
+Most of what the schema wants already exists in `config/Kconfig` as prompts, `range`, `default`
+and help text, so this is a generator beside `generate_stm32_config.py` emitting JSON instead
+of a header, with a lint holding it to the table the way `check_docs` holds the handbook. What
+has to be settled first is the source of truth: `kParamTable` is a hand-written list of PX4
+names, not the Kconfig set, and the two do not correspond.
+
 ### #53 — The LR900-P replaces WiFi as the MAVLink link — 🧊 DEFERRED
 
 The Telem UART is already the aircraft's link (#41), 57600 and SiK-shaped, and the MicoAir
