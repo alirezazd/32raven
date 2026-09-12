@@ -66,21 +66,8 @@ void Mavlink::HandleMessage(const mavlink_message_t &msg) {
 }
 
 void Mavlink::LogUnhandledMessageOnce(const mavlink_message_t &msg) {
-  // Keep the warning path one-shot per msgid so noisy GCS traffic does not
-  // flood the UI status queue.
-  for (uint8_t i = 0; i < unhandled_logged_msgid_count_; ++i) {
-    if (unhandled_logged_msgids_[i] == msg.msgid) {
-      return;
-    }
-  }
-
-  if (unhandled_logged_msgid_count_ < unhandled_logged_msgids_.size()) {
-    unhandled_logged_msgids_[unhandled_logged_msgid_count_++] =
-        static_cast<uint16_t>(msg.msgid);
-  }
-
   char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
   std::snprintf(text, sizeof(text), "Unhandled MAVLink msgid=%lu src=UDP",
                 (unsigned long)msg.msgid);
-  NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+  NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
 }

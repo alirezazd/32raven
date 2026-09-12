@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "checksum.hpp"
 #include "common_config.hpp"
 #include "error_code.hpp"
 #include "esp_log.h"
@@ -79,6 +80,10 @@ struct ParamDef {
   const char *id;
   uint8_t type;
   ParamKey key;
+  // Left out of the parameter hash. QGC resolves our names against PX4's
+  // metadata and skips whatever that marks `volatile`, so a name PX4 calls
+  // volatile has to be skipped here too or the two CRCs can never agree.
+  bool px4_volatile = false;
 };
 
 inline constexpr ParamDef kParamTable[] = {
@@ -94,7 +99,8 @@ inline constexpr ParamDef kParamTable[] = {
     {"CAL_MAG1_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag1Rot},
     {"CAL_MAG2_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag2Rot},
     {"SENS_BOARD_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kSensBoardRot},
-    {"SENS_DPRES_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensDpresOff},
+    {"SENS_DPRES_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensDpresOff,
+     /*px4_volatile=*/true},
     {"SYS_HAS_MAG", MAV_PARAM_TYPE_INT32, ParamKey::kSysHasMag},
     {"SYS_HAS_NUM_ASPD", MAV_PARAM_TYPE_INT32, ParamKey::kSysHasNumAspd},
     {"SYS_AUTOSTART", MAV_PARAM_TYPE_INT32, ParamKey::kSysAutostart},
@@ -127,6 +133,53 @@ inline constexpr uint16_t kBaseParamCount =
     static_cast<uint16_t>(sizeof(kParamTable) / sizeof(kParamTable[0]));
 inline constexpr uint16_t kTotalParamCount =
     kBaseParamCount + kTotalRcCalibrationParamCount;
+
+// QGC asks any px4Firmware() vehicle for this before downloading parameters:
+// a matching hash lets it load its own cache instead. Virtual, so it is not in
+// kTotalParamCount and rides the reply queue on an index no real one uses.
+inline constexpr char kHashCheckParamId[] = "_HASH_CHECK";
+inline constexpr uint16_t kHashCheckQueueIndex = 0xFFFFu;
+
+// The value as QGC caches it, whose width and representation are what it feeds
+// its own CRC -- one byte for a uint8 parameter, four for an int32 or a float.
+size_t ParamValueBytes(float value, uint8_t param_type, uint8_t out[4]) {
+  switch (param_type) {
+    case MAV_PARAM_TYPE_UINT8: {
+      const auto v = static_cast<uint8_t>(std::lround(value));
+      out[0] = v;
+      return 1;
+    }
+    case MAV_PARAM_TYPE_INT8: {
+      const auto v = static_cast<int8_t>(std::lround(value));
+      std::memcpy(out, &v, 1);
+      return 1;
+    }
+    case MAV_PARAM_TYPE_UINT16: {
+      const auto v = static_cast<uint16_t>(std::lround(value));
+      std::memcpy(out, &v, 2);
+      return 2;
+    }
+    case MAV_PARAM_TYPE_INT16: {
+      const auto v = static_cast<int16_t>(std::lround(value));
+      std::memcpy(out, &v, 2);
+      return 2;
+    }
+    case MAV_PARAM_TYPE_UINT32: {
+      const auto v = static_cast<uint32_t>(std::llround(value));
+      std::memcpy(out, &v, 4);
+      return 4;
+    }
+    case MAV_PARAM_TYPE_INT32: {
+      const auto v = static_cast<int32_t>(std::llround(value));
+      std::memcpy(out, &v, 4);
+      return 4;
+    }
+    case MAV_PARAM_TYPE_REAL32:
+    default:
+      std::memcpy(out, &value, 4);
+      return 4;
+  }
+}
 
 float EncodeParamValue(float value, uint8_t param_type) {
   mavlink_param_union_t param{};
@@ -209,13 +262,19 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         QueueParamValue(udp_tx_, ParamMavlinkIndex(*param));
         break;
       }
+      if (req.param_index < 0 &&
+          std::strcmp(param_detail::MavTextToCString(req.param_id).data(),
+                      param_detail::kHashCheckParamId) == 0) {
+        QueueParamValue(udp_tx_, param_detail::kHashCheckQueueIndex);
+        break;
+      }
       if (req.param_index >= 0) {
         ESP_LOGW(kTag, "PARAM_REQUEST_READ unresolved index=%d",
                  static_cast<int>(req.param_index));
         char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
         std::snprintf(text, sizeof(text), "Unhandled PARAM_READ index=%d",
                       static_cast<int>(req.param_index));
-        NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
       } else {
         const auto param_id = param_detail::MavTextToCString(req.param_id);
         ESP_LOGW(kTag, "PARAM_REQUEST_READ unresolved param_id=%s",
@@ -223,7 +282,7 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
         std::snprintf(text, sizeof(text), "Unhandled PARAM_READ %s",
                       param_id.data());
-        NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
       }
       break;
     }
@@ -240,7 +299,7 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
         std::snprintf(text, sizeof(text), "Unhandled PARAM_SET %s",
                       param_id.data());
-        NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
         break;
       }
       const float decoded_value =
@@ -253,7 +312,7 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
         std::snprintf(text, sizeof(text), "Rejected PARAM_SET %s",
                       param_id.data());
-        NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
       }
       QueueParamValue(udp_tx_, ParamMavlinkIndex(*param));
       break;
@@ -265,7 +324,7 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         break;
       }
       ESP_LOGW(kTag, "PARAM_EXT_REQUEST_LIST unsupported");
-      NotifyGcsIssue("Unsupported PARAM_EXT_LIST", MAV_SEVERITY_WARNING);
+      NotifyGcsIssueOnce("Unsupported PARAM_EXT_LIST", MAV_SEVERITY_WARNING);
       break;
     }
     case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_READ: {
@@ -275,7 +334,7 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
         break;
       }
       ESP_LOGW(kTag, "PARAM_EXT_REQUEST_READ unsupported");
-      NotifyGcsIssue("Unsupported PARAM_EXT_READ", MAV_SEVERITY_WARNING);
+      NotifyGcsIssueOnce("Unsupported PARAM_EXT_READ", MAV_SEVERITY_WARNING);
       break;
     }
     case MAVLINK_MSG_ID_PARAM_EXT_SET: {
@@ -296,12 +355,16 @@ void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
       char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
       std::snprintf(text, sizeof(text), "Unsupported PARAM_EXT_SET %s",
                     param_id.data());
-      NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+      NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
       break;
     }
-    default:
-      NotifyGcsIssue("Unhandled MAVLink param message", MAV_SEVERITY_WARNING);
+    default: {
+      char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
+      std::snprintf(text, sizeof(text), "Unhandled param msgid=%lu",
+                    (unsigned long)msg.msgid);
+      NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
       break;
+    }
   }
 }
 
@@ -914,6 +977,64 @@ void Mavlink::ServicePendingParamApplies(uint32_t now_ms) {
   }
 }
 
+// Mirrors ParameterManager::_tryCacheHashLoad: CRC-32 over each parameter's
+// name bytes then its value bytes, walked in name order, seeded at zero and
+// left uncomplemented. A hash that disagrees costs only the full download QGC
+// would have done anyway, so a mismatch degrades rather than breaks.
+uint32_t Mavlink::ComputeParamHash() const {
+  uint32_t crc = 0;
+  const char *previous = nullptr;
+
+  for (uint16_t emitted = 0; emitted < param_detail::kTotalParamCount;
+       ++emitted) {
+    // Selection over the table rather than a sorted copy: QGC walks a QMap,
+    // which is ordered by name, and nothing here may allocate.
+    const char *best_id = nullptr;
+    float best_value = 0.0F;
+    uint8_t best_type = 0;
+
+    for (uint16_t i = 0; i < param_detail::kTotalParamCount; ++i) {
+      const std::optional<ParamRef> param = TryResolveParamByIndex(i);
+      if (!param.has_value()) {
+        continue;
+      }
+      const std::optional<EncodedParam> encoded = TryEncodeParam(*param);
+      if (!encoded.has_value()) {
+        continue;
+      }
+      if (const auto *fixed = std::get_if<FixedParamRef>(&*param);
+          fixed != nullptr &&
+          param_detail::kParamTable[fixed->mavlink_index].px4_volatile) {
+        continue;
+      }
+      if (previous != nullptr && std::strcmp(encoded->id, previous) <= 0) {
+        continue;
+      }
+      if (best_id != nullptr && std::strcmp(encoded->id, best_id) >= 0) {
+        continue;
+      }
+      best_id = encoded->id;
+      best_value = encoded->value;
+      best_type = encoded->type;
+    }
+
+    if (best_id == nullptr) {
+      break;
+    }
+
+    const auto *const name_bytes = reinterpret_cast<const uint8_t *>(best_id);
+    crc = checksum::Crc32Update(
+        crc, std::span<const uint8_t>(name_bytes, std::strlen(best_id)));
+    uint8_t bytes[4] = {};
+    const size_t width =
+        param_detail::ParamValueBytes(best_value, best_type, bytes);
+    crc = checksum::Crc32Update(crc, std::span<const uint8_t>(bytes, width));
+    previous = best_id;
+  }
+
+  return crc;
+}
+
 void Mavlink::QueueParamValue(TxState &tx, uint16_t param_index) const {
   if (!tx.pending_param_queue_.Push(param_index)) {
     ESP_LOGW(kTag, "dropping PARAM_VALUE reply: queue full");
@@ -925,6 +1046,22 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartQueuedParamValueFrame(
   uint16_t param_index = 0;
   if (!tx.pending_param_queue_.Peek(param_index)) {
     return std::nullopt;
+  }
+
+  if (param_index == param_detail::kHashCheckQueueIndex) {
+    mavlink_param_union_t value{};
+    value.type = MAV_PARAM_TYPE_UINT32;
+    value.param_uint32 = ComputeParamHash();
+
+    mavlink_message_t m{};
+    // count 0 and index -1, as PX4 sends it: the parameter is virtual, and
+    // QGC returns before either reaches its bookkeeping.
+    mavlink_msg_param_value_pack(sysid, compid, &m,
+                                 param_detail::kHashCheckParamId,
+                                 value.param_float, MAV_PARAM_TYPE_UINT32, 0,
+                                 UINT16_MAX);
+    (void)tx.pending_param_queue_.Pop(param_index);
+    return TxFrameState{m, false};
   }
 
   const std::optional<ParamRef> param = TryResolveParamByIndex(param_index);

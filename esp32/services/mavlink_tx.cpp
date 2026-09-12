@@ -8,9 +8,11 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <span>
 #include <type_traits>
 
 #include "../../third_party/mavlink/standard/mavlink_msg_autopilot_version.h"
+#include "checksum.hpp"
 #include "error_code.hpp"
 #include "esp32_config.hpp"
 #include "esp_log.h"
@@ -141,6 +143,28 @@ void Mavlink::NotifyGcsIssue(const char *text, uint8_t severity) {
 
   QueueStatusText(text, severity);
   Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+}
+
+void Mavlink::NotifyGcsIssueOnce(const char *text, uint8_t severity) {
+  if (text == nullptr || text[0] == '\0') {
+    return;
+  }
+
+  const uint32_t hash = checksum::Crc32(std::span<const uint8_t>(
+      reinterpret_cast<const uint8_t *>(text), std::strlen(text)));
+  for (uint8_t i = 0; i < announced_gap_count_; ++i) {
+    if (announced_gap_hashes_[i] == hash) {
+      return;
+    }
+  }
+  // A full table stops recording, not reporting: past the cap the announcement
+  // is worth more than the silence, and 64 distinct gaps is already a firmware
+  // that has stopped answering its ground station.
+  if (announced_gap_count_ < announced_gap_hashes_.size()) {
+    announced_gap_hashes_[announced_gap_count_++] = hash;
+  }
+
+  NotifyGcsIssue(text, severity);
 }
 
 void Mavlink::ReportSensorHealthChanges(

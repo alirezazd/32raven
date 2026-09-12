@@ -344,16 +344,19 @@ class Mavlink {
   FcLink *fc_link_ = nullptr;
   Config cfg_{};
 
-  std::array<uint16_t, 64> unhandled_logged_msgids_{};
   std::atomic<uint32_t> udp_rx_packet_count_{0};
   std::atomic<uint32_t> udp_tx_packet_count_{0};
   // Bumped before the totals above, so a reader that sees a total move already
   // sees whether that packet was a heartbeat.
   std::atomic<uint32_t> udp_rx_heartbeat_count_{0};
   std::atomic<uint32_t> udp_tx_heartbeat_count_{0};
-  uint8_t unhandled_logged_msgid_count_ = 0;
-  std::array<uint16_t, 64> unhandled_logged_commands_{};
-  uint8_t unhandled_logged_command_count_ = 0;
+  // CRC-32 of every gap already announced, so each distinct one is announced
+  // once a boot. Keyed on the rendered line rather than on a msgid or command
+  // number: the line already carries the whole identity of what is missing --
+  // the parameter's name, the message a MAV_CMD asked for -- where the number
+  // alone would fold two unrelated gaps into one report.
+  std::array<uint32_t, 64> announced_gap_hashes_{};
+  uint8_t announced_gap_count_ = 0;
   bool link_enabled_ = false;
   CachedValue<message::GpsData> gps_{};
   CachedValue<message::AttitudeMsg> attitude_{};
@@ -382,7 +385,8 @@ class Mavlink {
   }
   void ServiceUdpRx();
   void LogUnhandledMessageOnce(const mavlink_message_t &msg);
-  void LogUnhandledCommandOnce(uint16_t command, const char *reason);
+  void LogUnhandledCommandOnce(uint16_t command, uint32_t detail,
+                               const char *reason);
   void QueueTxItem(const TxQueueItem &item);
   void QueueCommandAck(uint16_t command, uint8_t result, uint8_t target_system,
                        uint8_t target_component);
@@ -392,6 +396,11 @@ class Mavlink {
   void QueueStatusText(const char *text, uint8_t severity = MAV_SEVERITY_INFO);
   void NotifyGcsIssue(const char *text,
                       uint8_t severity = MAV_SEVERITY_WARNING);
+  // For a gap in what this firmware implements: the same text is announced
+  // once and then stays quiet, so a ground station that retries a request
+  // does not warn and sound per attempt.
+  void NotifyGcsIssueOnce(const char *text,
+                          uint8_t severity = MAV_SEVERITY_WARNING);
   // SYS_STATUS carries health as a live bitmap, so a fault the GCS blinked
   // past leaves no trace there. This turns each edge into a STATUSTEXT, which
   // a ground station keeps and timestamps -- the record the bitmap cannot be
@@ -429,6 +438,7 @@ class Mavlink {
   std::optional<TxFrameState> StartParamValueFrame(const ParamRef &param,
                                                    uint8_t sysid,
                                                    uint8_t compid);
+  uint32_t ComputeParamHash() const;
   static uint16_t ParamMavlinkIndex(const ParamRef &param);
   static const char *ParamSetResultName(ParamSetResult result);
   static std::optional<ParamRef> TryResolveRcCalibrationParam(

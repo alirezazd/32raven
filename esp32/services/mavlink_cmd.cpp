@@ -5,26 +5,23 @@
 
 #include "mavlink.hpp"
 
-void Mavlink::LogUnhandledCommandOnce(uint16_t command, const char *reason) {
-  for (uint8_t i = 0; i < unhandled_logged_command_count_; ++i) {
-    if (unhandled_logged_commands_[i] == command) {
-      return;
-    }
-  }
-
-  if (unhandled_logged_command_count_ < unhandled_logged_commands_.size()) {
-    unhandled_logged_commands_[unhandled_logged_command_count_++] = command;
-  }
-
+// `detail` is the command's param1, which for MAV_CMD_REQUEST_MESSAGE is the
+// message being asked for -- the whole content of the request, and the only
+// thing that says which gap this is. It reaches the text, and through the text
+// the one-shot key, so two messages refused under the same command number are
+// two reports rather than one.
+void Mavlink::LogUnhandledCommandOnce(uint16_t command, uint32_t detail,
+                                      const char *reason) {
   char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
   if (reason != nullptr && reason[0] != '\0') {
-    std::snprintf(text, sizeof(text), "Unhandled MAV_CMD=%u %s",
-                  static_cast<unsigned>(command), reason);
+    std::snprintf(text, sizeof(text), "Unhandled MAV_CMD=%u %s param1=%lu",
+                  static_cast<unsigned>(command), reason,
+                  (unsigned long)detail);
   } else {
-    std::snprintf(text, sizeof(text), "Unhandled MAV_CMD=%u",
-                  static_cast<unsigned>(command));
+    std::snprintf(text, sizeof(text), "Unhandled MAV_CMD=%u param1=%lu",
+                  static_cast<unsigned>(command), (unsigned long)detail);
   }
-  NotifyGcsIssue(text, MAV_SEVERITY_WARNING);
+  NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
 }
 
 void Mavlink::HandleCommandMessage(const mavlink_message_t &msg) {
@@ -63,7 +60,8 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
         QueueCommandAck(static_cast<uint16_t>(cmd.command),
                         MAV_RESULT_UNSUPPORTED, source_system,
                         source_component);
-        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command), "rx-type");
+        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
+                                static_cast<uint32_t>(cmd.param1), "rx-type");
       }
       break;
     }
@@ -78,6 +76,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
                         MAV_RESULT_UNSUPPORTED, source_system,
                         source_component);
         LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
+                                static_cast<uint32_t>(cmd.param1),
                                 "request-msg");
       }
       break;
@@ -101,13 +100,16 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
         QueueCommandAck(static_cast<uint16_t>(cmd.command),
                         MAV_RESULT_UNSUPPORTED, source_system,
                         source_component);
-        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command), "cal-slot");
+        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
+                                static_cast<uint32_t>(cmd.param1),
+                                "cal-slot");
       }
       break;
     default:
       QueueCommandAck(static_cast<uint16_t>(cmd.command),
                       MAV_RESULT_UNSUPPORTED, source_system, source_component);
       LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
+                              static_cast<uint32_t>(cmd.param1),
                               "unsupported");
       break;
   }
