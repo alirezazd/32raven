@@ -17,6 +17,7 @@
 #include "shared_state.hpp"
 #include "slot_stagger.hpp"
 #include "stm32_config.hpp"
+#include "time_base.hpp"
 
 namespace {
 
@@ -401,7 +402,7 @@ message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
   if (imu.timestamp_us != 0u) {
     sensors_present |= message::kSystemSensorFlagImu;
     if (IsHealthy(FaultSource::kImu) &&
-        (now_us - imu.timestamp_us) <= kImuFreshTimeoutUs) {
+        ElapsedMicros(now_us, imu.timestamp_us) <= kImuFreshTimeoutUs) {
       sensors_health |= message::kSystemSensorFlagImu;
     }
   }
@@ -458,8 +459,9 @@ message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
   // and a bit set unconditionally told every ground indicator that a stopped
   // control loop was fine.
   const bool loop_alive =
-      loop_running && (now_us - blackboard.GetControlLoopLoad().timestamp_us) <
-                          kControlLoopAliveTimeoutUs;
+      loop_running &&
+      ElapsedMicros(now_us, blackboard.GetControlLoopLoad().timestamp_us) <
+          kControlLoopAliveTimeoutUs;
   msg.flags = loop_alive ? message::kSystemStatusFlagLoopAlive : 0u;
   return msg;
 }
@@ -816,8 +818,18 @@ void TelemetryPublisher::UpdateFaultWindows(uint32_t now_us) {
       health.batt_adc.Total(),
   };
 
+  // Faults a source is allowed inside one window and still count as healthy,
+  // in FaultSource order. Zero everywhere a fault means something is wrong.
+  // The ESC bus is the exception: one unterminated wire, four talkers, no
+  // arbitration, and a reply every few milliseconds, so a stray corrupt frame
+  // is what it does when nothing is wrong. Held to a couple per second, which
+  // a bus actually coming apart clears by an order of magnitude.
+  static constexpr std::array<uint32_t, std::to_underlying(FaultSource::kCount)>
+      kFaultTolerance = {0u, 0u, 0u, 2u, 0u};
+
   for (size_t i = 0; i < totals.size(); ++i) {
-    fault_windows_[i].healthy = totals[i] == fault_windows_[i].last_total;
+    const uint32_t since_last = totals[i] - fault_windows_[i].last_total;
+    fault_windows_[i].healthy = since_last <= kFaultTolerance[i];
     fault_windows_[i].last_total = totals[i];
   }
 }

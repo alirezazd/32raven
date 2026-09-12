@@ -6,6 +6,7 @@
 #include "error_code.hpp"
 #include "message.hpp"
 #include "panic.hpp"
+#include "time_base.hpp"
 
 namespace {
 
@@ -440,7 +441,7 @@ void Sentinel::RecoverStalledImu(uint32_t now_us) {
     return;
   }
 
-  if ((now_us - imu_health_us) < cfg_.imu_stall_timeout_us) {
+  if (ElapsedMicros(now_us, imu_health_us) < cfg_.imu_stall_timeout_us) {
     return;
   }
 

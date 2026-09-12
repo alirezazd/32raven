@@ -16,6 +16,17 @@
 constexpr uint64_t SecondsToMicros(uint64_t s) { return s * 1000000ull; }
 constexpr uint64_t MillisToMicros(uint64_t ms) { return ms * 1000ull; }
 
+// Age of a stamp whose writer can preempt its reader. The sample interrupt and
+// the control tick both stamp above thread mode, so a stamp taken after the
+// loop read `now_us` is ordinary rather than exceptional -- and subtracting it
+// plainly turns those few microseconds into nearly the whole 32-bit range,
+// which every freshness bound then reads as an ancient sample. A stamp that
+// leads its reader is as fresh as one can be.
+constexpr uint32_t ElapsedMicros(uint32_t now_us, uint32_t stamp_us) {
+  const uint32_t elapsed = now_us - stamp_us;
+  return elapsed > (UINT32_MAX / 2u) ? 0u : elapsed;
+}
+
 struct TimeBaseConfig {
   struct Tim2 {
     uint32_t prescaler;  // e.g. 83 -> 1 MHz tick if TIM2CLK = 84 MHz
