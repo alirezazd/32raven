@@ -22,6 +22,7 @@
 #include "m10.hpp"
 #include "msp_service.hpp"
 #include "multirotor_mixer.hpp"
+#include "qmc5883p.hpp"
 #include "rate_controller.hpp"
 #include "rc_receiver.hpp"
 #include "sensor_cal_service.hpp"
@@ -200,11 +201,11 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .hold_last = {{ icm42688p.fifo.hold_last | cpp_bool }},
         .hires = {{ icm42688p.fifo.hires | cpp_bool }},
     },
-{# Chip-frame -> body-NED axis remap. Identity: this board mounts the
-   ICM-42688P with its native axes already aligned to body-NED (chip
-   +X = body North, +Y = body East, +Z = body Down). The single
+{# Chip-frame -> body-frame axis remap. Identity: this board mounts the
+   ICM-42688P with its native axes already aligned to the body frame
+   (chip +X = body forward, +Y = body right, +Z = body down). The single
    axis-conversion boundary lives in the driver's MapAxes --
-   everything downstream is body-NED with no flips. If a future
+   everything downstream is body frame with no flips. If a future
    board rotates/flips the chip, promote these to Kconfig. #}
     .axis_map = {
         .x_from = 0,
@@ -254,6 +255,27 @@ inline constexpr SpiConfig kSpi2Config = {
 inline constexpr I2cConfig kI2c1Config = {
     .scl_hz = {{ i2c1.scl_hz }},
     .transfer_timeout_us = {{ i2c1.transfer_timeout_us }},
+};
+
+inline constexpr Qmc5883p::Config kQmc5883pConfig = {
+    .odr = {{ mag.odr }},
+    .osr1 = {{ mag.osr1 }},
+    .osr2 = {{ mag.osr2 }},
+    .range = {{ mag.range }},
+    .sample_period_us = {{ mag.sample_period_us }},
+    // Identity, and unverified: the compass sits on the GPS module rather
+    // than on the board, so its orientation is however the mast was glued
+    // down. Whoever measures the heading against a known bearing is the one
+    // who fills this in -- roadmap #30 is the same problem named for the IMU.
+    .axes =
+        {
+            .x_from = 0,
+            .x_neg = false,
+            .y_from = 1,
+            .y_neg = false,
+            .z_from = 2,
+            .z_neg = false,
+        },
 };
 
 inline const Button::Config kButtonConfig = {
@@ -358,8 +380,11 @@ inline constexpr M10::Config kM10Config = {
     },
     .tp1 = {
         .ena = {{ m10.config.tp1.ena | cpp_bool }},
+        .use_locked = {{ m10.config.tp1.use_locked | cpp_bool }},
         .period = {{ m10.config.tp1.period }},
         .len = {{ m10.config.tp1.len }},
+        .period_lock = {{ m10.config.tp1.period_lock }},
+        .len_lock = {{ m10.config.tp1.len_lock }},
         .timegrid = {{ m10.config.tp1.timegrid }},
         .sync_gnss = {{ m10.config.tp1.sync_gnss | cpp_bool }},
         .align_to_tow = {{ m10.config.tp1.align_to_tow | cpp_bool }},
@@ -399,7 +424,8 @@ inline constexpr LogService::Config kLogServiceConfig = {
     .prealloc_mb = {{ log_service.prealloc_mb }}u,
     .loop_recording = {{ log_service.loop_recording | cpp_bool }},
 {% for name in ["rc_input", "battery", "esc_telemetry", "gps", "imu_health",
-                "crsf_link", "system_health", "logger_status"] %}
+                "magnetometer", "crsf_link", "system_health",
+                "logger_status"] %}
 {% set topic = log_service.topics[name] %}
     .{{ name }} = {
         .period = {{ topic.period_ms }}u * 1000u,

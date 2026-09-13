@@ -130,6 +130,9 @@ class AccelCal {
   uint8_t SidesDone() const {
     return sides_done_.load(std::memory_order_relaxed);
   }
+  // The pose being averaged, kCount whenever none is -- which is every state
+  // but kCollecting, and kCollecting the instant the board is disturbed.
+  AccelSide CurrentSide() const { return side_; }
 
   void Feed(const ImuBurst &burst);
   State Poll(uint32_t now_us);
@@ -234,7 +237,10 @@ class SensorCalService {
   SensorCalService &operator=(const SensorCalService &) = delete;
 
   void ReportGyro(GyroCal::State outcome);
-  void ReportAccel(AccelCal::State outcome, uint8_t sides_done);
+  // `captured` separates the two edges a tone cannot: a pose recognised and
+  // a pose averaged both leave the run detecting again.
+  void ReportAccel(AccelCal::State outcome, uint8_t sides_done,
+                   AccelSide side, bool captured);
 
   GyroCal gyro_;
   AccelCal accel_;
@@ -245,4 +251,12 @@ class SensorCalService {
   // probe runs and cannot say what is new. Shared, because one read of the slot
   // serves every calibrator.
   uint32_t last_seq_ = 0;
+
+  // What the last accel report said. The run's interesting edges -- a pose
+  // detected, a pose captured -- are made by Feed on the control tick, so a
+  // before/after pair taken around Poll on this side would already carry them
+  // and compare equal. Only what was last sent can say what is new.
+  AccelCal::State reported_accel_state_ = AccelCal::State::kIdle;
+  uint8_t reported_accel_sides_ = 0;
+  AccelSide reported_accel_side_ = AccelSide::kCount;
 };

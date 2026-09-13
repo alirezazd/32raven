@@ -23,7 +23,10 @@
 // below rather than for the protocol's 64-key ceiling.
 class ValsetFrame {
  public:
-  static constexpr size_t kMaxPayload = 4 + (7 * (4 + 4));
+  // The timepulse group is the largest at ten keys, and every key is counted
+  // as a U4 so a member changing width cannot silently outgrow this.
+  static constexpr size_t kMaxKeys = 10;
+  static constexpr size_t kMaxPayload = 4 + (kMaxKeys * (4 + 4));
 
   explicit ValsetFrame(uint8_t layer) {
     buf_[6] = kValsetVersion;
@@ -260,14 +263,18 @@ void M10::ApplyConfig(ValsetLayer layer) {
   set(kKeyItfmEnable, u8(config_.gnss.itfm_enable),
       ErrorCode::Stm32::kGpsVerifyItfmFailed);
 
-  // One frame for the timepulse group as well: its seven keys describe a
+  // One frame for the timepulse group as well: its ten keys describe a
   // single pulse, and a receiver that took only some of them would emit one
   // nothing configured.
   {
     ValsetFrame frame(std::to_underlying(layer));
     frame.AddU1(kKeyCfgTp1Ena, static_cast<uint8_t>(config_.tp1.ena));
+    frame.AddU1(kKeyCfgTp1UseLocked,
+                static_cast<uint8_t>(config_.tp1.use_locked));
     frame.AddU4(kKeyCfgTp1Period, config_.tp1.period);
     frame.AddU4(kKeyCfgTp1Len, config_.tp1.len);
+    frame.AddU4(kKeyCfgTp1PeriodLock, config_.tp1.period_lock);
+    frame.AddU4(kKeyCfgTp1LenLock, config_.tp1.len_lock);
     frame.AddU1(kKeyCfgTp1TimeGrid, static_cast<uint8_t>(config_.tp1.timegrid));
     frame.AddU1(kKeyCfgTp1SyncGnss,
                 static_cast<uint8_t>(config_.tp1.sync_gnss));

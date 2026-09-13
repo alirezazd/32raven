@@ -336,8 +336,12 @@ void AccelCal::Feed(const ImuBurst &burst) {
       }
       if (static_cast<uint32_t>(max_[axis] - min_[axis]) > still_counts) {
         // Moving. A pose half-collected is discarded rather than kept: the
-        // board has left the orientation those samples described.
+        // board has left the orientation those samples described. Detection
+        // has to run again with it, because the window it cleared held which
+        // pose was being averaged -- resuming without one would index the
+        // solve's arrays by kCount.
         ResetWindow();
+        state_ = State::kDetecting;
         return;
       }
       sum_[axis] += a;
@@ -524,15 +528,22 @@ void SensorCalService::Poll(uint32_t now_us) {
     ReportGyro(after);
   }
 
-  // The accel run reports on two edges, not one: the outcome as the gyro does,
-  // and every captured side, because an operator holding a drone needs to know
-  // a pose landed before moving to the next.
-  const AccelCal::State accel_before = accel_.Status();
-  const uint8_t sides_before = accel_.SidesDone();
-  const AccelCal::State accel_after = accel_.Poll(now_us);
-  const uint8_t sides_after = accel_.SidesDone();
-  if (accel_after != accel_before || sides_after != sides_before) {
-    ReportAccel(accel_after, sides_after);
+  // The accel run reports on three edges, not one: the outcome as the gyro
+  // does, every captured side, and the pose being held, because an operator
+  // holding a drone needs to know a pose registered before moving to the next.
+  // Two of the three are Feed's to make, so the comparison is against what was
+  // last reported -- a before/after pair taken around Poll would already carry
+  // Feed's work in both halves and never differ.
+  const AccelCal::State accel_state = accel_.Poll(now_us);
+  const uint8_t sides = accel_.SidesDone();
+  const AccelSide side = accel_.CurrentSide();
+  if (accel_state != reported_accel_state_ || sides != reported_accel_sides_ ||
+      side != reported_accel_side_) {
+    const bool captured = sides != reported_accel_sides_;
+    reported_accel_state_ = accel_state;
+    reported_accel_sides_ = sides;
+    reported_accel_side_ = side;
+    ReportAccel(accel_state, sides, side, captured);
   }
 }
 
@@ -549,7 +560,8 @@ void SensorCalService::ReportGyro(GyroCal::State outcome) {
 }
 
 void SensorCalService::ReportAccel(AccelCal::State outcome,
-                                   uint8_t sides_done) {
+                                   uint8_t sides_done, AccelSide side,
+                                   bool captured) {
   // The state travels as its own wire enum rather than this class's: the two
   // agree today and the link is not the place to assume they always will.
   message::AccelCalState wire = message::AccelCalState::kIdle;
@@ -573,15 +585,20 @@ void SensorCalService::ReportAccel(AccelCal::State outcome,
   fclink_->SendPacket(
       message::MsgId::kAccelCalStatus,
       message::AccelCalStatusMsg{.state = static_cast<uint8_t>(wire),
-                                 .sides_done = sides_done});
+                                 .sides_done = sides_done,
+                                 .side = static_cast<uint8_t>(side)});
 
   // A tone as well, on the edges an operator holding an airframe cannot watch
-  // a screen for: one per captured pose, and one for the outcome.
+  // a screen for: one per captured pose, and one for the outcome. Recognising
+  // a pose is silent -- it is the edge that asks the operator to keep holding,
+  // and a beep there would be the same sound as the one meaning "move on".
   message::Tone tone = message::Tone::kBeep;
   if (outcome == AccelCal::State::kApplied) {
     tone = message::Tone::kConfirm;
   } else if (outcome == AccelCal::State::kFailed) {
     tone = message::Tone::kError;
+  } else if (!captured) {
+    return;
   }
   fclink_->SendPacket(message::MsgId::kTone,
                       message::ToneMsg{.tone = static_cast<uint8_t>(tone)});

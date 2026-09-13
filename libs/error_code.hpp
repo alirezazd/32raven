@@ -46,6 +46,14 @@ enum class Stm32 : uint32_t {
   kEsc3dModeEnabled,
   kCrsfLinkInitFailed,
   kDshotCodecInvalidArg,
+  // Magnetometer
+  kMagReinit,
+  kMagInitFailed,
+  kMagNotResponding,
+  kMagUnexpectedPart,
+  kMagConfigRefused,
+  kMagNotInitialized,
+  kMagConfigNotKept,
   // GPS
   kGpsNotResponding,
   kGpsConfigTimepulseFailed,

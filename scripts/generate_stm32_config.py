@@ -289,6 +289,34 @@ M10_CFG_UART_PARITY_CHOICES = _prefixed(
     },
 )
 
+MAG_ODR_CHOICES = {
+    "STM32_MAG_ODR_10HZ": "Qmc5883p::Odr::k10Hz",
+    "STM32_MAG_ODR_50HZ": "Qmc5883p::Odr::k50Hz",
+    "STM32_MAG_ODR_100HZ": "Qmc5883p::Odr::k100Hz",
+    "STM32_MAG_ODR_200HZ": "Qmc5883p::Odr::k200Hz",
+}
+
+MAG_RANGE_CHOICES = {
+    "STM32_MAG_RANGE_2G": "Qmc5883p::Range::k2G",
+    "STM32_MAG_RANGE_8G": "Qmc5883p::Range::k8G",
+    "STM32_MAG_RANGE_12G": "Qmc5883p::Range::k12G",
+    "STM32_MAG_RANGE_30G": "Qmc5883p::Range::k30G",
+}
+
+MAG_OSR1_CHOICES = {
+    "STM32_MAG_OSR1_8": "Qmc5883p::Osr1::k8",
+    "STM32_MAG_OSR1_4": "Qmc5883p::Osr1::k4",
+    "STM32_MAG_OSR1_2": "Qmc5883p::Osr1::k2",
+    "STM32_MAG_OSR1_1": "Qmc5883p::Osr1::k1",
+}
+
+MAG_OSR2_CHOICES = {
+    "STM32_MAG_OSR2_8": "Qmc5883p::Osr2::k8",
+    "STM32_MAG_OSR2_4": "Qmc5883p::Osr2::k4",
+    "STM32_MAG_OSR2_2": "Qmc5883p::Osr2::k2",
+    "STM32_MAG_OSR2_1": "Qmc5883p::Osr2::k1",
+}
+
 ODR_CHOICES = {
     "STM32_IMU_GYRO_ODR_32KHZ": "Icm42688pReg::Odr::k32kHz",
     "STM32_IMU_GYRO_ODR_16KHZ": "Icm42688pReg::Odr::k16kHz",
@@ -1366,14 +1394,16 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
 
     # Checked even when TP1 is disabled: the pair is written either way, and
     # the M10 clamps rather than refusing, so a bad pair is silent.
-    tp1_period_us = sym_int(kconf, "STM32_GPS_M10_TP1_PERIOD")
-    tp1_len_us = sym_int(kconf, "STM32_GPS_M10_TP1_LEN")
-    if tp1_len_us >= tp1_period_us:
-        raise ValueError(
-            f"CONFIG_STM32_GPS_M10_TP1_LEN ({tp1_len_us} us) must be shorter "
-            f"than CONFIG_STM32_GPS_M10_TP1_PERIOD ({tp1_period_us} us); a "
-            "pulse cannot outlast the period that repeats it"
-        )
+    for suffix in ("", "_LOCK"):
+        period_us = sym_int(kconf, f"STM32_GPS_M10_TP1_PERIOD{suffix}")
+        len_us = sym_int(kconf, f"STM32_GPS_M10_TP1_LEN{suffix}")
+        if len_us >= period_us:
+            raise ValueError(
+                f"CONFIG_STM32_GPS_M10_TP1_LEN{suffix} ({len_us} us) must be "
+                f"shorter than CONFIG_STM32_GPS_M10_TP1_PERIOD{suffix} "
+                f"({period_us} us); a pulse cannot outlast the period that "
+                "repeats it"
+            )
 
     _validate_gps_link_budget(kconf)
     _validate_battery_sample_budget(kconf)
@@ -1822,6 +1852,7 @@ LOG_TOPICS = (
     "esc_telemetry",
     "gps",
     "imu_health",
+    "magnetometer",
     "crsf_link",
     "system_health",
     "logger_status",
@@ -2191,8 +2222,15 @@ def _m10_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             },
             "tp1": {
                 "ena": sym_bool(kconf, "STM32_GPS_M10_TP1_ENA"),
+                "use_locked": sym_bool(
+                    kconf, "STM32_GPS_M10_TP1_USE_LOCKED"
+                ),
                 "period": sym_int(kconf, "STM32_GPS_M10_TP1_PERIOD"),
                 "len": sym_int(kconf, "STM32_GPS_M10_TP1_LEN"),
+                "period_lock": sym_int(
+                    kconf, "STM32_GPS_M10_TP1_PERIOD_LOCK"
+                ),
+                "len_lock": sym_int(kconf, "STM32_GPS_M10_TP1_LEN_LOCK"),
                 "timegrid": choice_value(kconf, M10_TIMEGRID_CHOICES),
                 "sync_gnss": sym_bool(kconf, "STM32_GPS_M10_TP1_SYNC_GNSS"),
                 "align_to_tow": sym_bool(
@@ -2215,6 +2253,16 @@ def _ee_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "the EEPROM flash",
     )
     return {"spi1_prescaler": prescaler}
+
+
+def _mag_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    return {
+        "odr": choice_value(kconf, MAG_ODR_CHOICES),
+        "range": choice_value(kconf, MAG_RANGE_CHOICES),
+        "osr1": choice_value(kconf, MAG_OSR1_CHOICES),
+        "osr2": choice_value(kconf, MAG_OSR2_CHOICES),
+        "sample_period_us": sym_int(kconf, "STM32_MAG_SAMPLE_PERIOD_US"),
+    }
 
 
 def _i2c1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
@@ -2442,6 +2490,7 @@ def _runtime_context(
         "dshot_tim1": _dshot_tim1_context(kconf),
         "ee": _ee_context(kconf),
         "i2c1": _i2c1_context(kconf),
+        "mag": _mag_context(kconf),
         "rcc": _rcc_context(kconf),
         "flight_mode": _flight_mode_context(kconf),
         "timebase": _timebase_context(kconf),

@@ -49,6 +49,7 @@ class LogService {
     kMsgEscTelemetry,
     kMsgGps,
     kMsgImuHealth,
+    kMsgMag,
     kMsgCrsfLink,
     kMsgSystemHealth,
     kMsgLogger,
@@ -69,12 +70,13 @@ class LogService {
     TopicConfig esc_telemetry{};
     TopicConfig gps{};
     TopicConfig imu_health{};
+    TopicConfig magnetometer{};
     TopicConfig crsf_link{};
     TopicConfig system_health{};
     TopicConfig logger_status{};
   };
 
-  static constexpr size_t kSlowTopicCount = 8;
+  static constexpr size_t kSlowTopicCount = 9;
   // Public only so the .cpp's format and name tables can be sized by it.
   static constexpr size_t kTopicCount = kMsgCount;
   static_assert(kSlowTopicCount == kMsgCount - kMsgPushedCount);

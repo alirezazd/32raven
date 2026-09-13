@@ -61,6 +61,20 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "STM32 CRSF link init failed";
     case ErrorCode::Stm32::kDshotCodecInvalidArg:
       return "STM32 DShot codec invalid argument";
+    case ErrorCode::Stm32::kMagReinit:
+      return "magnetometer Init ran twice";
+    case ErrorCode::Stm32::kMagInitFailed:
+      return "magnetometer config is not usable";
+    case ErrorCode::Stm32::kMagNotResponding:
+      return "magnetometer did not answer on I2C1";
+    case ErrorCode::Stm32::kMagUnexpectedPart:
+      return "a QMC5883L answered where the P was expected";
+    case ErrorCode::Stm32::kMagConfigRefused:
+      return "magnetometer answered, then refused its configuration";
+    case ErrorCode::Stm32::kMagNotInitialized:
+      return "magnetometer Not Initialized";
+    case ErrorCode::Stm32::kMagConfigNotKept:
+      return "magnetometer failed to set config";
     case ErrorCode::Stm32::kGpsNotResponding:
       return "GPS Not Responding";
     case ErrorCode::Stm32::kGpsConfigTimepulseFailed:

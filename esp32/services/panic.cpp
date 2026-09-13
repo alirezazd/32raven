@@ -369,6 +369,14 @@ uint32_t RunRecoverableLoop() {
   return recovery.RunUntilFailure();
 }
 
+// The blink wants a tick this short; the console line does not. Held to one
+// line every two seconds so a monitor attached long after the board stopped
+// still learns why, without the reason burying everything else the console
+// has to say.
+constexpr uint32_t kPanicBlinkMs = 40;
+constexpr uint32_t kNestedPanicBlinkMs = 15;
+constexpr uint32_t kPanicLogPeriodMs = 2000;
+
 [[noreturn]] void RunPanicLoop(uint32_t code) {
   Sys().Halt();
   bool recoverable = SupportsServiceRecovery(code);
@@ -382,6 +390,9 @@ uint32_t RunRecoverableLoop() {
   if (recoverable) {
     Sys().Button().FlushEvents();
   }
+  constexpr uint32_t kLogEveryTicks = kPanicLogPeriodMs / kPanicBlinkMs;
+  // The line above just went out, so the next one is a window away.
+  uint32_t ticks_since_log = 0;
   bool led_on = false;
   while (true) {
     if (recoverable) {
@@ -395,12 +406,18 @@ uint32_t RunRecoverableLoop() {
         if (recoverable) {
           Sys().Button().FlushEvents();
         }
+        // A different code is worth saying now rather than at the next window.
+        ticks_since_log = kLogEveryTicks;
       }
     }
     gpio_set_level(kPinMap.led, led_on ? 1 : 0);
     led_on = !led_on;
-    ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
-    vTaskDelay(pdMS_TO_TICKS(40));
+    if (ticks_since_log >= kLogEveryTicks) {
+      ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
+      ticks_since_log = 0;
+    }
+    ++ticks_since_log;
+    vTaskDelay(pdMS_TO_TICKS(kPanicBlinkMs));
   }
 }
 
@@ -411,12 +428,19 @@ uint32_t RunRecoverableLoop() {
 // is standing in for.
 [[noreturn]] void ReportNestedPanic(uint32_t code) {
   const char *msg = GetMessage(code);
+  constexpr uint32_t kLogEveryTicks = kPanicLogPeriodMs / kNestedPanicBlinkMs;
+  // Nothing has said this one yet, so the first pass says it.
+  uint32_t ticks_since_log = kLogEveryTicks;
   bool led_on = false;
   while (true) {
     gpio_set_level(kPinMap.led, led_on ? 1 : 0);
     led_on = !led_on;
-    ESP_LOGE(kTag, "PANIC IN PANIC [0x%08lX]: %s", (unsigned long)code, msg);
-    vTaskDelay(pdMS_TO_TICKS(15));
+    if (ticks_since_log >= kLogEveryTicks) {
+      ESP_LOGE(kTag, "PANIC IN PANIC [0x%08lX]: %s", (unsigned long)code, msg);
+      ticks_since_log = 0;
+    }
+    ++ticks_since_log;
+    vTaskDelay(pdMS_TO_TICKS(kNestedPanicBlinkMs));
   }
 }
 

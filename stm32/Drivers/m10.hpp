@@ -107,8 +107,16 @@ class M10 {
 
     struct Timepulse {
       bool ena;
+      // The receiver keeps two cadences and switches between them on its own:
+      // `period`/`len` while it has no GNSS time, the _lock pair once it does.
+      // That makes TP1 a fix indicator without anything reading a fix -- fast
+      // while searching, one pulse a second once locked -- and the locked
+      // period stays at a second so the pulse is still a usable 1PPS.
+      bool use_locked;
       uint32_t period;
       uint32_t len;
+      uint32_t period_lock;
+      uint32_t len_lock;
       TimeGrid timegrid;
       bool sync_gnss;
       bool align_to_tow;

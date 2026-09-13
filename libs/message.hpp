@@ -53,6 +53,7 @@ enum class MsgId : uint8_t {
   kLogListReply = 0x1C,
   kLogRead = 0x1D,
   kLogData = 0x1E,
+  kMagnetometer = 0x1F,
   kReboot = 0xC0,
   kBootload = 0xC1,
   kError = 0xEE
@@ -142,6 +143,20 @@ struct GpsData {
   float posCovDD;  // [m²]
 } __attribute__((packed));
 
+// Body frame, microtesla. The driver has applied the axis map and the range
+// scale already, so this is the field in the vehicle's own frame and nothing
+// downstream needs to know which part measured it -- or that it is
+// uncalibrated, which it is: no hard- or soft-iron correction exists yet.
+//
+// The part's own OVL and DOR tallies stay on the flight computer. Nothing off
+// the vehicle has asked for them, and the log is where they belong first.
+struct MagnetometerMsg {
+  uint32_t timestamp_us;
+  float x;
+  float y;
+  float z;
+} __attribute__((packed));
+
 // World-to-body, the convention Ahrs documents and propagates.
 struct AttitudeMsg {
   uint64_t timestamp_us;
@@ -191,6 +206,10 @@ enum class AccelCalState : uint8_t {
 struct AccelCalStatusMsg {
   uint8_t state;       // AccelCalState
   uint8_t sides_done;  // one bit per AccelSide, in that order
+  // The pose being held right now, kCount when none is. Carried rather than
+  // derived: sides_done only moves once a pose is captured, so it cannot name
+  // the one the operator is still holding.
+  uint8_t side;
 };
 
 inline constexpr uint32_t kSystemSensorFlagImu = 1u << 0;
@@ -382,7 +401,7 @@ struct WireEntry {
   bool bounded;
 };
 
-inline constexpr std::array<WireEntry, 34> kWireContract = {{
+inline constexpr std::array<WireEntry, 35> kWireContract = {{
     {MsgId::kHandshake, PayloadLength<HandshakeMsg>(), false},
     {MsgId::kLog, kMaxLogTextPayload, true},
     {MsgId::kHandshakeReply, PayloadLength<HandshakeMsg>(), false},
@@ -417,6 +436,7 @@ inline constexpr std::array<WireEntry, 34> kWireContract = {{
     {MsgId::kLogListReply, PayloadLength<LogListReplyMsg>(), false},
     {MsgId::kLogRead, PayloadLength<LogReadMsg>(), false},
     {MsgId::kLogData, PayloadLength<LogDataMsg>(), false},
+    {MsgId::kMagnetometer, PayloadLength<MagnetometerMsg>(), false},
     {MsgId::kReboot, 0, false},
     {MsgId::kBootload, 0, false},
     {MsgId::kError, 0, false},

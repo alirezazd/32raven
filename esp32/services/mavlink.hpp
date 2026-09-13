@@ -107,6 +107,8 @@ class Mavlink {
       UpdateCache(esc_telemetry_, value, now_ms);
     } else if constexpr (std::is_same_v<T, message::AttitudeMsg>) {
       UpdateCache(attitude_, value, now_ms);
+    } else if constexpr (std::is_same_v<T, message::MagnetometerMsg>) {
+      UpdateCache(magnetometer_, value, now_ms);
     } else {
       static_assert(sizeof(T) == 0, "unsupported MAVLink telemetry cache type");
     }
@@ -400,6 +402,7 @@ class Mavlink {
   uint32_t last_sensor_present_ = 0;
   bool sensor_health_seen_ = false;
   CachedValue<message::VehicleStatusMsg> vehicle_status_{};
+  CachedValue<message::MagnetometerMsg> magnetometer_{};
   CachedValue<message::EscTelemetryMsg> esc_telemetry_{};
 
   void HandleMessage(const mavlink_message_t &msg);
@@ -450,6 +453,10 @@ class Mavlink {
   TxFrameState StartAvailableModesFrame(const AvailableModes &work);
   TxFrameState StartMissionCountFrame(const MissionCount &work);
   TxFrameState StartStatusTextFrame(const StatusText &work);
+  // The heading a compass gives, tilt-compensated with the attitude the
+  // estimator already reported. Absent until a sample arrives, or if the
+  // vector is too short to have a direction.
+  std::optional<float> MagneticHeading(float roll, float pitch) const;
   std::optional<TxFrameState> StartRcChannelsFrame(const Config::Tx &cfg_tx);
   void ResetParamState();
   std::optional<ParamRef> TryResolveParam(int16_t requested_index,
@@ -494,6 +501,12 @@ class Mavlink {
                                                          uint8_t sysid,
                                                          uint8_t compid);
 
+  // What the page has been told so far. It reads edges, not state: a repeated
+  // line shows a pose twice.
+  bool accel_cal_running_ = false;
+  uint8_t accel_cal_sides_ = 0;
+  uint8_t accel_cal_announced_side_ = message::kAccelSideCount;
+
   static constexpr uint8_t kTxWorkQueueDepth = 8;
   TxState udp_tx_{};
   RingBuffer<TxQueueItem, kTxWorkQueueDepth + 1> tx_work_queue_{};
@@ -504,7 +517,9 @@ class Mavlink {
   // not from when the slot came due.
   uint32_t last_hb_done_ms_ = 0;
   uint32_t next_tx_poll_ms_ = 0;
-  uint32_t peer_timeout_ms_ = 500;
+  // Three of the STM32's VehicleStatus periods: at or below one, a heartbeat
+  // lands on an expired report and names a mode the aircraft is not in.
+  uint32_t peer_timeout_ms_ = 750;
   void ServiceTx(uint32_t now_ms);
   void ServiceUdpTx(uint32_t now_ms);
   bool StartNextFrameIfIdle(TxState &tx, const Config::Tx &cfg_tx,

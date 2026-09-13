@@ -138,6 +138,28 @@ struct EscTelemetryData {
   }
 };
 
+// The compass reading, body frame, microtesla. The chip-to-body remap and the
+// range scaling both happen in the driver, so a consumer needs to know neither
+// which part is fitted nor how it is mounted.
+//
+// Only what the part reports about itself: a transfer that never completed is
+// the bus's fault and is counted in SystemHealth::sensor_i2c, the way SPI2's
+// are for the IMU. No Total() over the two, because they mean different things
+// and a threshold over their sum would mean neither. Whether the compass is
+// working is a question about `timestamp_us` moving.
+struct MagnetometerData {
+  uint32_t timestamp_us = 0;
+  uint32_t device_id = 0;
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  bool valid = false;
+  uint32_t sample_count = 0;
+  // OVL: a component saturated the configured range, which shortens the
+  // vector in a direction nothing downstream can recover.
+  uint32_t overflow_count = 0;
+};
+
 // Written on every burst, so `timestamp_us` doubles as the sample path's
 // heartbeat. Counters only: the thresholds live with Sentinel.
 struct ImuHealth {
@@ -231,6 +253,19 @@ struct SpiFaults {
   uint32_t Total() const { return start_refused + dma_errors + timeouts; }
 };
 
+// Transfers the bus never completed. Recoveries and spurious interrupts are
+// left with the driver rather than carried here: a recovery is the response to
+// one of these four rather than a fifth kind, so totalling it would count the
+// same fault twice.
+struct I2cFaults {
+  uint32_t nacks = 0;
+  uint32_t bus_errors = 0;
+  uint32_t arb_losses = 0;
+  uint32_t timeouts = 0;
+
+  uint32_t Total() const { return nacks + bus_errors + arb_losses + timeouts; }
+};
+
 // Conversions the ADC never handed back. Mutually exclusive: an overrun is a
 // timeout whose cause the peripheral named, so the two sum without overlap.
 struct AdcFaults {
@@ -251,6 +286,9 @@ struct SystemHealth {
   UartFaults rc_uart{};   // UART6 -- the CRSF receiver
   SpiFaults imu_spi{};    // SPI2 -- the ICM42688P
   AdcFaults batt_adc{};   // ADC1 -- the voltage/current divider
+  // I2C1 -- the sensor bus. Named for the bus, not for the magnetometer:
+  // the barometer and the TOF land on the same two wires.
+  I2cFaults sensor_i2c{};
 };
 
 struct CrsfLinkData {
@@ -297,6 +335,7 @@ class SharedState {
   void UpdateGps(const GpsData &data) { gps_ = data; }
   void UpdateBattery(const BatteryData &data) { bat_ = data; }
   void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
+  void UpdateMagnetometer(const MagnetometerData &data) { mag_ = data; }
   void UpdateRc(const RcData &data) { rc_ = data; }
   void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
   void UpdateFcLink(const FcLinkData &data) { fc_link_ = data; }
@@ -329,6 +368,7 @@ class SharedState {
   const GpsData &GetGps() const { return gps_; }
   const BatteryData &GetBattery() const { return bat_; }
   const EscTelemetryData &GetEscTelemetry() const { return esc_; }
+  const MagnetometerData &GetMagnetometer() const { return mag_; }
   const RcData &GetRc() const { return rc_; }
   const CrsfLinkData &GetCrsfLink() const { return crsf_link_; }
   const FcLinkData &GetFcLink() const { return fc_link_; }
@@ -371,6 +411,7 @@ class SharedState {
   GpsData gps_{};
   BatteryData bat_{};
   EscTelemetryData esc_{};
+  MagnetometerData mag_{};
   RcData rc_{};
   CrsfLinkData crsf_link_{};
   FcLinkData fc_link_{};

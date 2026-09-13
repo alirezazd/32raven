@@ -372,7 +372,7 @@ float Icm42688p::ScaleTemperature(int16_t temp_raw) const {
 }
 
 // A signed permutation, so it applies losslessly to the counts and the burst
-// leaves this file in body-NED without ever having been scaled.
+// leaves this file in the body frame without ever having been scaled.
 void Icm42688p::MapAxes(const Sample &sample, uint16_t slot,
                         ImuBurst &out) const {
   const ScaleConfig &map = scale_config_;
@@ -635,7 +635,7 @@ void Icm42688p::PublishBurst(const ImuBurst &burst) {
 void Icm42688p::ApplyGyroOffsets(const float bias_body[3]) {
   auto &time = System::GetInstance().Time();
 
-  // The mean is body-NED but OFFSET_USER is per chip axis, so it goes back
+  // The mean is body frame but OFFSET_USER is per chip axis, so it goes back
   // through the map before any register sees it. Getting this backwards writes
   // a permanent offset to the wrong axis, correcting nothing and spoiling one
   // that was fine.

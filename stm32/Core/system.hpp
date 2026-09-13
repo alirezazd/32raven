@@ -15,6 +15,7 @@
 #include "four_way_service.hpp"
 #include "gpio.hpp"
 #include "icm42688p.hpp"
+#include "qmc5883p.hpp"
 #include "led.hpp"
 #include "log_service.hpp"
 #include "m10_service.hpp"
@@ -81,6 +82,7 @@ class System {
     kM10,
     kIcm42688p,
     kI2c1,
+    kQmc5883p,
     kMultirotorMixer,
     kAhrs,
     kRateController,
@@ -118,6 +120,7 @@ class System {
   EscBootloader &EscBootSvc() { return EscBootloader::GetInstance(); }
   M10Service &GpsSvc() { return M10Service::GetInstance(); }
   Icm42688p &Imu() { return Icm42688p::GetInstance(); }
+  Qmc5883p &Mag() { return Qmc5883p::GetInstance(); }
   Sdio &Sd() { return Sdio::GetInstance(); }
   LogService &LogSvc() { return LogService::GetInstance(); }
   MscService &MscSvc() { return MscService::GetInstance(); }

@@ -212,6 +212,32 @@ constexpr char kFmtGps[] =
     "uint16_t vel_cms;uint16_t hdg_cdeg;uint16_t hdop;uint8_t fix_type;"
     "uint8_t num_sats;";
 
+// PX4's sensor_mag, field for field, with the departures this part forces.
+// Gauss rather than the microtesla the blackboard carries, because that is the
+// unit the topic name promises and a reader trusts the name over the source.
+// No temperature: the QMC5883P's register map has none where the L had one, so
+// the field could only ever carry a constant. And error_count arrives as the
+// two causes the chip reports apart, which PX4 collapses into one.
+struct __attribute__((packed)) MagRecord {
+  MsgHeader hdr;
+  uint16_t msg_id;
+  uint64_t timestamp;
+  uint64_t timestamp_sample;
+  uint32_t device_id;
+  float x;
+  float y;
+  float z;
+  uint32_t overflow_count;
+};
+static_assert(sizeof(MagRecord) ==
+              sizeof(MsgHeader) + 2u + 8u + 8u + 4u + (3u * 4u) + 4u);
+constexpr char kFmtMag[] =
+    "sensor_mag:uint64_t timestamp;uint64_t timestamp_sample;"
+    "uint32_t device_id;float x;float y;float z;uint32_t overflow_count;";
+
+// One gauss is 100 microtesla.
+constexpr float kGaussPerMicrotesla = 0.01f;
+
 struct __attribute__((packed)) ImuHealthRecord {
   MsgHeader hdr;
   uint16_t msg_id;
@@ -320,8 +346,8 @@ constexpr char kFmtLogger[] =
 // is in the file at all. Built rather than listed for that reason.
 template <typename T>
 constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
-                              T gps, T imu_health, T crsf, T system_health,
-                              T logger) {
+                              T gps, T imu_health, T mag, T crsf,
+                              T system_health, T logger) {
   std::array<T, LogService::kTopicCount> out{};
   size_t at = 0;
   if constexpr (LogService::kRawImuLogEnabled) {
@@ -333,6 +359,7 @@ constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
   out[at++] = esc;
   out[at++] = gps;
   out[at++] = imu_health;
+  out[at++] = mag;
   out[at++] = crsf;
   out[at++] = system_health;
   out[at++] = logger;
@@ -341,12 +368,12 @@ constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
 
 constexpr auto kFormats = MakeTopicTable<const char *>(
     kFmtSensorGyroFifo, kFmtSensorAccelFifo, kFmtRc, kFmtBattery,
-    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtCrsfLink, kFmtSystemHealth,
-    kFmtLogger);
+    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtMag, kFmtCrsfLink,
+    kFmtSystemHealth, kFmtLogger);
 constexpr auto kTopicNames = MakeTopicTable<const char *>(
     "sensor_gyro_fifo", "sensor_accel_fifo", "rc_input", "battery",
-    "esc_telemetry", "gps", "imu_health", "crsf_link", "system_health",
-    "logger_status");
+    "esc_telemetry", "gps", "imu_health", "sensor_mag", "crsf_link",
+    "system_health", "logger_status");
 
 // Returns the index from "LOGnnnnn.ULG", or 0 for any other name.
 uint32_t LogFileIndex(const char *name) {
@@ -391,10 +418,11 @@ void LogService::Init(const Config &cfg, SharedState &blackboard,
   // MsgId order: the order AppendSlowTopics walks and the format and
   // subscription tables use. Drift here silently mislabels a topic.
   slow_configs_ = {
-      cfg_.rc_input,   cfg_.battery,   cfg_.esc_telemetry, cfg_.gps,
-      cfg_.imu_health, cfg_.crsf_link, cfg_.system_health, cfg_.logger_status,
+      cfg_.rc_input,     cfg_.battery,   cfg_.esc_telemetry,
+      cfg_.gps,          cfg_.imu_health, cfg_.magnetometer,
+      cfg_.crsf_link,    cfg_.system_health, cfg_.logger_status,
   };
-  static_assert(kSlowTopicCount == 8,
+  static_assert(kSlowTopicCount == 9,
                 "slow_configs_ above lists one entry per scheduled topic");
   initialized_ = true;
 
@@ -878,6 +906,21 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         rec.invalid_samples = imu.invalid_samples;
         rec.dropped_records = imu.dropped_records;
         rec.missed_samples = imu.missed_samples;
+        AppendToStaging(&rec, sizeof(rec));
+        break;
+      }
+      case kMsgMag: {
+        const MagnetometerData &mag = blackboard_->GetMagnetometer();
+        // timestamp is when the record was written, timestamp_sample when the
+        // field was measured -- up to one read period apart, which is the
+        // distinction PX4 keeps the two fields for.
+        MagRecord rec = MakeRecord<MagRecord>(kMsgMag, now64);
+        rec.timestamp_sample = Stamp64(mag.timestamp_us);
+        rec.device_id = mag.device_id;
+        rec.x = mag.x * kGaussPerMicrotesla;
+        rec.y = mag.y * kGaussPerMicrotesla;
+        rec.z = mag.z * kGaussPerMicrotesla;
+        rec.overflow_count = mag.overflow_count;
         AppendToStaging(&rec, sizeof(rec));
         break;
       }

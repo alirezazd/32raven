@@ -127,31 +127,37 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
     case MAV_CMD_REQUEST_MESSAGE:
       HandleRequestMessage(cmd, source_system, source_component);
       break;
-    case MAV_CMD_PREFLIGHT_CALIBRATION:
+    case MAV_CMD_PREFLIGHT_CALIBRATION: {
       // param1 is the gyro slot and param5 the accel, as the MAVLink command
-      // defines them. ACCEPTED means the request reached the flight controller,
-      // not that the run finished -- the gyro ends in a tone, and the accel in
-      // a STATUSTEXT per pose.
-      if (static_cast<uint32_t>(cmd.param1) != 0u ||
-          static_cast<uint32_t>(cmd.param5) != 0u) {
-        message::Packet req_pkt{};
-        req_pkt.header.id =
-            static_cast<uint8_t>(static_cast<uint32_t>(cmd.param5) != 0u
-                                     ? message::MsgId::kCalibrateAccel
-                                     : message::MsgId::kCalibrateGyro);
-        req_pkt.header.len = 0;
-        fc_link_->SendPacket(req_pkt);
-        QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
-                        source_system, source_component);
-      } else {
-        QueueCommandAck(static_cast<uint16_t>(cmd.command),
-                        MAV_RESULT_UNSUPPORTED, source_system,
-                        source_component);
-        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
-                                static_cast<uint32_t>(cmd.param1),
-                                "cal-slot");
+      // defines them, and only the value 1 asks for a run. param5 = 2 is the
+      // level-horizon trim, a different routine this board does not have, so
+      // treating every non-zero as "accel" answered one button with another.
+      // ACCEPTED means the request reached the flight controller, not that the
+      // run finished -- the gyro ends in a tone, and the accel in a STATUSTEXT
+      // per pose.
+      const uint32_t gyro_slot = static_cast<uint32_t>(cmd.param1);
+      const uint32_t accel_slot = static_cast<uint32_t>(cmd.param5);
+      message::MsgId id = message::MsgId::kCalibrateGyro;
+      if (gyro_slot != 1u) {
+        if (accel_slot != 1u) {
+          QueueCommandAck(static_cast<uint16_t>(cmd.command),
+                          MAV_RESULT_UNSUPPORTED, source_system,
+                          source_component);
+          LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
+                                  accel_slot != 0u ? accel_slot : gyro_slot,
+                                  "cal-slot");
+          break;
+        }
+        id = message::MsgId::kCalibrateAccel;
       }
+      message::Packet req_pkt{};
+      req_pkt.header.id = static_cast<uint8_t>(id);
+      req_pkt.header.len = 0;
+      fc_link_->SendPacket(req_pkt);
+      QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
+                      source_system, source_component);
       break;
+    }
     default:
       QueueCommandAck(static_cast<uint16_t>(cmd.command),
                       MAV_RESULT_UNSUPPORTED, source_system, source_component);

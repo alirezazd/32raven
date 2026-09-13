@@ -36,9 +36,29 @@ constexpr uint32_t kControlLoopAliveTimeoutUs = 200000u;
 constexpr uint32_t kImuFreshTimeoutUs = 100000u;
 
 // AM32 emits telemetry per commutation, so a running motor stamps this far
-// faster. Sized for an idle disarmed ESC that still answers, not for the
-// frame rate: below the fault window there would be nothing to compare.
+// faster. Sized for an idle disarmed ESC that still answers, which at the
+// round-robin's rate is some sixty turns of the request cycle.
 constexpr uint32_t kEscFreshTimeoutUs = 1000000u;
+
+// Whether the propulsion telemetry is healthy, which is a question about what
+// arrives rather than about what the bus loses on the way. One unterminated
+// wire, four talkers and no arbitration corrupt a frame now and then whether
+// or not anything is wrong, so the error counters answer a different question
+// -- and one of them counts bytes, which no threshold over the sum can mean
+// anything about. Every ESC that has ever answered still answering is the
+// thing the ground station is being told.
+bool EscTelemetryArriving(const EscTelemetryData &esc, uint32_t now_us) {
+  for (size_t i = 0; i < esc.motors.size(); ++i) {
+    if ((esc.valid_mask & (1u << i)) == 0u) {
+      continue;
+    }
+    if (ElapsedMicros(now_us, esc.motors[i].timestamp_us) >
+        kEscFreshTimeoutUs) {
+      return false;
+    }
+  }
+  return true;
+}
 
 // The FcLink ladder, fixed here rather than configured: the link is this
 // project at both ends, and each cadence is what its consumer on the ESP32
@@ -52,9 +72,11 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kFcLinkTopicCount>
         // frame inside that window.
         {.period = 1000000u, .max_silence = 0u, .priority = 10u},
         // VehicleStatus: armed state and failsafe flags, the one thing a
-        // ground station must not learn late -- hence the highest priority,
-        // and the heartbeat's own second.
-        {.period = 1000000u, .max_silence = 0u, .priority = 12u},
+        // ground station must not learn late -- hence the highest priority.
+        // Four times the heartbeat's rate, because the ESP32 builds each
+        // heartbeat from the last report it holds: at the heartbeat's own
+        // period, half of them would find nothing fresh to build from.
+        {.period = 250000u, .max_silence = 0u, .priority = 12u},
         {.period = 1000000u, .max_silence = 0u, .priority = 5u},
         // RcChannels: the MAVLink RC_CHANNELS stream's own 40 ms. Sent on
         // change, so a quiet receiver costs nothing until the silence bound,
@@ -72,6 +94,11 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kFcLinkTopicCount>
         // only reached with the loop suspended, which is when the ground
         // station most needs telling the estimate is stale.
         {.period = 100000u, .max_silence = 1000000u, .priority = 7u},
+        // Magnetometer: a heading on a map, nothing more, so this is a fifth
+        // of the driver's own read rate. No silence bound -- the field moves
+        // whenever the airframe does, so there is no unchanged payload to
+        // suppress and nothing for one to rescue.
+        {.period = 200000u, .max_silence = 0u, .priority = 6u},
     }};
 
 constexpr std::array<uint32_t, TelemetryPublisher::kFcLinkTopicCount>
@@ -83,6 +110,7 @@ constexpr std::array<uint32_t, TelemetryPublisher::kFcLinkTopicCount>
         sizeof(message::UsbStatusMsg) + message::kPacketOverhead,
         sizeof(message::GpsData) + message::kPacketOverhead,
         sizeof(message::AttitudeMsg) + message::kPacketOverhead,
+        sizeof(message::MagnetometerMsg) + message::kPacketOverhead,
     }};
 
 // The ladder at full rate.
@@ -434,8 +462,7 @@ message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
   const EscTelemetryData &esc = blackboard.GetEscTelemetry();
   if (esc.valid_mask != 0u) {
     sensors_present |= message::kSystemSensorFlagEsc;
-    if ((now_us - esc.timestamp_us) <= kEscFreshTimeoutUs &&
-        IsHealthy(FaultSource::kEsc)) {
+    if (EscTelemetryArriving(esc, now_us)) {
       sensors_health |= message::kSystemSensorFlagEsc;
     }
   }
@@ -696,6 +723,30 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishAttitude(
   return PublishResult::kSent;
 }
 
+message::MagnetometerMsg TelemetryPublisher::BuildMagnetometerMsg() const {
+  const MagnetometerData &mag = blackboard_->GetMagnetometer();
+  return message::MagnetometerMsg{
+      .timestamp_us = mag.timestamp_us,
+      .x = mag.x,
+      .y = mag.y,
+      .z = mag.z,
+  };
+}
+
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishMagnetometer(
+    TelemetryPublisher &self, uint32_t now_us) {
+  (void)now_us;
+  // Nothing to say before the first sample. After it, every frame carries the
+  // newest reading whether or not the driver replaced it this period -- the
+  // stamp is what tells the far end how old it is.
+  if (self.blackboard_->GetMagnetometer().timestamp_us == 0u) {
+    return PublishResult::kSkipped;
+  }
+  self.fclink_svc_->SendPacket(message::MsgId::kMagnetometer,
+                               self.BuildMagnetometerMsg());
+  return PublishResult::kSent;
+}
+
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfTopic(
     TelemetryPublisher &self, uint32_t now_us,
     CrsfLinkService::TelemetryTopic topic) {
@@ -807,29 +858,18 @@ void TelemetryPublisher::UpdateFaultWindows(uint32_t now_us) {
   const SystemHealth &health = blackboard_->GetSystemHealth();
 
   // Ordered by FaultSource. Transport plus the parser above it, because a peer
-  // emitting garbage over a flawless UART is not healthy. The last three come
-  // pre-summed: path_faults already folds the IMU's bus in beside its parser,
-  // the ESC owns its transport, and nothing frames an ADC reading.
+  // emitting garbage over a flawless UART is not healthy. The IMU and the
+  // battery come pre-summed: path_faults already folds the IMU's bus in beside
+  // its parser, and nothing frames an ADC reading.
   const std::array<uint32_t, std::to_underlying(FaultSource::kCount)> totals = {
       blackboard_->GetImuHealth().path_faults,
       health.gps_uart.Total() + blackboard_->GetGps().checksum_failures,
       health.rc_uart.Total() + blackboard_->GetCrsfLink().checksum_failures,
-      blackboard_->GetEscTelemetry().Total(),
       health.batt_adc.Total(),
   };
 
-  // Faults a source is allowed inside one window and still count as healthy,
-  // in FaultSource order. Zero everywhere a fault means something is wrong.
-  // The ESC bus is the exception: one unterminated wire, four talkers, no
-  // arbitration, and a reply every few milliseconds, so a stray corrupt frame
-  // is what it does when nothing is wrong. Held to a couple per second, which
-  // a bus actually coming apart clears by an order of magnitude.
-  static constexpr std::array<uint32_t, std::to_underlying(FaultSource::kCount)>
-      kFaultTolerance = {0u, 0u, 0u, 2u, 0u};
-
   for (size_t i = 0; i < totals.size(); ++i) {
-    const uint32_t since_last = totals[i] - fault_windows_[i].last_total;
-    fault_windows_[i].healthy = since_last <= kFaultTolerance[i];
+    fault_windows_[i].healthy = totals[i] == fault_windows_[i].last_total;
     fault_windows_[i].last_total = totals[i];
   }
 }
@@ -841,7 +881,7 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {
       PublishSystemStatus, PublishVehicleStatus, PublishEscTelemetry,
       PublishRcChannels,   PublishUsbStatus,     PublishGps,
-      PublishAttitude,
+      PublishAttitude,     PublishMagnetometer,
   };
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
       PublishCrsfHeartbeat,   PublishCrsfGps,      PublishCrsfBattery,
@@ -852,6 +892,7 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
   PollGroup(fclink_, kFcLinkPublishers, kFcLinkFramesPerPoll, now_us);
   PollGroup(crsf_, kCrsfPublishers, kCrsfFramesPerPoll, now_us);
 }
+
 
 // The declared rate stands in until the receiver reports one -- nothing is
 // listening before then, and it is the best knowledge there is. A rate the

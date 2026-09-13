@@ -695,10 +695,17 @@ menu "Verification"
 
 config ESP32_PROGRAMMER_VERIFY_ESP32
         bool "Verify ESP32"
-        default y
+        default n
         help
             Read back the written ESP32 OTA partition and compare its hash before
             marking the new image as bootable.
+
+            Off by default because two gates already stand in front of it: the
+            CRC-32 the host sends with BEGIN, which rejects a damaged transfer
+            before anything is finalized, and esp_ota_end, which refuses an
+            image the bootloader would not accept. What is left for the
+            read-back to catch is flash that acknowledged a write it did not
+            keep. Turn it on when a board is suspected of exactly that.
 
 config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
         int "ESP32 verify chunk size (bytes)"
@@ -712,10 +719,16 @@ config ESP32_PROGRAMMER_VERIFY_ESP32_CHUNK_BYTES
 
 config ESP32_PROGRAMMER_VERIFY_STM32
         bool "Verify STM32"
-        default y
+        default n
         help
             Read back the programmed STM32 image through the ROM bootloader and
             compare its hash before reporting success.
+
+            Off by default. The BEGIN CRC-32 already rejects a damaged transfer,
+            and a flight computer that took a bad image says so at the next
+            handshake rather than flying on it -- so the read-back, which is the
+            slowest part of a flash, is buying a second opinion on the rarest
+            failure. Turn it on when a board is suspected of bad flash.
 
 endmenu
 
@@ -2247,6 +2260,123 @@ endmenu
 
 endmenu
 
+menu "Magnetometer (QMC5883P)"
+
+# No address knob: the part has no address strap, so 0x2C is silicon and two
+# of them cannot share the bus. No enable knob either -- the reference
+# airframe carries the compass on the same module as the GPS, and the GPS
+# already refuses to boot when that module is absent.
+#
+# The QMC5883L the same module has also shipped with is a different part, not
+# a variant: the driver probes for it and names it rather than driving it.
+
+choice
+    prompt "Output data rate"
+    default STM32_MAG_ODR_50HZ
+    help
+      How often the part measures, which is independent of how often the
+      firmware reads it -- reading slower only means some reads find nothing
+      new, which costs nothing, so the rate has to stay at or above the read
+      period below.
+
+      This field is honoured because the driver runs the part in Normal mode.
+      In Continuous mode the part ignores it and free-runs at its maximum,
+      which is measurable: at 10 Hz it still answered every 20 ms read.
+
+config STM32_MAG_ODR_10HZ
+    bool "10 Hz"
+
+config STM32_MAG_ODR_50HZ
+    bool "50 Hz"
+
+config STM32_MAG_ODR_100HZ
+    bool "100 Hz"
+
+config STM32_MAG_ODR_200HZ
+    bool "200 Hz"
+
+endchoice
+
+choice
+    prompt "Field range"
+    default STM32_MAG_RANGE_8G
+    help
+      Earth's field is under a gauss, so the narrowest range gives the most
+      resolution -- and saturates beside a motor drawing current, which is
+      what the chip's OVFL bit reports and what would make the heading wrong
+      exactly while it is being flown. 8G is the range with that headroom;
+      15000 LSB/G at 2G falls to 3750 at 8G, which is still far finer than
+      the calibration error this reading carries.
+
+config STM32_MAG_RANGE_2G
+    bool "+/-2 gauss"
+
+config STM32_MAG_RANGE_8G
+    bool "+/-8 gauss"
+
+config STM32_MAG_RANGE_12G
+    bool "+/-12 gauss"
+
+config STM32_MAG_RANGE_30G
+    bool "+/-30 gauss"
+
+endchoice
+
+choice
+    prompt "Oversample ratio (filter bandwidth)"
+    default STM32_MAG_OSR1_8
+    help
+      Bandwidth of the part's internal filter. A larger ratio is quieter and
+      draws more; the whole part still draws under a milliamp at the largest,
+      which nothing on this airframe notices.
+
+config STM32_MAG_OSR1_8
+    bool "8"
+
+config STM32_MAG_OSR1_4
+    bool "4"
+
+config STM32_MAG_OSR1_2
+    bool "2"
+
+config STM32_MAG_OSR1_1
+    bool "1"
+
+endchoice
+
+choice
+    prompt "Downsampling depth"
+    default STM32_MAG_OSR2_8
+    help
+      A second filter behind the first. Independent of the ratio above and
+      traded the same way, so the pair is set to the quietest end until
+      something needs the current back.
+
+config STM32_MAG_OSR2_8
+    bool "8"
+
+config STM32_MAG_OSR2_4
+    bool "4"
+
+config STM32_MAG_OSR2_2
+    bool "2"
+
+config STM32_MAG_OSR2_1
+    bool "1"
+
+endchoice
+
+config STM32_MAG_SAMPLE_PERIOD_US
+    int "Read period (us)"
+    range 5000 1000000
+    default 20000
+    help
+      How often the driver starts a read, from the main tick. A heading on a
+      ground station map is satisfied by a few hertz; this sits at 50 so the
+      rate need not be revisited if an estimator ever wants the reading.
+
+endmenu
+
 menu "IMU (ICM42688P)"
 
 
@@ -2694,19 +2824,54 @@ config STM32_GPS_M10_TP1_ENA
     help
       Enable the TP1 timepulse output on the M10.
 
-config STM32_GPS_M10_TP1_PERIOD
-    int "TP1 period (us)"
-    range 1 1000000000
-    default 1000000
+config STM32_GPS_M10_TP1_USE_LOCKED
+    bool "TP1 switches cadence once GNSS time is locked"
+    default y
     help
-      Timepulse period in microseconds for TP1.
+      The receiver keeps two cadences and picks between them itself: the
+      unlocked pair below while it has no GNSS time, the locked pair once it
+      does. With the two set differently the pulse becomes a fix indicator
+      that costs nothing to read -- fast while searching, one pulse a second
+      once locked.
+
+      Turn this off to run one cadence in both states, which is what the
+      receiver did before the locked pair was configured at all.
+
+config STM32_GPS_M10_TP1_PERIOD
+    int "TP1 period while unlocked (us)"
+    range 1 1000000000
+    default 250000
+    help
+      Timepulse period before the receiver has GNSS time. Nothing can use
+      these pulses for timing -- they are not disciplined yet -- so the rate
+      is free to be chosen for how it looks: 250 ms reads as a clear fast
+      blink beside the one-second locked rate.
 
 config STM32_GPS_M10_TP1_LEN
-    int "TP1 pulse length (us)"
+    int "TP1 pulse length while unlocked (us)"
     range 1 1000000000
     default 50000
     help
-      Timepulse active pulse width in microseconds for TP1.
+      Timepulse active pulse width before lock. Must be shorter than the
+      period above; the generator refuses the pair otherwise.
+
+config STM32_GPS_M10_TP1_PERIOD_LOCK
+    int "TP1 period while locked (us)"
+    range 1 1000000000
+    default 1000000
+    help
+      Timepulse period once the receiver has GNSS time. Left at one second
+      because this is the pulse anything doing time transfer would discipline
+      to -- a real 1PPS -- and a second is also slow enough to read as "found
+      it" against the unlocked rate.
+
+config STM32_GPS_M10_TP1_LEN_LOCK
+    int "TP1 pulse length while locked (us)"
+    range 1 1000000000
+    default 100000
+    help
+      Timepulse active pulse width once locked. Longer than the unlocked
+      width so each pulse is a visible blink rather than a flicker.
 
 choice
     prompt "TP1 time grid"
@@ -2941,17 +3106,15 @@ config STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US
     range 100 100000
     default 3800
     help
-      Maximum time to wait for an ESC telemetry frame after requesting one
-      before giving up and moving on. Measured to the frame's last byte, so
-      it covers the wire time as well as however long the ESC takes to start
-      answering -- AM32 replies once its current commutation is done, which
-      is not a fixed latency.
+      How long a telemetry request stays open before the driver gives up on
+      it. Tested after the receive buffer is drained, so a reply that arrived
+      is parsed whatever the clock says: this ends a request nobody answered,
+      not one answered while the main tick was busy elsewhere.
 
       Bounded above by ESC_SERVICE_TELEMETRY_REQUEST_PERIOD_US, which the
-      driver asserts: the next request re-aims the shared line, so a reply
-      still arriving then would be credited to the wrong motor. Anything
-      short of that bound only discards replies that did arrive intact, and
-      counts each one as a fault against the propulsion health bit.
+      driver asserts: the next request re-aims the shared line, and a request
+      still open by then would credit a stray frame to a motor that has
+      already had its turn.
 
 endmenu
 
@@ -3857,6 +4020,25 @@ config STM32_LOG_TOPIC_IMU_HEALTH_PERIOD_MS
     default 200
     help
       PX4: sensors_status_imu 200 ms.
+
+config STM32_LOG_TOPIC_MAGNETOMETER_ENABLED
+    bool "Magnetometer"
+    default y
+    help
+      Magnetic field in the body frame, with the device identifier and the
+      part's own overflow and skipped-sample counts.
+
+config STM32_LOG_TOPIC_MAGNETOMETER_PERIOD_MS
+    int "Magnetometer period (ms)" if STM32_LOG_TOPIC_MAGNETOMETER_ENABLED
+    range 1 60000
+    default 200
+    help
+      PX4: vehicle_magnetometer 200 ms. Its sensor_mag runs at 1000 ms, but
+      only because vehicle_magnetometer already carries the field at 200; this
+      board has one record doing both jobs, so it takes the faster of the two.
+      Raise it toward 100 ms for the sensor-comparison work PX4 uses that rate
+      for -- the part delivers about 49 Hz, so anything above that only repeats
+      samples.
 
 config STM32_LOG_TOPIC_CRSF_LINK_ENABLED
     bool "CRSF link"

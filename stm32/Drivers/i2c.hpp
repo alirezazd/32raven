@@ -9,6 +9,7 @@
 #include <span>
 
 #include "gpio.hpp"
+#include "shared_state.hpp"
 #include "outcome.hpp"
 #include "stm32f4xx.h"
 
@@ -70,6 +71,16 @@ class I2c {
   I2cTransferStatus Poll(uint32_t now_us);
   // The read payload; empty unless the last transfer ended kComplete.
   std::span<const uint8_t> Received() const;
+
+  // The four that are failed transfers. Recoveries and spurious interrupts
+  // stay behind: a recovery answers one of these rather than being a fifth,
+  // and nothing has asked for either yet.
+  I2cFaults GetFaults() const {
+    return I2cFaults{.nacks = nacks_,
+                     .bus_errors = bus_errors_,
+                     .arb_losses = arb_losses_,
+                     .timeouts = timeouts_};
+  }
 
   // Called from ISR
   void OnEventIrq();

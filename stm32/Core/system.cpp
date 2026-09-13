@@ -53,6 +53,7 @@ constexpr std::array<System::Component,
         System::Component::kM10,
         System::Component::kIcm42688p,
         System::Component::kI2c1,
+        System::Component::kQmc5883p,
         System::Component::kMultirotorMixer,
         System::Component::kAhrs,
         System::Component::kRateController,
@@ -123,6 +124,7 @@ void System::PublishSystemHealth(uint32_t now_us) {
       .rc_uart = RcUart().GetFaults(),
       .imu_spi = Spi2::GetInstance().GetFaults(),
       .batt_adc = Batt().GetAdcFaults(),
+      .sensor_i2c = I2c1::GetInstance().GetFaults(),
   });
 }
 
@@ -132,6 +134,7 @@ void System::Poll(uint32_t now_us) {
   SentinelSvc().Supervise(now_us);
   PublishSystemHealth(now_us);
   Batt().Poll(now_us);
+  Mag().Poll(now_us);
   TelemetryPubSvc().Poll(now_us);
   // Last, so what the publisher just queued goes out on this pass.
   FcLinkSvc().Poll();
@@ -277,6 +280,9 @@ void System::InitComponent(Component c) {
       break;
     case Component::kI2c1:
       I2c1::GetInstance().Init(kI2c1Config, GPIO::GetInstance());
+      break;
+    case Component::kQmc5883p:
+      Mag().Init(kQmc5883pConfig, I2c1::GetInstance(), blackboard_);
       break;
     case Component::kMultirotorMixer:
       mixer_.Init(kMultirotorMixerConfig, blackboard_);

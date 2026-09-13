@@ -107,7 +107,6 @@ class EscTelemetry {
   void ProcessByte(uint8_t byte, uint32_t now_us);
   void PublishFrame(uint32_t now_us);
   void PublishInfo();
-  bool ExpectedMotorActive(uint32_t now_us) const;
 
   Config cfg_{};
   bool initialized_ = false;

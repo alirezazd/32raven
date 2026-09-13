@@ -18,6 +18,7 @@ struct BatteryData;
 namespace message {
 struct AttitudeMsg;
 struct GpsData;
+struct MagnetometerMsg;
 struct SystemStatusMsg;
 struct UsbStatusMsg;
 struct VehicleStatusMsg;
@@ -53,7 +54,7 @@ class TelemetryPublisher {
   };
 
   // Public only so the .cpp's config tables can be sized by them.
-  static constexpr size_t kFcLinkTopicCount = 7u;
+  static constexpr size_t kFcLinkTopicCount = 8u;
   static constexpr size_t kCrsfTopicCount = CrsfLinkService::kTopicCount;
 
   static TelemetryPublisher &GetInstance();
@@ -87,7 +88,6 @@ class TelemetryPublisher {
     kImu,
     kGps,
     kRc,
-    kEsc,
     kBattery,
     kCount,
   };
@@ -112,6 +112,7 @@ class TelemetryPublisher {
     kUsbStatus,
     kGps,
     kAttitude,
+    kMagnetometer,
     kCount,
   };
 
@@ -155,6 +156,7 @@ class TelemetryPublisher {
   message::UsbStatusMsg BuildUsbStatusMsg() const;
   message::GpsData BuildGpsMsg() const;
   message::AttitudeMsg BuildAttitudeMsg() const;
+  message::MagnetometerMsg BuildMagnetometerMsg() const;
 
   static PublishResult PublishSystemStatus(TelemetryPublisher &self,
                                            uint32_t now_us);
@@ -169,6 +171,8 @@ class TelemetryPublisher {
   static PublishResult PublishGps(TelemetryPublisher &self, uint32_t now_us);
   static PublishResult PublishAttitude(TelemetryPublisher &self,
                                        uint32_t now_us);
+  static PublishResult PublishMagnetometer(TelemetryPublisher &self,
+                                          uint32_t now_us);
 
   // CrsfLinkService owns the payloads and the change detection; the silence
   // bound is the scheduler's, so it is passed in rather than duplicated there.
@@ -230,4 +234,5 @@ class TelemetryPublisher {
   bool have_gps_ = false;
   uint64_t attitude_sent_timestamp_us_ = 0;
   bool have_attitude_ = false;
+
 };

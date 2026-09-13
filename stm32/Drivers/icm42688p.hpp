@@ -60,10 +60,14 @@ class Icm42688p {
       bool hires;
     } fifo;
 
-    // Per-board chip-frame → body-NED axis remap, applied inside this driver
-    // and nowhere else, so no downstream code re-flips axes.
+    // Per-board chip-frame → body-frame axis remap, applied inside this
+    // driver and nowhere else, so no downstream code re-flips axes.
     // Each component picks a chip axis (0=X, 1=Y, 2=Z) and optional sign.
-    // Identity default: chip +X/+Y/+Z = body +X(N)/+Y(E)/+Z(D).
+    // Identity default: chip +X/+Y/+Z = body forward/right/down.
+    //
+    // Body frame is forward-right-down and turns with the airframe. It is not
+    // NED, which is earth-fixed; the rotation between the two is the attitude
+    // the estimator solves for, and nothing in this file knows about it.
     struct AxisMap {
       uint8_t x_from = 0;  // chip-frame axis index feeding body +X
       bool x_neg = false;
@@ -100,7 +104,7 @@ class Icm42688p {
   // Suspend, discard whatever the chip buffered, resume. Sentinel's lever on
   // a stalled sample path.
   void RestartSampling();
-  // bias_body is body-NED; OFFSET_USER is per chip axis. Blocking, and stops
+  // bias_body is body frame; OFFSET_USER is per chip axis. Blocking, and stops
   // the sample path for ~50 ms: slow loop only, never while armed.
   void ApplyGyroOffsets(const float bias_body[3]);
 
@@ -165,7 +169,7 @@ class Icm42688p {
   // per-sample return would only be transposed at the call site.
   void MapAxes(const Sample &sample, uint16_t slot, ImuBurst &out) const;
 
-  // Frame half of MapAxes, inverted. CalibrateGyro measures in body-NED but
+  // Frame half of MapAxes, inverted. CalibrateGyro measures in body frame but
   // OFFSET_USER is per chip axis, so the mean has to come back through the map
   // before it is written -- and that write is permanent. Units are not
   // inverted: the offset register takes dps, so nothing returns to LSB.

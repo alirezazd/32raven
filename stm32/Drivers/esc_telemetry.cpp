@@ -24,8 +24,8 @@ static_assert(kEscTelemetryConfig.response_timeout_us >
 static_assert(kEscTelemetryConfig.response_timeout_us <
                   kEscServiceConfig.telemetry_request_period_us,
               "CONFIG_STM32_ESC_TELEMETRY_RESPONSE_TIMEOUT_US outlives the "
-              "request that opened it, so a reply landing inside the next "
-              "request's window would be credited to the wrong motor");
+              "request that opened it, so a request nobody answered would "
+              "still be open when the next one re-aims the line");
 
 static constexpr uint32_t kUsart3DmaChannel = 4u;
 
@@ -162,9 +162,16 @@ void EscTelemetry::Poll(uint32_t now_us) {
     ProcessByte(byte, now_us);
   }
 
-  // A reply that never came would otherwise leave the window sized for info.
-  if (expected_frame_size_ == kInfoFrameSize &&
-      static_cast<uint32_t>(now_us - expected_since_us_) > kInfoTimeoutUs) {
+  // After the drain, never before it: a reply that arrived is a reply however
+  // late this pass ran, and the clock cannot tell a slow ESC from a main tick
+  // that spent four milliseconds elsewhere. Only a request with nothing behind
+  // it is abandoned -- which also leaves the window sized for info no longer
+  // than the info reply is worth waiting for.
+  const uint32_t deadline_us = expected_frame_size_ == kInfoFrameSize
+                                   ? kInfoTimeoutUs
+                                   : cfg_.response_timeout_us;
+  if (expected_motor_ != kNoMotor &&
+      static_cast<uint32_t>(now_us - expected_since_us_) > deadline_us) {
     expected_motor_ = kNoMotor;
     expected_frame_size_ = kKissFrameSize;
     frame_len_ = 0;
@@ -321,14 +328,6 @@ void EscTelemetry::ProcessByte(uint8_t byte, uint32_t now_us) {
   frame_len_ = 0;
 }
 
-bool EscTelemetry::ExpectedMotorActive(uint32_t now_us) const {
-  if (expected_motor_ >= kMotorCount) {
-    return false;
-  }
-  return static_cast<uint32_t>(now_us - expected_since_us_) <=
-         cfg_.response_timeout_us;
-}
-
 // Byte offsets into AM32's settings page. Bytes 17-46 are identical in layouts
 // 2 and 3; below 17 and above 46 they are not, so anything read from outside
 // that window needs its own per-version offset.
@@ -377,9 +376,8 @@ void EscTelemetry::PublishInfo() {
 }
 
 void EscTelemetry::PublishFrame(uint32_t now_us) {
-  if (!ExpectedMotorActive(now_us)) {
+  if (expected_motor_ >= kMotorCount) {
     unassigned_frame_count_++;
-    expected_motor_ = kNoMotor;
     return;
   }
 
