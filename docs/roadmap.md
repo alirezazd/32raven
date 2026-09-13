@@ -666,21 +666,43 @@ that risk rather than removing it.
 Pairs with #25: a rotated mount invalidates the stored accel calibration as well, so the two
 land together or not at all.
 
-### #45 — Magnetometer, MMC5983MA — 🟢 SUPPORTING
+### #45 — The compass reads, and nothing trusts it yet — 🟢 SUPPORTING
 
-No heading reference exists. `ControlTickFlightLoop` says so twice: yaw bypasses the attitude
-loop entirely, and the swing-twist decoupling is there to stop yaw drift bleeding into roll and
-pitch. Stabilize holds tilt but lets heading wander, and nothing can hold a course.
+The part is a QMC5883**P**, not the MMC5983MA this item was written around and not the
+QMC5883L either: it is the compass half of the HGLRC M100-5883, whose other half is the M10
+already on USART2. Fixed at I2C address 0x2C, chip ID 0x80, four field ranges from ±2G at
+15000 LSB/G to ±30G at 1000. The driver publishes a body-frame vector in microtesla, and the
+ESP32 turns it into the heading a ground station draws.
 
-The part is chosen (MMC5983MA, 3-axis AMR) and I2C1 is already built and brought up for it.
-What remains is a driver, a blackboard fact with its own timestamp, and a `MagCal` sibling in
-`SensorCalService`.
+HGLRC has shipped both parts under the same 5883 badge and they share nothing but the name --
+different address, different chip ID, data one register higher, status elsewhere, two ranges
+against four. The driver probes 0x0D on a failed bring-up so a board carrying an L is told
+which part it has; driving one would mean a second register map, and no aircraft here has one.
 
-That calibration is not the gyro's shape. Hard-iron offset plus soft-iron matrix is an ellipsoid
-fit over many orientations, so it is operator-guided and takes tens of seconds. It joins as a
-tenant with its own feed and its own fit, sharing only the reporting and the one-run-at-a-time
-interlock. The part's internal SET/RESET degauss is what removes the sensor's own offset drift
-and is a separate step from the vehicle's iron.
+Three things stand between that and a heading anything may act on.
+
+**The orientation is a guess.** The axis map in the generated config is identity because the
+compass sits on the GPS mast rather than on the board, so its frame is however the mast was
+glued down. Nothing has been checked against a known bearing. The same problem named for the
+IMU is #30, and the answer wants to be the same one twice.
+
+**Nothing corrects for iron.** Hard-iron offset plus soft-iron matrix is an ellipsoid fit over
+many orientations, so it is operator-guided and takes tens of seconds -- a `MagCal` sibling in
+`SensorCalService`, joining as a tenant with its own feed and its own fit, sharing the reporting
+and the one-run-at-a-time interlock. A ground station drives it with
+`MAV_CMD_PREFLIGHT_CALIBRATION` param2 and expects `MAG_CAL_PROGRESS` and `MAG_CAL_REPORT`,
+neither of which the bridge sends. Four ESCs switching tens of amps a few centimetres away is
+what the fit is up against, and #25's warning applies here too: the accel fit exists and its
+numbers have still never been checked on hardware.
+
+**The parameters say there is no compass.** `SYS_HAS_MAG` is pinned to 0, `CAL_MAG0..2_ID` to 0
+and `CAL_MAG0..2_ROT` to -1, and the served dictionary says so in prose. All of it has to become
+true together, along with the generator and `check_param_metadata`.
+
+Two notes for whoever picks it up. The heading reported today is magnetic, not true -- no
+declination is applied anywhere, and the vector carries no correction at all. And the estimator
+is deliberately not a consumer: yaw still bypasses the attitude loop, so a yaw reference is
+#27's business, and the compass reaching it is a decision rather than a next step.
 
 ### #46 — Barometer, DPS310 — 🟢 SUPPORTING
 
@@ -946,12 +968,15 @@ the build-time knob is for.
 ### #55 — A byte count is summed into the ESC fault total — 🟢 SUPPORTING
 
 `EscTelemetryData::Total()` adds `rx_drop_bytes` to four event counters. Every other fault
-struct — `UartFaults`, `SpiFaults`, `AdcFaults` — sums like with like, and
-`TelemetryPublisher::UpdateFaultWindows` reads all five the same way: a per-window allowance
-counted in events, which the ESC bus holds at a couple per second. One DMA drain that outruns
-the ring adds as many to that total as there were bytes in flight, so a single overflow reads
-as hundreds of faults and drops the propulsion health bit on a bus that lost one burst. It
-also forces a `PublishIfChanged` republish for the same reason.
+struct — `UartFaults`, `SpiFaults`, `AdcFaults` — sums like with like, which is what lets
+`TelemetryPublisher::UpdateFaultWindows` window them by counting events. Window this one the
+same way and a single DMA drain that outran the ring reads as however many bytes were in
+flight. Nothing does today, which makes this a trap rather than a defect: whoever reaches for
+`Total()` next is the one who finds it.
+
+`PublishIfChanged` reaches for it already, and stamps `timestamp_us` — the bus's heartbeat,
+and what `ESC_STATUS` carries to the ground as its `time_usec` — on a dropped byte as though a
+frame had moved.
 
 The shape the other structs already have: count the overflowing drain as one event and put
 that in `Total()`, keeping `rx_drop_bytes` as the magnitude beside it. The ULog

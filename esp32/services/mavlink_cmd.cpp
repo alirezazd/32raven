@@ -71,8 +71,7 @@ void Mavlink::HandleRequestMessage(const mavlink_command_long_t &cmd,
     }
     QueueCommandAck(command, MAV_RESULT_ACCEPTED, source_system,
                     source_component);
-    QueueAvailableModes(
-        static_cast<uint8_t>(requested < 1 ? 1 : requested));
+    QueueAvailableModes(static_cast<uint8_t>(requested < 1 ? 1 : requested));
     return;
   }
 
@@ -111,7 +110,6 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
         req_pkt.header.id =
             static_cast<uint8_t>(cancel ? message::MsgId::kReqReceiverCancelBind
                                         : message::MsgId::kReqReceiverBind);
-        req_pkt.header.len = 0;
         fc_link_->SendPacket(req_pkt);
         QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
                         source_system, source_component);
@@ -152,7 +150,6 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       }
       message::Packet req_pkt{};
       req_pkt.header.id = static_cast<uint8_t>(id);
-      req_pkt.header.len = 0;
       fc_link_->SendPacket(req_pkt);
       QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
                       source_system, source_component);
@@ -162,8 +159,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       QueueCommandAck(static_cast<uint16_t>(cmd.command),
                       MAV_RESULT_UNSUPPORTED, source_system, source_component);
       LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
-                              static_cast<uint32_t>(cmd.param1),
-                              "unsupported");
+                              static_cast<uint32_t>(cmd.param1), "unsupported");
       break;
   }
 }

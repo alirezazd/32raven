@@ -42,8 +42,7 @@ static void OnTelemetry(const AppContext &ctx, const message::Packet &pkt) {
 
 template <typename T>
 static void OnConfig(const AppContext &ctx, const message::Packet &pkt) {
-  ctx.sys->Mavlink().UpdateConfigCache(message::PayloadAs<T>(pkt),
-                                       ctx.sys->Timebase().NowMs());
+  ctx.sys->Mavlink().UpdateConfigCache(message::PayloadAs<T>(pkt));
 }
 
 // Expected traffic this side has nothing to do with. Listed rather than

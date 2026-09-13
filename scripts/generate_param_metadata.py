@@ -73,7 +73,7 @@ _TABLE_RE = re.compile(
 )
 _ROW_RE = re.compile(r'\{"([A-Z0-9_]+)",\s*(MAV_PARAM_TYPE_\w+)')
 _RC_BLOCK_RE = re.compile(
-    r"Mavlink::TryEncodeRcCalibrationParam\b(.*?)\n\}", re.DOTALL
+    r"^\w+::TryEncodeRcCalibrationParam\b(.*?)\n\}", re.DOTALL | re.MULTILINE
 )
 _RC_FIELD_RE = re.compile(
     r'"RC%u_(\w+)"[^;]*;\s*encoded\.type = (MAV_PARAM_TYPE_\w+)'

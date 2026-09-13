@@ -270,6 +270,15 @@ max = 60000
 group = "Telemetry rates"
 category = "Standard"
 
+[params.MAV_ESC_MS]
+shortDesc = "ESC status stream period"
+longDesc = "Interval between ESC_STATUS frames. Set at build time."
+units = "ms"
+min = 1
+max = 60000
+group = "Telemetry rates"
+category = "Standard"
+
 # Absent hardware, reported so the ground station stops asking. Three of each
 # because PX4's dictionary names three magnetometer slots and a station that
 # finds one missing treats the set as incomplete.

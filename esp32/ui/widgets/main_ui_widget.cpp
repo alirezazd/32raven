@@ -734,10 +734,10 @@ MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(
     return {
         .active = true,
         .left_icon_width = chip_bitmap::kVisibleWidth,
-        .rx_count = mavlink.GetUdpRxPacketCount(),
-        .tx_count = mavlink.GetUdpTxPacketCount(),
-        .rx_heartbeat_count = mavlink.GetUdpRxHeartbeatCount(),
-        .tx_heartbeat_count = mavlink.GetUdpTxHeartbeatCount(),
+        .rx_count = mavlink.GetRxPacketCount(),
+        .tx_count = mavlink.GetTxPacketCount(),
+        .rx_heartbeat_count = mavlink.GetRxHeartbeatCount(),
+        .tx_heartbeat_count = mavlink.GetTxHeartbeatCount(),
     };
   }
   return {};

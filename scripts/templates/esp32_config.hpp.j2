@@ -233,12 +233,8 @@ inline constexpr WifiController::Config kWifiConfig = {
         },
 };
 
-inline constexpr Mavlink::Config kMavlinkConfig = {
-    .identity =
-        {
-            .sysid = {{ mavlink.identity.sysid }},
-            .compid = {{ mavlink.identity.compid }},
-        },
+inline constexpr MavlinkConfig kMavlinkConfig = {
+    .sysid = {{ mavlink.sysid }},
     .tx =
         {
             .periods =

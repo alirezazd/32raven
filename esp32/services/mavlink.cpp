@@ -18,12 +18,12 @@ Mavlink &Mavlink::GetInstance() {
   return instance;
 }
 
-void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport,
+void Mavlink::Init(const MavlinkConfig &cfg, IMavlinkTransport *transport,
                    FcLink &fc_link) {
   if (transport == nullptr) {
     Panic(ErrorCode::Esp32::kMavlinkInitFailed);
   }
-  if (cfg.identity.sysid == 0 || cfg.tx.periods.hb_ms == 0 ||
+  if (cfg.sysid == 0 || cfg.tx.periods.hb_ms == 0 ||
       cfg.tx.schedule.hb_deadline_ms == 0) {
     Panic(ErrorCode::Esp32::kMavlinkInitFailed);
   }
@@ -34,7 +34,8 @@ void Mavlink::Init(const Config &cfg, IMavlinkTransport *transport,
   // every tick.
   transport_ = transport;
   fc_link_ = &fc_link;
-  ResetParamState();
+  fc_config_.Init(fc_link);
+  params_.Init(cfg_, fc_config_);
   SetTelemetryLink(false);
   ESP_LOGI(kTag, "Initialized (MAVLink transport service)");
 }
@@ -51,8 +52,8 @@ void Mavlink::SetTransport(IMavlinkTransport *transport) {
 }
 
 void Mavlink::Poll(uint32_t now_ms) {
-  ServiceUdpRx();
-  ServicePendingParamApplies(now_ms);
+  ServiceRx();
+  fc_config_.Poll(now_ms);
   ServiceTx(now_ms);
 }
 
@@ -69,31 +70,29 @@ void Mavlink::SetTelemetryLink(bool enabled) {
   }
 
   link_enabled_ = false;
-  udp_tx_.pending_param_queue_.Clear();
-  udp_tx_.param_stream_ = TxState::ParamStreamIdle{};
+  params_.Reset();
   InitTxSchedule(0);
-  rc_map_apply_.Reset();
-  rc_calibration_apply_.Reset();
+  fc_config_.AbandonWrites();
   // Reached from panic recovery too, which may run before Init.
   if (transport_ != nullptr) {
     transport_->ClearPeer();
   }
 }
 
-uint32_t Mavlink::GetUdpRxPacketCount() const {
-  return udp_rx_packet_count_.load(std::memory_order_relaxed);
+uint32_t Mavlink::GetRxPacketCount() const {
+  return rx_packet_count_.load(std::memory_order_relaxed);
 }
 
-uint32_t Mavlink::GetUdpTxPacketCount() const {
-  return udp_tx_packet_count_.load(std::memory_order_relaxed);
+uint32_t Mavlink::GetTxPacketCount() const {
+  return tx_packet_count_.load(std::memory_order_relaxed);
 }
 
-uint32_t Mavlink::GetUdpRxHeartbeatCount() const {
-  return udp_rx_heartbeat_count_.load(std::memory_order_relaxed);
+uint32_t Mavlink::GetRxHeartbeatCount() const {
+  return rx_heartbeat_count_.load(std::memory_order_relaxed);
 }
 
-uint32_t Mavlink::GetUdpTxHeartbeatCount() const {
-  return udp_tx_heartbeat_count_.load(std::memory_order_relaxed);
+uint32_t Mavlink::GetTxHeartbeatCount() const {
+  return tx_heartbeat_count_.load(std::memory_order_relaxed);
 }
 
 std::optional<bool> Mavlink::PeerArmed(uint32_t now_ms) const {

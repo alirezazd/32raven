@@ -745,14 +745,6 @@ config ESP32_MAVLINK_IDENTITY_SYSID
     help
       MAVLink system ID advertised by the primary MAVLink transport endpoint.
 
-config ESP32_MAVLINK_IDENTITY_COMPID
-    int "Component ID"
-    range 0 255
-    default 1
-    help
-      MAVLink component ID advertised by the primary MAVLink transport
-      endpoint. The default value 1 matches MAV_COMP_ID_AUTOPILOT1.
-
 endmenu
 
 menu "Transmit"

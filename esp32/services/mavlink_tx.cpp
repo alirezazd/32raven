@@ -4,6 +4,7 @@
 #include <mavlink.h>
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -196,41 +197,70 @@ void Mavlink::ReportSensorHealthChanges(
 }
 
 // The operator is holding an airframe rather than reading a status field, so
-// an edge becomes one line of prose naming what is still owed. Text and not a
-// number because STATUSTEXT is what a ground station renders in its
-// calibration panel -- QGC's stock accel page needs nothing else.
+// every edge becomes a line QGC's calibration page parses. The strings are
+// PX4's exactly; a word off is a line it drops.
 void Mavlink::ReportAccelCalProgress(const message::AccelCalStatusMsg &msg) {
+  // Named for the face it rests on, not the axis pointing up.
   static constexpr const char *kSideNames[message::kAccelSideCount] = {
-      "X up", "X down", "Y up", "Y down", "Z up", "Z down"};
+      "back", "front", "left", "right", "up", "down"};
 
-  switch (static_cast<message::AccelCalState>(msg.state)) {
-    case message::AccelCalState::kApplied:
-      QueueStatusText("[cal] accel calibration done", MAV_SEVERITY_INFO);
-      return;
-    case message::AccelCalState::kFailed:
-      QueueStatusText("[cal] accel calibration failed", MAV_SEVERITY_ERROR);
-      return;
-    default:
-      break;
+  const auto state = static_cast<message::AccelCalState>(msg.state);
+  const bool running = (state == message::AccelCalState::kDetecting) ||
+                       (state == message::AccelCalState::kCollecting);
+  char line[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
+
+  if (running && !accel_cal_running_) {
+    // 2 is the revision the page checks against; without this it stays idle.
+    QueueStatusText("[cal] calibration started: 2 accel", MAV_SEVERITY_INFO);
+    accel_cal_sides_ = 0;
+    accel_cal_announced_side_ = message::kAccelSideCount;
   }
+  accel_cal_running_ = running;
 
-  char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-  int used = std::snprintf(text, sizeof(text), "[cal] hold still:");
+  const uint8_t captured =
+      static_cast<uint8_t>(msg.sides_done & ~accel_cal_sides_);
   for (uint8_t side = 0; side < message::kAccelSideCount; ++side) {
-    if ((msg.sides_done & (1u << side)) != 0u) {
+    if ((captured & (1u << side)) == 0u) {
       continue;
     }
-    const int wrote =
-        std::snprintf(text + used, sizeof(text) - static_cast<size_t>(used),
-                      " %s", kSideNames[side]);
-    // Truncated rather than wrapped: the remaining sides shrink every pose, so
-    // a list too long to fit is one the operator will see in full shortly.
-    if (wrote <= 0 || static_cast<size_t>(used + wrote) >= sizeof(text)) {
-      break;
+    // The page marks a side complete only after marking it started.
+    if (accel_cal_announced_side_ != side) {
+      std::snprintf(line, sizeof(line), "[cal] %s orientation detected",
+                    kSideNames[side]);
+      QueueStatusText(line, MAV_SEVERITY_INFO);
     }
-    used += wrote;
+    std::snprintf(line, sizeof(line),
+                  "[cal] %s side done, rotate to a different side",
+                  kSideNames[side]);
+    QueueStatusText(line, MAV_SEVERITY_INFO);
+    accel_cal_announced_side_ = message::kAccelSideCount;
   }
-  QueueStatusText(text, MAV_SEVERITY_INFO);
+
+  if (captured != 0u) {
+    accel_cal_sides_ = msg.sides_done;
+    const unsigned done =
+        static_cast<unsigned>(std::popcount(accel_cal_sides_));
+    // Its own line: the page returns early on a progress report.
+    std::snprintf(line, sizeof(line), "[cal] progress <%u>",
+                  done * 100u / message::kAccelSideCount);
+    QueueStatusText(line, MAV_SEVERITY_INFO);
+  }
+
+  if ((state == message::AccelCalState::kCollecting) &&
+      (msg.side < message::kAccelSideCount) &&
+      (accel_cal_announced_side_ != msg.side)) {
+    std::snprintf(line, sizeof(line), "[cal] %s orientation detected",
+                  kSideNames[msg.side]);
+    QueueStatusText(line, MAV_SEVERITY_INFO);
+    accel_cal_announced_side_ = msg.side;
+  }
+
+  // The page tests for the sensor word after the colon, not before it.
+  if (state == message::AccelCalState::kApplied) {
+    QueueStatusText("[cal] calibration done: accel", MAV_SEVERITY_INFO);
+  } else if (state == message::AccelCalState::kFailed) {
+    QueueStatusText("[cal] calibration failed: accel", MAV_SEVERITY_ERROR);
+  }
 }
 
 void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
@@ -252,7 +282,6 @@ void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
     Panic(ErrorCode::Esp32::kMavlinkPanicSendFailed);
   }
 }
-
 bool Mavlink::SendStatusTextFrameNow(const StatusText &status,
                                      bool require_link_enabled) {
   if (transport_ == nullptr || (require_link_enabled && !link_enabled_) ||
@@ -267,7 +296,7 @@ bool Mavlink::SendStatusTextFrameNow(const StatusText &status,
 
   const int sent = transport_->Send(frame.Bytes());
   if (sent > 0) {
-    udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
+    tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
     return true;
   }
   return false;
@@ -317,9 +346,9 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartQueuedTxWorkFrame() {
 
 Mavlink::TxFrameState Mavlink::StartCommandAckFrame(const CommandAck &ack) {
   mavlink_message_t m{};
-  mavlink_msg_command_ack_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
-                               ack.command, ack.result, UINT8_MAX, 0,
-                               ack.target_system, ack.target_component);
+  mavlink_msg_command_ack_pack(cfg_.sysid, kMavlinkComponentId, &m, ack.command,
+                               ack.result, UINT8_MAX, 0, ack.target_system,
+                               ack.target_component);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
@@ -338,10 +367,10 @@ Mavlink::TxFrameState Mavlink::StartAutopilotVersionFrame(
   static constexpr uint8_t kZeroUid2[18] = {};
 
   mavlink_message_t m{};
-  mavlink_msg_autopilot_version_pack(cfg_.identity.sysid, cfg_.identity.compid,
-                                     &m, capabilities, kMavlinkFlightSwVersion,
-                                     0, 0, 0, kZeroHash, kZeroHash, kZeroHash,
-                                     0, 0, 0, kZeroUid2);
+  mavlink_msg_autopilot_version_pack(cfg_.sysid, kMavlinkComponentId, &m,
+                                     capabilities, kMavlinkFlightSwVersion, 0,
+                                     0, 0, kZeroHash, kZeroHash, kZeroHash, 0,
+                                     0, 0, kZeroUid2);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
@@ -354,8 +383,9 @@ Mavlink::TxFrameState Mavlink::StartAvailableModesFrame(
   // from a float on the wire, and reading past the table would be worse than
   // answering about the wrong mode.
   const uint8_t count = static_cast<uint8_t>(kFlightModes.size());
-  const uint8_t index =
-      (work.mode_index >= 1u && work.mode_index <= count) ? work.mode_index : 1u;
+  const uint8_t index = (work.mode_index >= 1u && work.mode_index <= count)
+                            ? work.mode_index
+                            : 1u;
   const FlightModeInfo &info = kFlightModes[index - 1u];
 
   char name[MAVLINK_MSG_AVAILABLE_MODES_FIELD_MODE_NAME_LEN] = {};
@@ -363,7 +393,7 @@ Mavlink::TxFrameState Mavlink::StartAvailableModesFrame(
 
   mavlink_message_t m{};
   mavlink_msg_available_modes_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, count, index,
+      cfg_.sysid, kMavlinkComponentId, &m, count, index,
       MAV_STANDARD_MODE_NON_STANDARD,
       static_cast<uint32_t>(info.px4_main_mode) << 16, info.properties, name);
 
@@ -373,7 +403,7 @@ Mavlink::TxFrameState Mavlink::StartAvailableModesFrame(
 Mavlink::TxFrameState Mavlink::StartMissionCountFrame(
     const MissionCount &work) {
   mavlink_message_t m{};
-  mavlink_msg_mission_count_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+  mavlink_msg_mission_count_pack(cfg_.sysid, kMavlinkComponentId, &m,
                                  work.target_system, work.target_component, 0,
                                  work.mission_type, 0);
 
@@ -382,7 +412,7 @@ Mavlink::TxFrameState Mavlink::StartMissionCountFrame(
 
 Mavlink::TxFrameState Mavlink::StartStatusTextFrame(const StatusText &work) {
   mavlink_message_t m{};
-  mavlink_msg_statustext_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+  mavlink_msg_statustext_pack(cfg_.sysid, kMavlinkComponentId, &m,
                               work.severity, work.text, 0, 0);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
@@ -395,7 +425,7 @@ constexpr uint16_t kSysStatusPeriodMs = 1000;
 
 // The periods in TxSlot order, which is the order the scheduler indexes.
 constexpr std::array<uint32_t, Mavlink::kTxSlotCount> SlotPeriodsMs(
-    const Mavlink::Config &cfg) {
+    const MavlinkConfig &cfg) {
   return {{cfg.tx.periods.hb_ms, kSysStatusPeriodMs, cfg.tx.periods.gps_ms,
            cfg.tx.periods.att_ms, cfg.tx.periods.gpos_ms,
            cfg.tx.periods.batt_ms, cfg.tx.periods.rc_ms,
@@ -420,7 +450,7 @@ constexpr uint32_t MaxFrameBytes(Mavlink::TxSlot slot) {
 }
 
 // Bytes per kilosecond the periodic ladder needs, every frame at its longest.
-constexpr uint32_t LadderBytesPerKs(const Mavlink::Config &cfg) {
+constexpr uint32_t LadderBytesPerKs(const MavlinkConfig &cfg) {
   const std::array<uint32_t, Mavlink::kTxSlotCount> periods_ms =
       SlotPeriodsMs(cfg);
   uint32_t bytes_per_ks = 0;
@@ -447,7 +477,7 @@ constexpr uint32_t LinkBytesPerS(uint32_t baud, uint32_t air_bytes_per_s) {
 // model, so not a knob.
 constexpr uint32_t kLinkMarginPct = 80u;
 
-constexpr bool LadderFitsLink(const Mavlink::Config &cfg, uint32_t baud) {
+constexpr bool LadderFitsLink(const MavlinkConfig &cfg, uint32_t baud) {
   const uint64_t budget_per_ks =
       static_cast<uint64_t>(LinkBytesPerS(baud, cfg.tx.link_air_bytes_per_s)) *
       1000u * kLinkMarginPct / 100u;
@@ -519,13 +549,13 @@ void Mavlink::InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due) {
   tx_scheduler_.Init(kTxSlotConfigs, tx_slots_, kTxSlotStaggerMs, now_ms);
 }
 
-bool Mavlink::ShouldSendHbNow(const Config::Tx &cfg_tx, uint32_t now_ms) const {
-  if (cfg_tx.periods.hb_ms == 0 || cfg_tx.schedule.hb_deadline_ms == 0) {
+bool Mavlink::ShouldSendHbNow(uint32_t now_ms) const {
+  if (cfg_.tx.periods.hb_ms == 0 || cfg_.tx.schedule.hb_deadline_ms == 0) {
     return false;
   }
 
   const int32_t since_done = static_cast<int32_t>(now_ms - last_hb_done_ms_);
-  if (since_done >= static_cast<int32_t>(cfg_tx.schedule.hb_deadline_ms)) {
+  if (since_done >= static_cast<int32_t>(cfg_.tx.schedule.hb_deadline_ms)) {
     return true;
   }
   return tx_scheduler_.IsDue(SlotIndex(TxSlot::kHb), now_ms);
@@ -547,27 +577,26 @@ void Mavlink::ServiceTx(uint32_t now_ms) {
   if (!link_enabled_) {
     return;
   }
-  ServiceUdpTx(now_ms);
+  TransmitNextFrame(now_ms);
 }
 
-bool Mavlink::StartNextFrameIfIdle(TxState &tx, const Config::Tx &cfg_tx,
-                                   uint32_t now_ms) {
+bool Mavlink::StartNextFrameIfIdle(uint32_t now_ms) {
   if (!tx_frame_.Empty()) {
     return true;
   }
 
   // Priority order matters here: heartbeats and command replies preempt the
   // periodic telemetry streams so the link stays responsive to the GCS.
-  if (ShouldSendHbNow(cfg_tx, now_ms)) {
-    tx_frame_ = StartHeartbeatFrame(cfg_tx, now_ms);
+  if (ShouldSendHbNow(now_ms)) {
+    tx_frame_ = StartHeartbeatFrame(now_ms);
   } else if (const std::optional<TxFrameState> queued_frame =
                  StartQueuedTxWorkFrame()) {
     tx_frame_ = *queued_frame;
-  } else if (const auto param_frame = StartNextParamFrame(
-                 tx, cfg_.identity.sysid, cfg_.identity.compid)) {
-    tx_frame_ = *param_frame;
+  } else if (const std::optional<mavlink_message_t> param =
+                 params_.NextMessage(now_ms)) {
+    tx_frame_.Load(*param, /*is_heartbeat=*/false);
   } else if (const std::optional<TxFrameState> scheduled_frame =
-                 StartNextScheduledFrame(cfg_tx, now_ms)) {
+                 StartNextScheduledFrame(now_ms)) {
     tx_frame_ = *scheduled_frame;
   }
 
@@ -581,8 +610,7 @@ void Mavlink::CompleteFrame(TxFrameState &frame, uint32_t now_ms) {
   frame.Clear();
 }
 
-Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
-                                                   uint32_t now_ms) {
+Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(uint32_t now_ms) {
   // Must equal QGCMAVLink::FirmwareClass32Raven in the ground station, which
   // is where the value is claimed -- MAV_AUTOPILOT has no vendor range, so
   // nothing but agreement between the two repos keeps 200 ours.
@@ -660,7 +688,7 @@ Mavlink::TxFrameState Mavlink::StartHeartbeatFrame(const Config::Tx &cfg_tx,
   const uint32_t custom_mode = static_cast<uint32_t>(main_mode) << 16;
 
   mavlink_message_t m{};
-  mavlink_msg_heartbeat_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+  mavlink_msg_heartbeat_pack(cfg_.sysid, kMavlinkComponentId, &m,
                              MAV_TYPE_QUADROTOR, kMavAutopilot32Raven,
                              base_mode, custom_mode, system_status);
 
@@ -715,7 +743,7 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame(uint32_t now_ms) {
   }
 
   mavlink_message_t m{};
-  mavlink_msg_sys_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m,
+  mavlink_msg_sys_status_pack(cfg_.sysid, kMavlinkComponentId, &m,
                               sensors_present, sensors_enabled, sensors_health,
                               load, voltage_battery, current_battery,
                               battery_remaining, 0, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -723,8 +751,7 @@ Mavlink::TxFrameState Mavlink::StartSysStatusFrame(uint32_t now_ms) {
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
-    const Config::Tx &cfg_tx) {
+std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame() {
   const std::optional<message::GpsData> latest = GetCachedValue(gps_);
   if (!latest.has_value()) {
     return std::nullopt;
@@ -741,7 +768,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
   const uint16_t epv = (latest->vDOP > 0) ? latest->vDOP : UINT16_MAX;
 
   mavlink_msg_gps_raw_int_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, time_usec,
+      cfg_.sysid, kMavlinkComponentId, &m, time_usec,
       static_cast<uint8_t>(latest->fixType), latest->lat, latest->lon,
       static_cast<int32_t>(latest->hMSL), eph, epv,
       static_cast<uint16_t>(latest->vel), static_cast<uint16_t>(latest->hdg),
@@ -751,8 +778,36 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame(
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
-    const Config::Tx &cfg_tx) {
+// Tilt-compensated: level the vector with the reported attitude, then take
+// its bearing. Magnetic, not true -- no declination, no iron correction (#45).
+std::optional<float> Mavlink::MagneticHeading(float roll, float pitch) const {
+  const std::optional<message::MagnetometerMsg> mag =
+      GetCachedValue(magnetometer_);
+  if (!mag.has_value() || mag->timestamp_us == 0u) {
+    return std::nullopt;
+  }
+
+  // Too short to have a direction: zeros, or saturated on every axis.
+  constexpr float kMinFieldMicrotesla = 5.0f;
+  const float norm =
+      std::sqrt((mag->x * mag->x) + (mag->y * mag->y) + (mag->z * mag->z));
+  if (norm < kMinFieldMicrotesla) {
+    return std::nullopt;
+  }
+
+  const float sin_roll = std::sin(roll);
+  const float cos_roll = std::cos(roll);
+  const float sin_pitch = std::sin(pitch);
+  const float cos_pitch = std::cos(pitch);
+
+  const float level_x = (mag->x * cos_pitch) + (mag->y * sin_roll * sin_pitch) +
+                        (mag->z * cos_roll * sin_pitch);
+  const float level_y = (mag->y * cos_roll) - (mag->z * sin_roll);
+
+  return std::atan2(-level_y, level_x);
+}
+
+std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame() {
   const std::optional<message::AttitudeMsg> latest = GetCachedValue(attitude_);
   if (!latest.has_value()) {
     return std::nullopt;
@@ -769,34 +824,37 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame(
   float sin_pitch = 2.0f * ((qw * qy) - (qz * qx));
   sin_pitch = sin_pitch > 1.0f ? 1.0f : (sin_pitch < -1.0f ? -1.0f : sin_pitch);
   const float pitch = std::asin(sin_pitch);
-  const float yaw = std::atan2(2.0f * ((qw * qz) + (qx * qy)),
-                               1.0f - (2.0f * ((qy * qy) + (qz * qz))));
+  const float estimator_yaw = std::atan2(
+      2.0f * ((qw * qz) + (qx * qy)), 1.0f - (2.0f * ((qy * qy) + (qz * qz))));
+
+  // Estimator yaw has no reference and drifts unbounded. This is what the
+  // link reports, not what anything flies on.
+  const float yaw = MagneticHeading(roll, pitch).value_or(estimator_yaw);
 
   mavlink_message_t m{};
 
-  mavlink_msg_attitude_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
-                            roll, pitch, yaw, 0.0f, 0.0f, 0.0f);
+  mavlink_msg_attitude_pack(cfg_.sysid, kMavlinkComponentId, &m, 0, roll, pitch,
+                            yaw, 0.0f, 0.0f, 0.0f);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame(
-    const Config::Tx &cfg_tx) {
+std::optional<Mavlink::TxFrameState> Mavlink::StartGlobalPositionIntFrame() {
   const std::optional<message::GpsData> latest = GetCachedValue(gps_);
   if (!latest.has_value()) {
     return std::nullopt;
   }
 
   mavlink_message_t m{};
-  mavlink_msg_global_position_int_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, 0, latest->lat,
-      latest->lon, latest->hMSL, latest->hMSL, 0, 0, 0, latest->hdg);
+  mavlink_msg_global_position_int_pack(cfg_.sysid, kMavlinkComponentId, &m, 0,
+                                       latest->lat, latest->lon, latest->hMSL,
+                                       latest->hMSL, 0, 0, 0, latest->hdg);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
-    const Config::Tx &cfg_tx, uint32_t now_ms) {
+    uint32_t now_ms) {
   // Nothing in BATTERY_STATUS can qualify a reading the way SYS_STATUS's
   // health bit does, so a stale one is withheld instead of dressed up.
   if (!SystemStatusFresh(now_ms)) {
@@ -822,8 +880,8 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
 
   mavlink_message_t m{};
   mavlink_msg_battery_status_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
-      MAV_BATTERY_FUNCTION_ALL, MAV_BATTERY_TYPE_LIPO, INT16_MAX, voltages,
+      cfg_.sysid, kMavlinkComponentId, &m, 0, MAV_BATTERY_FUNCTION_ALL,
+      MAV_BATTERY_TYPE_LIPO, INT16_MAX, voltages,
       have_battery ? current_ca : static_cast<int16_t>(-1), -1, -1,
       battery_remaining, 0,
       static_cast<uint8_t>(MAV_BATTERY_CHARGE_STATE_UNDEFINED), voltages_ext, 0,
@@ -832,8 +890,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartBatteryStatusFrame(
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
-    const Config::Tx &cfg_tx) {
+std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame() {
   if (!rc_channels_.have_data) {
     return std::nullopt;
   }
@@ -872,7 +929,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
 
   mavlink_message_t m{};
   mavlink_msg_rc_channels_pack(
-      cfg_.identity.sysid, cfg_.identity.compid, &m, rc_channels_.update_ms,
+      cfg_.sysid, kMavlinkComponentId, &m, rc_channels_.update_ms,
       channel_count, slots[0], slots[1], slots[2], slots[3], slots[4], slots[5],
       slots[6], slots[7], slots[8], slots[9], slots[10], slots[11], slots[12],
       slots[13], slots[14], slots[15], slots[16], slots[17], rssi);
@@ -880,8 +937,7 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartRcChannelsFrame(
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
-    const Config::Tx &cfg_tx) {
+std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame() {
   if (!esc_telemetry_.have_data) {
     return std::nullopt;
   }
@@ -910,14 +966,14 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame(
   }
 
   mavlink_message_t m{};
-  mavlink_msg_esc_status_pack(cfg_.identity.sysid, cfg_.identity.compid, &m, 0,
+  mavlink_msg_esc_status_pack(cfg_.sysid, kMavlinkComponentId, &m, 0,
                               esc.timestamp_us, rpm, voltage, current);
 
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
 std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
-    const Config::Tx &cfg_tx, uint32_t now_ms) {
+    uint32_t now_ms) {
   // The heartbeat holds a ladder slot for its offset but is dispatched by
   // ShouldSendHbNow before this runs; skipping it here is what keeps it from
   // going out twice.
@@ -934,22 +990,22 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
         frame = StartSysStatusFrame(now_ms);
         break;
       case TxSlot::kGps:
-        frame = StartGpsRawIntFrame(cfg_tx);
+        frame = StartGpsRawIntFrame();
         break;
       case TxSlot::kAtt:
-        frame = StartAttitudeFrame(cfg_tx);
+        frame = StartAttitudeFrame();
         break;
       case TxSlot::kGpos:
-        frame = StartGlobalPositionIntFrame(cfg_tx);
+        frame = StartGlobalPositionIntFrame();
         break;
       case TxSlot::kBatt:
-        frame = StartBatteryStatusFrame(cfg_tx, now_ms);
+        frame = StartBatteryStatusFrame(now_ms);
         break;
       case TxSlot::kRc:
-        frame = StartRcChannelsFrame(cfg_tx);
+        frame = StartRcChannelsFrame();
         break;
       case TxSlot::kEsc:
-        frame = StartEscStatusFrame(cfg_tx);
+        frame = StartEscStatusFrame();
         break;
       case TxSlot::kHb:
       case TxSlot::kCount:
@@ -970,21 +1026,21 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
   return std::nullopt;
 }
 
-void Mavlink::ServiceUdpTx(uint32_t now_ms) {
+void Mavlink::TransmitNextFrame(uint32_t now_ms) {
   if (!transport_->IsReady()) {
     return;
   }
 
-  if (!StartNextFrameIfIdle(udp_tx_, cfg_.tx, now_ms)) {
+  if (!StartNextFrameIfIdle(now_ms)) {
     return;
   }
 
   const int sent = transport_->Send(tx_frame_.Bytes());
   if (sent > 0) {
     if (tx_frame_.IsHeartbeat()) {
-      udp_tx_heartbeat_count_.fetch_add(1, std::memory_order_relaxed);
+      tx_heartbeat_count_.fetch_add(1, std::memory_order_relaxed);
     }
-    udp_tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
+    tx_packet_count_.fetch_add(1, std::memory_order_relaxed);
   }
   CompleteFrame(tx_frame_, now_ms);
 }

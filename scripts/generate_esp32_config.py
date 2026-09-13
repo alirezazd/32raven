@@ -588,10 +588,7 @@ def _mavlink_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         firmware_version_string, _mavlink_firmware_version_type()
     )
     return {
-        "identity": {
-            "sysid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_SYSID"),
-            "compid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_COMPID"),
-        },
+        "sysid": sym_int(kconf, "ESP32_MAVLINK_IDENTITY_SYSID"),
         "system_status_fresh_ms": MAVLINK_SYSTEM_STATUS_FRESH_MS,
         "git_hash": git_hash,
         "version_string": firmware_version_string,

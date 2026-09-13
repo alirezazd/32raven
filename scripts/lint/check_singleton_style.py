@@ -261,6 +261,8 @@ NOT_A_COMPONENT = {
     "EeConfigStorage": "EE's record layout, held by the drivers that store one",
     "GyroCal": "a phase of SensorCalService, which owns it",
     "AccelCal": "a phase of SensorCalService, which owns it",
+    "FcConfigCache": "the flight computer's config records, held by Mavlink",
+    "MavlinkParamServer": "the parameter protocol, held by Mavlink",
 }
 
 

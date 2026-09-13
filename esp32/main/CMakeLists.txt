@@ -73,6 +73,7 @@ idf_component_register(
     "../drivers/uart.cpp"
     "../services/fc_link.cpp"
     "../main/command_handler.cpp"
+    "../services/fc_config_cache.cpp"
     "../services/mavlink.cpp"
     "../services/mavlink_rx.cpp"
     "../services/mavlink_cmd.cpp"

@@ -1,41 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
+#include "mavlink_param.hpp"
+
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 
 #include "checksum.hpp"
 #include "common_config.hpp"
-#include "error_code.hpp"
 #include "esp_log.h"
-#include "mavlink.hpp"
-#include "panic.hpp"
-#include "system.hpp"
-
-extern "C" {
-#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
-#include "freertos/task.h"
-}
+#include "message.hpp"
 
 namespace {
 
 constexpr const char *kTag = "mavlink";
-constexpr uint16_t kFcConfigRequestAttempts = 100;
-constexpr uint16_t kFcConfigRequestRetryPeriodMs = 50;
 
 namespace param_detail {
-
-template <size_t kSrcLen>
-inline std::array<char, kSrcLen + 1> MavTextToCString(
-    const char (&src)[kSrcLen]) {
-  std::array<char, kSrcLen + 1> dst{};
-  std::memcpy(dst.data(), src, kSrcLen);
-  dst[kSrcLen] = '\0';
-  return dst;
-}
 
 enum class ParamKey : uint8_t {
   kSysId,
@@ -73,6 +57,7 @@ enum class ParamKey : uint8_t {
   kGposMs,
   kBattMs,
   kRcMs,
+  kEscMs,
   kComRcLossT,
 };
 
@@ -123,6 +108,7 @@ inline constexpr ParamDef kParamTable[] = {
     {"MAV_GPOS_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kGposMs},
     {"MAV_BATT_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kBattMs},
     {"MAV_RC_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kRcMs},
+    {"MAV_ESC_MS", MAV_PARAM_TYPE_UINT16, ParamKey::kEscMs},
     {"COM_RC_LOSS_T", MAV_PARAM_TYPE_REAL32, ParamKey::kComRcLossT},
 };
 
@@ -240,167 +226,72 @@ float DecodeParamValue(float encoded_value, uint8_t param_type) {
 
 }  // namespace
 
-void Mavlink::HandleParamMessage(const mavlink_message_t &msg) {
-  switch (msg.msgid) {
-    case MAVLINK_MSG_ID_PARAM_REQUEST_LIST: {
-      mavlink_param_request_list_t req{};
-      mavlink_msg_param_request_list_decode(&msg, &req);
-      if (IsTargetedToThisComponent(req.target_system, req.target_component)) {
-        udp_tx_.param_stream_ = TxState::ParamStreamActive{};
-      }
-      break;
-    }
-    case MAVLINK_MSG_ID_PARAM_REQUEST_READ: {
-      mavlink_param_request_read_t req{};
-      mavlink_msg_param_request_read_decode(&msg, &req);
-      if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
-        break;
-      }
-      const std::optional<ParamRef> param =
-          TryResolveParam(req.param_index, req.param_id);
-      if (param.has_value()) {
-        QueueParamValue(udp_tx_, ParamMavlinkIndex(*param));
-        break;
-      }
-      if (req.param_index < 0 &&
-          std::strcmp(param_detail::MavTextToCString(req.param_id).data(),
-                      param_detail::kHashCheckParamId) == 0) {
-        QueueParamValue(udp_tx_, param_detail::kHashCheckQueueIndex);
-        break;
-      }
-      if (req.param_index >= 0) {
-        ESP_LOGW(kTag, "PARAM_REQUEST_READ unresolved index=%d",
-                 static_cast<int>(req.param_index));
-        char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-        std::snprintf(text, sizeof(text), "Unhandled PARAM_READ index=%d",
-                      static_cast<int>(req.param_index));
-        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
-      } else {
-        const auto param_id = param_detail::MavTextToCString(req.param_id);
-        ESP_LOGW(kTag, "PARAM_REQUEST_READ unresolved param_id=%s",
-                 param_id.data());
-        char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-        std::snprintf(text, sizeof(text), "Unhandled PARAM_READ %s",
-                      param_id.data());
-        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
-      }
-      break;
-    }
-    case MAVLINK_MSG_ID_PARAM_SET: {
-      mavlink_param_set_t req{};
-      mavlink_msg_param_set_decode(&msg, &req);
-      if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
-        break;
-      }
-      const std::optional<ParamRef> param = TryResolveParam(-1, req.param_id);
-      if (!param.has_value()) {
-        const auto param_id = param_detail::MavTextToCString(req.param_id);
-        ESP_LOGW(kTag, "PARAM_SET unresolved param_id=%s", param_id.data());
-        char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-        std::snprintf(text, sizeof(text), "Unhandled PARAM_SET %s",
-                      param_id.data());
-        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
-        break;
-      }
-      const float decoded_value =
-          param_detail::DecodeParamValue(req.param_value, req.param_type);
-      const ParamSetResult set_result = TrySetParam(*param, decoded_value);
-      if (set_result != ParamSetResult::kAccepted) {
-        const auto param_id = param_detail::MavTextToCString(req.param_id);
-        ESP_LOGW(kTag, "PARAM_SET rejected param_id=%s reason=%s",
-                 param_id.data(), ParamSetResultName(set_result));
-        char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-        std::snprintf(text, sizeof(text), "Rejected PARAM_SET %s",
-                      param_id.data());
-        NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
-      }
-      QueueParamValue(udp_tx_, ParamMavlinkIndex(*param));
-      break;
-    }
-    case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_LIST: {
-      mavlink_param_ext_request_list_t req{};
-      mavlink_msg_param_ext_request_list_decode(&msg, &req);
-      if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
-        break;
-      }
-      ESP_LOGW(kTag, "PARAM_EXT_REQUEST_LIST unsupported");
-      NotifyGcsIssueOnce("Unsupported PARAM_EXT_LIST", MAV_SEVERITY_WARNING);
-      break;
-    }
-    case MAVLINK_MSG_ID_PARAM_EXT_REQUEST_READ: {
-      mavlink_param_ext_request_read_t req{};
-      mavlink_msg_param_ext_request_read_decode(&msg, &req);
-      if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
-        break;
-      }
-      ESP_LOGW(kTag, "PARAM_EXT_REQUEST_READ unsupported");
-      NotifyGcsIssueOnce("Unsupported PARAM_EXT_READ", MAV_SEVERITY_WARNING);
-      break;
-    }
-    case MAVLINK_MSG_ID_PARAM_EXT_SET: {
-      mavlink_param_ext_set_t req{};
-      mavlink_msg_param_ext_set_decode(&msg, &req);
-      if (!IsTargetedToThisComponent(req.target_system, req.target_component)) {
-        break;
-      }
-      const auto param_id = param_detail::MavTextToCString(req.param_id);
-      const auto param_value = param_detail::MavTextToCString(req.param_value);
-
-      ESP_LOGW(kTag,
-               "PARAM_EXT_SET unsupported target_sys=%u target_comp=%u "
-               "param_id=%s value=%s type=%u",
-               static_cast<unsigned>(req.target_system),
-               static_cast<unsigned>(req.target_component), param_id.data(),
-               param_value.data(), static_cast<unsigned>(req.param_type));
-      char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-      std::snprintf(text, sizeof(text), "Unsupported PARAM_EXT_SET %s",
-                    param_id.data());
-      NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
-      break;
-    }
-    default: {
-      char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
-      std::snprintf(text, sizeof(text), "Unhandled param msgid=%lu",
-                    (unsigned long)msg.msgid);
-      NotifyGcsIssueOnce(text, MAV_SEVERITY_WARNING);
-      break;
-    }
-  }
-}
-
-void Mavlink::ResetParamState() {
-  rc_map_config_ = {};
-  rc_calibration_config_ = {};
-  gyro_calibration_id_config_ = {};
-  rc_map_request_ = {};
-  rc_calibration_request_ = {};
-  gyro_calibration_id_request_ = {};
-  rc_map_apply_.Reset();
-  rc_calibration_apply_.Reset();
-}
-
-uint16_t Mavlink::ParamMavlinkIndex(const ParamRef &param) {
-  return std::visit([](const auto &ref) { return ref.mavlink_index; }, param);
-}
-
-const char *Mavlink::ParamSetResultName(ParamSetResult result) {
+const char *MavlinkParamServer::SetResultName(SetResult result) {
   switch (result) {
-    case ParamSetResult::kAccepted:
+    case SetResult::kAccepted:
       return "accepted";
-    case ParamSetResult::kUnsupported:
+    case SetResult::kUnknownParam:
+      return "unknown-param";
+    case SetResult::kUnsupported:
       return "unsupported";
-    case ParamSetResult::kMissingBaseConfig:
+    case SetResult::kMissingBaseConfig:
       return "missing-base-config";
-    case ParamSetResult::kInvalidValue:
+    case SetResult::kInvalidValue:
       return "invalid-value";
-    case ParamSetResult::kInvalidResultingConfig:
+    case SetResult::kInvalidResultingConfig:
       return "invalid-resulting-config";
   }
   return "unknown";
 }
 
-std::optional<Mavlink::ParamRef> Mavlink::TryResolveRcCalibrationParam(
-    const char *param_id) {
+void MavlinkParamServer::Init(const MavlinkConfig &cfg,
+                              FcConfigCache &fc_config) {
+  cfg_ = &cfg;
+  fc_config_ = &fc_config;
+  Reset();
+}
+
+void MavlinkParamServer::Reset() {
+  reply_queue_.Clear();
+  stream_ = StreamIdle{};
+}
+
+void MavlinkParamServer::StartStream() { stream_ = StreamActive{}; }
+
+bool MavlinkParamServer::QueueRead(int16_t param_index, const char *param_id) {
+  if (const std::optional<ParamRef> param =
+          TryResolveParam(param_index, param_id)) {
+    QueueReply(ParamMavlinkIndex(*param));
+    return true;
+  }
+  if (param_index < 0 &&
+      std::strncmp(param_id, param_detail::kHashCheckParamId,
+                   sizeof(param_detail::kHashCheckParamId)) == 0) {
+    QueueReply(param_detail::kHashCheckQueueIndex);
+    return true;
+  }
+  return false;
+}
+
+MavlinkParamServer::SetResult MavlinkParamServer::Set(const char *param_id,
+                                                      float param_value,
+                                                      uint8_t param_type) {
+  const std::optional<ParamRef> param = TryResolveParam(-1, param_id);
+  if (!param.has_value()) {
+    return SetResult::kUnknownParam;
+  }
+  const SetResult result = TrySetParam(
+      *param, param_detail::DecodeParamValue(param_value, param_type));
+  QueueReply(ParamMavlinkIndex(*param));
+  return result;
+}
+
+uint16_t MavlinkParamServer::ParamMavlinkIndex(const ParamRef &param) {
+  return std::visit([](const auto &ref) { return ref.mavlink_index; }, param);
+}
+
+std::optional<MavlinkParamServer::ParamRef>
+MavlinkParamServer::TryResolveRcCalibrationParam(const char *param_id) {
   // param_id arrives from the network. sscanf("%u") is undefined on a value
   // too large for the type, where strtoul is defined to saturate at ULONG_MAX,
   // which the range check below then rejects.
@@ -447,7 +338,7 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveRcCalibrationParam(
   return std::nullopt;
 }
 
-std::optional<Mavlink::ParamRef> Mavlink::TryResolveParam(
+std::optional<MavlinkParamServer::ParamRef> MavlinkParamServer::TryResolveParam(
     int16_t requested_index, const char *requested_id) const {
   if (requested_index >= 0) {
     return TryResolveParamByIndex(static_cast<uint16_t>(requested_index));
@@ -457,7 +348,7 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveParam(
     return std::nullopt;
   }
 
-  std::array<char, kMavParamIdCStringLen> param_id{};
+  std::array<char, kParamIdCStringLen> param_id{};
   std::memcpy(param_id.data(), requested_id,
               MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN);
   param_id[MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN] = '\0';
@@ -477,8 +368,8 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveParam(
   return TryResolveRcCalibrationParam(param_id.data());
 }
 
-std::optional<Mavlink::ParamRef> Mavlink::TryResolveParamByIndex(
-    uint16_t param_index) const {
+std::optional<MavlinkParamServer::ParamRef>
+MavlinkParamServer::TryResolveParamByIndex(uint16_t param_index) const {
   if (param_index < param_detail::kBaseParamCount) {
     return FixedParamRef{param_index};
   }
@@ -498,8 +389,8 @@ std::optional<Mavlink::ParamRef> Mavlink::TryResolveParamByIndex(
   return RcCalibrationParamRef{param_index, channel_index, field};
 }
 
-std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeParam(
-    const ParamRef &param) const {
+std::optional<MavlinkParamServer::EncodedParam>
+MavlinkParamServer::TryEncodeParam(const ParamRef &param) const {
   if (const auto *fixed = std::get_if<FixedParamRef>(&param)) {
     return TryEncodeFixedParam(*fixed);
   }
@@ -507,8 +398,8 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeParam(
   return TryEncodeRcCalibrationParam(std::get<RcCalibrationParamRef>(param));
 }
 
-std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeFixedParam(
-    const FixedParamRef &param) const {
+std::optional<MavlinkParamServer::EncodedParam>
+MavlinkParamServer::TryEncodeFixedParam(const FixedParamRef &param) const {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
   EncodedParam encoded{};
@@ -519,10 +410,10 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeFixedParam(
   switch (def.key) {
     case param_detail::ParamKey::kSysId:
     case param_detail::ParamKey::kMavSysId:
-      encoded.value = static_cast<float>(cfg_.identity.sysid);
+      encoded.value = static_cast<float>(cfg_->sysid);
       return encoded;
     case param_detail::ParamKey::kCompId:
-      encoded.value = static_cast<float>(cfg_.identity.compid);
+      encoded.value = static_cast<float>(kMavlinkComponentId);
       return encoded;
     case param_detail::ParamKey::kCalAcc0Id:
     case param_detail::ParamKey::kCalGyro0Id: {
@@ -552,8 +443,7 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeFixedParam(
       encoded.value = 0.0f;
       return encoded;
     case param_detail::ParamKey::kSysAutostart:
-      encoded.value =
-          static_cast<float>(common_config::kAirframeSysAutostart);
+      encoded.value = static_cast<float>(common_config::kAirframeSysAutostart);
       return encoded;
     case param_detail::ParamKey::kRcChanCnt:
       encoded.value = static_cast<float>(message::kRcCalibrationChannelCount);
@@ -579,31 +469,35 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeFixedParam(
       encoded.value = 0.0f;
       return encoded;
     case param_detail::ParamKey::kHeartbeatMs:
-      encoded.value = static_cast<float>(cfg_.tx.periods.hb_ms);
+      encoded.value = static_cast<float>(cfg_->tx.periods.hb_ms);
       return encoded;
     case param_detail::ParamKey::kGpsMs:
-      encoded.value = static_cast<float>(cfg_.tx.periods.gps_ms);
+      encoded.value = static_cast<float>(cfg_->tx.periods.gps_ms);
       return encoded;
     case param_detail::ParamKey::kAttMs:
-      encoded.value = static_cast<float>(cfg_.tx.periods.att_ms);
+      encoded.value = static_cast<float>(cfg_->tx.periods.att_ms);
       return encoded;
     case param_detail::ParamKey::kGposMs:
-      encoded.value = static_cast<float>(cfg_.tx.periods.gpos_ms);
+      encoded.value = static_cast<float>(cfg_->tx.periods.gpos_ms);
       return encoded;
     case param_detail::ParamKey::kBattMs:
-      encoded.value = static_cast<float>(cfg_.tx.periods.batt_ms);
+      encoded.value = static_cast<float>(cfg_->tx.periods.batt_ms);
       return encoded;
     case param_detail::ParamKey::kRcMs:
-      encoded.value = static_cast<float>(cfg_.tx.periods.rc_ms);
+      encoded.value = static_cast<float>(cfg_->tx.periods.rc_ms);
+      return encoded;
+    case param_detail::ParamKey::kEscMs:
+      encoded.value = static_cast<float>(cfg_->tx.periods.esc_ms);
       return encoded;
   }
 
   return std::nullopt;
 }
 
-std::optional<float> Mavlink::TryEncodeGyroCalibrationIdParam() const {
+std::optional<float> MavlinkParamServer::TryEncodeGyroCalibrationIdParam()
+    const {
   const std::optional<message::GyroCalibrationIdConfigMsg> gyro_cfg =
-      GetCachedValue(gyro_calibration_id_config_);
+      fc_config_->GyroCalibrationId();
   if (!gyro_cfg.has_value()) {
     return std::nullopt;
   }
@@ -611,12 +505,11 @@ std::optional<float> Mavlink::TryEncodeGyroCalibrationIdParam() const {
   return static_cast<float>(gyro_cfg->cal_gyro0_id);
 }
 
-std::optional<float> Mavlink::TryEncodeRcMapParam(
+std::optional<float> MavlinkParamServer::TryEncodeRcMapParam(
     const FixedParamRef &param) const {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
-  const std::optional<message::RcMapConfigMsg> rc_map =
-      GetCachedValue(rc_map_config_);
+  const std::optional<message::RcMapConfigMsg> rc_map = fc_config_->RcMap();
   if (!rc_map.has_value()) {
     return std::nullopt;
   }
@@ -635,10 +528,11 @@ std::optional<float> Mavlink::TryEncodeRcMapParam(
   }
 }
 
-std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeRcCalibrationParam(
+std::optional<MavlinkParamServer::EncodedParam>
+MavlinkParamServer::TryEncodeRcCalibrationParam(
     const RcCalibrationParamRef &param) const {
   const std::optional<message::RcCalibrationConfigMsg> rc_calibration =
-      GetCachedValue(rc_calibration_config_);
+      fc_config_->RcCalibration();
   if (!rc_calibration.has_value()) {
     return std::nullopt;
   }
@@ -677,8 +571,8 @@ std::optional<Mavlink::EncodedParam> Mavlink::TryEncodeRcCalibrationParam(
   return encoded;
 }
 
-Mavlink::ParamSetResult Mavlink::TrySetParam(const ParamRef &param,
-                                             float param_value) {
+MavlinkParamServer::SetResult MavlinkParamServer::TrySetParam(
+    const ParamRef &param, float param_value) {
   if (const auto *fixed = std::get_if<FixedParamRef>(&param)) {
     return TrySetFixedParam(*fixed, param_value);
   }
@@ -687,8 +581,8 @@ Mavlink::ParamSetResult Mavlink::TrySetParam(const ParamRef &param,
                                   param_value);
 }
 
-Mavlink::ParamSetResult Mavlink::TrySetFixedParam(const FixedParamRef &param,
-                                                  float param_value) {
+MavlinkParamServer::SetResult MavlinkParamServer::TrySetFixedParam(
+    const FixedParamRef &param, float param_value) {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
   switch (def.key) {
@@ -705,36 +599,30 @@ Mavlink::ParamSetResult Mavlink::TrySetFixedParam(const FixedParamRef &param,
     case param_detail::ParamKey::kRcMapParam3:
     case param_detail::ParamKey::kRcMapPaySw:
       if (std::lround(param_value) == 0) {
-        return ParamSetResult::kAccepted;
+        return SetResult::kAccepted;
       }
-      return ParamSetResult::kInvalidValue;
+      return SetResult::kInvalidValue;
     default:
-      return ParamSetResult::kUnsupported;
+      return SetResult::kUnsupported;
   }
 }
 
-Mavlink::ParamSetResult Mavlink::TrySetRcMapParam(const FixedParamRef &param,
-                                                  float param_value) {
+MavlinkParamServer::SetResult MavlinkParamServer::TrySetRcMapParam(
+    const FixedParamRef &param, float param_value) {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
-  message::RcMapConfigMsg updated{};
-  bool have_base = false;
-  if (const message::RcMapConfigMsg *desired = rc_map_apply_.Desired()) {
-    updated = *desired;
-    have_base = true;
-  } else if (rc_map_config_.have_data) {
-    updated = rc_map_config_.value;
-    have_base = true;
-  }
-  if (!have_base) {
+  const std::optional<message::RcMapConfigMsg> base =
+      fc_config_->RcMapWriteBase();
+  if (!base.has_value()) {
     ESP_LOGW(kTag, "RC_MAP write rejected: current map unavailable");
-    return ParamSetResult::kMissingBaseConfig;
+    return SetResult::kMissingBaseConfig;
   }
+  message::RcMapConfigMsg updated = *base;
 
   const long value = std::lround(param_value);
   if (value < 1 || value > 4) {
     ESP_LOGW(kTag, "RC_MAP write rejected: param=%s value=%ld", def.id, value);
-    return ParamSetResult::kInvalidValue;
+    return SetResult::kInvalidValue;
   }
 
   switch (def.key) {
@@ -751,7 +639,7 @@ Mavlink::ParamSetResult Mavlink::TrySetRcMapParam(const FixedParamRef &param,
       updated.throttle = static_cast<uint8_t>(value);
       break;
     default:
-      return ParamSetResult::kUnsupported;
+      return SetResult::kUnsupported;
   }
 
   if (!message::IsRcMapConfigValid(updated)) {
@@ -760,30 +648,22 @@ Mavlink::ParamSetResult Mavlink::TrySetRcMapParam(const FixedParamRef &param,
              static_cast<unsigned>(updated.pitch),
              static_cast<unsigned>(updated.yaw),
              static_cast<unsigned>(updated.throttle));
-    return ParamSetResult::kInvalidResultingConfig;
+    return SetResult::kInvalidResultingConfig;
   }
 
-  const uint32_t now_ms = Sys().Timebase().NowMs();
-  rc_map_apply_.Start(updated, now_ms, kFcConfigRequestAttempts);
-  return ParamSetResult::kAccepted;
+  fc_config_->WriteRcMap(updated);
+  return SetResult::kAccepted;
 }
 
-Mavlink::ParamSetResult Mavlink::TrySetRcCalibrationParam(
+MavlinkParamServer::SetResult MavlinkParamServer::TrySetRcCalibrationParam(
     const RcCalibrationParamRef &param, float param_value) {
-  message::RcCalibrationConfigMsg updated{};
-  bool have_base = false;
-  if (const message::RcCalibrationConfigMsg *desired =
-          rc_calibration_apply_.Desired()) {
-    updated = *desired;
-    have_base = true;
-  } else if (rc_calibration_config_.have_data) {
-    updated = rc_calibration_config_.value;
-    have_base = true;
-  }
-  if (!have_base) {
+  const std::optional<message::RcCalibrationConfigMsg> base =
+      fc_config_->RcCalibrationWriteBase();
+  if (!base.has_value()) {
     ESP_LOGW(kTag, "RC_CAL write rejected: current calibration unavailable");
-    return ParamSetResult::kMissingBaseConfig;
+    return SetResult::kMissingBaseConfig;
   }
+  message::RcCalibrationConfigMsg updated = *base;
   // Overwritten by every arm below, but a scoped enum can still hold a value
   // outside its enumerators, and the log call further down would then read an
   // uninitialised pointer.
@@ -819,19 +699,18 @@ Mavlink::ParamSetResult Mavlink::TrySetRcCalibrationParam(
              static_cast<unsigned>(updated.trim_us[param.channel_index]),
              static_cast<unsigned>(updated.max_us[param.channel_index]),
              static_cast<int>(updated.rev[param.channel_index]));
-    return ParamSetResult::kInvalidResultingConfig;
+    return SetResult::kInvalidResultingConfig;
   }
 
-  const uint32_t now_ms = Sys().Timebase().NowMs();
-  rc_calibration_apply_.Start(updated, now_ms, kFcConfigRequestAttempts);
-  return ParamSetResult::kAccepted;
+  fc_config_->WriteRcCalibration(updated);
+  return SetResult::kAccepted;
 }
 
-Mavlink::ParamDependency Mavlink::DependencyForParam(
+std::optional<FcConfigCache::Record> MavlinkParamServer::RecordFor(
     const ParamRef &param) const {
   const auto *fixed = std::get_if<FixedParamRef>(&param);
   if (fixed == nullptr) {
-    return ParamDependency::kRcCalibration;
+    return FcConfigCache::Record::kRcCalibration;
   }
 
   const param_detail::ParamDef &def =
@@ -839,141 +718,14 @@ Mavlink::ParamDependency Mavlink::DependencyForParam(
   switch (def.key) {
     case param_detail::ParamKey::kCalAcc0Id:
     case param_detail::ParamKey::kCalGyro0Id:
-      return ParamDependency::kGyroCalibrationId;
+      return FcConfigCache::Record::kGyroCalibrationId;
     case param_detail::ParamKey::kRcMapRoll:
     case param_detail::ParamKey::kRcMapPitch:
     case param_detail::ParamKey::kRcMapYaw:
     case param_detail::ParamKey::kRcMapThrottle:
-      return ParamDependency::kRcMap;
+      return FcConfigCache::Record::kRcMap;
     default:
-      return ParamDependency::kNone;
-  }
-}
-
-bool Mavlink::IsParamDependencyApplyPending(ParamDependency dependency) const {
-  bool pending = false;
-  switch (dependency) {
-    case ParamDependency::kRcMap:
-      pending = rc_map_apply_.IsActive();
-      break;
-    case ParamDependency::kRcCalibration:
-      pending = rc_calibration_apply_.IsActive();
-      break;
-    case ParamDependency::kGyroCalibrationId:
-    case ParamDependency::kNone:
-    default:
-      break;
-  }
-  return pending;
-}
-
-bool Mavlink::EnsureParamDependencyRequested(ParamDependency dependency) {
-  if (dependency == ParamDependency::kNone) {
-    return false;
-  }
-
-  message::MsgId request_id{};
-  // Same reasoning as field_name above: the switch covers every enumerator,
-  // but not every value the type can hold.
-  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
-  const char *description = "";
-  ParamRequestState *request = nullptr;
-  switch (dependency) {
-    case ParamDependency::kRcMap:
-      request_id = message::MsgId::kReqRcMap;
-      description = "RC map";
-      request = &rc_map_request_;
-      break;
-    case ParamDependency::kRcCalibration:
-      request_id = message::MsgId::kReqRcCalibration;
-      description = "RC calibration";
-      request = &rc_calibration_request_;
-      break;
-    case ParamDependency::kGyroCalibrationId:
-      request_id = message::MsgId::kReqGyroCalibrationId;
-      description = "gyro calibration ID";
-      request = &gyro_calibration_id_request_;
-      break;
-    case ParamDependency::kNone:
-    default:
-      return false;
-  }
-
-  const uint32_t now_ms = Sys().Timebase().NowMs();
-  bool should_send = false;
-  if (request != nullptr &&
-      (!request->waiting ||
-       static_cast<int32_t>(now_ms - request->next_request_ms) >= 0)) {
-    request->waiting = true;
-    request->next_request_ms = now_ms + kFcConfigRequestRetryPeriodMs;
-    should_send = true;
-  }
-
-  if (!should_send) {
-    return true;
-  }
-
-  message::Packet req_pkt{};
-  req_pkt.header.id = static_cast<uint8_t>(request_id);
-  req_pkt.header.len = 0;
-  ESP_LOGI(kTag, "Requesting STM32 %s on demand...", description);
-  fc_link_->SendPacket(req_pkt);
-  return true;
-}
-
-template <typename T>
-Mavlink::PendingApplyAction<T> Mavlink::PreparePendingParamApply(
-    PendingParamApplyState<T> &apply, uint32_t now_ms) {
-  auto *active = apply.GetActive();
-  if (active == nullptr ||
-      static_cast<int32_t>(now_ms - active->next_retry_ms) < 0) {
-    return PendingApplyNone{};
-  }
-
-  if (active->attempts_remaining == 0) {
-    apply.Reset();
-    return PendingApplyFailed{};
-  }
-
-  PendingApplySend<T> action{active->desired};
-  active->attempts_remaining--;
-  active->next_retry_ms = now_ms + kFcConfigRequestRetryPeriodMs;
-  return action;
-}
-
-void Mavlink::ServicePendingParamApplies(uint32_t now_ms) {
-  const PendingApplyAction<message::RcMapConfigMsg> rc_map_action =
-      PreparePendingParamApply(rc_map_apply_, now_ms);
-  const PendingApplyAction<message::RcCalibrationConfigMsg>
-      rc_calibration_action =
-          PreparePendingParamApply(rc_calibration_apply_, now_ms);
-
-  if (std::holds_alternative<PendingApplyFailed>(rc_map_action)) {
-    Panic(ErrorCode::Esp32::kFcLinkRcMapSetFailed);
-  }
-  if (std::holds_alternative<PendingApplyFailed>(rc_calibration_action)) {
-    Panic(ErrorCode::Esp32::kFcLinkRcCalibrationSetFailed);
-  }
-
-  if (const auto *send = std::get_if<PendingApplySend<message::RcMapConfigMsg>>(
-          &rc_map_action)) {
-    message::Packet req_pkt{};
-    req_pkt.header.id = static_cast<uint8_t>(message::MsgId::kSetRcMapConfig);
-    req_pkt.header.len = message::PayloadLength<message::RcMapConfigMsg>();
-    std::memcpy(req_pkt.payload, &send->value, sizeof(send->value));
-    fc_link_->SendPacket(req_pkt);
-  }
-
-  if (const auto *send =
-          std::get_if<PendingApplySend<message::RcCalibrationConfigMsg>>(
-              &rc_calibration_action)) {
-    message::Packet req_pkt{};
-    req_pkt.header.id =
-        static_cast<uint8_t>(message::MsgId::kSetRcCalibrationConfig);
-    req_pkt.header.len =
-        message::PayloadLength<message::RcCalibrationConfigMsg>();
-    std::memcpy(req_pkt.payload, &send->value, sizeof(send->value));
-    fc_link_->SendPacket(req_pkt);
+      return std::nullopt;
   }
 }
 
@@ -981,7 +733,7 @@ void Mavlink::ServicePendingParamApplies(uint32_t now_ms) {
 // name bytes then its value bytes, walked in name order, seeded at zero and
 // left uncomplemented. A hash that disagrees costs only the full download QGC
 // would have done anyway, so a mismatch degrades rather than breaks.
-uint32_t Mavlink::ComputeParamHash() const {
+uint32_t MavlinkParamServer::ComputeParamHash() const {
   uint32_t crc = 0;
   const char *previous = nullptr;
 
@@ -1035,16 +787,16 @@ uint32_t Mavlink::ComputeParamHash() const {
   return crc;
 }
 
-void Mavlink::QueueParamValue(TxState &tx, uint16_t param_index) const {
-  if (!tx.pending_param_queue_.Push(param_index)) {
+void MavlinkParamServer::QueueReply(uint16_t param_index) {
+  if (!reply_queue_.Push(param_index)) {
     ESP_LOGW(kTag, "dropping PARAM_VALUE reply: queue full");
   }
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartQueuedParamValueFrame(
-    TxState &tx, uint8_t sysid, uint8_t compid) {
+std::optional<mavlink_message_t> MavlinkParamServer::NextQueuedMessage(
+    uint32_t now_ms) {
   uint16_t param_index = 0;
-  if (!tx.pending_param_queue_.Peek(param_index)) {
+  if (!reply_queue_.Peek(param_index)) {
     return std::nullopt;
   }
 
@@ -1056,47 +808,44 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartQueuedParamValueFrame(
     mavlink_message_t m{};
     // count 0 and index -1, as PX4 sends it: the parameter is virtual, and
     // QGC returns before either reaches its bookkeeping.
-    mavlink_msg_param_value_pack(sysid, compid, &m,
-                                 param_detail::kHashCheckParamId,
-                                 value.param_float, MAV_PARAM_TYPE_UINT32, 0,
-                                 UINT16_MAX);
-    (void)tx.pending_param_queue_.Pop(param_index);
-    return TxFrameState{m, false};
+    mavlink_msg_param_value_pack(
+        cfg_->sysid, kMavlinkComponentId, &m, param_detail::kHashCheckParamId,
+        value.param_float, MAV_PARAM_TYPE_UINT32, 0, UINT16_MAX);
+    (void)reply_queue_.Pop(param_index);
+    return m;
   }
 
   const std::optional<ParamRef> param = TryResolveParamByIndex(param_index);
   if (!param.has_value()) {
     ESP_LOGW(kTag, "dropping queued PARAM_VALUE index=%u",
              static_cast<unsigned>(param_index));
-    (void)tx.pending_param_queue_.Pop(param_index);
+    (void)reply_queue_.Pop(param_index);
     return std::nullopt;
   }
 
-  const ParamDependency dependency = DependencyForParam(*param);
-  if (IsParamDependencyApplyPending(dependency)) {
+  const std::optional<FcConfigCache::Record> record = RecordFor(*param);
+  if (record.has_value() && !fc_config_->Available(*record, now_ms)) {
     return std::nullopt;
   }
 
-  const std::optional<TxFrameState> frame =
-      StartParamValueFrame(*param, sysid, compid);
-  if (!frame.has_value()) {
-    (void)EnsureParamDependencyRequested(dependency);
+  const std::optional<mavlink_message_t> m = PackParamValue(*param);
+  if (!m.has_value()) {
     return std::nullopt;
   }
 
-  (void)tx.pending_param_queue_.Pop(param_index);
-  return frame;
+  (void)reply_queue_.Pop(param_index);
+  return m;
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartStreamParamValueFrame(
-    TxState &tx, uint8_t sysid, uint8_t compid) {
-  auto *stream = std::get_if<TxState::ParamStreamActive>(&tx.param_stream_);
+std::optional<mavlink_message_t> MavlinkParamServer::NextStreamMessage(
+    uint32_t now_ms) {
+  auto *stream = std::get_if<StreamActive>(&stream_);
   if (stream == nullptr) {
     return std::nullopt;
   }
 
   if (stream->next_param_index >= param_detail::kTotalParamCount) {
-    tx.param_stream_ = TxState::ParamStreamIdle{};
+    stream_ = StreamIdle{};
     return std::nullopt;
   }
 
@@ -1105,31 +854,29 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartStreamParamValueFrame(
   if (!param.has_value()) {
     ESP_LOGW(kTag, "stopping PARAM stream at index=%u",
              static_cast<unsigned>(stream->next_param_index));
-    tx.param_stream_ = TxState::ParamStreamIdle{};
+    stream_ = StreamIdle{};
     return std::nullopt;
   }
 
-  const ParamDependency dependency = DependencyForParam(*param);
-  if (IsParamDependencyApplyPending(dependency)) {
+  const std::optional<FcConfigCache::Record> record = RecordFor(*param);
+  if (record.has_value() && !fc_config_->Available(*record, now_ms)) {
     return std::nullopt;
   }
 
-  const std::optional<TxFrameState> frame =
-      StartParamValueFrame(*param, sysid, compid);
-  if (!frame.has_value()) {
-    (void)EnsureParamDependencyRequested(dependency);
+  const std::optional<mavlink_message_t> m = PackParamValue(*param);
+  if (!m.has_value()) {
     return std::nullopt;
   }
 
   stream->next_param_index++;
   if (stream->next_param_index >= param_detail::kTotalParamCount) {
-    tx.param_stream_ = TxState::ParamStreamIdle{};
+    stream_ = StreamIdle{};
   }
-  return frame;
+  return m;
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartParamValueFrame(
-    const ParamRef &param, uint8_t sysid, uint8_t compid) {
+std::optional<mavlink_message_t> MavlinkParamServer::PackParamValue(
+    const ParamRef &param) const {
   const std::optional<EncodedParam> encoded = TryEncodeParam(param);
   if (!encoded.has_value()) {
     return std::nullopt;
@@ -1137,18 +884,17 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartParamValueFrame(
 
   mavlink_message_t m{};
   mavlink_msg_param_value_pack(
-      sysid, compid, &m, encoded->id,
+      cfg_->sysid, kMavlinkComponentId, &m, encoded->id,
       param_detail::EncodeParamValue(encoded->value, encoded->type),
       encoded->type, param_detail::kTotalParamCount, ParamMavlinkIndex(param));
-
-  return TxFrameState{m, false};
+  return m;
 }
 
-std::optional<Mavlink::TxFrameState> Mavlink::StartNextParamFrame(
-    TxState &tx, uint8_t sysid, uint8_t compid) {
-  if (const std::optional<TxFrameState> queued_frame =
-          StartQueuedParamValueFrame(tx, sysid, compid)) {
-    return queued_frame;
+std::optional<mavlink_message_t> MavlinkParamServer::NextMessage(
+    uint32_t now_ms) {
+  if (const std::optional<mavlink_message_t> queued =
+          NextQueuedMessage(now_ms)) {
+    return queued;
   }
-  return StartStreamParamValueFrame(tx, sysid, compid);
+  return NextStreamMessage(now_ms);
 }
