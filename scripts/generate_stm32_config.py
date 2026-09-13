@@ -91,6 +91,17 @@ AAF_TRIPLES = {
     "997": (21, 440, 6),
     "1962": (37, 1376, 4),
 }
+# Chip frame to body frame, named as PX4's rotation.h names them. Each row
+# is (x_from, x_neg, y_from, y_neg, z_from, z_neg): body[axis] is
+# chip[from], negated when asked. The driver rejects a mirror at build time.
+IMU_ORIENTATION_AXIS_MAPS: dict[str, tuple[int, bool, int, bool, int, bool]] = {
+    "NONE": (0, False, 1, False, 2, False),
+    "ROLL_180_YAW_90": (1, False, 0, False, 2, True),
+}
+IMU_ORIENTATION_CHOICES = {
+    f"STM32_IMU_ORIENTATION_{name}": name for name in IMU_ORIENTATION_AXIS_MAPS
+}
+
 GYRO_AAF_CHOICES = {f"STM32_IMU_GYRO_AAF_{hz}HZ": hz for hz in AAF_TRIPLES}
 ACCEL_AAF_CHOICES = {f"STM32_IMU_ACCEL_AAF_{hz}HZ": hz for hz in AAF_TRIPLES}
 
@@ -903,6 +914,20 @@ def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
     if parity_none:
         return "M10::UartDataBits::k8"
     return "M10::UartDataBits::k7"
+
+
+def _axis_map(orientation: str) -> dict[str, object]:
+    x_from, x_neg, y_from, y_neg, z_from, z_neg = IMU_ORIENTATION_AXIS_MAPS[
+        orientation
+    ]
+    return {
+        "x_from": x_from,
+        "x_neg": x_neg,
+        "y_from": y_from,
+        "y_neg": y_neg,
+        "z_from": z_from,
+        "z_neg": z_neg,
+    }
 
 
 def _aaf_fields(cutoff_hz: str) -> dict[str, int]:
@@ -2339,6 +2364,7 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "bw_idx": sym_int(kconf, "STM32_IMU_NOTCH_BW_IDX"),
             "enabled": sym_bool(kconf, "STM32_IMU_NOTCH_ENABLED"),
         },
+        "axis_map": _axis_map(choice_value(kconf, IMU_ORIENTATION_CHOICES)),
         "gyro_aaf": {
             "dis": sym_bool(kconf, "STM32_IMU_GYRO_AAF_DISABLE"),
             **_aaf_fields(choice_value(kconf, GYRO_AAF_CHOICES)),

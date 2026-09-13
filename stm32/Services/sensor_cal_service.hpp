@@ -48,6 +48,7 @@ class GyroCal {
   void Init(const Config &cfg, SharedState &blackboard, Icm42688p &imu);
   // False when the run was refused -- armed, or one already going.
   bool Start(uint32_t now_us);
+  void Cancel();
 
   void ResetRun();
 
@@ -119,6 +120,7 @@ class AccelCal {
     kCollecting,  // averaging the pose it settled into
     kApplied,
     kFailed,
+    kCancelled,
   };
 
   State Status() const { return state_; }
@@ -141,6 +143,7 @@ class AccelCal {
   friend class SensorCalService;
   void Init(const Config &cfg, SharedState &blackboard, EE &ee);
   bool Start(uint32_t now_us);
+  void Cancel();
 
   // A gain multiplies every sample the estimator will ever see, so an
   // implausible one is worse than none: a run that ended badly, or a record
@@ -217,7 +220,10 @@ class SensorCalService {
   // a calibration that was going fine.
   bool StartGyro(uint32_t now_us);
   bool StartAccel(uint32_t now_us);
-  // The MMC5983MA brings its own feed and an ellipsoid fit (#45). The DPS310
+  // Stops whichever run is going. Only the accel run has a page waiting on
+  // the outcome, and it reports the cancel so that page can close.
+  void Cancel();
+  // The QMC5883P brings its own feed and an ellipsoid fit (#45). The DPS310
   // does not -- a baro's zero is a ground reference the estimator
   // re-establishes at every arm (#46).
 
@@ -239,8 +245,8 @@ class SensorCalService {
   void ReportGyro(GyroCal::State outcome);
   // `captured` separates the two edges a tone cannot: a pose recognised and
   // a pose averaged both leave the run detecting again.
-  void ReportAccel(AccelCal::State outcome, uint8_t sides_done,
-                   AccelSide side, bool captured);
+  void ReportAccel(AccelCal::State outcome, uint8_t sides_done, AccelSide side,
+                   bool captured);
 
   GyroCal gyro_;
   AccelCal accel_;

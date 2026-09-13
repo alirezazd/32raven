@@ -68,6 +68,15 @@ bool GyroCal::Start(uint32_t now_us) {
   return true;
 }
 
+void GyroCal::Cancel() {
+  if (state_ != State::kCollecting) {
+    return;
+  }
+  collecting_.store(false, std::memory_order_relaxed);
+  ResetRun();
+  state_ = State::kIdle;
+}
+
 void GyroCal::ResetRun() {
   for (int axis = 0; axis < 3; ++axis) {
     sum_[axis] = 0;
@@ -101,8 +110,8 @@ void GyroCal::Feed(const ImuBurst &burst) {
   }
 
   constexpr float kDegToRad = 0.01745329252f;
-  const uint32_t still_counts = StillThresholdCounts(
-      cfg_.still_threshold_mdps, kDegToRad, gyro_scale_);
+  const uint32_t still_counts =
+      StillThresholdCounts(cfg_.still_threshold_mdps, kDegToRad, gyro_scale_);
 
   for (uint8_t i = 0; i < burst.count; ++i) {
     for (int axis = 0; axis < 3; ++axis) {
@@ -305,6 +314,14 @@ AccelSide AccelCal::Classify(float scale) const {
   return AccelSide::kCount;
 }
 
+void AccelCal::Cancel() {
+  if (state_ != State::kDetecting && state_ != State::kCollecting) {
+    return;
+  }
+  collecting_.store(false, std::memory_order_relaxed);
+  state_ = State::kCancelled;
+}
+
 void AccelCal::Feed(const ImuBurst &burst) {
   std::atomic_signal_fence(std::memory_order_acquire);
 
@@ -322,8 +339,8 @@ void AccelCal::Feed(const ImuBurst &burst) {
     return;
   }
 
-  const uint32_t still_counts = StillThresholdCounts(
-      cfg_.still_threshold_mg, kGravityMps2, accel_scale_);
+  const uint32_t still_counts =
+      StillThresholdCounts(cfg_.still_threshold_mg, kGravityMps2, accel_scale_);
 
   for (uint8_t i = 0; i < burst.count; ++i) {
     for (int axis = 0; axis < 3; ++axis) {
@@ -519,6 +536,11 @@ void SensorCalService::MaybeCollectBurst() {
   }
 }
 
+void SensorCalService::Cancel() {
+  gyro_.Cancel();
+  accel_.Cancel();
+}
+
 void SensorCalService::Poll(uint32_t now_us) {
   // Reported on the edge, not the value: a run sits in kApplied or kFailed
   // until the next Start, and the operator wants one tone, not one per tick.
@@ -559,9 +581,8 @@ void SensorCalService::ReportGyro(GyroCal::State outcome) {
                       message::ToneMsg{.tone = static_cast<uint8_t>(tone)});
 }
 
-void SensorCalService::ReportAccel(AccelCal::State outcome,
-                                   uint8_t sides_done, AccelSide side,
-                                   bool captured) {
+void SensorCalService::ReportAccel(AccelCal::State outcome, uint8_t sides_done,
+                                   AccelSide side, bool captured) {
   // The state travels as its own wire enum rather than this class's: the two
   // agree today and the link is not the place to assume they always will.
   message::AccelCalState wire = message::AccelCalState::kIdle;
@@ -580,6 +601,9 @@ void SensorCalService::ReportAccel(AccelCal::State outcome,
       break;
     case AccelCal::State::kFailed:
       wire = message::AccelCalState::kFailed;
+      break;
+    case AccelCal::State::kCancelled:
+      wire = message::AccelCalState::kCancelled;
       break;
   }
   fclink_->SendPacket(

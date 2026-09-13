@@ -135,8 +135,17 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       // per pose.
       const uint32_t gyro_slot = static_cast<uint32_t>(cmd.param1);
       const uint32_t accel_slot = static_cast<uint32_t>(cmd.param5);
+      // Every field zero is the cancel, as PX4 reads it and QGC sends it.
+      const bool cancel = gyro_slot == 0u && accel_slot == 0u &&
+                          static_cast<uint32_t>(cmd.param2) == 0u &&
+                          static_cast<uint32_t>(cmd.param3) == 0u &&
+                          static_cast<uint32_t>(cmd.param4) == 0u &&
+                          static_cast<uint32_t>(cmd.param6) == 0u &&
+                          static_cast<uint32_t>(cmd.param7) == 0u;
       message::MsgId id = message::MsgId::kCalibrateGyro;
-      if (gyro_slot != 1u) {
+      if (cancel) {
+        id = message::MsgId::kCancelCalibration;
+      } else if (gyro_slot != 1u) {
         if (accel_slot != 1u) {
           QueueCommandAck(static_cast<uint16_t>(cmd.command),
                           MAV_RESULT_UNSUPPORTED, source_system,

@@ -54,6 +54,7 @@ enum class MsgId : uint8_t {
   kLogRead = 0x1D,
   kLogData = 0x1E,
   kMagnetometer = 0x1F,
+  kCancelCalibration = 0x20,
   kReboot = 0xC0,
   kBootload = 0xC1,
   kError = 0xEE
@@ -201,6 +202,7 @@ enum class AccelCalState : uint8_t {
   kCollecting,  // averaging the pose it settled into
   kApplied,
   kFailed,
+  kCancelled,
 };
 
 struct AccelCalStatusMsg {
@@ -401,7 +403,7 @@ struct WireEntry {
   bool bounded;
 };
 
-inline constexpr std::array<WireEntry, 35> kWireContract = {{
+inline constexpr std::array<WireEntry, 36> kWireContract = {{
     {MsgId::kHandshake, PayloadLength<HandshakeMsg>(), false},
     {MsgId::kLog, kMaxLogTextPayload, true},
     {MsgId::kHandshakeReply, PayloadLength<HandshakeMsg>(), false},
@@ -437,6 +439,7 @@ inline constexpr std::array<WireEntry, 35> kWireContract = {{
     {MsgId::kLogRead, PayloadLength<LogReadMsg>(), false},
     {MsgId::kLogData, PayloadLength<LogDataMsg>(), false},
     {MsgId::kMagnetometer, PayloadLength<MagnetometerMsg>(), false},
+    {MsgId::kCancelCalibration, 0, false},
     {MsgId::kReboot, 0, false},
     {MsgId::kBootload, 0, false},
     {MsgId::kError, 0, false},

@@ -96,6 +96,22 @@ class Icm42688p {
            map.y_from != map.z_from;
   }
 
+  // A signed permutation with determinant -1 is a mirror. It passes the
+  // check above and hands the estimator a left-handed frame.
+  static consteval bool AxisMapIsRotation(const Config::AxisMap &map) {
+    if (!AxisMapIsPermutation(map)) {
+      return false;
+    }
+    int m[3][3] = {};
+    m[0][map.x_from] = map.x_neg ? -1 : 1;
+    m[1][map.y_from] = map.y_neg ? -1 : 1;
+    m[2][map.z_from] = map.z_neg ? -1 : 1;
+    const int det = (m[0][0] * ((m[1][1] * m[2][2]) - (m[1][2] * m[2][1]))) -
+                    (m[0][1] * ((m[1][0] * m[2][2]) - (m[1][2] * m[2][0]))) +
+                    (m[0][2] * ((m[1][0] * m[2][1]) - (m[1][1] * m[2][0])));
+    return det == 1;
+  }
+
   static Icm42688p &GetInstance();
 
   void OnIrq();

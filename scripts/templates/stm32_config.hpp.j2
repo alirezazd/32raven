@@ -201,19 +201,13 @@ inline constexpr Icm42688p::Config kIcm42688pConfig = {
         .hold_last = {{ icm42688p.fifo.hold_last | cpp_bool }},
         .hires = {{ icm42688p.fifo.hires | cpp_bool }},
     },
-{# Chip-frame -> body-frame axis remap. Identity: this board mounts the
-   ICM-42688P with its native axes already aligned to the body frame
-   (chip +X = body forward, +Y = body right, +Z = body down). The single
-   axis-conversion boundary lives in the driver's MapAxes --
-   everything downstream is body frame with no flips. If a future
-   board rotates/flips the chip, promote these to Kconfig. #}
     .axis_map = {
-        .x_from = 0,
-        .x_neg = false,
-        .y_from = 1,
-        .y_neg = false,
-        .z_from = 2,
-        .z_neg = false,
+        .x_from = {{ icm42688p.axis_map.x_from }},
+        .x_neg = {{ icm42688p.axis_map.x_neg | cpp_bool }},
+        .y_from = {{ icm42688p.axis_map.y_from }},
+        .y_neg = {{ icm42688p.axis_map.y_neg | cpp_bool }},
+        .z_from = {{ icm42688p.axis_map.z_from }},
+        .z_neg = {{ icm42688p.axis_map.z_neg | cpp_bool }},
     },
 };
 

@@ -24,6 +24,8 @@ static_assert(Icm42688p::WatermarkFitsFifo(kIcm42688pConfig),
               "size -- lower STM32_CONTROL_LOOP_HZ or the gyro ODR");
 static_assert(Icm42688p::AxisMapIsPermutation(kIcm42688pConfig.axis_map),
               "IMU axis map is not a permutation of {0,1,2}");
+static_assert(Icm42688p::AxisMapIsRotation(kIcm42688pConfig.axis_map),
+              "IMU axis map is a mirror, not a rotation -- one sign is wrong");
 
 constexpr uint16_t LoadBe16(const uint8_t *p) {
   return static_cast<uint16_t>((static_cast<uint16_t>(p[0]) << 8) | p[1]);
@@ -658,10 +660,7 @@ void Icm42688p::ApplyGyroOffsets(const float bias_body[3]) {
 
   // Restored, not asserted: sampling is armed only once a consumer is wired.
   const bool was_sampling = NVIC_GetEnableIRQ(board::kImuInt.exti_irqn) != 0u;
-  NVIC_DisableIRQ(board::kImuInt.exti_irqn);
-  NVIC_ClearPendingIRQ(board::kImuInt.exti_irqn);
-  while (inflight_.load(std::memory_order_acquire)) {
-  }
+  SuspendSampling();
 
   SetBank(0);
   const uint8_t prev_pwr = ReadReg(Reg::kPwrMgmt0);
@@ -677,8 +676,6 @@ void Icm42688p::ApplyGyroOffsets(const float bias_body[3]) {
   WriteReg(Reg::kPwrMgmt0, prev_pwr);
   time.DelayMicros(200);
   time.DelayMicros(MillisToMicros(50));
-  WriteReg(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
-  (void)ReadReg(Reg::kIntStatus);
   // No interrupt ran while the offsets were written, and last_irq_us_ is the
   // unwrapped host clock the log stamps against, so that window has to be added
   // rather than dropped. Safe to advance in one step: FlushAndResync above
@@ -688,7 +685,7 @@ void Icm42688p::ApplyGyroOffsets(const float bias_body[3]) {
   last_irq_us_ += static_cast<uint32_t>(now_cnt - last_irq_cnt_);
   last_irq_cnt_ = now_cnt;
   if (was_sampling) {
-    NVIC_EnableIRQ(board::kImuInt.exti_irqn);
+    ResumeSampling();
   }
 }
 
@@ -954,7 +951,13 @@ void Icm42688p::CsHigh() {
   gpio_->WritePin(board::kSpi2Cs.port, board::kSpi2Cs.pin, true);
 }
 
-void Icm42688p::SuspendSampling() { NVIC_DisableIRQ(board::kImuInt.exti_irqn); }
+void Icm42688p::SuspendSampling() {
+  NVIC_DisableIRQ(board::kImuInt.exti_irqn);
+  // A burst already started finishes on the DMA interrupt, which stays
+  // enabled. Until it has, the bus is the burst's, not the caller's.
+  while (inflight_.load(std::memory_order_acquire)) {
+  }
+}
 
 void Icm42688p::RestartSampling() {
   // Suspend first: FlushAndResync touches registers the sample interrupt owns.

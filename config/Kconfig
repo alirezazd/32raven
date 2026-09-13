@@ -2371,6 +2371,28 @@ endmenu
 
 menu "IMU (ICM42688P)"
 
+choice
+    prompt "Orientation"
+    default STM32_IMU_ORIENTATION_ROLL_180_YAW_90
+    help
+      How the package sits on the board: the rotation from the axes
+      printed on it to the body frame of forward, right, down. Named
+      as PX4 names rotations. The calibration page checks it: level
+      must light Level and a roll to the right must light Right.
+
+config STM32_IMU_ORIENTATION_NONE
+    bool "None"
+    help
+      Chip +X to the nose, +Y to the right, +Z to the ground. The marked
+      face points down, so this is a package on the underside.
+
+config STM32_IMU_ORIENTATION_ROLL_180_YAW_90
+    bool "Roll 180, yaw 90"
+    help
+      Chip +Y to the nose, +X to the right, +Z to the sky. A package on
+      the top face with its Y arrow pointing forward.
+
+endchoice
 
 menu "Clock"
 

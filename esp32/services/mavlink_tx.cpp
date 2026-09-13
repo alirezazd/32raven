@@ -260,6 +260,8 @@ void Mavlink::ReportAccelCalProgress(const message::AccelCalStatusMsg &msg) {
     QueueStatusText("[cal] calibration done: accel", MAV_SEVERITY_INFO);
   } else if (state == message::AccelCalState::kFailed) {
     QueueStatusText("[cal] calibration failed: accel", MAV_SEVERITY_ERROR);
+  } else if (state == message::AccelCalState::kCancelled) {
+    QueueStatusText("[cal] calibration cancelled", MAV_SEVERITY_INFO);
   }
 }
 

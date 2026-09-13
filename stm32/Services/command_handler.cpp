@@ -167,6 +167,11 @@ static void OnCalibrateAccel(const AppContext &ctx, const message::Packet &) {
       message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kWarning)});
 }
 
+static void OnCancelCalibration(const AppContext &ctx,
+                                const message::Packet &) {
+  ctx.sys->SensorCalSvc().Cancel();
+}
+
 // Privileged only in that FcLink access is the whole gate, as for kReboot and
 // kBootload -- it bypasses nothing. Sentinel answers this request against the
 // same interlocks the arm switch faces, and owns the refusal, so this end just
@@ -230,6 +235,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kReqReceiverCancelBind, OnReqReceiverCancelBind},
     {message::MsgId::kCalibrateGyro, OnCalibrateGyro},
     {message::MsgId::kCalibrateAccel, OnCalibrateAccel},
+    {message::MsgId::kCancelCalibration, OnCancelCalibration},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
     {message::MsgId::kSetUsbMode, OnSetUsbMode},
