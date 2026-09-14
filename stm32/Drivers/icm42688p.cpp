@@ -96,7 +96,6 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, const Config &cfg,
   SetOdrAndFullScale(cfg);
 
   SetTimestampConfig();
-  ClearUserOffsets();
   // Keep temp sensor disabled while accel/gyro OFF during FIFO setup.
   WriteReg(Reg::kPwrMgmt0, PWR_MGMT0_TEMP_DIS);
   ConfigureFifo();
@@ -385,16 +384,6 @@ void Icm42688p::MapAxes(const Sample &sample, uint16_t slot,
   }
 }
 
-void Icm42688p::ChipFromBody(const float body[3], float chip[3]) const {
-  // body[b] = sign[b] * chip[src[b]], so chip[src[b]] = sign[b] * body[b].
-  // Exact only because the map is a signed permutation -- one chip axis per
-  // body axis. A general rotation would need a transpose instead.
-  const ScaleConfig &map = scale_config_;
-  for (uint8_t b = 0; b < 3u; ++b) {
-    chip[map.src[b]] = (map.neg[b] ? -1.0f : 1.0f) * body[b];
-  }
-}
-
 uint64_t Icm42688p::UpdateTimestampAndSync(uint16_t ts16) {
   // Unwrap 16-bit timestamp (1us ticks) into tmst64_us_
   if (!tmst_inited_) {
@@ -634,83 +623,6 @@ void Icm42688p::PublishBurst(const ImuBurst &burst) {
   SCB->ICSR = SCB_ICSR_PENDSVSET_Msk;
 }
 
-void Icm42688p::ApplyGyroOffsets(const float bias_body[3]) {
-  auto &time = System::GetInstance().Time();
-
-  // The mean is body frame but OFFSET_USER is per chip axis, so it goes back
-  // through the map before any register sees it. Getting this backwards writes
-  // a permanent offset to the wrong axis, correcting nothing and spoiling one
-  // that was fine.
-  float bias_chip[3] = {0.0f, 0.0f, 0.0f};
-  ChipFromBody(bias_body, bias_chip);
-
-  int16_t offset_lsb[3] = {0, 0, 0};
-  for (int axis = 0; axis < 3; ++axis) {
-    // The register is 1/32 dps per code, and the burst already arrives in
-    // rad/s, so LSB never enters this path.
-    const float bias_dps = bias_chip[axis] / Icm42688pReg::kDegToRad;
-    int32_t code = static_cast<int32_t>(lrintf(-bias_dps * 32.0f));
-    if (code < -2048) {
-      code = -2048;
-    } else if (code > 2047) {
-      code = 2047;
-    }
-    offset_lsb[axis] = static_cast<int16_t>(code);
-  }
-
-  // Restored, not asserted: sampling is armed only once a consumer is wired.
-  const bool was_sampling = NVIC_GetEnableIRQ(board::kImuInt.exti_irqn) != 0u;
-  SuspendSampling();
-
-  SetBank(0);
-  const uint8_t prev_pwr = ReadReg(Reg::kPwrMgmt0);
-  WriteReg(Reg::kPwrMgmt0, 0x00u);
-  time.DelayMicros(200);
-
-  WriteGyroUserOffsets(offset_lsb[0], offset_lsb[1], offset_lsb[2]);
-
-  // The offsets just written change what the chip reports, so anything already
-  // buffered describes the old calibration and the timestamp chain has to
-  // restart with it.
-  FlushAndResync();
-  WriteReg(Reg::kPwrMgmt0, prev_pwr);
-  time.DelayMicros(200);
-  time.DelayMicros(MillisToMicros(50));
-  // No interrupt ran while the offsets were written, and last_irq_us_ is the
-  // unwrapped host clock the log stamps against, so that window has to be added
-  // rather than dropped. Safe to advance in one step: FlushAndResync above
-  // cleared the sync flag, so the next record reseeds the offset instead of
-  // servoing across the jump.
-  const uint32_t now_cnt = System::GetInstance().Time().Micros();
-  last_irq_us_ += static_cast<uint32_t>(now_cnt - last_irq_cnt_);
-  last_irq_cnt_ = now_cnt;
-  if (was_sampling) {
-    ResumeSampling();
-  }
-}
-
-void Icm42688p::WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
-                                     int16_t z_offset_lsb) {
-  auto pack12 = [](int16_t offset_lsb) -> uint16_t {
-    return static_cast<uint16_t>(offset_lsb) & 0x0FFFu;
-  };
-
-  const uint16_t x = pack12(x_offset_lsb);
-  const uint16_t y = pack12(y_offset_lsb);
-  const uint16_t z = pack12(z_offset_lsb);
-
-  SetBank(0);
-  WriteReg(Reg::kOffsetUser0, static_cast<uint8_t>(x & 0xFFu));
-  WriteReg(Reg::kOffsetUser1, static_cast<uint8_t>(((y >> 8) & 0x0Fu) << 4) |
-                                  static_cast<uint8_t>((x >> 8) & 0x0Fu));
-  WriteReg(Reg::kOffsetUser2, static_cast<uint8_t>(y & 0xFFu));
-  WriteReg(Reg::kOffsetUser3, static_cast<uint8_t>(z & 0xFFu));
-
-  const uint8_t user4 = ReadReg(Reg::kOffsetUser4);
-  WriteReg(Reg::kOffsetUser4,
-           static_cast<uint8_t>((user4 & 0xF0u) | ((z >> 8) & 0x0Fu)));
-}
-
 void Icm42688p::CheckWhoAmI() {
   auto &time = System::GetInstance().Time();
   const uint32_t start = time.Micros();
@@ -860,21 +772,6 @@ void Icm42688p::SetTimestampConfig() {
   v |= 0x01u;
 
   WriteReg(Reg::kTmstConfig, v);
-}
-
-void Icm42688p::ClearUserOffsets() {
-  // Rebuilding a Reg from a raw counter is the one path an unlisted address
-  // can take to WriteReg; a reordered enum would clear nine wrong registers.
-  static_assert(std::to_underlying(Reg::kOffsetUser8) -
-                        std::to_underlying(Reg::kOffsetUser0) ==
-                    8,
-                "user-offset registers must stay contiguous");
-
-  SetBank(0);
-  for (uint8_t reg = std::to_underlying(Reg::kOffsetUser0);
-       reg <= std::to_underlying(Reg::kOffsetUser8); ++reg) {
-    WriteReg(static_cast<Reg>(reg), 0x00u);
-  }
 }
 
 void Icm42688p::ConfigureFifo() {

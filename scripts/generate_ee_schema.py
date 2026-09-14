@@ -132,7 +132,7 @@ def blob_context(blob: dict[str, object]) -> dict[str, object]:
 
 
 def collect_blobs(node: object) -> list[dict[str, object]]:
-    # Walk the STM32 subtree and collect every schema blob definition in order.
+    # Walk the STM32 subtree and collect every schema blob definition.
     blobs: list[dict[str, object]] = []
     if isinstance(node, dict):
         if {"type_name", "tag", "fields"} <= set(node.keys()):
@@ -143,6 +143,26 @@ def collect_blobs(node: object) -> list[dict[str, object]]:
         for value in node:
             blobs.extend(collect_blobs(value))
     return blobs
+
+
+def order_blobs(blobs: list[dict[str, object]]) -> list[dict[str, object]]:
+    # Slot order, not walk order: the walk follows the TOML's nesting, so a
+    # record added under an existing table would land in the middle of the
+    # layout and move every record after it off the bytes a board holds.
+    slots: dict[int, str] = {}
+    for blob in blobs:
+        type_name = str(blob["type_name"])
+        if "slot" not in blob:
+            raise ValueError(f"record '{type_name}' has no slot")
+        slot = int(blob["slot"])
+        if slot in slots:
+            raise ValueError(
+                f"records '{slots[slot]}' and '{type_name}' share slot {slot}"
+            )
+        slots[slot] = type_name
+    if sorted(slots) != list(range(len(slots))):
+        raise ValueError(f"slots must run 0..{len(slots) - 1}: {sorted(slots)}")
+    return sorted(blobs, key=lambda blob: int(blob["slot"]))
 
 
 def layout_context(blobs: list[dict[str, object]]) -> dict[str, object]:
@@ -176,7 +196,7 @@ def _template_env() -> Environment:
 
 
 def emit_header(source: pathlib.Path, config: dict[str, object]) -> str:
-    blobs = collect_blobs(config.get("stm32", {}))
+    blobs = order_blobs(collect_blobs(config.get("stm32", {})))
     context = {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
         "blobs": [blob_context(blob) for blob in blobs],

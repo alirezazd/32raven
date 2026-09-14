@@ -631,41 +631,6 @@ both writing `EstimatorState::attitude_world_to_body` is the duplication this re
 real effort removing. PX4 retires the complementary filter into an output predictor; ArduPilot
 keeps DCM as an explicit fallback lane. Either is fine; two writers is not.
 
-### #30 — Name the IMU orientations rather than configuring a triple — 🟢 SUPPORTING
-
-`axis_map` is hardcoded identity in `stm32_config.hpp.j2`, with a comment saying to promote it
-to Kconfig when a board rotates the chip. Promote it as a **named choice**, not as the signed
-permutation the struct stores.
-
-A signed permutation has 6 orderings × 8 sign combinations = 48 settings, and only 24 are
-rotations. The other 24 have determinant −1: reflections no rigid mount can produce.
-`AxisMapIsPermutation` does not catch them — it asserts the ordering is a permutation of
-{0,1,2} and never looks at the signs — so `x_from=1, y_from=0, z_from=2` all-positive passes,
-swaps X and Y, and hands the AHRS a left-handed frame.
-
-Betaflight's set is the right size: 8 orientations, 4 yaw × {upright, flipped}
-(`common/sensor_alignment.h`), plus a sentinel for the driver default and one custom escape.
-It covers every mount anyone builds on a board they designed, stays a signed permutation so
-`MapAxes` remains a table lookup, and structurally cannot express a reflection. PX4 carries
-41 rotations behind an Euler table and a DCM multiply, including 45-degree steps and one
-`ROTATION_ROLL_90_PITCH_68_YAW_293`, because it runs on airframes somebody else laid out. That
-generality is a liability here, not a feature.
-
-Shape: a Kconfig choice, expanded by the generator into the permutation and signs the driver
-already consumes, with a determinant check in the generator so a bad expansion fails the build
-instead of the flight. Nothing in the control path changes.
-
-**The calibration hazard is handled but stays load-bearing.** `OFFSET_USER` is per chip axis, so
-`ApplyGyroOffsets` runs the body-frame mean back through `ChipFromBody` before writing.
-That inversion is exact only because the map is a signed permutation — one chip axis per body
-axis — and a general rotation would need a transpose instead. The write is permanent, silent
-when wrong, and shows up as drift on an axis that was never calibrated, so any change to how the
-map is expressed has to keep `ChipFromBody` its exact inverse. Naming the orientations narrows
-that risk rather than removing it.
-
-Pairs with #25: a rotated mount invalidates the stored accel calibration as well, so the two
-land together or not at all.
-
 ### #45 — The compass reads, and nothing trusts it yet — 🟢 SUPPORTING
 
 The part is a QMC5883**P**, not the MMC5983MA this item was written around and not the
@@ -683,8 +648,8 @@ Three things stand between that and a heading anything may act on.
 
 **The orientation is a guess.** The axis map in the generated config is identity because the
 compass sits on the GPS mast rather than on the board, so its frame is however the mast was
-glued down. Nothing has been checked against a known bearing. The same problem named for the
-IMU is #30, and the answer wants to be the same one twice.
+glued down. Nothing has been checked against a known bearing. The IMU's map is a named Kconfig
+choice now, and the compass wants the same treatment.
 
 **Nothing corrects for iron.** Hard-iron offset plus soft-iron matrix is an ellipsoid fit over
 many orientations, so it is operator-guided and takes tens of seconds -- a `MagCal` sibling in

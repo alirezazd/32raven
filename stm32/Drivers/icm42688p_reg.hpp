@@ -58,15 +58,6 @@ enum class Reg : uint8_t {
   kIntSource3 = 0x68,
   kIntSource4 = 0x69,
   kWhoAmI = 0x75,
-  kOffsetUser0 = 0x77,
-  kOffsetUser1 = 0x78,
-  kOffsetUser2 = 0x79,
-  kOffsetUser3 = 0x7A,
-  kOffsetUser4 = 0x7B,
-  kOffsetUser5 = 0x7C,
-  kOffsetUser6 = 0x7D,
-  kOffsetUser7 = 0x7E,
-  kOffsetUser8 = 0x7F,
 
   // Bank 1 — values alias bank 0; Reg does not encode the bank, so the
   // caller must have selected the right one via SetBank first.

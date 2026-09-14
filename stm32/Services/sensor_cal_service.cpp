@@ -8,7 +8,6 @@
 #include "ee_config_storage.hpp"
 #include "error_code.hpp"
 #include "fc_link.hpp"
-#include "icm42688p.hpp"
 #include "message.hpp"
 #include "panic.hpp"
 #include "shared_state.hpp"
@@ -21,6 +20,9 @@ namespace {
 // samples went missing between two the stillness check did see, and a gap can
 // hide the very motion that check exists to catch -- so a run that sees one
 // throws away the window rather than averaging across it.
+constexpr float kDegToRad = 0.01745329252f;
+constexpr float kRadToMdps = 1000.0f / kDegToRad;
+
 uint32_t SamplePathFaults(const SharedState &blackboard) {
   const ImuHealth &health = blackboard.GetImuHealth();
   return health.overruns + health.dropped_records + health.invalid_samples +
@@ -40,15 +42,52 @@ uint32_t StillThresholdCounts(uint32_t threshold_si_milli, float unit_si,
 
 }  // namespace
 
-void GyroCal::Init(const Config &cfg, SharedState &blackboard, Icm42688p &imu) {
+void GyroCal::Init(const Config &cfg, SharedState &blackboard, EE &ee) {
   cfg_ = cfg;
   blackboard_ = &blackboard;
-  imu_ = &imu;
+  ee_ = &ee;
+  const ee_schema::ImuGyroCalibration stored =
+      EeConfigStorage::LoadOrInitImuGyroCalibration(ee);
+  if (stored.calibrated != 0u && IsPlausible(stored.offsets_rad_s)) {
+    Publish(stored.offsets_rad_s, GyroCalSource::kStored);
+  }
+}
+
+bool GyroCal::IsPlausible(const float offsets_rad_s[3]) const {
+  const float max_rad_s =
+      static_cast<float>(cfg_.max_offset_mdps) * 0.001f * kDegToRad;
+  for (int axis = 0; axis < 3; ++axis) {
+    const float offset = offsets_rad_s[axis];
+    if (!(offset > -max_rad_s) || !(offset < max_rad_s)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void GyroCal::Publish(const float offsets_rad_s[3], GyroCalSource source) {
+  GyroCalibration cal{};
+  for (int axis = 0; axis < 3; ++axis) {
+    cal.offsets_rad_s[axis] = offsets_rad_s[axis];
+  }
+  cal.source = source;
+  blackboard_->UpdateGyroCalibration(cal);
+}
+
+bool GyroCal::Store() {
+  if (ee_ == nullptr) {
+    return false;
+  }
+  ee_schema::ImuGyroCalibration record{};
+  for (int axis = 0; axis < 3; ++axis) {
+    record.offsets_rad_s[axis] = result_rad_s_[axis];
+  }
+  record.calibrated = 1u;
+  return EeConfigStorage::SaveImuGyroCalibration(*ee_, record);
 }
 
 bool GyroCal::Start(uint32_t now_us) {
-  // Refused while armed: a run ends in a register write that stops the sample
-  // path for ~50 ms, well past Sentinel's stall window.
+  // Refused while armed: the offsets step the rate loop the moment they land.
   if (blackboard_ == nullptr || blackboard_->IsArmed() ||
       collecting_.load(std::memory_order_relaxed)) {
     return false;
@@ -109,7 +148,6 @@ void GyroCal::Feed(const ImuBurst &burst) {
     return;
   }
 
-  constexpr float kDegToRad = 0.01745329252f;
   const uint32_t still_counts =
       StillThresholdCounts(cfg_.still_threshold_mdps, kDegToRad, gyro_scale_);
 
@@ -156,13 +194,16 @@ GyroCal::State GyroCal::Poll(uint32_t now_us) {
 
   if (collected_.load(std::memory_order_relaxed)) {
     std::atomic_signal_fence(std::memory_order_acquire);
-    float bias_body[3] = {0.0f, 0.0f, 0.0f};
     for (int axis = 0; axis < 3; ++axis) {
-      bias_body[axis] =
+      result_rad_s_[axis] =
           (static_cast<float>(sum_[axis]) / static_cast<float>(samples_)) *
           gyro_scale_;
     }
-    imu_->ApplyGyroOffsets(bias_body);
+    if (!IsPlausible(result_rad_s_)) {
+      state_ = State::kFailed;
+      return state_;
+    }
+    Publish(result_rad_s_, GyroCalSource::kSession);
     state_ = State::kApplied;
     return state_;
   }
@@ -242,8 +283,7 @@ bool AccelCal::Store(const ee_schema::ImuAccelCalibration &cal) {
 }
 
 bool AccelCal::Start(uint32_t now_us) {
-  // Same refusal as the gyro run, for the same reason: this one ends in an
-  // EEPROM write rather than a register write, but neither belongs in flight.
+  // Same refusal as the gyro run: neither result belongs landing in flight.
   if (blackboard_ == nullptr || blackboard_->IsArmed() ||
       collecting_.load(std::memory_order_relaxed)) {
     return false;
@@ -475,14 +515,14 @@ SensorCalService &SensorCalService::GetInstance() {
   return instance;
 }
 
-void SensorCalService::Init(const Config &cfg, SharedState &blackboard,
-                            Icm42688p &imu, EE &ee, FcLink &fclink) {
+void SensorCalService::Init(const Config &cfg, SharedState &blackboard, EE &ee,
+                            FcLink &fclink) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kSensorCalServiceReinit);
   }
   blackboard_ = &blackboard;
   fclink_ = &fclink;
-  gyro_.Init(cfg.gyro, blackboard, imu);
+  gyro_.Init(cfg.gyro, blackboard, ee);
   accel_.Init(cfg.accel, blackboard, ee);
   initialized_ = true;
 }
@@ -493,12 +533,22 @@ bool SensorCalService::StartGyro(uint32_t now_us) {
   if (accel_.Collecting()) {
     return false;
   }
-  return gyro_.Start(now_us);
+  if (gyro_auto_) {
+    gyro_.Cancel();
+  }
+  const bool started = gyro_.Start(now_us);
+  if (started) {
+    gyro_auto_ = false;
+  }
+  return started;
 }
 
 bool SensorCalService::StartAccel(uint32_t now_us) {
   if (gyro_.Collecting()) {
-    return false;
+    if (!gyro_auto_) {
+      return false;
+    }
+    gyro_.Cancel();
   }
   return accel_.Start(now_us);
 }
@@ -549,6 +599,7 @@ void SensorCalService::Poll(uint32_t now_us) {
   if (after != before) {
     ReportGyro(after);
   }
+  ScheduleGyro(now_us);
 
   // The accel run reports on three edges, not one: the outcome as the gyro
   // does, every captured side, and the pose being held, because an operator
@@ -569,16 +620,41 @@ void SensorCalService::Poll(uint32_t now_us) {
   }
 }
 
-void SensorCalService::ReportGyro(GyroCal::State outcome) {
-  if (outcome != GyroCal::State::kApplied &&
-      outcome != GyroCal::State::kFailed) {
+void SensorCalService::ScheduleGyro(uint32_t now_us) {
+  if (gyro_.Collecting() || accel_.Collecting() || blackboard_->IsArmed()) {
     return;
   }
-  const message::Tone tone = (outcome == GyroCal::State::kApplied)
-                                 ? message::Tone::kConfirm
-                                 : message::Tone::kError;
-  fclink_->SendPacket(message::MsgId::kTone,
-                      message::ToneMsg{.tone = static_cast<uint8_t>(tone)});
+  gyro_auto_ = gyro_.Start(now_us);
+}
+
+void SensorCalService::ReportGyro(GyroCal::State outcome) {
+  if (outcome == GyroCal::State::kFailed) {
+    if (!gyro_auto_) {
+      fclink_->SendPacket(
+          message::MsgId::kTone,
+          message::ToneMsg{
+              .tone = static_cast<uint8_t>(message::Tone::kError)});
+    }
+    return;
+  }
+  if (outcome != GyroCal::State::kApplied) {
+    return;
+  }
+  const bool first = !gyro_session_;
+  gyro_session_ = true;
+  if (gyro_auto_ && !first) {
+    return;
+  }
+  const GyroCalibration &cal = blackboard_->GetGyroCalibration();
+  const bool stored = gyro_.Store();
+  fclink_->SendLog("gyro: offsets %ld %ld %ld mdps%s",
+                   static_cast<long>(cal.offsets_rad_s[0] * kRadToMdps),
+                   static_cast<long>(cal.offsets_rad_s[1] * kRadToMdps),
+                   static_cast<long>(cal.offsets_rad_s[2] * kRadToMdps),
+                   stored ? "" : ", not stored");
+  fclink_->SendPacket(
+      message::MsgId::kTone,
+      message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kConfirm)});
 }
 
 void SensorCalService::ReportAccel(AccelCal::State outcome, uint8_t sides_done,

@@ -216,9 +216,9 @@ void System::InitComponent(Component c) {
           rate_controller_, Icm42688p::GetInstance(), FcLink::GetInstance());
       break;
     case Component::kSensorCalService:
-      SensorCalService::GetInstance().Init(
-          kSensorCalConfig, blackboard_, Icm42688p::GetInstance(),
-          EE::GetInstance(), FcLink::GetInstance());
+      SensorCalService::GetInstance().Init(kSensorCalConfig, blackboard_,
+                                           EE::GetInstance(),
+                                           FcLink::GetInstance());
       break;
     case Component::kTelemetryPublisher:
       TelemetryPublisher::GetInstance().Init(blackboard_, FcLink::GetInstance(),

@@ -49,6 +49,12 @@ ee_schema::ImuAccelCalibration MakeDefaultImuAccelCalibration() {
   return cal;
 }
 
+ee_schema::ImuGyroCalibration MakeDefaultImuGyroCalibration() {
+  ee_schema::ImuGyroCalibration cal{};
+  ee_schema::ImuGyroCalibration::PopulateHeader(cal);
+  return cal;
+}
+
 ee_schema::RcCalibration MakeDefaultRcCalibration() {
   ee_schema::RcCalibration cal{};
   ee_schema::RcCalibration::PopulateHeader(cal);
@@ -136,6 +142,36 @@ bool EeConfigStorage::SaveImuAccelCalibration(
   ee_schema::ImuAccelCalibration::PopulateHeader(to_write);
   return ee.WriteObject(to_write,
                         ee_schema::layout::kImuAccelCalibrationOffset);
+}
+
+ee_schema::ImuGyroCalibration EeConfigStorage::LoadOrInitImuGyroCalibration(
+    EE &ee) {
+  ee_schema::ImuGyroCalibration cal{};
+  if (!ee.ReadObject(cal, ee_schema::layout::kImuGyroCalibrationOffset)) {
+    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
+  }
+
+  if (IsErased(&cal, sizeof(cal))) {
+    cal = MakeDefaultImuGyroCalibration();
+    if (!ee.WriteObject(cal, ee_schema::layout::kImuGyroCalibrationOffset)) {
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
+    }
+    return cal;
+  }
+
+  if (!ee_schema::ImuGyroCalibration::IsExactSchema(cal)) {
+    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
+  }
+
+  return cal;
+}
+
+bool EeConfigStorage::SaveImuGyroCalibration(
+    EE &ee, const ee_schema::ImuGyroCalibration &cal) {
+  ee_schema::ImuGyroCalibration to_write = cal;
+  ee_schema::ImuGyroCalibration::PopulateHeader(to_write);
+  return ee.WriteObject(to_write,
+                        ee_schema::layout::kImuGyroCalibrationOffset);
 }
 
 ee_schema::RcCalibration EeConfigStorage::LoadOrInitRcCalibration(EE &ee) {

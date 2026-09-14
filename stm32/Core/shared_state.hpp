@@ -202,6 +202,16 @@ struct AccelCalibration {
   float gains[3] = {1.0f, 1.0f, 1.0f};
 };
 
+// raw - offset, per axis, body frame. Zero-rate bias moves with temperature,
+// so a stored value is a fallback for the seconds before this session has
+// measured its own; `source` says which the estimator is flying on.
+enum class GyroCalSource : uint8_t { kNone, kStored, kSession };
+
+struct GyroCalibration {
+  float offsets_rad_s[3] = {0.0f, 0.0f, 0.0f};
+  GyroCalSource source = GyroCalSource::kNone;
+};
+
 struct ControlLoopLoad {
   // Written by the control tick, so it says the loop ran rather than that
   // something meant it to. The sample path's own stamp cannot: it moves
@@ -349,6 +359,9 @@ class SharedState {
   void UpdateAccelCalibration(const AccelCalibration &data) {
     accel_calibration_ = data;
   }
+  void UpdateGyroCalibration(const GyroCalibration &data) {
+    gyro_calibration_ = data;
+  }
 
   void UpdateControlLoopLoad(const ControlLoopLoad &data) {
     control_loop_load_ = data;
@@ -378,6 +391,9 @@ class SharedState {
   const ImuHealth &GetImuHealth() const { return imu_health_; }
   const AccelCalibration &GetAccelCalibration() const {
     return accel_calibration_;
+  }
+  const GyroCalibration &GetGyroCalibration() const {
+    return gyro_calibration_;
   }
 
   const ControlLoopLoad &GetControlLoopLoad() const {
@@ -419,6 +435,7 @@ class SharedState {
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
   AccelCalibration accel_calibration_{};
+  GyroCalibration gyro_calibration_{};
   ControlLoopLoad control_loop_load_{};
   uint32_t main_tick_count_ = 0;
   ImuTemperature imu_temp_{};

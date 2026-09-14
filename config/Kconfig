@@ -3172,6 +3172,17 @@ config STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_MDPS
       and the 20-bit FIFO spans 16x as many counts as the 16-bit one for the
       same rotation.
 
+config STM32_SENSOR_CAL_GYRO_MAX_OFFSET_MDPS
+    int "Maximum plausible offset (mdps)"
+    range 100 100000
+    default 5000
+    help
+      Largest zero-rate bias a run may report, per axis. The part's is
+      +-0.5 dps typical at room temperature, so a mean past this is motion
+      the stillness gate could not see -- a slow, steady turn -- or a part
+      that is broken. The run fails instead of applying it, and a stored
+      value past it is ignored at boot.
+
 endmenu
 
 menu "Accel"

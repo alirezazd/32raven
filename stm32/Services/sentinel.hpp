@@ -31,6 +31,7 @@ inline constexpr uint16_t kArmBlockSwitchNotCycled = 1u << 1;
 inline constexpr uint16_t kArmBlockRcLoss = 1u << 2;
 inline constexpr uint16_t kArmBlockLowBattery = 1u << 3;
 inline constexpr uint16_t kArmBlockThrottleHigh = 1u << 4;
+inline constexpr uint16_t kArmBlockGyroUncalibrated = 1u << 5;
 
 // How much the RC link is currently trusted. Deliberately not called a
 // failsafe *state*: none of these change what the vehicle does. kGuard flies

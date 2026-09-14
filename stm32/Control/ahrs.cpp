@@ -93,8 +93,12 @@ EstimatorState Ahrs::Process(SharedState &shared) {
 
   // Applied here rather than in the driver: the burst carries counts and one
   // scale, so a float offset has no home in it, and correcting upstream would
-  // feed AccelCal its own output during a run. The log keeps the raw counts,
-  // which is what lets a fit be re-derived from a flight after the fact.
+  // feed a calibrator its own output during a run. The log keeps the raw
+  // counts, which is what lets a fit be re-derived from a flight after the fact.
+  const GyroCalibration &gyro_cal = shared.GetGyroCalibration();
+  const Eigen::Vector3f gyro_offset{gyro_cal.offsets_rad_s[0],
+                                    gyro_cal.offsets_rad_s[1],
+                                    gyro_cal.offsets_rad_s[2]};
   const AccelCalibration &accel_cal = shared.GetAccelCalibration();
   const Eigen::Vector3f accel_offset{accel_cal.offsets_mps2[0],
                                      accel_cal.offsets_mps2[1],
@@ -115,7 +119,8 @@ EstimatorState Ahrs::Process(SharedState &shared) {
         Eigen::Vector3f{static_cast<float>(burst.gyro[0][i]),
                         static_cast<float>(burst.gyro[1][i]),
                         static_cast<float>(burst.gyro[2][i])} *
-        burst.gyro_scale;
+            burst.gyro_scale -
+        gyro_offset;
     const Eigen::Vector3f accel_raw =
         Eigen::Vector3f{static_cast<float>(burst.accel[0][i]),
                         static_cast<float>(burst.accel[1][i]),

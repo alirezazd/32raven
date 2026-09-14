@@ -2309,6 +2309,9 @@ def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "still_threshold_mdps": sym_int(
             kconf, "STM32_SENSOR_CAL_GYRO_STILL_THRESHOLD_MDPS"
         ),
+        "max_offset_mdps": sym_int(
+            kconf, "STM32_SENSOR_CAL_GYRO_MAX_OFFSET_MDPS"
+        ),
         "accel_side_duration_ms": sym_int(
             kconf, "STM32_SENSOR_CAL_ACCEL_SIDE_DURATION_MS"
         ),

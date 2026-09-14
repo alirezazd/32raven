@@ -89,7 +89,7 @@ class Icm42688p {
   }
 
   // Aliasing or dropping an axis misconfigures the estimator with no obvious
-  // flight symptom, and a non-permutation is not invertible by ChipFromBody.
+  // flight symptom.
   static consteval bool AxisMapIsPermutation(const Config::AxisMap &map) {
     return map.x_from <= 2u && map.y_from <= 2u && map.z_from <= 2u &&
            map.x_from != map.y_from && map.x_from != map.z_from &&
@@ -120,9 +120,6 @@ class Icm42688p {
   // Suspend, discard whatever the chip buffered, resume. Sentinel's lever on
   // a stalled sample path.
   void RestartSampling();
-  // bias_body is body frame; OFFSET_USER is per chip axis. Blocking, and stops
-  // the sample path for ~50 ms: slow loop only, never while armed.
-  void ApplyGyroOffsets(const float bias_body[3]);
 
   uint32_t GetDeviceId() const;
   bool IsInitialized() const { return device_id_ != 0u; }
@@ -153,9 +150,6 @@ class Icm42688p {
   void SetOdrAndFullScale(const Config &cfg);
 
   void SetTimestampConfig();
-  void ClearUserOffsets();
-  void WriteGyroUserOffsets(int16_t x_offset_lsb, int16_t y_offset_lsb,
-                            int16_t z_offset_lsb);
   void ConfigureFifo();
   void SetupDmaBuffer();
   void FlushAndResync();
@@ -185,11 +179,6 @@ class Icm42688p {
   // per-sample return would only be transposed at the call site.
   void MapAxes(const Sample &sample, uint16_t slot, ImuBurst &out) const;
 
-  // Frame half of MapAxes, inverted. CalibrateGyro measures in body frame but
-  // OFFSET_USER is per chip axis, so the mean has to come back through the map
-  // before it is written -- and that write is permanent. Units are not
-  // inverted: the offset register takes dps, so nothing returns to LSB.
-  void ChipFromBody(const float body[3], float chip[3]) const;
   // Packet4 carries 16 temperature bits and Packet3 only 8, so the decode is
   // here rather than at either call site.
   float ScaleTemperature(int16_t temp_raw) const;

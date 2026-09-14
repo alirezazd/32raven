@@ -11,13 +11,16 @@
 
 class EE;
 class FcLink;
-class Icm42688p;
 class SensorCalService;
 class SharedState;
 
 // Averages the gyro's zero-rate bias out of bursts SensorCalService feeds it.
 // Motion or a gap in the samples restarts the run rather than failing it, so
-// only the deadline can end one badly -- a bump on the bench costs time.
+// only the deadline and an implausible mean end one badly -- a bump on the
+// bench costs time.
+//
+// The result goes to the blackboard, where the estimator subtracts it, and
+// the last one stored is what a boot flies on until this session has its own.
 class GyroCal {
  public:
   struct Config {
@@ -28,6 +31,9 @@ class GyroCal {
     // Peak-to-peak, not magnitude, and physical: a count means nothing
     // without the full-scale range and bit depth behind it.
     uint32_t still_threshold_mdps;
+    // A mean past this is motion the stillness gate could not see, or a part
+    // that is broken; either way not a bias to subtract.
+    uint32_t max_offset_mdps;
   };
 
   enum class State : uint8_t { kIdle, kCollecting, kApplied, kFailed };
@@ -39,22 +45,27 @@ class GyroCal {
 
   // Control tick. The caller has already validated the burst.
   void Feed(const ImuBurst &burst);
-  // Slow loop: the register write that ends a run stops the sample path for
-  // ~50 ms, which no tick could afford.
+  // Slow loop, where the outcome is reported from.
   State Poll(uint32_t now_us);
 
  private:
   friend class SensorCalService;
-  void Init(const Config &cfg, SharedState &blackboard, Icm42688p &imu);
+  void Init(const Config &cfg, SharedState &blackboard, EE &ee);
   // False when the run was refused -- armed, or one already going.
   bool Start(uint32_t now_us);
   void Cancel();
+  // Persist the last result. Which results deserve the write is the
+  // service's policy, not this class's.
+  bool Store();
 
+  bool IsPlausible(const float offsets_rad_s[3]) const;
+  void Publish(const float offsets_rad_s[3], GyroCalSource source);
   void ResetRun();
 
   Config cfg_{};
   SharedState *blackboard_ = nullptr;
-  Icm42688p *imu_ = nullptr;
+  EE *ee_ = nullptr;
+  float result_rad_s_[3]{};
 
   State state_ = State::kIdle;
   uint32_t deadline_us_ = 0;
@@ -87,17 +98,8 @@ using AccelSide = message::AccelSide;
 //
 // Unlike GyroCal this is a session rather than a capture: the run alternates
 // between waiting for the board to be still in a new pose and accumulating
-// that pose, and only the last side completes it.
-//
-// It also cannot end the way GyroCal does, by handing the driver a number that
-// goes into the chip. OFFSET_USER holds an accel offset -- +-1 g at 0.5 mg, in
-// the same nine bytes as the gyro's -- but the part has no gain register at
-// all. A gain that must live in software needs something to hold it across
-// boots and something to hand it to whoever applies it, which is what the
-// EEPROM record and the blackboard field are for; and once a record exists,
-// splitting the offset into silicon while the gain sits in RAM is worse than
-// keeping the pair together. Every difference from GyroCal below follows from
-// that one missing register rather than from the fit being harder.
+// that pose, and only the last side completes it. And unlike the gyro's, the
+// result is stored: an accel fit holds across boots, a zero-rate bias does not.
 class AccelCal {
  public:
   struct Config {
@@ -217,7 +219,8 @@ class SensorCalService {
   // calibrator can see the other. An accel session needs the airframe turned
   // between poses, and every turn trips the gyro run's stillness check: it
   // would restart until it timed out and fired a failure tone in the middle of
-  // a calibration that was going fine.
+  // a calibration that was going fine. A run this service started on its own
+  // yields to either request rather than refusing it.
   bool StartGyro(uint32_t now_us);
   bool StartAccel(uint32_t now_us);
   // Stops whichever run is going. Only the accel run has a page waiting on
@@ -234,14 +237,19 @@ class SensorCalService {
 
  private:
   friend class System;
-  void Init(const Config &cfg, SharedState &blackboard, Icm42688p &imu, EE &ee,
-            FcLink &fclink);
+  void Init(const Config &cfg, SharedState &blackboard, EE &ee, FcLink &fclink);
 
   SensorCalService() = default;
   ~SensorCalService() = default;
   SensorCalService(const SensorCalService &) = delete;
   SensorCalService &operator=(const SensorCalService &) = delete;
 
+  // Starts a gyro run whenever nothing else is using the airframe: the bias
+  // moves with temperature, so every landing is followed by a fresh measure
+  // at the temperature the next flight starts at. The stillness gate is what
+  // makes an unwatched run safe, and its deadline is not a failure here -- a
+  // vehicle being carried is simply tried again.
+  void ScheduleGyro(uint32_t now_us);
   void ReportGyro(GyroCal::State outcome);
   // `captured` separates the two edges a tone cannot: a pose recognised and
   // a pose averaged both leave the run detecting again.
@@ -253,6 +261,13 @@ class SensorCalService {
   SharedState *blackboard_ = nullptr;
   FcLink *fclink_ = nullptr;
   bool initialized_ = false;
+  // The gyro run going was ScheduleGyro's, not a host's: it yields to a host
+  // and reports nothing a host did not ask for.
+  bool gyro_auto_ = false;
+  // Only the session's first result is stored and sounded. The board keeps
+  // re-measuring while it sits, and the first is the cold one the next boot
+  // most resembles.
+  bool gyro_session_ = false;
   // Doubles as the novelty test: `fresh` is already cleared by the time the
   // probe runs and cannot say what is new. Shared, because one read of the slot
   // serves every calibrator.

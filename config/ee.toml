@@ -1,6 +1,10 @@
+# `slot` fixes each record's place in the EEPROM. Records are packed in slot
+# order, so a new one takes the next slot and nothing already stored moves.
+
 [stm32.imu.accel_calibration]
 type_name = "ImuAccelCalibration"
 tag = "IAC1"
+slot = 0
 
 [[stm32.imu.accel_calibration.fields]]
 name = "offsets"
@@ -15,6 +19,7 @@ count = 3
 [stm32.rc.calibration]
 type_name = "RcCalibration"
 tag = "RCC1"
+slot = 1
 
 [[stm32.rc.calibration.fields]]
 name = "min_us"
@@ -39,6 +44,7 @@ count = 16
 [stm32.rc.map]
 type_name = "RcMap"
 tag = "RCM1"
+slot = 2
 
 [[stm32.rc.map.fields]]
 name = "roll_channel"
@@ -54,4 +60,18 @@ type = "uint8_t"
 
 [[stm32.rc.map.fields]]
 name = "throttle_channel"
+type = "uint8_t"
+
+[stm32.imu.gyro_calibration]
+type_name = "ImuGyroCalibration"
+tag = "IGC1"
+slot = 3
+
+[[stm32.imu.gyro_calibration.fields]]
+name = "offsets_rad_s"
+type = "float"
+count = 3
+
+[[stm32.imu.gyro_calibration.fields]]
+name = "calibrated"
 type = "uint8_t"

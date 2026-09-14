@@ -263,7 +263,14 @@ void Sentinel::Supervise(uint32_t now_us) {
       (blackboard_->IsControlLoopRunning() && !blackboard_->IsArmed())
           ? 0u
           : kArmBlockNotStandby;
-  const uint16_t standing_blockers = state_blockers | BatteryBlocker();
+  // No stored value and none measured yet: only a board's first boot, and
+  // only until it has sat still for one run.
+  const uint16_t gyro_blocker =
+      blackboard_->GetGyroCalibration().source == GyroCalSource::kNone
+          ? kArmBlockGyroUncalibrated
+          : 0u;
+  const uint16_t standing_blockers =
+      state_blockers | BatteryBlocker() | gyro_blocker;
 
   // The bench states suspend the sample interrupt on purpose, so a frozen
   // heartbeat there is the state machine's doing rather than a stall -- and
