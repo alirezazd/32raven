@@ -201,7 +201,8 @@ static void OnReqCalibrationId(const AppContext &ctx,
 // Privileged only in that FcLink access is the whole gate, as for kReboot and
 // kBootload -- it bypasses nothing. Sentinel answers this request against the
 // same interlocks the arm switch faces, and owns the refusal, so this end just
-// forwards it. Its use is the bench, where there is no transmitter to arm with.
+// forwards it. The bench has no transmitter to arm with, and a ground station
+// sends it too.
 static void OnPrivilegedArm(const AppContext &ctx, const message::Packet &pkt) {
   const auto &req = message::PayloadAs<message::PrivilegedArmMsg>(pkt);
   ctx.sys->SentinelSvc().RequestArm(req.armed != 0u);

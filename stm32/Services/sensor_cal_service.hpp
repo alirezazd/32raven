@@ -237,6 +237,18 @@ class MagCal {
     kCancelled,
   };
 
+  // Why a run ended in kFailed: what the operator is told, since the page
+  // only says "failed".
+  enum class Failure : uint8_t {
+    kNone,
+    kArmed,
+    kTimeout,    // the whole run's deadline
+    kNoTurn,     // a pose named, never turned on
+    kSphereFit,  // did not converge on the points
+    kBounds,     // converged on something the Earth's field is not
+    kStore,
+  };
+
   static constexpr uint32_t kMaxPointsPerSide = 40;
   static constexpr uint32_t kMaxPoints =
       kMaxPointsPerSide * message::kAccelSideCount;
@@ -256,6 +268,10 @@ class MagCal {
   // The last fit, for the report that lands with kApplied.
   const MagFitParams &Result() const { return result_; }
   float ResultCost() const { return result_cost_; }
+  // For the report that lands with kFailed: the fit as it stood.
+  Failure Reason() const { return failure_; }
+  uint32_t Points() const { return count_; }
+  const MagFit &Fit() const { return fit_; }
 
   State Poll(uint32_t now_us);
 
@@ -292,6 +308,7 @@ class MagCal {
   ee_schema::MagnetometerCalibration record_{};
 
   State state_ = State::kIdle;
+  Failure failure_ = Failure::kNone;
   uint32_t deadline_us_ = 0;
   // The rotate deadline while kRotating, the side deadline while kCollecting.
   uint32_t stage_deadline_us_ = 0;
@@ -385,6 +402,7 @@ class SensorCalService {
   // `turn` is the edge into kRotating, the one the operator has to act on.
   void ReportMag(MagCal::State outcome, uint8_t sides_done, AccelSide side,
                  uint8_t progress, bool captured, bool turn);
+  void ReportMagFailure();
   // The status line both pose runs send, and the tone beside it: one for the
   // outcome, and a beep where `act` says the operator has to do something an
   // airframe in their hands cannot show them.

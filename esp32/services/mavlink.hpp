@@ -157,6 +157,9 @@ class Mavlink {
                          const mavlink_command_long_t &cmd);
   void HandleRequestMessage(const mavlink_command_long_t &cmd,
                             uint8_t source_system, uint8_t source_component);
+  // Lets the queue drain so the ack goes out, then restarts this board. Its
+  // boot pulls the flight computer's reset line, so the whole vehicle goes.
+  void SysReboot();
   static bool IsDeclinedMessage(uint32_t message_id);
   bool IsTargetedToThisComponent(uint8_t target_system,
                                  uint8_t target_component) const {

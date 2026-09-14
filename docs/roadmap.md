@@ -95,11 +95,8 @@ with a 900 MHz radio as the primary link that is the *expected* case rather than
 it will likely outlive 2.4 GHz control. PX4 models this as two independent conditions,
 `manual_control_signal_lost` and `gcs_connection_lost`, each with its own action parameter.
 
-Two pieces are missing before that rule can be evaluated at all:
+One piece is missing before that rule can be evaluated at all:
 
-- **The GCS cannot arm or disarm.** `mavlink_cmd.cpp` handles `START_RX_PAIR`,
-  `REQUEST_MESSAGE` and `PREFLIGHT_CALIBRATION`; everything else returns `MAV_RESULT_UNSUPPORTED`.
-  `MAV_CMD_COMPONENT_ARM_DISARM` needs wiring to the `kPrivilegedArm` path that already exists.
 - **The STM32 cannot tell whether a GCS is connected.** `MAVLINK_MSG_ID_HEARTBEAT` reaches
   `Mavlink::HandleMessage` and only blinks the LED — no timestamp kept, nothing forwarded over
   FcLink.

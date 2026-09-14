@@ -68,6 +68,7 @@ class MagFit {
 
   const MagFitParams &Params() const { return params_; }
   float Cost() const { return cost_; }
+  uint8_t Iteration() const { return iteration_; }
 
  private:
   bool SphereIteration(std::span<const float> x, std::span<const float> y,

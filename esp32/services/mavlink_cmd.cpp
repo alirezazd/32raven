@@ -4,7 +4,9 @@
 #include <cmath>
 #include <cstdio>
 
+#include "esp_system.h"
 #include "mavlink.hpp"
+#include "system.hpp"
 
 // `detail` is the command's param1, which for MAV_CMD_REQUEST_MESSAGE is the
 // message being asked for -- the whole content of the request, and the only
@@ -82,6 +84,21 @@ void Mavlink::HandleRequestMessage(const mavlink_command_long_t &cmd,
   }
 }
 
+void Mavlink::SysReboot() {
+  // Bounded: a transport that is not ready would otherwise hold the reboot
+  // hostage to an ack nobody can receive.
+  constexpr uint32_t kDrainStepMs = 50;
+  constexpr uint32_t kDrainSteps = 20;
+  for (uint32_t step = 0; step < kDrainSteps; ++step) {
+    if (tx_work_queue_.IsEmpty() && tx_frame_.Empty()) {
+      break;
+    }
+    TransmitNextFrame(Sys().Timebase().NowMs());
+    Sys().Timebase().SleepMs(kDrainStepMs);
+  }
+  esp_restart();
+}
+
 void Mavlink::HandleCommandMessage(const mavlink_message_t &msg) {
   mavlink_command_long_t cmd{};
   mavlink_msg_command_long_decode(&msg, &cmd);
@@ -125,6 +142,40 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
     case MAV_CMD_REQUEST_MESSAGE:
       HandleRequestMessage(cmd, source_system, source_component);
       break;
+    case MAV_CMD_COMPONENT_ARM_DISARM: {
+      // The flight computer answers this against its own interlocks and owns
+      // the refusal, so ACCEPTED means delivered and the outcome is the
+      // heartbeat's armed flag. The force magic in param2 bypasses nothing.
+      const bool arm = static_cast<uint32_t>(cmd.param1) == 1u;
+      fc_link_->SendPacket(
+          message::MsgId::kPrivilegedArm,
+          message::PrivilegedArmMsg{.armed = static_cast<uint8_t>(arm)});
+      QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
+                      source_system, source_component);
+      break;
+    }
+    case MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN: {
+      // param1 is the autopilot and 1 is the reboot; shutdown, holding in the
+      // bootloader and the onboard computer in param2 have no answer here.
+      const uint32_t autopilot = static_cast<uint32_t>(cmd.param1);
+      if (autopilot != 1u) {
+        QueueCommandAck(static_cast<uint16_t>(cmd.command),
+                        MAV_RESULT_UNSUPPORTED, source_system,
+                        source_component);
+        LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command), autopilot,
+                                "reboot");
+        break;
+      }
+      if (PeerArmed(Sys().Timebase().NowMs()).value_or(false)) {
+        QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_DENIED,
+                        source_system, source_component);
+        break;
+      }
+      QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
+                      source_system, source_component);
+      SysReboot();
+      break;
+    }
     case MAV_CMD_PREFLIGHT_CALIBRATION: {
       // param1 is the gyro slot, param2 the magnetometer and param5 the accel,
       // as the MAVLink command defines them, and only the value 1 asks for a

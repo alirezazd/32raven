@@ -21,13 +21,13 @@
 // six rest holds, six turn waits and six poses inside the deadline.
 static_assert(kSensorCalConfig.mag.points_per_side <= MagCal::kMaxPointsPerSide,
               "STM32_SENSOR_CAL_MAG_POINTS_PER_SIDE exceeds the sample buffer");
-static_assert(
-    kSensorCalConfig.mag.timeout_s >
-        message::kAccelSideCount *
-            ((kSensorCalConfig.mag.still_duration_ms / 1000u) +
-             MagCal::kRotateTimeoutS + kSensorCalConfig.mag.side_duration_s),
-    "compass calibration deadline cannot cover six poses -- raise "
-    "STM32_SENSOR_CAL_MAG_TIMEOUT_S");
+static_assert(kSensorCalConfig.mag.timeout_s >
+                  message::kAccelSideCount *
+                      ((kSensorCalConfig.mag.still_duration_ms / 1000u) +
+                       MagCal::kRotateTimeoutS +
+                       kSensorCalConfig.mag.side_duration_s),
+              "compass calibration deadline cannot cover six poses -- raise "
+              "STM32_SENSOR_CAL_MAG_TIMEOUT_S");
 
 namespace {
 
@@ -526,7 +526,6 @@ AccelCal::State AccelCal::Poll(uint32_t now_us) {
   return state_;
 }
 
-
 namespace {
 
 constexpr float kGaussPerMicrotesla = 0.01f;
@@ -608,6 +607,7 @@ bool MagCal::Start(uint32_t now_us) {
   deadline_us_ =
       now_us + static_cast<uint32_t>(SecondsToMicros(cfg_.timeout_s));
   last_poll_us_ = now_us;
+  failure_ = Failure::kNone;
   sides_done_ = 0;
   count_ = 0;
   side_count_ = 0;
@@ -640,8 +640,13 @@ MagCal::State MagCal::Poll(uint32_t now_us) {
   if (!Running()) {
     return state_;
   }
-  if (blackboard_->IsArmed() ||
-      static_cast<int32_t>(now_us - deadline_us_) >= 0) {
+  if (blackboard_->IsArmed()) {
+    failure_ = Failure::kArmed;
+    state_ = State::kFailed;
+    return state_;
+  }
+  if (static_cast<int32_t>(now_us - deadline_us_) >= 0) {
+    failure_ = Failure::kTimeout;
     state_ = State::kFailed;
     return state_;
   }
@@ -766,6 +771,7 @@ void MagCal::PollRotating(uint32_t now_us, float dt_s) {
     return;
   }
   if (static_cast<int32_t>(now_us - stage_deadline_us_) >= 0) {
+    failure_ = Failure::kNoTurn;
     state_ = State::kFailed;
   }
 }
@@ -852,6 +858,7 @@ void MagCal::PollFitting() {
 
   if (!fitting_ellipsoid_) {
     if (status == MagFit::Status::kFailed) {
+      failure_ = Failure::kSphereFit;
       state_ = State::kFailed;
       return;
     }
@@ -871,6 +878,7 @@ void MagCal::PollFitting() {
     result_ = sphere_result_;
   }
   if (!IsSane(result_)) {
+    failure_ = Failure::kBounds;
     state_ = State::kFailed;
     return;
   }
@@ -882,7 +890,12 @@ void MagCal::PollFitting() {
     cal.offdiag[axis] = result_.offdiag(axis);
   }
   cal.calibrated = 1u;
-  state_ = Store(cal) ? State::kApplied : State::kFailed;
+  if (!Store(cal)) {
+    failure_ = Failure::kStore;
+    state_ = State::kFailed;
+    return;
+  }
+  state_ = State::kApplied;
 }
 
 bool MagCal::IsSane(const MagFitParams &p) {
@@ -902,8 +915,7 @@ uint8_t MagCal::Progress() const {
   }
   const uint32_t per = cfg_.points_per_side;
   const uint32_t done = static_cast<uint32_t>(std::popcount(sides_done_));
-  const uint32_t taken =
-      (done * per) + (side_count_ < per ? side_count_ : per);
+  const uint32_t taken = (done * per) + (side_count_ < per ? side_count_ : per);
   return static_cast<uint8_t>((100u * taken) /
                               (per * message::kAccelSideCount));
 }
@@ -1119,10 +1131,9 @@ void SensorCalService::ScheduleGyro(uint32_t now_us) {
 void SensorCalService::ReportGyro(GyroCal::State outcome) {
   if (outcome == GyroCal::State::kFailed) {
     if (!gyro_auto_) {
-      fclink_->SendPacket(
-          message::MsgId::kTone,
-          message::ToneMsg{
-              .tone = static_cast<uint8_t>(message::Tone::kError)});
+      fclink_->SendPacket(message::MsgId::kTone,
+                          message::ToneMsg{.tone = static_cast<uint8_t>(
+                                               message::Tone::kError)});
     }
     return;
   }
@@ -1183,10 +1194,51 @@ void SensorCalService::ReportMag(MagCal::State outcome, uint8_t sides_done,
         static_cast<long>(fit.offdiag(1) * 1000.0f),
         static_cast<long>(fit.offdiag(2) * 1000.0f),
         static_cast<long>(mag_.ResultCost() * 1e6f));
+  } else if (outcome == MagCal::State::kFailed) {
+    ReportMagFailure();
   }
   // Start turning, move to the next pose: the two edges the operator acts on.
   ReportCal(message::CalSensor::kMag, ToWire(outcome), sides_done, side,
             progress, captured || turn);
+}
+
+void SensorCalService::ReportMagFailure() {
+  const MagFit &fit = mag_.Fit();
+  switch (mag_.Reason()) {
+    case MagCal::Failure::kNone:
+      break;
+    case MagCal::Failure::kArmed:
+      fclink_->SendLog("mag: failed, armed");
+      break;
+    case MagCal::Failure::kTimeout:
+      fclink_->SendLog("mag: failed, run timed out");
+      break;
+    case MagCal::Failure::kNoTurn:
+      fclink_->SendLog("mag: failed, pose named but never turned on");
+      break;
+    case MagCal::Failure::kSphereFit:
+      fclink_->SendLog(
+          "mag: failed, sphere fit did not converge: %lu points, %u "
+          "iterations, cost %ld e-6, field %ld mG",
+          static_cast<unsigned long>(mag_.Points()),
+          static_cast<unsigned>(fit.Iteration()),
+          static_cast<long>(fit.Cost() * 1e6f),
+          static_cast<long>(fit.Params().radius * 1000.0f));
+      break;
+    case MagCal::Failure::kBounds:
+      fclink_->SendLog(
+          "mag: failed, fit out of bounds: %lu points, field %ld mG, diag "
+          "%ld %ld %ld permille",
+          static_cast<unsigned long>(mag_.Points()),
+          static_cast<long>(mag_.Result().radius * 1000.0f),
+          static_cast<long>(mag_.Result().diag(0) * 1000.0f),
+          static_cast<long>(mag_.Result().diag(1) * 1000.0f),
+          static_cast<long>(mag_.Result().diag(2) * 1000.0f));
+      break;
+    case MagCal::Failure::kStore:
+      fclink_->SendLog("mag: failed, result not stored");
+      break;
+  }
 }
 
 void SensorCalService::ReportCal(message::CalSensor sensor,
