@@ -126,27 +126,35 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       HandleRequestMessage(cmd, source_system, source_component);
       break;
     case MAV_CMD_PREFLIGHT_CALIBRATION: {
-      // param1 is the gyro slot and param5 the accel, as the MAVLink command
-      // defines them, and only the value 1 asks for a run. param5 = 2 is the
-      // level-horizon trim, a different routine this board does not have, so
-      // treating every non-zero as "accel" answered one button with another.
-      // ACCEPTED means the request reached the flight controller, not that the
-      // run finished -- the gyro ends in a tone, and the accel in a STATUSTEXT
-      // per pose.
+      // param1 is the gyro slot, param2 the magnetometer and param5 the accel,
+      // as the MAVLink command defines them, and only the value 1 asks for a
+      // run. param5 = 2 is the level-horizon trim, a different routine this
+      // board does not have, so treating every non-zero as "accel" answered
+      // one button with another. ACCEPTED means the request reached the
+      // flight controller, not that the run finished -- the gyro ends in a
+      // tone, the accel and the compass in a STATUSTEXT per pose.
       const uint32_t gyro_slot = static_cast<uint32_t>(cmd.param1);
+      const uint32_t mag_slot = static_cast<uint32_t>(cmd.param2);
       const uint32_t accel_slot = static_cast<uint32_t>(cmd.param5);
       // Every field zero is the cancel, as PX4 reads it and QGC sends it.
       const bool cancel = gyro_slot == 0u && accel_slot == 0u &&
-                          static_cast<uint32_t>(cmd.param2) == 0u &&
+                          mag_slot == 0u &&
                           static_cast<uint32_t>(cmd.param3) == 0u &&
                           static_cast<uint32_t>(cmd.param4) == 0u &&
                           static_cast<uint32_t>(cmd.param6) == 0u &&
                           static_cast<uint32_t>(cmd.param7) == 0u;
-      message::MsgId id = message::MsgId::kCalibrateGyro;
       if (cancel) {
-        id = message::MsgId::kCancelCalibration;
-      } else if (gyro_slot != 1u) {
-        if (accel_slot != 1u) {
+        fc_link_->SendPacket(
+            message::MakePacket(message::MsgId::kCancelCalibration));
+      } else {
+        auto sensor = message::CalSensor::kCount;
+        if (mag_slot == 1u) {
+          sensor = message::CalSensor::kMag;
+        } else if (gyro_slot == 1u) {
+          sensor = message::CalSensor::kGyro;
+        } else if (accel_slot == 1u) {
+          sensor = message::CalSensor::kAccel;
+        } else {
           QueueCommandAck(static_cast<uint16_t>(cmd.command),
                           MAV_RESULT_UNSUPPORTED, source_system,
                           source_component);
@@ -155,11 +163,10 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
                                   "cal-slot");
           break;
         }
-        id = message::MsgId::kCalibrateAccel;
+        fc_link_->SendPacket(
+            message::MsgId::kCalibrate,
+            message::CalibrateMsg{.sensor = static_cast<uint8_t>(sensor)});
       }
-      message::Packet req_pkt{};
-      req_pkt.header.id = static_cast<uint8_t>(id);
-      fc_link_->SendPacket(req_pkt);
       QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_ACCEPTED,
                       source_system, source_component);
       break;

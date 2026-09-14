@@ -782,6 +782,16 @@ void LogService::AppendUlogMessage(uint8_t type, const void *payload,
   AppendToStaging(payload, len);
 }
 
+void LogService::AppendInfo(const char *key, const void *value,
+                            uint16_t value_len) {
+  const auto key_len = static_cast<uint8_t>(std::strlen(key));
+  const MsgHeader hdr{static_cast<uint16_t>(1u + key_len + value_len), 'I'};
+  AppendToStaging(&hdr, sizeof(hdr));
+  AppendToStaging(&key_len, sizeof(key_len));
+  AppendToStaging(key, key_len);
+  AppendToStaging(value, value_len);
+}
+
 void LogService::AppendDefinitions(uint64_t now64) {
   AppendToStaging(kUlogMagic, sizeof(kUlogMagic));
   AppendToStaging(&now64, sizeof(now64));
@@ -793,15 +803,26 @@ void LogService::AppendDefinitions(uint64_t now64) {
     AppendUlogMessage('F', fmt, static_cast<uint16_t>(std::strlen(fmt)));
   }
 
-  // Info message: {uint8 key_len, "type name", value}.
-  constexpr char kSysNameKey[] = "char[7] sys_name";
-  constexpr char kSysNameValue[] = "32raven";
-  uint8_t info[1 + sizeof(kSysNameKey) - 1 + sizeof(kSysNameValue) - 1];
-  info[0] = sizeof(kSysNameKey) - 1;
-  std::memcpy(&info[1], kSysNameKey, sizeof(kSysNameKey) - 1);
-  std::memcpy(&info[1 + sizeof(kSysNameKey) - 1], kSysNameValue,
-              sizeof(kSysNameValue) - 1);
-  AppendUlogMessage('I', info, sizeof(info));
+  AppendInfo("char[7] sys_name", "32raven", 7);
+
+  // The corrections the sensors flew with. The FIFO and mag records keep raw
+  // values, so these are what re-derive the corrected ones -- or fit better
+  // ones -- after the fact. Accel: offsets then gains; mag: offsets then the
+  // soft-iron rows.
+  const GyroCalibration &gyro_cal = blackboard_->GetGyroCalibration();
+  AppendInfo("float[3] gyro_calibration", gyro_cal.offsets_rad_s,
+             sizeof(gyro_cal.offsets_rad_s));
+  const AccelCalibration &accel_cal = blackboard_->GetAccelCalibration();
+  float accel_values[6];
+  std::memcpy(&accel_values[0], accel_cal.offsets_mps2,
+              sizeof(accel_cal.offsets_mps2));
+  std::memcpy(&accel_values[3], accel_cal.gains, sizeof(accel_cal.gains));
+  AppendInfo("float[6] accel_calibration", accel_values, sizeof(accel_values));
+  const MagCalibration &mag_cal = blackboard_->GetMagCalibration();
+  float mag_values[12];
+  std::memcpy(&mag_values[0], mag_cal.offsets_ut, sizeof(mag_cal.offsets_ut));
+  std::memcpy(&mag_values[3], mag_cal.soft_iron, sizeof(mag_cal.soft_iron));
+  AppendInfo("float[12] mag_calibration", mag_values, sizeof(mag_values));
 
   // Subscriptions: {uint8 multi_id, uint16 msg_id, name}.
   for (uint16_t id = 0; id < kMsgCount; ++id) {

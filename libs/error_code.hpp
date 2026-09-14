@@ -22,7 +22,7 @@ enum class Common : uint32_t {
   kUnknown,
   kUnknownCommand,
   kCommandInvalidPacket,
-  kFcLinkInvalidGyroCalibrationIdConfig,
+  kFcLinkInvalidCalibrationIdConfig,
   kFcLinkInvalidRcCalibrationConfig,
 };
 
@@ -56,7 +56,6 @@ enum class Stm32 : uint32_t {
   kMagConfigNotKept,
   // GPS
   kGpsNotResponding,
-  kGpsConfigTimepulseFailed,
   kGpsVerifyProtocolFailed,
   kGpsVerifyNavPvtFailed,
   kGpsVerifyNavDopFailed,

@@ -82,12 +82,12 @@ volatile = true
 
 [params.SYS_HAS_MAG]
 shortDesc = "Magnetometer fitted"
-longDesc = "Always zero: no magnetometer is fitted."
+longDesc = "Always one: the compass on the GPS module. Fixed by the build."
 group = "Sensors"
 category = "System"
 [[params.SYS_HAS_MAG.values]]
-value = 0
-description = "Not fitted"
+value = 1
+description = "Fitted"
 
 [params.SYS_HAS_NUM_ASPD]
 shortDesc = "Airspeed sensors fitted"
@@ -279,14 +279,15 @@ max = 60000
 group = "Telemetry rates"
 category = "Standard"
 
-# Absent hardware, reported so the ground station stops asking. Three of each
-# because PX4's dictionary names three magnetometer slots and a station that
-# finds one missing treats the set as incomplete.
+# Slot 0 is the compass; slots 1 and 2 are absent hardware, reported so the
+# ground station stops asking, because PX4's dictionary names three slots and
+# a station that finds one missing treats the set as incomplete.
 [params.CAL_MAG0_ID]
 shortDesc = "Magnetometer 0 ID"
-longDesc = "Always zero: no magnetometer is fitted."
+longDesc = "The compass's device id once a calibration is stored, zero before -- which is how the ground station knows one is needed. Set by a calibration, not by hand."
 group = "Sensors"
 category = "System"
+volatile = true
 
 [params.CAL_MAG1_ID]
 shortDesc = "Magnetometer 1 ID"
@@ -302,7 +303,7 @@ category = "System"
 
 [params.CAL_MAG0_ROT]
 shortDesc = "Magnetometer 0 rotation"
-longDesc = "Always -1, the value for a magnetometer that is not fitted."
+longDesc = "Always 0, no rotation: the module's mounting is applied in the firmware's axis map, so there is nothing to set here."
 group = "Sensors"
 category = "System"
 

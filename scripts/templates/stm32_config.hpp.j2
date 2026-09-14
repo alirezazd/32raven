@@ -224,6 +224,13 @@ inline constexpr SensorCalService::Config kSensorCalConfig = {
         .timeout_s = {{ sensor_cal.accel_timeout_s }},
         .still_threshold_mg = {{ sensor_cal.accel_still_threshold_mg }},
     },
+    .mag = {
+        .points_per_side = {{ sensor_cal.mag_points_per_side }},
+        .side_duration_s = {{ sensor_cal.mag_side_duration_s }},
+        .still_duration_ms = {{ sensor_cal.mag_still_duration_ms }},
+        .still_threshold_mg = {{ sensor_cal.mag_still_threshold_mg }},
+        .timeout_s = {{ sensor_cal.mag_timeout_s }},
+    },
 };
 static_assert(kSensorCalConfig.gyro.timeout_s > kSensorCalConfig.gyro.duration_s,
               "gyro calibration deadline leaves no room for a restart -- "
@@ -258,18 +265,14 @@ inline constexpr Qmc5883p::Config kQmc5883pConfig = {
     .osr2 = {{ mag.osr2 }},
     .range = {{ mag.range }},
     .sample_period_us = {{ mag.sample_period_us }},
-    // Identity, and unverified: the compass sits on the GPS module rather
-    // than on the board, so its orientation is however the mast was glued
-    // down. Whoever measures the heading against a known bearing is the one
-    // who fills this in -- roadmap #30 is the same problem named for the IMU.
     .axes =
         {
-            .x_from = 0,
-            .x_neg = false,
-            .y_from = 1,
-            .y_neg = false,
-            .z_from = 2,
-            .z_neg = false,
+            .x_from = {{ mag.axes.x_from }},
+            .x_neg = {{ mag.axes.x_neg | cpp_bool }},
+            .y_from = {{ mag.axes.y_from }},
+            .y_neg = {{ mag.axes.y_neg | cpp_bool }},
+            .z_from = {{ mag.axes.z_from }},
+            .z_neg = {{ mag.axes.z_neg | cpp_bool }},
         },
 };
 
@@ -372,18 +375,6 @@ inline constexpr M10::Config kM10Config = {
         .bds_enable = {{ m10.config.gnss.bds_enable | cpp_bool }},
         .sbas_enable = {{ m10.config.gnss.sbas_enable | cpp_bool }},
         .itfm_enable = {{ m10.config.gnss.itfm_enable | cpp_bool }},
-    },
-    .tp1 = {
-        .ena = {{ m10.config.tp1.ena | cpp_bool }},
-        .use_locked = {{ m10.config.tp1.use_locked | cpp_bool }},
-        .period = {{ m10.config.tp1.period }},
-        .len = {{ m10.config.tp1.len }},
-        .period_lock = {{ m10.config.tp1.period_lock }},
-        .len_lock = {{ m10.config.tp1.len_lock }},
-        .timegrid = {{ m10.config.tp1.timegrid }},
-        .sync_gnss = {{ m10.config.tp1.sync_gnss | cpp_bool }},
-        .align_to_tow = {{ m10.config.tp1.align_to_tow | cpp_bool }},
-        .pol_rising = {{ m10.config.tp1.pol_rising | cpp_bool }},
     },
     .ack_timeout_us = {{ m10.config.ack_timeout_us }},
 };

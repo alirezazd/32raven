@@ -75,3 +75,27 @@ count = 3
 [[stm32.imu.gyro_calibration.fields]]
 name = "calibrated"
 type = "uint8_t"
+
+[stm32.mag.calibration]
+type_name = "MagnetometerCalibration"
+tag = "MGC1"
+slot = 4
+
+[[stm32.mag.calibration.fields]]
+name = "offsets_ut"
+type = "float"
+count = 3
+
+[[stm32.mag.calibration.fields]]
+name = "diag"
+type = "float"
+count = 3
+
+[[stm32.mag.calibration.fields]]
+name = "offdiag"
+type = "float"
+count = 3
+
+[[stm32.mag.calibration.fields]]
+name = "calibrated"
+type = "uint8_t"

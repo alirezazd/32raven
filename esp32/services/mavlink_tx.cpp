@@ -4,7 +4,6 @@
 #include <mavlink.h>
 
 #include <array>
-#include <bit>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -199,32 +198,42 @@ void Mavlink::ReportSensorHealthChanges(
 // The operator is holding an airframe rather than reading a status field, so
 // every edge becomes a line QGC's calibration page parses. The strings are
 // PX4's exactly; a word off is a line it drops.
-void Mavlink::ReportAccelCalProgress(const message::AccelCalStatusMsg &msg) {
-  // Named for the face it rests on, not the axis pointing up.
-  static constexpr const char *kSideNames[message::kAccelSideCount] = {
-      "back", "front", "left", "right", "up", "down"};
+// Named for the face it rests on, not the axis pointing up. The compass run
+// shares the six poses and the bit order, so it shares the names.
+constexpr const char *kSideNames[message::kAccelSideCount] = {
+    "back", "front", "left", "right", "up", "down"};
 
-  const auto state = static_cast<message::AccelCalState>(msg.state);
-  const bool running = (state == message::AccelCalState::kDetecting) ||
-                       (state == message::AccelCalState::kCollecting);
+// The compass page is the accel page with a turn on each pose: the same
+// lines, plus a progress line while a pose is being sampled, which the page
+// takes as the bar's value. The accel's progress only moves with a captured
+// side, so that line never fires for it.
+void Mavlink::ReportCalProgress(const message::CalStatusMsg &msg) {
+  const char *sensor = message::kCalSensorNames[msg.sensor];
+  const auto state = static_cast<message::CalState>(msg.state);
+  const bool running = (state == message::CalState::kDetecting) ||
+                       (state == message::CalState::kRotating) ||
+                       (state == message::CalState::kCollecting) ||
+                       (state == message::CalState::kFitting);
   char line[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
 
-  if (running && !accel_cal_running_) {
+  if (running && !cal_running_) {
     // 2 is the revision the page checks against; without this it stays idle.
-    QueueStatusText("[cal] calibration started: 2 accel", MAV_SEVERITY_INFO);
-    accel_cal_sides_ = 0;
-    accel_cal_announced_side_ = message::kAccelSideCount;
+    std::snprintf(line, sizeof(line), "[cal] calibration started: 2 %s",
+                  sensor);
+    QueueStatusText(line, MAV_SEVERITY_INFO);
+    cal_sides_ = 0;
+    cal_announced_side_ = message::kAccelSideCount;
+    cal_last_progress_ = 0;
   }
-  accel_cal_running_ = running;
+  cal_running_ = running;
 
-  const uint8_t captured =
-      static_cast<uint8_t>(msg.sides_done & ~accel_cal_sides_);
+  const uint8_t captured = static_cast<uint8_t>(msg.sides_done & ~cal_sides_);
   for (uint8_t side = 0; side < message::kAccelSideCount; ++side) {
     if ((captured & (1u << side)) == 0u) {
       continue;
     }
     // The page marks a side complete only after marking it started.
-    if (accel_cal_announced_side_ != side) {
+    if (cal_announced_side_ != side) {
       std::snprintf(line, sizeof(line), "[cal] %s orientation detected",
                     kSideNames[side]);
       QueueStatusText(line, MAV_SEVERITY_INFO);
@@ -233,34 +242,45 @@ void Mavlink::ReportAccelCalProgress(const message::AccelCalStatusMsg &msg) {
                   "[cal] %s side done, rotate to a different side",
                   kSideNames[side]);
     QueueStatusText(line, MAV_SEVERITY_INFO);
-    accel_cal_announced_side_ = message::kAccelSideCount;
+    cal_announced_side_ = message::kAccelSideCount;
   }
 
   if (captured != 0u) {
-    accel_cal_sides_ = msg.sides_done;
-    const unsigned done =
-        static_cast<unsigned>(std::popcount(accel_cal_sides_));
+    cal_sides_ = msg.sides_done;
     // Its own line: the page returns early on a progress report.
-    std::snprintf(line, sizeof(line), "[cal] progress <%u>",
-                  done * 100u / message::kAccelSideCount);
+    std::snprintf(line, sizeof(line), "[cal] progress <%u>", msg.progress);
     QueueStatusText(line, MAV_SEVERITY_INFO);
+    cal_last_progress_ = msg.progress;
   }
 
-  if ((state == message::AccelCalState::kCollecting) &&
-      (msg.side < message::kAccelSideCount) &&
-      (accel_cal_announced_side_ != msg.side)) {
+  const bool on_side = (state == message::CalState::kRotating) ||
+                       (state == message::CalState::kCollecting);
+  if (on_side && (msg.side < message::kAccelSideCount) &&
+      (cal_announced_side_ != msg.side)) {
     std::snprintf(line, sizeof(line), "[cal] %s orientation detected",
                   kSideNames[msg.side]);
     QueueStatusText(line, MAV_SEVERITY_INFO);
-    accel_cal_announced_side_ = msg.side;
+    cal_announced_side_ = msg.side;
+  }
+
+  if ((state == message::CalState::kCollecting) &&
+      (msg.side < message::kAccelSideCount) &&
+      (msg.progress != cal_last_progress_)) {
+    std::snprintf(line, sizeof(line),
+                  "[cal] %s side calibration: progress <%u>",
+                  kSideNames[msg.side], msg.progress);
+    QueueStatusText(line, MAV_SEVERITY_INFO);
+    cal_last_progress_ = msg.progress;
   }
 
   // The page tests for the sensor word after the colon, not before it.
-  if (state == message::AccelCalState::kApplied) {
-    QueueStatusText("[cal] calibration done: accel", MAV_SEVERITY_INFO);
-  } else if (state == message::AccelCalState::kFailed) {
-    QueueStatusText("[cal] calibration failed: accel", MAV_SEVERITY_ERROR);
-  } else if (state == message::AccelCalState::kCancelled) {
+  if (state == message::CalState::kApplied) {
+    std::snprintf(line, sizeof(line), "[cal] calibration done: %s", sensor);
+    QueueStatusText(line, MAV_SEVERITY_INFO);
+  } else if (state == message::CalState::kFailed) {
+    std::snprintf(line, sizeof(line), "[cal] calibration failed: %s", sensor);
+    QueueStatusText(line, MAV_SEVERITY_ERROR);
+  } else if (state == message::CalState::kCancelled) {
     QueueStatusText("[cal] calibration cancelled", MAV_SEVERITY_INFO);
   }
 }

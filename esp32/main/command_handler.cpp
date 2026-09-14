@@ -66,10 +66,12 @@ static void OnTone(const AppContext &ctx, const message::Packet &pkt) {
   ctx.sys->Ui().NotifyUserActivity();
 }
 
-static void OnAccelCalStatus(const AppContext &ctx,
-                             const message::Packet &pkt) {
-  ctx.sys->Mavlink().ReportAccelCalProgress(
-      message::PayloadAs<message::AccelCalStatusMsg>(pkt));
+static void OnCalStatus(const AppContext &ctx, const message::Packet &pkt) {
+  const auto &msg = message::PayloadAs<message::CalStatusMsg>(pkt);
+  if (!message::IsCalSensorValid(msg.sensor)) {
+    Panic(ErrorCode::Common::kCommandInvalidPacket);
+  }
+  ctx.sys->Mavlink().ReportCalProgress(msg);
 }
 
 static void OnPanic(const AppContext &ctx, const message::Packet &pkt) {
@@ -149,7 +151,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kHandshakeReply, OnIgnored},
     {message::MsgId::kLog, OnLog},
     {message::MsgId::kTone, OnTone},
-    {message::MsgId::kAccelCalStatus, OnAccelCalStatus},
+    {message::MsgId::kCalStatus, OnCalStatus},
     {message::MsgId::kUsbStatus, OnUsbStatus},
     {message::MsgId::kPanic, OnPanic},
     {message::MsgId::kGpsData, OnTelemetry<message::GpsData>},
@@ -162,8 +164,8 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kRcMapConfig, OnConfig<message::RcMapConfigMsg>},
     {message::MsgId::kRcCalibrationConfig,
      OnConfig<message::RcCalibrationConfigMsg>},
-    {message::MsgId::kGyroCalibrationIdConfig,
-     OnConfig<message::GyroCalibrationIdConfigMsg>},
+    {message::MsgId::kCalibrationIdConfig,
+     OnConfig<message::CalibrationIdConfigMsg>},
     {message::MsgId::kLogListReply, OnLogListReply},
     {message::MsgId::kLogData, OnLogData},
 };

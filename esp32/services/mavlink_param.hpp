@@ -89,6 +89,7 @@ class MavlinkParamServer {
   std::optional<EncodedParam> TryEncodeFixedParam(
       const FixedParamRef &param) const;
   std::optional<float> TryEncodeGyroCalibrationIdParam() const;
+  std::optional<float> TryEncodeMagCalibrationIdParam() const;
   std::optional<float> TryEncodeRcMapParam(const FixedParamRef &param) const;
   std::optional<EncodedParam> TryEncodeRcCalibrationParam(
       const RcCalibrationParamRef &param) const;

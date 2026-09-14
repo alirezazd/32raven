@@ -199,16 +199,6 @@ void FcLink::SendRcCalibrationConfig(
   Send(pkt);
 }
 
-void FcLink::SendGyroCalibrationIdConfig(
-    const message::GyroCalibrationIdConfigMsg &cfg) {
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kGyroCalibrationIdConfig;
-  pkt.header.len =
-      message::PayloadLength<message::GyroCalibrationIdConfigMsg>();
-  memcpy(pkt.payload, &cfg, sizeof(cfg));
-  Send(pkt);
-}
-
 void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
   message::EscTelemetryMsg msg{};
   msg.frame_count = data.frame_count;

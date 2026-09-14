@@ -55,6 +55,15 @@ ee_schema::ImuGyroCalibration MakeDefaultImuGyroCalibration() {
   return cal;
 }
 
+ee_schema::MagnetometerCalibration MakeDefaultMagnetometerCalibration() {
+  ee_schema::MagnetometerCalibration cal{};
+  ee_schema::MagnetometerCalibration::PopulateHeader(cal);
+  cal.diag[0] = 1.0f;
+  cal.diag[1] = 1.0f;
+  cal.diag[2] = 1.0f;
+  return cal;
+}
+
 ee_schema::RcCalibration MakeDefaultRcCalibration() {
   ee_schema::RcCalibration cal{};
   ee_schema::RcCalibration::PopulateHeader(cal);
@@ -172,6 +181,37 @@ bool EeConfigStorage::SaveImuGyroCalibration(
   ee_schema::ImuGyroCalibration::PopulateHeader(to_write);
   return ee.WriteObject(to_write,
                         ee_schema::layout::kImuGyroCalibrationOffset);
+}
+
+ee_schema::MagnetometerCalibration
+EeConfigStorage::LoadOrInitMagnetometerCalibration(EE &ee) {
+  ee_schema::MagnetometerCalibration cal{};
+  if (!ee.ReadObject(cal, ee_schema::layout::kMagnetometerCalibrationOffset)) {
+    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
+  }
+
+  if (IsErased(&cal, sizeof(cal))) {
+    cal = MakeDefaultMagnetometerCalibration();
+    if (!ee.WriteObject(cal,
+                        ee_schema::layout::kMagnetometerCalibrationOffset)) {
+      Panic(ErrorCode::Stm32::kEepromWriteFailed);
+    }
+    return cal;
+  }
+
+  if (!ee_schema::MagnetometerCalibration::IsExactSchema(cal)) {
+    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
+  }
+
+  return cal;
+}
+
+bool EeConfigStorage::SaveMagnetometerCalibration(
+    EE &ee, const ee_schema::MagnetometerCalibration &cal) {
+  ee_schema::MagnetometerCalibration to_write = cal;
+  ee_schema::MagnetometerCalibration::PopulateHeader(to_write);
+  return ee.WriteObject(to_write,
+                        ee_schema::layout::kMagnetometerCalibrationOffset);
 }
 
 ee_schema::RcCalibration EeConfigStorage::LoadOrInitRcCalibration(EE &ee) {

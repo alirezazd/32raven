@@ -138,6 +138,8 @@ class LogService {
 
   void AppendToStaging(const void *data, size_t len);
   void AppendUlogMessage(uint8_t type, const void *payload, uint16_t len);
+  // Info message: {uint8 key_len, "type name", value}.
+  void AppendInfo(const char *key, const void *value, uint16_t value_len);
   void AppendDefinitions(uint64_t now64);
   void AppendSlowTopics(uint64_t now64, uint32_t now_us);
   void StageFromRing();

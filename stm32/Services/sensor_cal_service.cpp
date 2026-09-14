@@ -3,7 +3,10 @@
 
 #include "sensor_cal_service.hpp"
 
+#include <bit>
+#include <cmath>
 #include <cstdint>
+#include <span>
 
 #include "ee_config_storage.hpp"
 #include "error_code.hpp"
@@ -11,7 +14,20 @@
 #include "message.hpp"
 #include "panic.hpp"
 #include "shared_state.hpp"
+#include "stm32_config.hpp"
 #include "time_base.hpp"
+
+// The sample buffer is sized for the range's ceiling, and a run needs its
+// six rest holds, six turn waits and six poses inside the deadline.
+static_assert(kSensorCalConfig.mag.points_per_side <= MagCal::kMaxPointsPerSide,
+              "STM32_SENSOR_CAL_MAG_POINTS_PER_SIDE exceeds the sample buffer");
+static_assert(
+    kSensorCalConfig.mag.timeout_s >
+        message::kAccelSideCount *
+            ((kSensorCalConfig.mag.still_duration_ms / 1000u) +
+             MagCal::kRotateTimeoutS + kSensorCalConfig.mag.side_duration_s),
+    "compass calibration deadline cannot cover six poses -- raise "
+    "STM32_SENSOR_CAL_MAG_TIMEOUT_S");
 
 namespace {
 
@@ -510,6 +526,434 @@ AccelCal::State AccelCal::Poll(uint32_t now_us) {
   return state_;
 }
 
+
+namespace {
+
+constexpr float kGaussPerMicrotesla = 0.01f;
+constexpr float kMicroteslaPerGauss = 100.0f;
+// PX4's rest detector and pose test, lenient mode.
+constexpr float kRestEmaTauS = 0.5f;
+constexpr float kPoseErrorMps2 = 5.0f;
+// PX4's "did the operator turn it": any one axis through this much.
+constexpr float kTurnRad = 0.5f;
+// A poll that came late integrates as if it had not: a torn timestamp or a
+// stalled loop must not read as a turn.
+constexpr uint32_t kMaxPollDtUs = 5000;
+
+}  // namespace
+
+void MagCal::Init(const Config &cfg, SharedState &blackboard, EE &ee) {
+  cfg_ = cfg;
+  blackboard_ = &blackboard;
+  ee_ = &ee;
+  record_ = EeConfigStorage::LoadOrInitMagnetometerCalibration(ee);
+  Publish();
+}
+
+bool MagCal::IsPlausible(const ee_schema::MagnetometerCalibration &cal) {
+  constexpr float kMaxOffsetUt = 200.0f;
+  for (int axis = 0; axis < 3; ++axis) {
+    if (!(cal.diag[axis] > 0.5f) || !(cal.diag[axis] < 2.0f)) {
+      return false;
+    }
+    if (!(cal.offdiag[axis] > -0.5f) || !(cal.offdiag[axis] < 0.5f)) {
+      return false;
+    }
+    if (!(cal.offsets_ut[axis] > -kMaxOffsetUt) ||
+        !(cal.offsets_ut[axis] < kMaxOffsetUt)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void MagCal::Publish() {
+  MagCalibration published{};
+  if (record_.calibrated != 0u && IsPlausible(record_)) {
+    for (int axis = 0; axis < 3; ++axis) {
+      published.offsets_ut[axis] = record_.offsets_ut[axis];
+      published.soft_iron[axis][axis] = record_.diag[axis];
+    }
+    published.soft_iron[0][1] = record_.offdiag[0];
+    published.soft_iron[1][0] = record_.offdiag[0];
+    published.soft_iron[0][2] = record_.offdiag[1];
+    published.soft_iron[2][0] = record_.offdiag[1];
+    published.soft_iron[1][2] = record_.offdiag[2];
+    published.soft_iron[2][1] = record_.offdiag[2];
+    published.calibrated = true;
+  }
+  blackboard_->UpdateMagCalibration(published);
+}
+
+bool MagCal::Store(const ee_schema::MagnetometerCalibration &cal) {
+  if (!IsPlausible(cal) || ee_ == nullptr) {
+    return false;
+  }
+  const ee_schema::MagnetometerCalibration previous = record_;
+  record_ = cal;
+  if (EeConfigStorage::SaveMagnetometerCalibration(*ee_, record_)) {
+    Publish();
+    return true;
+  }
+  record_ = previous;
+  return false;
+}
+
+bool MagCal::Start(uint32_t now_us) {
+  if (blackboard_ == nullptr || blackboard_->IsArmed() || Running() ||
+      !blackboard_->IsControlLoopRunning() ||
+      blackboard_->GetMagnetometer().timestamp_us == 0u) {
+    return false;
+  }
+  deadline_us_ =
+      now_us + static_cast<uint32_t>(SecondsToMicros(cfg_.timeout_s));
+  last_poll_us_ = now_us;
+  sides_done_ = 0;
+  count_ = 0;
+  side_count_ = 0;
+  sphere_radius_ = MagFit::kMinRadius;
+  const MagnetometerData &mag = blackboard_->GetMagnetometer();
+  last_sample_count_ = mag.sample_count;
+  last_overflow_count_ = mag.overflow_count;
+  BeginDetecting();
+  return true;
+}
+
+void MagCal::Cancel() {
+  if (Running()) {
+    state_ = State::kCancelled;
+  }
+}
+
+void MagCal::BeginDetecting() {
+  state_ = State::kDetecting;
+  side_ = AccelSide::kCount;
+  for (int axis = 0; axis < 3; ++axis) {
+    accel_ema_[axis] = 0.0f;
+    accel_disp_[axis] = 0.0f;
+  }
+  still_ = false;
+  still_since_us_ = 0;
+}
+
+MagCal::State MagCal::Poll(uint32_t now_us) {
+  if (!Running()) {
+    return state_;
+  }
+  if (blackboard_->IsArmed() ||
+      static_cast<int32_t>(now_us - deadline_us_) >= 0) {
+    state_ = State::kFailed;
+    return state_;
+  }
+  uint32_t dt_us = now_us - last_poll_us_;
+  if (dt_us > kMaxPollDtUs) {
+    dt_us = kMaxPollDtUs;
+  }
+  last_poll_us_ = now_us;
+  const float dt_s = static_cast<float>(dt_us) * 1e-6f;
+
+  switch (state_) {
+    case State::kDetecting:
+      PollDetecting(now_us, dt_s);
+      break;
+    case State::kRotating:
+      PollRotating(now_us, dt_s);
+      break;
+    case State::kCollecting:
+      PollCollecting(now_us);
+      break;
+    case State::kFitting:
+      PollFitting();
+      break;
+    case State::kIdle:
+    case State::kApplied:
+    case State::kFailed:
+    case State::kCancelled:
+      break;
+  }
+  return state_;
+}
+
+void MagCal::PollDetecting(uint32_t now_us, float dt_s) {
+  const Eigen::Vector3f accel = blackboard_->GetEstimate().accel_body_mps2;
+  const float thr =
+      static_cast<float>(cfg_.still_threshold_mg) * 0.001f * kGravityMps2;
+  const float thr2 = thr * thr;
+  const float w = dt_s / kRestEmaTauS;
+
+  bool still = true;
+  bool moving = false;
+  for (int axis = 0; axis < 3; ++axis) {
+    float d = accel(axis) - accel_ema_[axis];
+    accel_ema_[axis] += d * w;
+    d = d * d;
+    accel_disp_[axis] *= 1.0f - w;
+    if (d > thr2 * 8.0f) {
+      d = thr2 * 8.0f;
+    }
+    if (d > accel_disp_[axis]) {
+      accel_disp_[axis] = d;
+    }
+    still = still && accel_disp_[axis] < thr2;
+    moving = moving || accel_disp_[axis] > thr2 * 4.0f;
+  }
+
+  if (!still) {
+    if (moving) {
+      still_ = false;
+    }
+    return;
+  }
+  if (!still_) {
+    still_ = true;
+    still_since_us_ = now_us;
+    return;
+  }
+  if (now_us - still_since_us_ < cfg_.still_duration_ms * 1000u) {
+    return;
+  }
+
+  const AccelSide side = Classify();
+  if (side == AccelSide::kCount ||
+      (sides_done_ & (1u << static_cast<uint8_t>(side))) != 0u) {
+    // A corner, or a pose already taken: hold again rather than re-test
+    // every tick, and let the operator move on.
+    still_ = false;
+    return;
+  }
+  side_ = side;
+  state_ = State::kRotating;
+  for (int axis = 0; axis < 3; ++axis) {
+    gyro_integral_[axis] = 0.0f;
+  }
+  stage_deadline_us_ =
+      now_us + static_cast<uint32_t>(SecondsToMicros(kRotateTimeoutS));
+}
+
+AccelSide MagCal::Classify() const {
+  for (int axis = 0; axis < 3; ++axis) {
+    bool others_level = true;
+    for (int other = 0; other < 3; ++other) {
+      if (other != axis && !(std::fabs(accel_ema_[other]) < kPoseErrorMps2)) {
+        others_level = false;
+      }
+    }
+    if (!others_level) {
+      continue;
+    }
+    if (std::fabs(accel_ema_[axis] - kGravityMps2) < kPoseErrorMps2) {
+      return static_cast<AccelSide>(axis * 2);
+    }
+    if (std::fabs(accel_ema_[axis] + kGravityMps2) < kPoseErrorMps2) {
+      return static_cast<AccelSide>((axis * 2) + 1);
+    }
+  }
+  return AccelSide::kCount;
+}
+
+void MagCal::PollRotating(uint32_t now_us, float dt_s) {
+  const Eigen::Vector3f gyro = blackboard_->GetEstimate().gyro_body_rad_s;
+  bool turned = false;
+  for (int axis = 0; axis < 3; ++axis) {
+    gyro_integral_[axis] += gyro(axis) * dt_s;
+    turned = turned || std::fabs(gyro_integral_[axis]) >= kTurnRad;
+  }
+  if (turned) {
+    state_ = State::kCollecting;
+    side_count_ = 0;
+    stage_deadline_us_ =
+        now_us + static_cast<uint32_t>(SecondsToMicros(cfg_.side_duration_s));
+    return;
+  }
+  if (static_cast<int32_t>(now_us - stage_deadline_us_) >= 0) {
+    state_ = State::kFailed;
+  }
+}
+
+void MagCal::PollCollecting(uint32_t now_us) {
+  (void)TakeSample();
+  // Either ends the pose, as PX4 has it: a pose the operator turned slowly
+  // on gives fewer points, not a longer wait.
+  if (side_count_ >= cfg_.points_per_side ||
+      static_cast<int32_t>(now_us - stage_deadline_us_) >= 0) {
+    EndSide();
+  }
+}
+
+bool MagCal::TakeSample() {
+  const MagnetometerData &mag = blackboard_->GetMagnetometer();
+  if (mag.sample_count == last_sample_count_) {
+    return false;
+  }
+  const bool overflowed = mag.overflow_count != last_overflow_count_;
+  last_sample_count_ = mag.sample_count;
+  last_overflow_count_ = mag.overflow_count;
+  if (overflowed || count_ >= kMaxPoints) {
+    return false;
+  }
+
+  const float x = mag.x * kGaussPerMicrotesla;
+  const float y = mag.y * kGaussPerMicrotesla;
+  const float z = mag.z * kGaussPerMicrotesla;
+  if (count_ == 0u) {
+    const float norm = std::sqrt((x * x) + (y * y) + (z * z));
+    sphere_radius_ = norm < MagFit::kMinRadius   ? MagFit::kMinRadius
+                     : norm > MagFit::kMaxRadius ? MagFit::kMaxRadius
+                                                 : norm;
+  }
+
+  // PX4's spacing: samples closer than a share of the sphere are the same
+  // point seen twice, and a pose turned slowly would otherwise fill its quota
+  // from one patch of it.
+  const float total =
+      static_cast<float>(cfg_.points_per_side * message::kAccelSideCount);
+  const float min_dist =
+      std::fabs(5.4f * sphere_radius_ / std::sqrt(total)) / 3.0f;
+  const float min_dist2 = min_dist * min_dist;
+  for (uint32_t i = 0; i < count_; ++i) {
+    const float dx = x - x_[i];
+    const float dy = y - y_[i];
+    const float dz = z - z_[i];
+    if ((dx * dx) + (dy * dy) + (dz * dz) < min_dist2) {
+      return false;
+    }
+  }
+  x_[count_] = x;
+  y_[count_] = y;
+  z_[count_] = z;
+  ++count_;
+  ++side_count_;
+  return true;
+}
+
+void MagCal::EndSide() {
+  sides_done_ |= static_cast<uint8_t>(1u << static_cast<uint8_t>(side_));
+  side_ = AccelSide::kCount;
+  side_count_ = 0;
+  if (sides_done_ != message::kAccelSideAllMask) {
+    BeginDetecting();
+    return;
+  }
+  state_ = State::kFitting;
+  fitting_ellipsoid_ = false;
+  MagFitParams seed{};
+  seed.radius = sphere_radius_;
+  fit_.Start(MagFit::Stage::kSphere, seed);
+}
+
+void MagCal::PollFitting() {
+  const std::span<const float> x(x_, count_);
+  const std::span<const float> y(y_, count_);
+  const std::span<const float> z(z_, count_);
+  const MagFit::Status status = fit_.Step(x, y, z);
+  if (status == MagFit::Status::kRunning) {
+    return;
+  }
+
+  if (!fitting_ellipsoid_) {
+    if (status == MagFit::Status::kFailed) {
+      state_ = State::kFailed;
+      return;
+    }
+    sphere_result_ = fit_.Params();
+    result_cost_ = fit_.Cost();
+    fitting_ellipsoid_ = true;
+    fit_.Start(MagFit::Stage::kEllipsoid, sphere_result_);
+    return;
+  }
+
+  // An ellipsoid that would not converge leaves the sphere standing: offsets
+  // alone are most of the correction.
+  if (status == MagFit::Status::kConverged) {
+    result_ = fit_.Params();
+    result_cost_ = fit_.Cost();
+  } else {
+    result_ = sphere_result_;
+  }
+  if (!IsSane(result_)) {
+    state_ = State::kFailed;
+    return;
+  }
+
+  ee_schema::MagnetometerCalibration cal{};
+  for (int axis = 0; axis < 3; ++axis) {
+    cal.offsets_ut[axis] = result_.offset(axis) * kMicroteslaPerGauss;
+    cal.diag[axis] = result_.diag(axis);
+    cal.offdiag[axis] = result_.offdiag(axis);
+  }
+  cal.calibrated = 1u;
+  state_ = Store(cal) ? State::kApplied : State::kFailed;
+}
+
+bool MagCal::IsSane(const MagFitParams &p) {
+  if (!std::isfinite(p.radius) || !p.offset.allFinite() ||
+      !p.diag.allFinite() || !p.offdiag.allFinite()) {
+    return false;
+  }
+  if (p.radius < MagFit::kMinRadius || p.radius >= MagFit::kMaxRadius) {
+    return false;
+  }
+  return p.diag(0) > 0.0f && p.diag(1) > 0.0f && p.diag(2) > 0.0f;
+}
+
+uint8_t MagCal::Progress() const {
+  if (state_ == State::kFitting || state_ == State::kApplied) {
+    return 100;
+  }
+  const uint32_t per = cfg_.points_per_side;
+  const uint32_t done = static_cast<uint32_t>(std::popcount(sides_done_));
+  const uint32_t taken =
+      (done * per) + (side_count_ < per ? side_count_ : per);
+  return static_cast<uint8_t>((100u * taken) /
+                              (per * message::kAccelSideCount));
+}
+
+namespace {
+
+// The state travels as the wire's enum rather than a class's: they agree
+// today and the link is not the place to assume they always will.
+message::CalState ToWire(AccelCal::State state) {
+  switch (state) {
+    case AccelCal::State::kIdle:
+      return message::CalState::kIdle;
+    case AccelCal::State::kDetecting:
+      return message::CalState::kDetecting;
+    case AccelCal::State::kCollecting:
+      return message::CalState::kCollecting;
+    case AccelCal::State::kApplied:
+      return message::CalState::kApplied;
+    case AccelCal::State::kFailed:
+      return message::CalState::kFailed;
+    case AccelCal::State::kCancelled:
+      return message::CalState::kCancelled;
+  }
+  return message::CalState::kIdle;
+}
+
+message::CalState ToWire(MagCal::State state) {
+  switch (state) {
+    case MagCal::State::kIdle:
+      return message::CalState::kIdle;
+    case MagCal::State::kDetecting:
+      return message::CalState::kDetecting;
+    case MagCal::State::kRotating:
+      return message::CalState::kRotating;
+    case MagCal::State::kCollecting:
+      return message::CalState::kCollecting;
+    case MagCal::State::kFitting:
+      return message::CalState::kFitting;
+    case MagCal::State::kApplied:
+      return message::CalState::kApplied;
+    case MagCal::State::kFailed:
+      return message::CalState::kFailed;
+    case MagCal::State::kCancelled:
+      return message::CalState::kCancelled;
+  }
+  return message::CalState::kIdle;
+}
+
+}  // namespace
+
 SensorCalService &SensorCalService::GetInstance() {
   static SensorCalService instance;
   return instance;
@@ -524,13 +968,14 @@ void SensorCalService::Init(const Config &cfg, SharedState &blackboard, EE &ee,
   fclink_ = &fclink;
   gyro_.Init(cfg.gyro, blackboard, ee);
   accel_.Init(cfg.accel, blackboard, ee);
+  mag_.Init(cfg.mag, blackboard, ee);
   initialized_ = true;
 }
 
 bool SensorCalService::StartGyro(uint32_t now_us) {
-  // Each calibrator already refuses while it is running, so only the other one
-  // has to be tested here.
-  if (accel_.Collecting()) {
+  // Each calibrator already refuses while it is running, so only the others
+  // have to be tested here.
+  if (accel_.Collecting() || mag_.Running()) {
     return false;
   }
   if (gyro_auto_) {
@@ -544,6 +989,9 @@ bool SensorCalService::StartGyro(uint32_t now_us) {
 }
 
 bool SensorCalService::StartAccel(uint32_t now_us) {
+  if (mag_.Running()) {
+    return false;
+  }
   if (gyro_.Collecting()) {
     if (!gyro_auto_) {
       return false;
@@ -551,6 +999,23 @@ bool SensorCalService::StartAccel(uint32_t now_us) {
     gyro_.Cancel();
   }
   return accel_.Start(now_us);
+}
+
+bool SensorCalService::StartMag(uint32_t now_us) {
+  if (accel_.Collecting()) {
+    return false;
+  }
+  if (gyro_.Collecting()) {
+    if (!gyro_auto_) {
+      return false;
+    }
+    gyro_.Cancel();
+  }
+  return mag_.Start(now_us);
+}
+
+uint32_t SensorCalService::MagCalibrationId() const {
+  return mag_.Calibrated() ? blackboard_->GetMagnetometer().device_id : 0u;
 }
 
 void SensorCalService::MaybeCollectBurst() {
@@ -589,6 +1054,7 @@ void SensorCalService::MaybeCollectBurst() {
 void SensorCalService::Cancel() {
   gyro_.Cancel();
   accel_.Cancel();
+  mag_.Cancel();
 }
 
 void SensorCalService::Poll(uint32_t now_us) {
@@ -618,10 +1084,33 @@ void SensorCalService::Poll(uint32_t now_us) {
     reported_accel_side_ = side;
     ReportAccel(accel_state, sides, side, captured);
   }
+
+  const MagCal::State mag_state = mag_.Poll(now_us);
+  const uint8_t mag_sides = mag_.SidesDone();
+  const AccelSide mag_side = mag_.CurrentSide();
+  const uint8_t progress = mag_.Progress();
+  const bool edge = mag_state != reported_mag_state_ ||
+                    mag_sides != reported_mag_sides_ ||
+                    mag_side != reported_mag_side_;
+  constexpr uint32_t kProgressPeriodUs = 250000;
+  const bool progressed = progress != reported_mag_progress_ &&
+                          (now_us - mag_progress_sent_us_) >= kProgressPeriodUs;
+  if (edge || progressed) {
+    const bool captured = mag_sides != reported_mag_sides_;
+    const bool turn = mag_state == MagCal::State::kRotating &&
+                      reported_mag_state_ != MagCal::State::kRotating;
+    reported_mag_state_ = mag_state;
+    reported_mag_sides_ = mag_sides;
+    reported_mag_side_ = mag_side;
+    reported_mag_progress_ = progress;
+    mag_progress_sent_us_ = now_us;
+    ReportMag(mag_state, mag_sides, mag_side, progress, captured, turn);
+  }
 }
 
 void SensorCalService::ScheduleGyro(uint32_t now_us) {
-  if (gyro_.Collecting() || accel_.Collecting() || blackboard_->IsArmed()) {
+  if (gyro_.Collecting() || accel_.Collecting() || mag_.Running() ||
+      blackboard_->IsArmed()) {
     return;
   }
   gyro_auto_ = gyro_.Start(now_us);
@@ -659,45 +1148,64 @@ void SensorCalService::ReportGyro(GyroCal::State outcome) {
 
 void SensorCalService::ReportAccel(AccelCal::State outcome, uint8_t sides_done,
                                    AccelSide side, bool captured) {
-  // The state travels as its own wire enum rather than this class's: the two
-  // agree today and the link is not the place to assume they always will.
-  message::AccelCalState wire = message::AccelCalState::kIdle;
-  switch (outcome) {
-    case AccelCal::State::kIdle:
-      wire = message::AccelCalState::kIdle;
-      break;
-    case AccelCal::State::kDetecting:
-      wire = message::AccelCalState::kDetecting;
-      break;
-    case AccelCal::State::kCollecting:
-      wire = message::AccelCalState::kCollecting;
-      break;
-    case AccelCal::State::kApplied:
-      wire = message::AccelCalState::kApplied;
-      break;
-    case AccelCal::State::kFailed:
-      wire = message::AccelCalState::kFailed;
-      break;
-    case AccelCal::State::kCancelled:
-      wire = message::AccelCalState::kCancelled;
-      break;
-  }
-  fclink_->SendPacket(
-      message::MsgId::kAccelCalStatus,
-      message::AccelCalStatusMsg{.state = static_cast<uint8_t>(wire),
-                                 .sides_done = sides_done,
-                                 .side = static_cast<uint8_t>(side)});
+  // Recognising a pose is silent -- it is the edge that asks the operator to
+  // keep holding, and a beep there would be the same sound as the one meaning
+  // "move on".
+  const auto done = static_cast<uint8_t>(std::popcount(sides_done));
+  ReportCal(message::CalSensor::kAccel, ToWire(outcome), sides_done, side,
+            static_cast<uint8_t>(100u * done / message::kAccelSideCount),
+            captured);
+}
 
-  // A tone as well, on the edges an operator holding an airframe cannot watch
-  // a screen for: one per captured pose, and one for the outcome. Recognising
-  // a pose is silent -- it is the edge that asks the operator to keep holding,
-  // and a beep there would be the same sound as the one meaning "move on".
+void SensorCalService::ReportMag(MagCal::State outcome, uint8_t sides_done,
+                                 AccelSide side, uint8_t progress,
+                                 bool captured, bool turn) {
+  if (outcome == MagCal::State::kApplied) {
+    // The id first, so a ground station that re-reads it on "done" finds the
+    // calibration already there.
+    fclink_->SendPacket(
+        message::MsgId::kCalibrationIdConfig,
+        message::CalibrationIdConfigMsg{
+            .sensor = static_cast<uint8_t>(message::CalSensor::kMag),
+            .id = MagCalibrationId()});
+    const MagFitParams &fit = mag_.Result();
+    fclink_->SendLog(
+        "mag: field %ld mG, offset %ld %ld %ld uT, diag %ld %ld %ld, offdiag "
+        "%ld %ld %ld permille, cost %ld e-6",
+        static_cast<long>(fit.radius * 1000.0f),
+        static_cast<long>(fit.offset(0) * kMicroteslaPerGauss),
+        static_cast<long>(fit.offset(1) * kMicroteslaPerGauss),
+        static_cast<long>(fit.offset(2) * kMicroteslaPerGauss),
+        static_cast<long>(fit.diag(0) * 1000.0f),
+        static_cast<long>(fit.diag(1) * 1000.0f),
+        static_cast<long>(fit.diag(2) * 1000.0f),
+        static_cast<long>(fit.offdiag(0) * 1000.0f),
+        static_cast<long>(fit.offdiag(1) * 1000.0f),
+        static_cast<long>(fit.offdiag(2) * 1000.0f),
+        static_cast<long>(mag_.ResultCost() * 1e6f));
+  }
+  // Start turning, move to the next pose: the two edges the operator acts on.
+  ReportCal(message::CalSensor::kMag, ToWire(outcome), sides_done, side,
+            progress, captured || turn);
+}
+
+void SensorCalService::ReportCal(message::CalSensor sensor,
+                                 message::CalState state, uint8_t sides_done,
+                                 AccelSide side, uint8_t progress, bool act) {
+  fclink_->SendPacket(
+      message::MsgId::kCalStatus,
+      message::CalStatusMsg{.sensor = static_cast<uint8_t>(sensor),
+                            .state = static_cast<uint8_t>(state),
+                            .sides_done = sides_done,
+                            .side = static_cast<uint8_t>(side),
+                            .progress = progress});
+
   message::Tone tone = message::Tone::kBeep;
-  if (outcome == AccelCal::State::kApplied) {
+  if (state == message::CalState::kApplied) {
     tone = message::Tone::kConfirm;
-  } else if (outcome == AccelCal::State::kFailed) {
+  } else if (state == message::CalState::kFailed) {
     tone = message::Tone::kError;
-  } else if (!captured) {
+  } else if (!act) {
     return;
   }
   fclink_->SendPacket(message::MsgId::kTone,

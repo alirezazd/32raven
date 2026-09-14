@@ -606,7 +606,7 @@ Both reference stacks are the same, and both are wrong about it for a bench: the
 carries a display, a buzzer and a button, which is every input a six-pose routine needs. A
 calibration page there would run the same `AccelCal` over FcLink with no GCS at all, and the
 pose set is small enough to render — a name and a progress count. The wire already carries what
-it would draw: `kAccelCalStatus` reports the state and the captured-side mask on every edge.
+it would draw: `kCalStatus` reports the state and the captured-side mask on every edge.
 
 ### #27 — An estimator tier below the control loop — 🧊 DEFERRED
 
@@ -646,28 +646,19 @@ which part it has; driving one would mean a second register map, and no aircraft
 
 Three things stand between that and a heading anything may act on.
 
-**The orientation is a guess.** The axis map in the generated config is identity because the
-compass sits on the GPS mast rather than on the board, so its frame is however the mast was
-glued down. Nothing has been checked against a known bearing. The IMU's map is a named Kconfig
-choice now, and the compass wants the same treatment.
+**The iron the motors add is not corrected.** The stored calibration is taken with the motors
+off, so it holds the frame's iron and not the field four ESCs add when they switch tens of amps
+a few centimetres away. PX4's answer is `CAL_MAG_COMP_TYP`: a second calibration that correlates
+the field against battery current or throttle and subtracts the fitted share live. The battery
+monitor reads current, so the input exists; the run and the term in the correction do not.
 
-**Nothing corrects for iron.** Hard-iron offset plus soft-iron matrix is an ellipsoid fit over
-many orientations, so it is operator-guided and takes tens of seconds -- a `MagCal` sibling in
-`SensorCalService`, joining as a tenant with its own feed and its own fit, sharing the reporting
-and the one-run-at-a-time interlock. A ground station drives it with
-`MAV_CMD_PREFLIGHT_CALIBRATION` param2 and expects `MAG_CAL_PROGRESS` and `MAG_CAL_REPORT`,
-neither of which the bridge sends. Four ESCs switching tens of amps a few centimetres away is
-what the fit is up against, and #25's warning applies here too: the accel fit exists and its
-numbers have still never been checked on hardware.
+**The heading is magnetic, not true.** No declination is applied anywhere. PX4 takes it from a
+World Magnetic Model table by GPS position; one airframe in one hemisphere is served as well by a
+Kconfig offset measured once against a known bearing, and a mast glued a few degrees off the
+nose is the same offset by another name, so one knob covers both.
 
-**The parameters say there is no compass.** `SYS_HAS_MAG` is pinned to 0, `CAL_MAG0..2_ID` to 0
-and `CAL_MAG0..2_ROT` to -1, and the served dictionary says so in prose. All of it has to become
-true together, along with the generator and `check_param_metadata`.
-
-Two notes for whoever picks it up. The heading reported today is magnetic, not true -- no
-declination is applied anywhere, and the vector carries no correction at all. And the estimator
-is deliberately not a consumer: yaw still bypasses the attitude loop, so a yaw reference is
-#27's business, and the compass reaching it is a decision rather than a next step.
+**The estimator is deliberately not a consumer.** Yaw still bypasses the attitude loop, so a yaw
+reference is #27's business, and the compass reaching it is a decision rather than a next step.
 
 ### #46 — Barometer, DPS310 — 🟢 SUPPORTING
 

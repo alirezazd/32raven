@@ -23,9 +23,9 @@
 // below rather than for the protocol's 64-key ceiling.
 class ValsetFrame {
  public:
-  // The timepulse group is the largest at ten keys, and every key is counted
+  // The signal group is the largest at five keys, and every key is counted
   // as a U4 so a member changing width cannot silently outgrow this.
-  static constexpr size_t kMaxKeys = 10;
+  static constexpr size_t kMaxKeys = 5;
   static constexpr size_t kMaxPayload = 4 + (kMaxKeys * (4 + 4));
 
   explicit ValsetFrame(uint8_t layer) {
@@ -37,13 +37,6 @@ class ValsetFrame {
     Reserve(4 + 1);
     AddKey(key);
     buf_[idx_++] = value;
-  }
-
-  void AddU4(uint32_t key, uint32_t value) {
-    Reserve(4 + 4);
-    AddKey(key);
-    std::memcpy(&buf_[idx_], &value, 4);
-    idx_ += 4;
   }
 
   // The frame as bytes, header and checksum filled in. Valid until the next
@@ -262,33 +255,6 @@ void M10::ApplyConfig(ValsetLayer layer) {
 
   set(kKeyItfmEnable, u8(config_.gnss.itfm_enable),
       ErrorCode::Stm32::kGpsVerifyItfmFailed);
-
-  // One frame for the timepulse group as well: its ten keys describe a
-  // single pulse, and a receiver that took only some of them would emit one
-  // nothing configured.
-  {
-    ValsetFrame frame(std::to_underlying(layer));
-    frame.AddU1(kKeyCfgTp1Ena, static_cast<uint8_t>(config_.tp1.ena));
-    frame.AddU1(kKeyCfgTp1UseLocked,
-                static_cast<uint8_t>(config_.tp1.use_locked));
-    frame.AddU4(kKeyCfgTp1Period, config_.tp1.period);
-    frame.AddU4(kKeyCfgTp1Len, config_.tp1.len);
-    frame.AddU4(kKeyCfgTp1PeriodLock, config_.tp1.period_lock);
-    frame.AddU4(kKeyCfgTp1LenLock, config_.tp1.len_lock);
-    frame.AddU1(kKeyCfgTp1TimeGrid, static_cast<uint8_t>(config_.tp1.timegrid));
-    frame.AddU1(kKeyCfgTp1SyncGnss,
-                static_cast<uint8_t>(config_.tp1.sync_gnss));
-    frame.AddU1(kKeyCfgTp1AlignToTow,
-                static_cast<uint8_t>(config_.tp1.align_to_tow));
-    frame.AddU1(kKeyCfgTp1Pol, static_cast<uint8_t>(config_.tp1.pol_rising));
-    const std::span<const uint8_t> bytes = frame.Finish();
-    if ((*uart_).Send(bytes.data(), bytes.size()) != Outcome::kOk) {
-      Panic(ErrorCode::Stm32::kGpsTxRejected);
-    }
-    if (!WaitForAck(UBX::kClsCfg, UBX::kIdCfgValset)) {
-      Panic(ErrorCode::Stm32::kGpsConfigTimepulseFailed);
-    }
-  }
 
   if (config_.uart1.enabled) {
     if (!SendCfgValSet(kKeyUart1Enabled, static_cast<uint8_t>(true), layer)) {

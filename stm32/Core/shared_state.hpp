@@ -212,6 +212,16 @@ struct GyroCalibration {
   GyroCalSource source = GyroCalSource::kNone;
 };
 
+// corrected = soft_iron * (raw - offsets), body frame, microtesla: the hard
+// iron as an offset and the soft iron as a symmetric scale. Identity by
+// default, which is what an uncalibrated board reports.
+struct MagCalibration {
+  float offsets_ut[3] = {0.0f, 0.0f, 0.0f};
+  float soft_iron[3][3] = {
+      {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+  bool calibrated = false;
+};
+
 struct ControlLoopLoad {
   // Written by the control tick, so it says the loop ran rather than that
   // something meant it to. The sample path's own stamp cannot: it moves
@@ -362,6 +372,9 @@ class SharedState {
   void UpdateGyroCalibration(const GyroCalibration &data) {
     gyro_calibration_ = data;
   }
+  void UpdateMagCalibration(const MagCalibration &data) {
+    mag_calibration_ = data;
+  }
 
   void UpdateControlLoopLoad(const ControlLoopLoad &data) {
     control_loop_load_ = data;
@@ -395,6 +408,7 @@ class SharedState {
   const GyroCalibration &GetGyroCalibration() const {
     return gyro_calibration_;
   }
+  const MagCalibration &GetMagCalibration() const { return mag_calibration_; }
 
   const ControlLoopLoad &GetControlLoopLoad() const {
     return control_loop_load_;
@@ -436,6 +450,7 @@ class SharedState {
   ImuHealth imu_health_{};
   AccelCalibration accel_calibration_{};
   GyroCalibration gyro_calibration_{};
+  MagCalibration mag_calibration_{};
   ControlLoopLoad control_loop_load_{};
   uint32_t main_tick_count_ = 0;
   ImuTemperature imu_temp_{};

@@ -15,8 +15,8 @@ const char *GetMessage(ErrorCode::Common code) {
       return "Unknown Command Received in Command Handler";
     case ErrorCode::Common::kCommandInvalidPacket:
       return "Command Handler Invalid Packet";
-    case ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig:
-      return "FcLink Invalid Gyro Calibration ID Config";
+    case ErrorCode::Common::kFcLinkInvalidCalibrationIdConfig:
+      return "FcLink Invalid Calibration ID Config";
     case ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig:
       return "FcLink Invalid RC Calibration Config";
   }
@@ -77,9 +77,7 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "magnetometer failed to set config";
     case ErrorCode::Stm32::kGpsNotResponding:
       return "GPS Not Responding";
-    case ErrorCode::Stm32::kGpsConfigTimepulseFailed:
-      return "GPS Timepulse Config Failed";
-    case ErrorCode::Stm32::kGpsVerifyProtocolFailed:
+  case ErrorCode::Stm32::kGpsVerifyProtocolFailed:
       return "GPS Verify Protocol Failed";
     case ErrorCode::Stm32::kGpsVerifyNavPvtFailed:
       return "GPS Verify NavPvt Failed";

@@ -102,6 +102,19 @@ IMU_ORIENTATION_CHOICES = {
     f"STM32_IMU_ORIENTATION_{name}": name for name in IMU_ORIENTATION_AXIS_MAPS
 }
 
+# The aft map was measured against a bearing and is a reflection -- the
+# part's axes as read are left-handed against the airframe -- so no rotation
+# check applies. The other three are it turned through the mounting's yaw.
+MAG_ORIENTATION_AXIS_MAPS: dict[str, tuple[int, bool, int, bool, int, bool]] = {
+    "M100_5883_CONNECTOR_AFT": (1, False, 0, False, 2, False),
+    "M100_5883_CONNECTOR_LEFT": (0, True, 1, False, 2, False),
+    "M100_5883_CONNECTOR_FORWARD": (1, True, 0, True, 2, False),
+    "M100_5883_CONNECTOR_RIGHT": (0, False, 1, True, 2, False),
+}
+MAG_ORIENTATION_CHOICES = {
+    f"STM32_MAG_ORIENTATION_{name}": name for name in MAG_ORIENTATION_AXIS_MAPS
+}
+
 GYRO_AAF_CHOICES = {f"STM32_IMU_GYRO_AAF_{hz}HZ": hz for hz in AAF_TRIPLES}
 ACCEL_AAF_CHOICES = {f"STM32_IMU_ACCEL_AAF_{hz}HZ": hz for hz in AAF_TRIPLES}
 
@@ -257,14 +270,6 @@ M10_DYNAMIC_MODEL_CHOICES = {
     "STM32_GPS_M10_DYN_MODEL_AIRBORNE_4G": "M10::DynamicModel::kAirborne4g",
     "STM32_GPS_M10_DYN_MODEL_WRIST": "M10::DynamicModel::kWrist",
     "STM32_GPS_M10_DYN_MODEL_BIKE": "M10::DynamicModel::kBike",
-}
-
-M10_TIMEGRID_CHOICES = {
-    "STM32_GPS_M10_TP1_TIMEGRID_UTC": "M10::TimeGrid::kUtc",
-    "STM32_GPS_M10_TP1_TIMEGRID_GPS": "M10::TimeGrid::kGps",
-    "STM32_GPS_M10_TP1_TIMEGRID_GLONASS": "M10::TimeGrid::kGlonass",
-    "STM32_GPS_M10_TP1_TIMEGRID_BEIDOU": "M10::TimeGrid::kBeiDou",
-    "STM32_GPS_M10_TP1_TIMEGRID_GALILEO": "M10::TimeGrid::kGalileo",
 }
 
 M10_UART_WORD_LENGTH_CHOICES = _prefixed(
@@ -916,10 +921,10 @@ def _m10_uart_data_bits_value(kconf: kconfiglib.Kconfig) -> str:
     return "M10::UartDataBits::k7"
 
 
-def _axis_map(orientation: str) -> dict[str, object]:
-    x_from, x_neg, y_from, y_neg, z_from, z_neg = IMU_ORIENTATION_AXIS_MAPS[
-        orientation
-    ]
+def _axis_map(
+    axis_map: tuple[int, bool, int, bool, int, bool],
+) -> dict[str, object]:
+    x_from, x_neg, y_from, y_neg, z_from, z_neg = axis_map
     return {
         "x_from": x_from,
         "x_neg": x_neg,
@@ -1416,19 +1421,6 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             "CONFIG_STM32_BATTERY_CELL_EMPTY_MV and "
             "CONFIG_STM32_BATTERY_CELL_FULL_MV, or be 0 to disable the check"
         )
-
-    # Checked even when TP1 is disabled: the pair is written either way, and
-    # the M10 clamps rather than refusing, so a bad pair is silent.
-    for suffix in ("", "_LOCK"):
-        period_us = sym_int(kconf, f"STM32_GPS_M10_TP1_PERIOD{suffix}")
-        len_us = sym_int(kconf, f"STM32_GPS_M10_TP1_LEN{suffix}")
-        if len_us >= period_us:
-            raise ValueError(
-                f"CONFIG_STM32_GPS_M10_TP1_LEN{suffix} ({len_us} us) must be "
-                f"shorter than CONFIG_STM32_GPS_M10_TP1_PERIOD{suffix} "
-                f"({period_us} us); a pulse cannot outlast the period that "
-                "repeats it"
-            )
 
     _validate_gps_link_budget(kconf)
     _validate_battery_sample_budget(kconf)
@@ -2245,24 +2237,6 @@ def _m10_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 "sbas_enable": sym_bool(kconf, "STM32_GPS_M10_GNSS_SBAS"),
                 "itfm_enable": sym_bool(kconf, "STM32_GPS_M10_GNSS_ITFM"),
             },
-            "tp1": {
-                "ena": sym_bool(kconf, "STM32_GPS_M10_TP1_ENA"),
-                "use_locked": sym_bool(
-                    kconf, "STM32_GPS_M10_TP1_USE_LOCKED"
-                ),
-                "period": sym_int(kconf, "STM32_GPS_M10_TP1_PERIOD"),
-                "len": sym_int(kconf, "STM32_GPS_M10_TP1_LEN"),
-                "period_lock": sym_int(
-                    kconf, "STM32_GPS_M10_TP1_PERIOD_LOCK"
-                ),
-                "len_lock": sym_int(kconf, "STM32_GPS_M10_TP1_LEN_LOCK"),
-                "timegrid": choice_value(kconf, M10_TIMEGRID_CHOICES),
-                "sync_gnss": sym_bool(kconf, "STM32_GPS_M10_TP1_SYNC_GNSS"),
-                "align_to_tow": sym_bool(
-                    kconf, "STM32_GPS_M10_TP1_ALIGN_TO_TOW"
-                ),
-                "pol_rising": sym_bool(kconf, "STM32_GPS_M10_TP1_POL_RISING"),
-            },
             "ack_timeout_us": sym_int(kconf, "STM32_GPS_M10_ACK_TIMEOUT_US"),
         },
     }
@@ -2287,6 +2261,11 @@ def _mag_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "osr1": choice_value(kconf, MAG_OSR1_CHOICES),
         "osr2": choice_value(kconf, MAG_OSR2_CHOICES),
         "sample_period_us": sym_int(kconf, "STM32_MAG_SAMPLE_PERIOD_US"),
+        "axes": _axis_map(
+            MAG_ORIENTATION_AXIS_MAPS[
+                choice_value(kconf, MAG_ORIENTATION_CHOICES)
+            ]
+        ),
     }
 
 
@@ -2322,6 +2301,19 @@ def _sensor_cal_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "accel_still_threshold_mg": sym_int(
             kconf, "STM32_SENSOR_CAL_ACCEL_STILL_THRESHOLD_MG"
         ),
+        "mag_points_per_side": sym_int(
+            kconf, "STM32_SENSOR_CAL_MAG_POINTS_PER_SIDE"
+        ),
+        "mag_side_duration_s": sym_int(
+            kconf, "STM32_SENSOR_CAL_MAG_SIDE_DURATION_S"
+        ),
+        "mag_still_duration_ms": sym_int(
+            kconf, "STM32_SENSOR_CAL_MAG_STILL_DURATION_MS"
+        ),
+        "mag_still_threshold_mg": sym_int(
+            kconf, "STM32_SENSOR_CAL_MAG_STILL_THRESHOLD_MG"
+        ),
+        "mag_timeout_s": sym_int(kconf, "STM32_SENSOR_CAL_MAG_TIMEOUT_S"),
     }
 
 
@@ -2367,7 +2359,11 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
             "bw_idx": sym_int(kconf, "STM32_IMU_NOTCH_BW_IDX"),
             "enabled": sym_bool(kconf, "STM32_IMU_NOTCH_ENABLED"),
         },
-        "axis_map": _axis_map(choice_value(kconf, IMU_ORIENTATION_CHOICES)),
+        "axis_map": _axis_map(
+            IMU_ORIENTATION_AXIS_MAPS[
+                choice_value(kconf, IMU_ORIENTATION_CHOICES)
+            ]
+        ),
         "gyro_aaf": {
             "dis": sym_bool(kconf, "STM32_IMU_GYRO_AAF_DISABLE"),
             **_aaf_fields(choice_value(kconf, GYRO_AAF_CHOICES)),

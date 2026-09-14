@@ -723,13 +723,26 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishAttitude(
   return PublishResult::kSent;
 }
 
+// The iron correction is applied here rather than in the driver, for the
+// reason the accel's is applied in the estimator: the calibrator reads the
+// raw vector and must not be fed its own output, and the log keeps the raw
+// field so a fit can be re-derived from a flight.
 message::MagnetometerMsg TelemetryPublisher::BuildMagnetometerMsg() const {
   const MagnetometerData &mag = blackboard_->GetMagnetometer();
+  const MagCalibration &cal = blackboard_->GetMagCalibration();
+  const float raw[3] = {mag.x - cal.offsets_ut[0], mag.y - cal.offsets_ut[1],
+                        mag.z - cal.offsets_ut[2]};
+  float corrected[3] = {0.0f, 0.0f, 0.0f};
+  for (int row = 0; row < 3; ++row) {
+    for (int col = 0; col < 3; ++col) {
+      corrected[row] += cal.soft_iron[row][col] * raw[col];
+    }
+  }
   return message::MagnetometerMsg{
       .timestamp_us = mag.timestamp_us,
-      .x = mag.x,
-      .y = mag.y,
-      .z = mag.z,
+      .x = corrected[0],
+      .y = corrected[1],
+      .z = corrected[2],
   };
 }
 

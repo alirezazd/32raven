@@ -31,8 +31,6 @@ class FcLink {
   void SendRcChannels(const message::RcChannelsMsg &msg);
   void SendRcMapConfig(const message::RcMapConfigMsg &cfg);
   void SendRcCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
-  void SendGyroCalibrationIdConfig(
-      const message::GyroCalibrationIdConfigMsg &cfg);
   void SendEscTelemetry(const EscTelemetryData &data);
   void SendSystemStatus(const message::SystemStatusMsg &msg);
   void SendVehicleStatus(const message::VehicleStatusMsg &msg);

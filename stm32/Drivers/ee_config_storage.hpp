@@ -10,6 +10,8 @@ class EeConfigStorage {
  public:
   static ee_schema::ImuAccelCalibration LoadOrInitImuAccelCalibration(EE &ee);
   static ee_schema::ImuGyroCalibration LoadOrInitImuGyroCalibration(EE &ee);
+  static ee_schema::MagnetometerCalibration LoadOrInitMagnetometerCalibration(
+      EE &ee);
   static ee_schema::RcCalibration LoadOrInitRcCalibration(EE &ee);
   static ee_schema::RcMap LoadOrInitRcMap(EE &ee,
                                           const ee_schema::RcMap &default_map);
@@ -17,6 +19,8 @@ class EeConfigStorage {
       EE &ee, const ee_schema::ImuAccelCalibration &cal);
   static bool SaveImuGyroCalibration(EE &ee,
                                      const ee_schema::ImuGyroCalibration &cal);
+  static bool SaveMagnetometerCalibration(
+      EE &ee, const ee_schema::MagnetometerCalibration &cal);
   static bool SaveRcCalibration(EE &ee, const ee_schema::RcCalibration &cal);
   static bool SaveRcMap(EE &ee, const ee_schema::RcMap &map);
 };

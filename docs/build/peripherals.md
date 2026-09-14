@@ -265,10 +265,11 @@ a clear antenna, and nothing else. Put it wherever the airframe has room.
 
 ## Compass
 
-`TBD(#45)` — **planned.** A magnetometer gives an absolute heading, which gyro yaw drifts away
-from on its own, so anything that holds a position or flies a course depends on it. No driver
-in the firmware yet and no pins assigned. Siting will matter more than wiring — motors and
-current-carrying wire are what corrupt it.
+The QMC5883P on the M100-5883 GPS module, on I2C1 over the same cable as the GPS. Its mounting
+is a Kconfig choice named by where the module's connector points, and the iron of the frame is
+calibrated from the ground station's compass page: six poses, a turn on each, stored on the
+flight computer. Siting matters more than wiring — motors and current-carrying wire are what
+corrupt it, and the stored calibration does not cover what they add while running (`TBD(#45)`).
 
 ## Barometer
 

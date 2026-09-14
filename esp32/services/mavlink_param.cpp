@@ -77,7 +77,8 @@ inline constexpr ParamDef kParamTable[] = {
     {"SYS_COMP_ID", MAV_PARAM_TYPE_UINT8, ParamKey::kCompId},
     {"CAL_ACC0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalAcc0Id},
     {"CAL_GYRO0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalGyro0Id},
-    {"CAL_MAG0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag0Id},
+    {"CAL_MAG0_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag0Id,
+     /*px4_volatile=*/true},
     {"CAL_MAG1_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag1Id},
     {"CAL_MAG2_ID", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag2Id},
     {"CAL_MAG0_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag0Rot},
@@ -424,19 +425,28 @@ MavlinkParamServer::TryEncodeFixedParam(const FixedParamRef &param) const {
       encoded.value = *value;
       return encoded;
     }
-    case param_detail::ParamKey::kCalMag0Id:
-    case param_detail::ParamKey::kCalMag1Id:
-    case param_detail::ParamKey::kCalMag2Id:
-      encoded.value = 0.0f;
+    case param_detail::ParamKey::kCalMag0Id: {
+      const std::optional<float> value = TryEncodeMagCalibrationIdParam();
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      encoded.value = *value;
       return encoded;
-    case param_detail::ParamKey::kCalMag0Rot:
+    }
     case param_detail::ParamKey::kCalMag1Rot:
     case param_detail::ParamKey::kCalMag2Rot:
       encoded.value = -1.0f;
       return encoded;
+    case param_detail::ParamKey::kSysHasMag:
+      encoded.value = 1.0f;
+      return encoded;
+    // CAL_MAG0_ROT reads none: the mount is applied in the firmware's axis
+    // map, and the ground station's own rotation controls are hidden.
+    case param_detail::ParamKey::kCalMag1Id:
+    case param_detail::ParamKey::kCalMag2Id:
+    case param_detail::ParamKey::kCalMag0Rot:
     case param_detail::ParamKey::kSensBoardRot:
     case param_detail::ParamKey::kSensDpresOff:
-    case param_detail::ParamKey::kSysHasMag:
     case param_detail::ParamKey::kSysHasNumAspd:
     case param_detail::ParamKey::kComRcInMode:
     case param_detail::ParamKey::kComRcLossT:
@@ -496,13 +506,23 @@ MavlinkParamServer::TryEncodeFixedParam(const FixedParamRef &param) const {
 
 std::optional<float> MavlinkParamServer::TryEncodeGyroCalibrationIdParam()
     const {
-  const std::optional<message::GyroCalibrationIdConfigMsg> gyro_cfg =
+  const std::optional<message::CalibrationIdConfigMsg> gyro_cfg =
       fc_config_->GyroCalibrationId();
   if (!gyro_cfg.has_value()) {
     return std::nullopt;
   }
 
-  return static_cast<float>(gyro_cfg->cal_gyro0_id);
+  return static_cast<float>(gyro_cfg->id);
+}
+
+std::optional<float> MavlinkParamServer::TryEncodeMagCalibrationIdParam()
+    const {
+  const std::optional<message::CalibrationIdConfigMsg> mag_cfg =
+      fc_config_->MagCalibrationId();
+  if (!mag_cfg.has_value()) {
+    return std::nullopt;
+  }
+  return static_cast<float>(mag_cfg->id);
 }
 
 std::optional<float> MavlinkParamServer::TryEncodeRcMapParam(
@@ -719,6 +739,8 @@ std::optional<FcConfigCache::Record> MavlinkParamServer::RecordFor(
     case param_detail::ParamKey::kCalAcc0Id:
     case param_detail::ParamKey::kCalGyro0Id:
       return FcConfigCache::Record::kGyroCalibrationId;
+    case param_detail::ParamKey::kCalMag0Id:
+      return FcConfigCache::Record::kMagCalibrationId;
     case param_detail::ParamKey::kRcMapRoll:
     case param_detail::ParamKey::kRcMapPitch:
     case param_detail::ParamKey::kRcMapYaw:

@@ -60,17 +60,3 @@ constexpr uint32_t kKeyUart1Enabled = 0x10520005;      // CFG-UART1-ENABLED
 constexpr uint32_t kKeyUart1InprotUbx = 0x10730001;    // CFG-UART1INPROT-UBX
 constexpr uint32_t kKeyUart1OutprotUbx = 0x10740001;   // CFG-UART1OUTPROT-UBX
 constexpr uint32_t kKeyUart1OutprotNmea = 0x10740002;  // CFG-UART1OUTPROT-NMEA
-
-// Timepulse (TP1) Configuration
-constexpr uint32_t kKeyCfgTp1Ena = 0x10050007;        // CFG-TP-TP1_ENA
-constexpr uint32_t kKeyCfgTp1Period = 0x40050002;     // CFG-TP-PERIOD_TP1 (us)
-constexpr uint32_t kKeyCfgTp1Len = 0x40050004;        // CFG-TP-LEN_TP1 (us)
-constexpr uint32_t kKeyCfgTp1TimeGrid = 0x2005000c;   // CFG-TP-TIMEGRID_TP1
-constexpr uint32_t kKeyCfgTp1SyncGnss = 0x10050008;   // CFG-TP-SYNC_GNSS_TP1
-constexpr uint32_t kKeyCfgTp1UseLocked = 0x10050009;  // CFG-TP-USE_LOCKED_TP1
-constexpr uint32_t kKeyCfgTp1AlignToTow =
-    0x1005000a;                                 // CFG-TP-ALIGN_TO_TOW_TP1
-constexpr uint32_t kKeyCfgTp1Pol = 0x1005000b;  // CFG-TP-POL_TP1
-
-constexpr uint32_t kKeyCfgTp1PeriodLock = 0x40050003;  // CFG-TP-PERIOD_LOCK_TP1
-constexpr uint32_t kKeyCfgTp1LenLock = 0x40050005;     // CFG-TP-LEN_LOCK_TP1

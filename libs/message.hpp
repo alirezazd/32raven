@@ -29,14 +29,14 @@ enum class MsgId : uint8_t {
   kRcMapConfig = 0x05,
   kReqRcCalibration = 0x06,
   kRcCalibrationConfig = 0x07,
-  kReqGyroCalibrationId = 0x08,
-  kGyroCalibrationIdConfig = 0x09,
+  kReqCalibrationId = 0x08,
+  kCalibrationIdConfig = 0x09,
   kSetRcMapConfig = 0x0A,
   kSetRcCalibrationConfig = 0x0B,
   kReqReceiverBind = 0x0C,
-  kCalibrateGyro = 0x0D,
+  kCalibrate = 0x0D,
   kReqReceiverCancelBind = 0x0E,
-  kCalibrateAccel = 0x0F,
+  kCalStatus = 0x0F,
   kRcChannels = 0x65,
   kGpsData = 0x10,
   kAttitude = 0x11,
@@ -48,7 +48,6 @@ enum class MsgId : uint8_t {
   kSetUsbMode = 0x17,
   kUsbStatus = 0x18,
   kTone = 0x19,
-  kAccelCalStatus = 0x1A,
   kLogList = 0x1B,
   kLogListReply = 0x1C,
   kLogRead = 0x1D,
@@ -107,10 +106,6 @@ struct RcCalibrationConfigMsg {
   int8_t rev[16];
 } __attribute__((packed));
 
-struct GyroCalibrationIdConfigMsg {
-  uint32_t cal_gyro0_id;
-} __attribute__((packed));
-
 struct GpsData {
   uint16_t year;
   uint8_t month;
@@ -144,10 +139,9 @@ struct GpsData {
   float posCovDD;  // [m²]
 } __attribute__((packed));
 
-// Body frame, microtesla. The driver has applied the axis map and the range
-// scale already, so this is the field in the vehicle's own frame and nothing
-// downstream needs to know which part measured it -- or that it is
-// uncalibrated, which it is: no hard- or soft-iron correction exists yet.
+// Body frame, microtesla, with the axis map, the range scale and the stored
+// iron correction applied, so this is the field in the vehicle's own frame
+// and nothing downstream needs to know which part measured it.
 //
 // The part's own OVL and DOR tallies stay on the flight computer. Nothing off
 // the vehicle has asked for them, and the log is where they belong first.
@@ -179,7 +173,7 @@ inline constexpr uint8_t kSystemStatusFlagLoopAlive = 1u << 0;
 
 // The six accelerometer calibration poses, each named by the axis that reads
 // +1 g and therefore points up. The order is the bit order of
-// AccelCalStatusMsg::sides_done, so it is wire format rather than taste.
+// CalStatusMsg::sides_done, so it is wire format rather than taste.
 enum class AccelSide : uint8_t {
   kXUp = 0,
   kXDown,
@@ -194,24 +188,65 @@ inline constexpr uint8_t kAccelSideCount =
     static_cast<uint8_t>(AccelSide::kCount);
 inline constexpr uint8_t kAccelSideAllMask = 0x3Fu;
 
-// Deliberately not the flight controller's own enum: that one names states of
-// a class, this one names what an operator is told. They happen to match today.
-enum class AccelCalState : uint8_t {
+// The runs a ground station can ask for, and the byte that names one on the
+// wire: which to start, which a status is about, whose id is being asked for.
+enum class CalSensor : uint8_t {
+  kGyro = 0,
+  kAccel,
+  kMag,
+  kCount,
+};
+
+inline constexpr uint8_t kCalSensorCount =
+    static_cast<uint8_t>(CalSensor::kCount);
+
+inline constexpr bool IsCalSensorValid(uint8_t sensor) {
+  return sensor < kCalSensorCount;
+}
+
+// PX4's words, which the ground station's calibration page matches on.
+inline constexpr const char *kCalSensorNames[kCalSensorCount] = {
+    "gyro", "accel", "mag"};
+
+struct CalibrateMsg {
+  uint8_t sensor;  // CalSensor
+} __attribute__((packed));
+
+struct ReqCalibrationIdMsg {
+  uint8_t sensor;  // CalSensor
+} __attribute__((packed));
+
+// The part's device id. The IMU's is always known; the compass's is zero
+// until a calibration is stored, which is how a ground station reads
+// "calibrated": the id being there at all.
+struct CalibrationIdConfigMsg {
+  uint8_t sensor;  // CalSensor
+  uint32_t id;
+} __attribute__((packed));
+
+// Deliberately not the flight controllers' own enums: those name states of a
+// class, this one names what an operator is told. One vocabulary for every
+// run; the accel never reaches the two the compass adds.
+enum class CalState : uint8_t {
   kIdle = 0,
   kDetecting,   // waiting for the board to settle into an unvisited pose
-  kCollecting,  // averaging the pose it settled into
+  kRotating,    // pose found, waiting for the operator to start turning
+  kCollecting,  // sampling the pose it settled into
+  kFitting,
   kApplied,
   kFailed,
   kCancelled,
 };
 
-struct AccelCalStatusMsg {
-  uint8_t state;       // AccelCalState
+struct CalStatusMsg {
+  uint8_t sensor;      // CalSensor
+  uint8_t state;       // CalState
   uint8_t sides_done;  // one bit per AccelSide, in that order
   // The pose being held right now, kCount when none is. Carried rather than
   // derived: sides_done only moves once a pose is captured, so it cannot name
   // the one the operator is still holding.
   uint8_t side;
+  uint8_t progress;  // of the whole run, 0 to 100
 };
 
 inline constexpr uint32_t kSystemSensorFlagImu = 1u << 0;
@@ -403,7 +438,7 @@ struct WireEntry {
   bool bounded;
 };
 
-inline constexpr std::array<WireEntry, 36> kWireContract = {{
+inline constexpr std::array<WireEntry, 35> kWireContract = {{
     {MsgId::kHandshake, PayloadLength<HandshakeMsg>(), false},
     {MsgId::kLog, kMaxLogTextPayload, true},
     {MsgId::kHandshakeReply, PayloadLength<HandshakeMsg>(), false},
@@ -412,16 +447,16 @@ inline constexpr std::array<WireEntry, 36> kWireContract = {{
     {MsgId::kReqRcCalibration, 0, false},
     {MsgId::kRcCalibrationConfig, PayloadLength<RcCalibrationConfigMsg>(),
      false},
-    {MsgId::kReqGyroCalibrationId, 0, false},
-    {MsgId::kGyroCalibrationIdConfig,
-     PayloadLength<GyroCalibrationIdConfigMsg>(), false},
+    {MsgId::kReqCalibrationId, PayloadLength<ReqCalibrationIdMsg>(), false},
+    {MsgId::kCalibrationIdConfig, PayloadLength<CalibrationIdConfigMsg>(),
+     false},
     {MsgId::kSetRcMapConfig, PayloadLength<RcMapConfigMsg>(), false},
     {MsgId::kSetRcCalibrationConfig, PayloadLength<RcCalibrationConfigMsg>(),
      false},
     {MsgId::kReqReceiverBind, 0, false},
-    {MsgId::kCalibrateGyro, 0, false},
+    {MsgId::kCalibrate, PayloadLength<CalibrateMsg>(), false},
     {MsgId::kReqReceiverCancelBind, 0, false},
-    {MsgId::kCalibrateAccel, 0, false},
+    {MsgId::kCalStatus, PayloadLength<CalStatusMsg>(), false},
     {MsgId::kRcChannels, PayloadLength<RcChannelsMsg>(), false},
     {MsgId::kGpsData, PayloadLength<GpsData>(), false},
     {MsgId::kAttitude, PayloadLength<AttitudeMsg>(), false},
@@ -433,7 +468,6 @@ inline constexpr std::array<WireEntry, 36> kWireContract = {{
     {MsgId::kSetUsbMode, PayloadLength<SetUsbModeMsg>(), false},
     {MsgId::kUsbStatus, PayloadLength<UsbStatusMsg>(), false},
     {MsgId::kTone, PayloadLength<ToneMsg>(), false},
-    {MsgId::kAccelCalStatus, PayloadLength<AccelCalStatusMsg>(), false},
     {MsgId::kLogList, PayloadLength<LogListMsg>(), false},
     {MsgId::kLogListReply, PayloadLength<LogListReplyMsg>(), false},
     {MsgId::kLogRead, PayloadLength<LogReadMsg>(), false},
@@ -553,9 +587,16 @@ inline bool IsRcCalibrationConfigValid(const RcCalibrationConfigMsg &cfg) {
   return true;
 }
 
-inline bool IsGyroCalibrationIdConfigValid(
-    const GyroCalibrationIdConfigMsg &cfg) {
-  return cfg.cal_gyro0_id != 0u;
+inline constexpr bool IsCalibrationIdConfigValid(
+    const CalibrationIdConfigMsg &cfg) {
+  return IsCalSensorValid(cfg.sensor) &&
+         (cfg.sensor == static_cast<uint8_t>(CalSensor::kMag) || cfg.id != 0u);
+}
+
+inline Packet MakePacket(MsgId id) {
+  Packet pkt{};
+  pkt.header.id = static_cast<uint8_t>(id);
+  return pkt;
 }
 
 // Takes the length from the payload type, so the declared length cannot

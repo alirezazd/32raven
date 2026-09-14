@@ -7,6 +7,7 @@
 #include <cstdint>
 
 #include "ee_schema.hpp"
+#include "mag_fit.hpp"
 #include "shared_state.hpp"
 
 class EE;
@@ -203,14 +204,136 @@ class AccelCal {
   float down_mps2_[3]{};
 };
 
+// Six-pose compass fit, PX4's routine: the accel names the pose the board is
+// resting on, the gyro confirms the operator has started turning it, and the
+// field is sampled while it turns, spread over the sphere rather than dense
+// where the turn was slow. Six poses feed one sphere-then-ellipsoid fit whose
+// centre is the hard iron and whose scale is the soft iron; `MagFit` is the
+// fit, this is everything around it.
+//
+// Runs entirely on the main loop, the tick the compass is read on: the pose
+// and the turn come from the estimator's calibrated burst averages, so unlike
+// AccelCal there is no control-tick feed and nothing to hand across.
+class MagCal {
+ public:
+  struct Config {
+    uint32_t points_per_side;
+    uint32_t side_duration_s;
+    uint32_t still_duration_ms;
+    // Deviation from the running mean, not the peak-to-peak spread the accel
+    // run gates on: PX4's lenient detector, whose 0.75 m/s^2 is 76 mg.
+    uint32_t still_threshold_mg;
+    uint32_t timeout_s;
+  };
+
+  enum class State : uint8_t {
+    kIdle,
+    kDetecting,   // waiting for the board to rest on an unvisited pose
+    kRotating,    // pose named, waiting for the operator to start turning
+    kCollecting,  // sampling the field while the board turns on that pose
+    kFitting,     // one fit iteration per poll, sphere then ellipsoid
+    kApplied,
+    kFailed,
+    kCancelled,
+  };
+
+  static constexpr uint32_t kMaxPointsPerSide = 40;
+  static constexpr uint32_t kMaxPoints =
+      kMaxPointsPerSide * message::kAccelSideCount;
+  // How long a named pose waits for the operator to start turning.
+  static constexpr uint32_t kRotateTimeoutS = 35;
+
+  State Status() const { return state_; }
+  bool Running() const {
+    return state_ != State::kIdle && state_ != State::kApplied &&
+           state_ != State::kFailed && state_ != State::kCancelled;
+  }
+  uint8_t SidesDone() const { return sides_done_; }
+  AccelSide CurrentSide() const { return side_; }
+  // Of the whole run, 0 to 100.
+  uint8_t Progress() const;
+  bool Calibrated() const { return record_.calibrated != 0u; }
+  // The last fit, for the report that lands with kApplied.
+  const MagFitParams &Result() const { return result_; }
+  float ResultCost() const { return result_cost_; }
+
+  State Poll(uint32_t now_us);
+
+ private:
+  friend class SensorCalService;
+  void Init(const Config &cfg, SharedState &blackboard, EE &ee);
+  // False when the run was refused -- armed, going, or nothing to read: in the
+  // bench states the estimator is stale and a run would sit detecting until
+  // its deadline.
+  bool Start(uint32_t now_us);
+  void Cancel();
+
+  // Bands reject broken rather than merely poor: a scale of two or an offset
+  // of two gauss is not a fit of the Earth's field.
+  static bool IsPlausible(const ee_schema::MagnetometerCalibration &cal);
+  void Publish();
+  bool Store(const ee_schema::MagnetometerCalibration &cal);
+
+  void BeginDetecting();
+  void PollDetecting(uint32_t now_us, float dt_s);
+  void PollRotating(uint32_t now_us, float dt_s);
+  void PollCollecting(uint32_t now_us);
+  void PollFitting();
+  bool TakeSample();
+  AccelSide Classify() const;
+  void EndSide();
+  // PX4's check on a finished fit: finite, a radius the Earth's field could
+  // be, positive scale.
+  static bool IsSane(const MagFitParams &p);
+
+  Config cfg_{};
+  SharedState *blackboard_ = nullptr;
+  EE *ee_ = nullptr;
+  ee_schema::MagnetometerCalibration record_{};
+
+  State state_ = State::kIdle;
+  uint32_t deadline_us_ = 0;
+  // The rotate deadline while kRotating, the side deadline while kCollecting.
+  uint32_t stage_deadline_us_ = 0;
+  uint32_t last_poll_us_ = 0;
+  uint8_t sides_done_ = 0;
+  AccelSide side_ = AccelSide::kCount;
+
+  // PX4's rest detector: a running mean and a leaky max-hold of the squared
+  // deviation from it, per axis.
+  float accel_ema_[3]{};
+  float accel_disp_[3]{};
+  uint32_t still_since_us_ = 0;
+  bool still_ = false;
+
+  float gyro_integral_[3]{};
+
+  uint32_t last_sample_count_ = 0;
+  uint32_t last_overflow_count_ = 0;
+  // Seeds the fit and spaces the samples: the first accepted sample's
+  // magnitude, clamped to the band a fit may land in.
+  float sphere_radius_ = MagFit::kMinRadius;
+  float x_[kMaxPoints]{};
+  float y_[kMaxPoints]{};
+  float z_[kMaxPoints]{};
+  uint32_t count_ = 0;
+  uint32_t side_count_ = 0;
+
+  MagFit fit_;
+  bool fitting_ellipsoid_ = false;
+  MagFitParams sphere_result_{};
+  MagFitParams result_{};
+  float result_cost_ = 0.0f;
+};
+
 // Owns the calibrators, not the calibrations: it reads the burst once, hands it
-// to whoever is collecting, and turns an outcome into a tone. The compass joins
-// as a sibling later, with its own run.
+// to whoever is collecting, and turns an outcome into a tone.
 class SensorCalService {
  public:
   struct Config {
     GyroCal::Config gyro;
     AccelCal::Config accel;
+    MagCal::Config mag;
   };
 
   static SensorCalService &GetInstance();
@@ -223,12 +346,16 @@ class SensorCalService {
   // yields to either request rather than refusing it.
   bool StartGyro(uint32_t now_us);
   bool StartAccel(uint32_t now_us);
-  // Stops whichever run is going. Only the accel run has a page waiting on
-  // the outcome, and it reports the cancel so that page can close.
+  bool StartMag(uint32_t now_us);
+  // Stops whichever run is going. The accel and compass runs have a page
+  // waiting on the outcome, and report the cancel so that page can close.
   void Cancel();
-  // The QMC5883P brings its own feed and an ellipsoid fit (#45). The DPS310
-  // does not -- a baro's zero is a ground reference the estimator
-  // re-establishes at every arm (#46).
+  // The DPS310 gets no run -- a baro's zero is a ground reference the
+  // estimator re-establishes at every arm (#46).
+
+  // What a ground station reads as CAL_MAG0_ID: the part once a calibration
+  // is stored, zero before, which is how the page knows one is needed.
+  uint32_t MagCalibrationId() const;
 
   // Control tick, after the AHRS. A no-op unless a run is in progress, so the
   // caller offers every burst rather than deciding.
@@ -255,9 +382,19 @@ class SensorCalService {
   // a pose averaged both leave the run detecting again.
   void ReportAccel(AccelCal::State outcome, uint8_t sides_done, AccelSide side,
                    bool captured);
+  // `turn` is the edge into kRotating, the one the operator has to act on.
+  void ReportMag(MagCal::State outcome, uint8_t sides_done, AccelSide side,
+                 uint8_t progress, bool captured, bool turn);
+  // The status line both pose runs send, and the tone beside it: one for the
+  // outcome, and a beep where `act` says the operator has to do something an
+  // airframe in their hands cannot show them.
+  void ReportCal(message::CalSensor sensor, message::CalState state,
+                 uint8_t sides_done, AccelSide side, uint8_t progress,
+                 bool act);
 
   GyroCal gyro_;
   AccelCal accel_;
+  MagCal mag_;
   SharedState *blackboard_ = nullptr;
   FcLink *fclink_ = nullptr;
   bool initialized_ = false;
@@ -280,4 +417,13 @@ class SensorCalService {
   AccelCal::State reported_accel_state_ = AccelCal::State::kIdle;
   uint8_t reported_accel_sides_ = 0;
   AccelSide reported_accel_side_ = AccelSide::kCount;
+
+  // The compass run is reported the same way, plus its progress: edges go out
+  // at once, a progress change no more than every quarter second, because
+  // each report becomes a line on the bridge's short status queue.
+  MagCal::State reported_mag_state_ = MagCal::State::kIdle;
+  uint8_t reported_mag_sides_ = 0;
+  AccelSide reported_mag_side_ = AccelSide::kCount;
+  uint8_t reported_mag_progress_ = 0;
+  uint32_t mag_progress_sent_us_ = 0;
 };

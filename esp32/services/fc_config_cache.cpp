@@ -63,11 +63,23 @@ void FcConfigCache::Adopt(const message::RcCalibrationConfigMsg &cfg) {
   rc_calibration_.Settle(cfg);
 }
 
-void FcConfigCache::Adopt(const message::GyroCalibrationIdConfigMsg &cfg) {
-  if (!message::IsGyroCalibrationIdConfigValid(cfg)) {
-    Panic(ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig);
+void FcConfigCache::Adopt(const message::CalibrationIdConfigMsg &cfg) {
+  if (!message::IsCalibrationIdConfigValid(cfg)) {
+    Panic(ErrorCode::Common::kFcLinkInvalidCalibrationIdConfig);
   }
-  gyro_calibration_id_.Settle(cfg);
+  switch (static_cast<message::CalSensor>(cfg.sensor)) {
+    case message::CalSensor::kGyro:
+      gyro_calibration_id_.Settle(cfg);
+      break;
+    case message::CalSensor::kAccel:
+      // One chip with the gyro: CAL_ACC0_ID reads the gyro's, nothing asks.
+      break;
+    case message::CalSensor::kMag:
+      mag_calibration_id_.Settle(cfg);
+      break;
+    case message::CalSensor::kCount:
+      break;
+  }
 }
 
 void FcConfigCache::WriteRcMap(const message::RcMapConfigMsg &value) {
@@ -87,6 +99,8 @@ bool FcConfigCache::Held(Record record) const {
       return rc_calibration_.value.has_value();
     case Record::kGyroCalibrationId:
       return gyro_calibration_id_.value.has_value();
+    case Record::kMagCalibrationId:
+      return mag_calibration_id_.value.has_value();
   }
   return false;
 }
@@ -99,6 +113,8 @@ bool FcConfigCache::WritePending(Record record) const {
       return rc_calibration_.write.has_value();
     case Record::kGyroCalibrationId:
       return gyro_calibration_id_.write.has_value();
+    case Record::kMagCalibrationId:
+      return mag_calibration_id_.write.has_value();
   }
   return false;
 }
@@ -117,21 +133,38 @@ bool FcConfigCache::Available(Record record, uint32_t now_ms) {
 void FcConfigCache::Request(Record record, uint32_t now_ms) {
   switch (record) {
     case Record::kRcMap:
-      SendRequest(rc_map_.request, message::MsgId::kReqRcMap, "RC map", now_ms);
+      SendRequest(rc_map_.request,
+                  message::MakePacket(message::MsgId::kReqRcMap), "RC map",
+                  now_ms);
       break;
     case Record::kRcCalibration:
-      SendRequest(rc_calibration_.request, message::MsgId::kReqRcCalibration,
+      SendRequest(rc_calibration_.request,
+                  message::MakePacket(message::MsgId::kReqRcCalibration),
                   "RC calibration", now_ms);
       break;
     case Record::kGyroCalibrationId:
       SendRequest(gyro_calibration_id_.request,
-                  message::MsgId::kReqGyroCalibrationId, "gyro calibration ID",
-                  now_ms);
+                  message::MakePacket(
+                      message::MsgId::kReqCalibrationId,
+                      message::ReqCalibrationIdMsg{
+                          .sensor = static_cast<uint8_t>(
+                              message::CalSensor::kGyro)}),
+                  "gyro calibration ID", now_ms);
+      break;
+    case Record::kMagCalibrationId:
+      SendRequest(mag_calibration_id_.request,
+                  message::MakePacket(
+                      message::MsgId::kReqCalibrationId,
+                      message::ReqCalibrationIdMsg{
+                          .sensor = static_cast<uint8_t>(
+                              message::CalSensor::kMag)}),
+                  "mag calibration ID", now_ms);
       break;
   }
 }
 
-void FcConfigCache::SendRequest(RequestState &state, message::MsgId id,
+void FcConfigCache::SendRequest(RequestState &state,
+                                const message::Packet &request,
                                 const char *description, uint32_t now_ms) {
   if (state.waiting && !TimeReached(now_ms, state.next_request_ms)) {
     return;
@@ -139,9 +172,7 @@ void FcConfigCache::SendRequest(RequestState &state, message::MsgId id,
   state.waiting = true;
   state.next_request_ms = TimeAfter(now_ms, kRetryPeriodMs);
   ESP_LOGI(kTag, "Requesting STM32 %s on demand...", description);
-  message::Packet pkt{};
-  pkt.header.id = static_cast<uint8_t>(id);
-  fc_link_->SendPacket(pkt);
+  fc_link_->SendPacket(request);
 }
 
 void FcConfigCache::Poll(uint32_t now_ms) {

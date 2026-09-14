@@ -117,17 +117,6 @@ static void OnSetRcCalibration(const AppContext &ctx,
   ctx.sys->FcLinkSvc().SendRcCalibrationConfig(rc_cal);
 }
 
-static void OnReqGyroCalibrationId(const AppContext &ctx,
-                                   const message::Packet &) {
-  const message::GyroCalibrationIdConfigMsg cfg = {
-      .cal_gyro0_id = ctx.sys->Imu().GetDeviceId(),
-  };
-  if (!message::IsGyroCalibrationIdConfigValid(cfg)) {
-    Panic(ErrorCode::Common::kFcLinkInvalidGyroCalibrationIdConfig);
-  }
-  ctx.sys->FcLinkSvc().SendGyroCalibrationIdConfig(cfg);
-}
-
 static void OnReqReceiverBind(const AppContext &ctx, const message::Packet &) {
   ctx.sys->CrsfLinkSvc().RequestReceiverBind();
   ctx.sys->FcLinkSvc().SendLog("CRSF RX bind requested");
@@ -140,28 +129,39 @@ static void OnReqReceiverCancelBind(const AppContext &ctx,
 }
 
 // No arm check here: SensorCalService owns that and the busy test both. The
-// outcome is a tone, not a reply -- the run outlasts this packet.
-static void OnCalibrateGyro(const AppContext &ctx, const message::Packet &) {
-  if (ctx.sys->SensorCalSvc().StartGyro(ctx.now_us)) {
-    ctx.sys->FcLinkSvc().SendLog("Gyro calibration started");
+// outcome is not a reply -- the run outlasts this packet. The gyro ends in a
+// tone; the accel and the compass, which the operator has to turn the airframe
+// through, report every captured pose.
+static void OnCalibrate(const AppContext &ctx, const message::Packet &pkt) {
+  const uint8_t sensor = message::PayloadAs<message::CalibrateMsg>(pkt).sensor;
+  if (!message::IsCalSensorValid(sensor)) {
+    return;
+  }
+  bool started = false;
+  const char *hint = "";
+  switch (static_cast<message::CalSensor>(sensor)) {
+    case message::CalSensor::kGyro:
+      started = ctx.sys->SensorCalSvc().StartGyro(ctx.now_us);
+      break;
+    case message::CalSensor::kAccel:
+      started = ctx.sys->SensorCalSvc().StartAccel(ctx.now_us);
+      hint = ": hold each side";
+      break;
+    case message::CalSensor::kMag:
+      started = ctx.sys->SensorCalSvc().StartMag(ctx.now_us);
+      hint = ": turn on each side";
+      break;
+    case message::CalSensor::kCount:
+      break;
+  }
+  if (started) {
+    ctx.sys->FcLinkSvc().SendLog("%s calibration started%s",
+                                 message::kCalSensorNames[sensor], hint);
     return;
   }
   // 🖕 if asked outside Standby, return the finger.
-  ctx.sys->FcLinkSvc().SendLog("Gyro calibration refused: armed or busy");
-  ctx.sys->FcLinkSvc().SendPacket(
-      message::MsgId::kTone,
-      message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kWarning)});
-}
-
-// Same shape as the gyro's, and the same refusal. What differs is the length of
-// the run: six poses the operator has to turn the airframe through, so progress
-// goes out per captured side rather than only at the end.
-static void OnCalibrateAccel(const AppContext &ctx, const message::Packet &) {
-  if (ctx.sys->SensorCalSvc().StartAccel(ctx.now_us)) {
-    ctx.sys->FcLinkSvc().SendLog("Accel calibration started: hold each side");
-    return;
-  }
-  ctx.sys->FcLinkSvc().SendLog("Accel calibration refused: armed or busy");
+  ctx.sys->FcLinkSvc().SendLog("%s calibration refused: armed or busy",
+                               message::kCalSensorNames[sensor]);
   ctx.sys->FcLinkSvc().SendPacket(
       message::MsgId::kTone,
       message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kWarning)});
@@ -170,6 +170,32 @@ static void OnCalibrateAccel(const AppContext &ctx, const message::Packet &) {
 static void OnCancelCalibration(const AppContext &ctx,
                                 const message::Packet &) {
   ctx.sys->SensorCalSvc().Cancel();
+}
+
+// The gyro and the accel are one chip, so they answer with one id.
+static void OnReqCalibrationId(const AppContext &ctx,
+                               const message::Packet &pkt) {
+  const uint8_t sensor =
+      message::PayloadAs<message::ReqCalibrationIdMsg>(pkt).sensor;
+  if (!message::IsCalSensorValid(sensor)) {
+    return;
+  }
+  message::CalibrationIdConfigMsg cfg = {.sensor = sensor, .id = 0u};
+  switch (static_cast<message::CalSensor>(sensor)) {
+    case message::CalSensor::kGyro:
+    case message::CalSensor::kAccel:
+      cfg.id = ctx.sys->Imu().GetDeviceId();
+      break;
+    case message::CalSensor::kMag:
+      cfg.id = ctx.sys->SensorCalSvc().MagCalibrationId();
+      break;
+    case message::CalSensor::kCount:
+      break;
+  }
+  if (!message::IsCalibrationIdConfigValid(cfg)) {
+    Panic(ErrorCode::Common::kFcLinkInvalidCalibrationIdConfig);
+  }
+  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kCalibrationIdConfig, cfg);
 }
 
 // Privileged only in that FcLink access is the whole gate, as for kReboot and
@@ -230,12 +256,11 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kReqRcCalibration, OnReqRcCalibration},
     {message::MsgId::kSetRcMapConfig, OnSetRcMapConfig},
     {message::MsgId::kSetRcCalibrationConfig, OnSetRcCalibration},
-    {message::MsgId::kReqGyroCalibrationId, OnReqGyroCalibrationId},
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
     {message::MsgId::kReqReceiverCancelBind, OnReqReceiverCancelBind},
-    {message::MsgId::kCalibrateGyro, OnCalibrateGyro},
-    {message::MsgId::kCalibrateAccel, OnCalibrateAccel},
+    {message::MsgId::kCalibrate, OnCalibrate},
     {message::MsgId::kCancelCalibration, OnCancelCalibration},
+    {message::MsgId::kReqCalibrationId, OnReqCalibrationId},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
     {message::MsgId::kSetUsbMode, OnSetUsbMode},

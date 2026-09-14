@@ -11,13 +11,18 @@
 
 class FcLink;
 
-// The flight computer's RC map, RC calibration and gyro calibration id as
-// last reported, plus the writes a ground station asked for that the flight
+// The flight computer's RC map, RC calibration and calibration ids as last
+// reported, plus the writes a ground station asked for that the flight
 // computer has not yet echoed back. Nothing MAVLink here: the parameter
 // server reads and writes records, and this gets them across the link.
 class FcConfigCache {
  public:
-  enum class Record : uint8_t { kRcMap, kRcCalibration, kGyroCalibrationId };
+  enum class Record : uint8_t {
+    kRcMap,
+    kRcCalibration,
+    kGyroCalibrationId,
+    kMagCalibrationId,
+  };
 
   void Init(FcLink &fc_link);
   // Writes in flight are dropped: the link that asked for them is gone.
@@ -30,7 +35,7 @@ class FcConfigCache {
   // it. An invalid record panics: the peer is the authority on these.
   void Adopt(const message::RcMapConfigMsg &cfg);
   void Adopt(const message::RcCalibrationConfigMsg &cfg);
-  void Adopt(const message::GyroCalibrationIdConfigMsg &cfg);
+  void Adopt(const message::CalibrationIdConfigMsg &cfg);
 
   const std::optional<message::RcMapConfigMsg> &RcMap() const {
     return rc_map_.value;
@@ -38,9 +43,13 @@ class FcConfigCache {
   const std::optional<message::RcCalibrationConfigMsg> &RcCalibration() const {
     return rc_calibration_.value;
   }
-  const std::optional<message::GyroCalibrationIdConfigMsg> &GyroCalibrationId()
+  const std::optional<message::CalibrationIdConfigMsg> &GyroCalibrationId()
       const {
     return gyro_calibration_id_.value;
+  }
+  const std::optional<message::CalibrationIdConfigMsg> &MagCalibrationId()
+      const {
+    return mag_calibration_id_.value;
   }
 
   // Held and not mid-write. A record not held is asked for, rate-limited;
@@ -64,7 +73,7 @@ class FcConfigCache {
     bool waiting = false;
   };
 
-  // One record. Nothing writes the gyro calibration id, so that slot's `write`
+  // One record. Nothing writes a calibration id, so those slots' `write`
   // stays empty for the life of the board and every path through it no-ops.
   template <typename T>
   struct Slot {
@@ -100,11 +109,12 @@ class FcConfigCache {
   bool Held(Record record) const;
   bool WritePending(Record record) const;
   void Request(Record record, uint32_t now_ms);
-  void SendRequest(RequestState &state, message::MsgId id,
+  void SendRequest(RequestState &state, const message::Packet &request,
                    const char *description, uint32_t now_ms);
 
   FcLink *fc_link_ = nullptr;
   Slot<message::RcMapConfigMsg> rc_map_{};
   Slot<message::RcCalibrationConfigMsg> rc_calibration_{};
-  Slot<message::GyroCalibrationIdConfigMsg> gyro_calibration_id_{};
+  Slot<message::CalibrationIdConfigMsg> gyro_calibration_id_{};
+  Slot<message::CalibrationIdConfigMsg> mag_calibration_id_{};
 };

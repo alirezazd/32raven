@@ -90,8 +90,8 @@ class Mavlink {
     fc_config_.Adopt(cfg);
   }
   void ReportPanic(PanicSource source, uint32_t error_code);
-  // Each edge of an accel calibration run, as the line an operator reads.
-  void ReportAccelCalProgress(const message::AccelCalStatusMsg &msg);
+  // Each edge of a calibration run, as the line an operator reads.
+  void ReportCalProgress(const message::CalStatusMsg &msg);
   uint32_t GetRxPacketCount() const;
   uint32_t GetTxPacketCount() const;
   uint32_t GetRxHeartbeatCount() const;
@@ -194,10 +194,12 @@ class Mavlink {
   uint32_t last_sensor_present_ = 0;
   bool sensor_health_seen_ = false;
   // What the page has been told so far. It reads edges, not state: a repeated
-  // line shows a pose twice.
-  bool accel_cal_running_ = false;
-  uint8_t accel_cal_sides_ = 0;
-  uint8_t accel_cal_announced_side_ = message::kAccelSideCount;
+  // line shows a pose twice. One set, because the flight computer runs one
+  // calibration at a time.
+  bool cal_running_ = false;
+  uint8_t cal_sides_ = 0;
+  uint8_t cal_announced_side_ = message::kAccelSideCount;
+  uint8_t cal_last_progress_ = 0;
 
   struct CommandAck {
     uint16_t command = 0;
