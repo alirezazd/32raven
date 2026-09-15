@@ -808,7 +808,7 @@ void LogService::AppendDefinitions(uint64_t now64) {
   // The corrections the sensors flew with. The FIFO and mag records keep raw
   // values, so these are what re-derive the corrected ones -- or fit better
   // ones -- after the fact. Accel: offsets then gains; mag: offsets then the
-  // soft-iron rows.
+  // soft-iron rows; the board trim as the rows of the rotation it applies.
   const GyroCalibration &gyro_cal = blackboard_->GetGyroCalibration();
   AppendInfo("float[3] gyro_calibration", gyro_cal.offsets_rad_s,
              sizeof(gyro_cal.offsets_rad_s));
@@ -823,6 +823,14 @@ void LogService::AppendDefinitions(uint64_t now64) {
   std::memcpy(&mag_values[0], mag_cal.offsets_ut, sizeof(mag_cal.offsets_ut));
   std::memcpy(&mag_values[3], mag_cal.soft_iron, sizeof(mag_cal.soft_iron));
   AppendInfo("float[12] mag_calibration", mag_values, sizeof(mag_values));
+  const BoardTrim &trim = blackboard_->GetBoardTrim();
+  float trim_values[9];
+  for (int row = 0; row < 3; ++row) {
+    for (int col = 0; col < 3; ++col) {
+      trim_values[(row * 3) + col] = trim.rotation(row, col);
+    }
+  }
+  AppendInfo("float[9] board_trim", trim_values, sizeof(trim_values));
 
   // Subscriptions: {uint8 multi_id, uint16 msg_id, name}.
   for (uint16_t id = 0; id < kMsgCount; ++id) {

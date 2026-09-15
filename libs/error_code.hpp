@@ -23,7 +23,7 @@ enum class Common : uint32_t {
   kUnknownCommand,
   kCommandInvalidPacket,
   kFcLinkInvalidCalibrationIdConfig,
-  kFcLinkInvalidRcCalibrationConfig,
+  kFcLinkInvalidBoardTrimConfig,
 };
 
 enum class Stm32 : uint32_t {
@@ -144,7 +144,7 @@ enum class Esp32 : uint32_t {
   kFcLinkHandshakeFailed,
   kFcLinkInvalidRcMapConfig,
   kFcLinkRcMapSetFailed,
-  kFcLinkRcCalibrationSetFailed,
+  kFcLinkBoardTrimSetFailed,
   // LED / buzzer / button
   kLedTaskCreateFailed,
   kLedTimerInitFailed,

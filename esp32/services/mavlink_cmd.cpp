@@ -8,16 +8,16 @@
 #include "mavlink.hpp"
 #include "system.hpp"
 
-// `detail` is the command's param1, which for MAV_CMD_REQUEST_MESSAGE is the
-// message being asked for -- the whole content of the request, and the only
-// thing that says which gap this is. It reaches the text, and through the text
-// the one-shot key, so two messages refused under the same command number are
-// two reports rather than one.
+// `detail` is what the reason names -- for MAV_CMD_REQUEST_MESSAGE the
+// message asked for, for a calibration the slot that asked -- the whole
+// content of the request, and the only thing that says which gap this is. It
+// reaches the text, and through the text the one-shot key, so two messages
+// refused under the same command number are two reports rather than one.
 void Mavlink::LogUnhandledCommandOnce(uint16_t command, uint32_t detail,
                                       const char *reason) {
   char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1] = {};
   if (reason != nullptr && reason[0] != '\0') {
-    std::snprintf(text, sizeof(text), "Unhandled MAV_CMD=%u %s param1=%lu",
+    std::snprintf(text, sizeof(text), "Unhandled MAV_CMD=%u %s=%lu",
                   static_cast<unsigned>(command), reason,
                   (unsigned long)detail);
   } else {
@@ -178,12 +178,11 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
     }
     case MAV_CMD_PREFLIGHT_CALIBRATION: {
       // param1 is the gyro slot, param2 the magnetometer and param5 the accel,
-      // as the MAVLink command defines them, and only the value 1 asks for a
-      // run. param5 = 2 is the level-horizon trim, a different routine this
-      // board does not have, so treating every non-zero as "accel" answered
-      // one button with another. ACCEPTED means the request reached the
-      // flight controller, not that the run finished -- the gyro ends in a
-      // tone, the accel and the compass in a STATUSTEXT per pose.
+      // as the MAVLink command defines them; 1 asks for a run, and param5 = 2
+      // is the level-horizon trim, its own routine. ACCEPTED means the
+      // request reached the flight controller, not that the run finished --
+      // that is a STATUSTEXT per edge, and per pose for the accel and the
+      // compass.
       const uint32_t gyro_slot = static_cast<uint32_t>(cmd.param1);
       const uint32_t mag_slot = static_cast<uint32_t>(cmd.param2);
       const uint32_t accel_slot = static_cast<uint32_t>(cmd.param5);
@@ -205,12 +204,26 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
           sensor = message::CalSensor::kGyro;
         } else if (accel_slot == 1u) {
           sensor = message::CalSensor::kAccel;
+        } else if (accel_slot == 2u) {
+          sensor = message::CalSensor::kLevel;
         } else {
           QueueCommandAck(static_cast<uint16_t>(cmd.command),
                           MAV_RESULT_UNSUPPORTED, source_system,
                           source_component);
-          LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
-                                  accel_slot != 0u ? accel_slot : gyro_slot,
+          // Named by the first slot that asked, since which one it was is
+          // the whole content of the report: 3 baro, 4 radio, 6 airspeed,
+          // 7 ESC, or an accel value that is neither run nor level.
+          const float params[] = {cmd.param1, cmd.param2, cmd.param3,
+                                  cmd.param4, cmd.param5, cmd.param6,
+                                  cmd.param7};
+          uint32_t slot = 0;
+          for (uint32_t i = 0; i < 7u; ++i) {
+            if (static_cast<uint32_t>(params[i]) != 0u) {
+              slot = i + 1u;
+              break;
+            }
+          }
+          LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command), slot,
                                   "cal-slot");
           break;
         }
@@ -226,7 +239,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
       QueueCommandAck(static_cast<uint16_t>(cmd.command),
                       MAV_RESULT_UNSUPPORTED, source_system, source_component);
       LogUnhandledCommandOnce(static_cast<uint16_t>(cmd.command),
-                              static_cast<uint32_t>(cmd.param1), "unsupported");
+                              static_cast<uint32_t>(cmd.param1), "param1");
       break;
   }
 }

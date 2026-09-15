@@ -72,15 +72,6 @@ _TABLE_RE = re.compile(
     r"inline constexpr ParamDef kParamTable\[\] = \{(.*?)\n\};", re.DOTALL
 )
 _ROW_RE = re.compile(r'\{"([A-Z0-9_]+)",\s*(MAV_PARAM_TYPE_\w+)')
-_RC_BLOCK_RE = re.compile(
-    r"^\w+::TryEncodeRcCalibrationParam\b(.*?)\n\}", re.DOTALL | re.MULTILINE
-)
-_RC_FIELD_RE = re.compile(
-    r'"RC%u_(\w+)"[^;]*;\s*encoded\.type = (MAV_PARAM_TYPE_\w+)'
-)
-_CHANNEL_COUNT_RE = re.compile(
-    r"kRcCalibrationChannelCount\s*=\s*(\d+)u?", re.MULTILINE
-)
 
 
 class GenerateError(SystemExit):
@@ -117,24 +108,6 @@ def served_parameters() -> list[tuple[str, str]]:
     ]
     if not served:
         raise GenerateError("kParamTable parsed as empty")
-
-    rc_block = _RC_BLOCK_RE.search(source)
-    if not rc_block:
-        raise GenerateError("the RC calibration encoder was not found")
-    rc_fields = _RC_FIELD_RE.findall(rc_block.group(1))
-    if not rc_fields:
-        raise GenerateError("the RC calibration encoder named no fields")
-
-    message_source = _read(REPO_ROOT / "libs" / "message.hpp")
-    channels = _CHANNEL_COUNT_RE.search(message_source)
-    if not channels:
-        raise GenerateError("kRcCalibrationChannelCount not found")
-
-    for channel in range(1, int(channels.group(1)) + 1):
-        for suffix, mav_type in rc_fields:
-            name = f"RC{channel}_{suffix}"
-            served.append((name, _schema_type(mav_type, name)))
-
     return served
 
 
@@ -149,29 +122,15 @@ def _entry(name: str, schema_type: str, described: dict) -> dict:
 def build_metadata() -> dict:
     described = tomllib.loads(_read(METADATA_SOURCE))
     fixed = described.get("params", {})
-    rc_fields = described.get("rc_calibration", {})
 
     parameters = []
     for name, schema_type in served_parameters():
-        rc = re.fullmatch(r"RC(\d+)_(\w+)", name)
-        if rc and rc.group(2) in rc_fields:
-            channel = rc.group(1)
-            entry = {
-                key: (
-                    value.replace("{n}", channel)
-                    if isinstance(value, str)
-                    else value
-                )
-                for key, value in rc_fields[rc.group(2)].items()
-            }
-        elif name in fixed:
-            entry = fixed[name]
-        else:
+        if name not in fixed:
             raise GenerateError(
                 f"{name} is served by the bridge but not described in "
                 f"{METADATA_SOURCE.name}"
             )
-        parameters.append(_entry(name, schema_type, entry))
+        parameters.append(_entry(name, schema_type, fixed[name]))
 
     # No firmware stamp, however useful one would be for catching a stale
     # copy: the schema sets additionalProperties false, so any key of ours

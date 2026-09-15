@@ -1,10 +1,11 @@
-# `slot` fixes each record's place in the EEPROM. Records are packed in slot
-# order, so a new one takes the next slot and nothing already stored moves.
+# A record is found by its tag, not by a place in the image: at boot the
+# stored image is walked header by header, a record this firmware no longer
+# knows is dropped and the rest are packed. Adding one is adding it here;
+# removing one is deleting it here.
 
 [stm32.imu.accel_calibration]
 type_name = "ImuAccelCalibration"
 tag = "IAC1"
-slot = 0
 
 [[stm32.imu.accel_calibration.fields]]
 name = "offsets"
@@ -16,35 +17,9 @@ name = "gains"
 type = "float"
 count = 3
 
-[stm32.rc.calibration]
-type_name = "RcCalibration"
-tag = "RCC1"
-slot = 1
-
-[[stm32.rc.calibration.fields]]
-name = "min_us"
-type = "uint16_t"
-count = 16
-
-[[stm32.rc.calibration.fields]]
-name = "max_us"
-type = "uint16_t"
-count = 16
-
-[[stm32.rc.calibration.fields]]
-name = "trim_us"
-type = "uint16_t"
-count = 16
-
-[[stm32.rc.calibration.fields]]
-name = "rev"
-type = "int8_t"
-count = 16
-
 [stm32.rc.map]
 type_name = "RcMap"
 tag = "RCM1"
-slot = 2
 
 [[stm32.rc.map.fields]]
 name = "roll_channel"
@@ -65,7 +40,6 @@ type = "uint8_t"
 [stm32.imu.gyro_calibration]
 type_name = "ImuGyroCalibration"
 tag = "IGC1"
-slot = 3
 
 [[stm32.imu.gyro_calibration.fields]]
 name = "offsets_rad_s"
@@ -79,7 +53,6 @@ type = "uint8_t"
 [stm32.mag.calibration]
 type_name = "MagnetometerCalibration"
 tag = "MGC1"
-slot = 4
 
 [[stm32.mag.calibration.fields]]
 name = "offsets_ut"
@@ -99,3 +72,19 @@ count = 3
 [[stm32.mag.calibration.fields]]
 name = "calibrated"
 type = "uint8_t"
+
+[stm32.board.trim]
+type_name = "BoardTrim"
+tag = "BTR1"
+
+[[stm32.board.trim.fields]]
+name = "roll_deg"
+type = "float"
+
+[[stm32.board.trim.fields]]
+name = "pitch_deg"
+type = "float"
+
+[[stm32.board.trim.fields]]
+name = "yaw_deg"
+type = "float"

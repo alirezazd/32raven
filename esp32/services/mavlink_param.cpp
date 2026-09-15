@@ -34,12 +34,14 @@ enum class ParamKey : uint8_t {
   kCalMag1Rot,
   kCalMag2Rot,
   kSensBoardRot,
+  kSensBoardXOff,
+  kSensBoardYOff,
+  kSensBoardZOff,
   kSensDpresOff,
   kSysHasMag,
   kSysHasNumAspd,
   kSysAutostart,
   kComRcInMode,
-  kRcChanCnt,
   kRcMapRoll,
   kRcMapPitch,
   kRcMapYaw,
@@ -85,13 +87,15 @@ inline constexpr ParamDef kParamTable[] = {
     {"CAL_MAG1_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag1Rot},
     {"CAL_MAG2_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kCalMag2Rot},
     {"SENS_BOARD_ROT", MAV_PARAM_TYPE_INT32, ParamKey::kSensBoardRot},
+    {"SENS_BOARD_X_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensBoardXOff},
+    {"SENS_BOARD_Y_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensBoardYOff},
+    {"SENS_BOARD_Z_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensBoardZOff},
     {"SENS_DPRES_OFF", MAV_PARAM_TYPE_REAL32, ParamKey::kSensDpresOff,
      /*px4_volatile=*/true},
     {"SYS_HAS_MAG", MAV_PARAM_TYPE_INT32, ParamKey::kSysHasMag},
     {"SYS_HAS_NUM_ASPD", MAV_PARAM_TYPE_INT32, ParamKey::kSysHasNumAspd},
     {"SYS_AUTOSTART", MAV_PARAM_TYPE_INT32, ParamKey::kSysAutostart},
     {"COM_RC_IN_MODE", MAV_PARAM_TYPE_UINT8, ParamKey::kComRcInMode},
-    {"RC_CHAN_CNT", MAV_PARAM_TYPE_UINT8, ParamKey::kRcChanCnt},
     {"RC_MAP_ROLL", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapRoll},
     {"RC_MAP_PITCH", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapPitch},
     {"RC_MAP_YAW", MAV_PARAM_TYPE_UINT8, ParamKey::kRcMapYaw},
@@ -113,13 +117,8 @@ inline constexpr ParamDef kParamTable[] = {
     {"COM_RC_LOSS_T", MAV_PARAM_TYPE_REAL32, ParamKey::kComRcLossT},
 };
 
-inline constexpr uint8_t kRcCalibrationParamCountPerChannel = 4u;
-inline constexpr uint8_t kTotalRcCalibrationParamCount =
-    message::kRcCalibrationChannelCount * kRcCalibrationParamCountPerChannel;
-inline constexpr uint16_t kBaseParamCount =
-    static_cast<uint16_t>(sizeof(kParamTable) / sizeof(kParamTable[0]));
 inline constexpr uint16_t kTotalParamCount =
-    kBaseParamCount + kTotalRcCalibrationParamCount;
+    static_cast<uint16_t>(sizeof(kParamTable) / sizeof(kParamTable[0]));
 
 // QGC asks any px4Firmware() vehicle for this before downloading parameters:
 // a matching hash lets it load its own cache instead. Virtual, so it is not in
@@ -262,7 +261,7 @@ void MavlinkParamServer::StartStream() { stream_ = StreamActive{}; }
 bool MavlinkParamServer::QueueRead(int16_t param_index, const char *param_id) {
   if (const std::optional<ParamRef> param =
           TryResolveParam(param_index, param_id)) {
-    QueueReply(ParamMavlinkIndex(*param));
+    QueueReply(param->mavlink_index);
     return true;
   }
   if (param_index < 0 &&
@@ -283,60 +282,8 @@ MavlinkParamServer::SetResult MavlinkParamServer::Set(const char *param_id,
   }
   const SetResult result = TrySetParam(
       *param, param_detail::DecodeParamValue(param_value, param_type));
-  QueueReply(ParamMavlinkIndex(*param));
+  QueueReply(param->mavlink_index);
   return result;
-}
-
-uint16_t MavlinkParamServer::ParamMavlinkIndex(const ParamRef &param) {
-  return std::visit([](const auto &ref) { return ref.mavlink_index; }, param);
-}
-
-std::optional<MavlinkParamServer::ParamRef>
-MavlinkParamServer::TryResolveRcCalibrationParam(const char *param_id) {
-  // param_id arrives from the network. sscanf("%u") is undefined on a value
-  // too large for the type, where strtoul is defined to saturate at ULONG_MAX,
-  // which the range check below then rejects.
-  if (param_id[0] != 'R' || param_id[1] != 'C') {
-    return std::nullopt;
-  }
-  const char *digits = param_id + 2;
-  char *end = nullptr;
-  const unsigned long channel = std::strtoul(digits, &end, 10);
-  if (end == digits || *end != '_') {
-    return std::nullopt;
-  }
-  if (channel < 1u || channel > message::kRcCalibrationChannelCount) {
-    return std::nullopt;
-  }
-  const char *const suffix = end + 1;
-
-  const uint8_t channel_index = static_cast<uint8_t>(channel - 1u);
-  const uint16_t channel_offset =
-      channel_index * param_detail::kRcCalibrationParamCountPerChannel;
-  if (std::strcmp(suffix, "MIN") == 0) {
-    return RcCalibrationParamRef{
-        static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset),
-        channel_index, RcCalField::kMin};
-  }
-  if (std::strcmp(suffix, "MAX") == 0) {
-    return RcCalibrationParamRef{
-        static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset +
-                              1u),
-        channel_index, RcCalField::kMax};
-  }
-  if (std::strcmp(suffix, "TRIM") == 0) {
-    return RcCalibrationParamRef{
-        static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset +
-                              2u),
-        channel_index, RcCalField::kTrim};
-  }
-  if (std::strcmp(suffix, "REV") == 0) {
-    return RcCalibrationParamRef{
-        static_cast<uint16_t>(param_detail::kBaseParamCount + channel_offset +
-                              3u),
-        channel_index, RcCalField::kRev};
-  }
-  return std::nullopt;
 }
 
 std::optional<MavlinkParamServer::ParamRef> MavlinkParamServer::TryResolveParam(
@@ -354,53 +301,26 @@ std::optional<MavlinkParamServer::ParamRef> MavlinkParamServer::TryResolveParam(
               MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN);
   param_id[MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN] = '\0';
 
-  for (uint16_t param_index = 0; param_index < param_detail::kBaseParamCount;
+  for (uint16_t param_index = 0; param_index < param_detail::kTotalParamCount;
        ++param_index) {
     if (std::strncmp(param_id.data(), param_detail::kParamTable[param_index].id,
                      MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN) == 0) {
-      return FixedParamRef{param_index};
+      return ParamRef{param_index};
     }
   }
-
-  if (std::strncmp(param_id.data(), "RC", 2) != 0) {
-    return std::nullopt;
-  }
-
-  return TryResolveRcCalibrationParam(param_id.data());
+  return std::nullopt;
 }
 
 std::optional<MavlinkParamServer::ParamRef>
-MavlinkParamServer::TryResolveParamByIndex(uint16_t param_index) const {
-  if (param_index < param_detail::kBaseParamCount) {
-    return FixedParamRef{param_index};
-  }
+MavlinkParamServer::TryResolveParamByIndex(uint16_t param_index) {
   if (param_index >= param_detail::kTotalParamCount) {
     return std::nullopt;
   }
-
-  // Keeps the modulo below total over RcCalField.
-  static_assert(param_detail::kRcCalibrationParamCountPerChannel ==
-                static_cast<uint8_t>(RcCalField::kRev) + 1u);
-
-  const uint16_t rc_param_index = param_index - param_detail::kBaseParamCount;
-  const uint8_t channel_index = static_cast<uint8_t>(
-      rc_param_index / param_detail::kRcCalibrationParamCountPerChannel);
-  const auto field = static_cast<RcCalField>(
-      rc_param_index % param_detail::kRcCalibrationParamCountPerChannel);
-  return RcCalibrationParamRef{param_index, channel_index, field};
+  return ParamRef{param_index};
 }
 
 std::optional<MavlinkParamServer::EncodedParam>
 MavlinkParamServer::TryEncodeParam(const ParamRef &param) const {
-  if (const auto *fixed = std::get_if<FixedParamRef>(&param)) {
-    return TryEncodeFixedParam(*fixed);
-  }
-
-  return TryEncodeRcCalibrationParam(std::get<RcCalibrationParamRef>(param));
-}
-
-std::optional<MavlinkParamServer::EncodedParam>
-MavlinkParamServer::TryEncodeFixedParam(const FixedParamRef &param) const {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
   EncodedParam encoded{};
@@ -455,14 +375,21 @@ MavlinkParamServer::TryEncodeFixedParam(const FixedParamRef &param) const {
     case param_detail::ParamKey::kSysAutostart:
       encoded.value = static_cast<float>(common_config::kAirframeSysAutostart);
       return encoded;
-    case param_detail::ParamKey::kRcChanCnt:
-      encoded.value = static_cast<float>(message::kRcCalibrationChannelCount);
-      return encoded;
     case param_detail::ParamKey::kRcMapRoll:
     case param_detail::ParamKey::kRcMapPitch:
     case param_detail::ParamKey::kRcMapYaw:
     case param_detail::ParamKey::kRcMapThrottle: {
       const std::optional<float> value = TryEncodeRcMapParam(param);
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      encoded.value = *value;
+      return encoded;
+    }
+    case param_detail::ParamKey::kSensBoardXOff:
+    case param_detail::ParamKey::kSensBoardYOff:
+    case param_detail::ParamKey::kSensBoardZOff: {
+      const std::optional<float> value = TryEncodeBoardTrimParam(param);
       if (!value.has_value()) {
         return std::nullopt;
       }
@@ -526,7 +453,7 @@ std::optional<float> MavlinkParamServer::TryEncodeMagCalibrationIdParam()
 }
 
 std::optional<float> MavlinkParamServer::TryEncodeRcMapParam(
-    const FixedParamRef &param) const {
+    const ParamRef &param) const {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
   const std::optional<message::RcMapConfigMsg> rc_map = fc_config_->RcMap();
@@ -548,61 +475,65 @@ std::optional<float> MavlinkParamServer::TryEncodeRcMapParam(
   }
 }
 
-std::optional<MavlinkParamServer::EncodedParam>
-MavlinkParamServer::TryEncodeRcCalibrationParam(
-    const RcCalibrationParamRef &param) const {
-  const std::optional<message::RcCalibrationConfigMsg> rc_calibration =
-      fc_config_->RcCalibration();
-  if (!rc_calibration.has_value()) {
+std::optional<float> MavlinkParamServer::TryEncodeBoardTrimParam(
+    const ParamRef &param) const {
+  const param_detail::ParamDef &def =
+      param_detail::kParamTable[param.mavlink_index];
+  const std::optional<message::BoardTrimConfigMsg> trim =
+      fc_config_->BoardTrim();
+  if (!trim.has_value()) {
     return std::nullopt;
   }
 
-  EncodedParam encoded{};
-  switch (param.field) {
-    case RcCalField::kMin:
-      std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_MIN",
-                    static_cast<unsigned>(param.channel_index + 1u));
-      encoded.type = MAV_PARAM_TYPE_UINT16;
-      encoded.value =
-          static_cast<float>(rc_calibration->min_us[param.channel_index]);
-      break;
-    case RcCalField::kMax:
-      std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_MAX",
-                    static_cast<unsigned>(param.channel_index + 1u));
-      encoded.type = MAV_PARAM_TYPE_UINT16;
-      encoded.value =
-          static_cast<float>(rc_calibration->max_us[param.channel_index]);
-      break;
-    case RcCalField::kTrim:
-      std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_TRIM",
-                    static_cast<unsigned>(param.channel_index + 1u));
-      encoded.type = MAV_PARAM_TYPE_UINT16;
-      encoded.value =
-          static_cast<float>(rc_calibration->trim_us[param.channel_index]);
-      break;
-    case RcCalField::kRev:
-      std::snprintf(encoded.id, sizeof(encoded.id), "RC%u_REV",
-                    static_cast<unsigned>(param.channel_index + 1u));
-      encoded.type = MAV_PARAM_TYPE_INT8;
-      encoded.value =
-          static_cast<float>(rc_calibration->rev[param.channel_index]);
-      break;
+  switch (def.key) {
+    case param_detail::ParamKey::kSensBoardXOff:
+      return trim->roll_deg;
+    case param_detail::ParamKey::kSensBoardYOff:
+      return trim->pitch_deg;
+    case param_detail::ParamKey::kSensBoardZOff:
+      return trim->yaw_deg;
+    default:
+      return std::nullopt;
   }
-  return encoded;
+}
+
+MavlinkParamServer::SetResult MavlinkParamServer::TrySetBoardTrimParam(
+    const ParamRef &param, float param_value) {
+  const param_detail::ParamDef &def =
+      param_detail::kParamTable[param.mavlink_index];
+  const std::optional<message::BoardTrimConfigMsg> base =
+      fc_config_->BoardTrimWriteBase();
+  if (!base.has_value()) {
+    ESP_LOGW(kTag, "SENS_BOARD write rejected: current trim unavailable");
+    return SetResult::kMissingBaseConfig;
+  }
+  message::BoardTrimConfigMsg updated = *base;
+
+  switch (def.key) {
+    case param_detail::ParamKey::kSensBoardXOff:
+      updated.roll_deg = param_value;
+      break;
+    case param_detail::ParamKey::kSensBoardYOff:
+      updated.pitch_deg = param_value;
+      break;
+    case param_detail::ParamKey::kSensBoardZOff:
+      updated.yaw_deg = param_value;
+      break;
+    default:
+      return SetResult::kUnsupported;
+  }
+
+  if (!message::IsBoardTrimConfigValid(updated)) {
+    ESP_LOGW(kTag, "SENS_BOARD write rejected: param=%s out of bounds", def.id);
+    return SetResult::kInvalidValue;
+  }
+
+  fc_config_->WriteBoardTrim(updated);
+  return SetResult::kAccepted;
 }
 
 MavlinkParamServer::SetResult MavlinkParamServer::TrySetParam(
     const ParamRef &param, float param_value) {
-  if (const auto *fixed = std::get_if<FixedParamRef>(&param)) {
-    return TrySetFixedParam(*fixed, param_value);
-  }
-
-  return TrySetRcCalibrationParam(std::get<RcCalibrationParamRef>(param),
-                                  param_value);
-}
-
-MavlinkParamServer::SetResult MavlinkParamServer::TrySetFixedParam(
-    const FixedParamRef &param, float param_value) {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
   switch (def.key) {
@@ -611,6 +542,10 @@ MavlinkParamServer::SetResult MavlinkParamServer::TrySetFixedParam(
     case param_detail::ParamKey::kRcMapYaw:
     case param_detail::ParamKey::kRcMapThrottle:
       return TrySetRcMapParam(param, param_value);
+    case param_detail::ParamKey::kSensBoardXOff:
+    case param_detail::ParamKey::kSensBoardYOff:
+    case param_detail::ParamKey::kSensBoardZOff:
+      return TrySetBoardTrimParam(param, param_value);
     case param_detail::ParamKey::kRcMapFlaps:
     case param_detail::ParamKey::kRcMapAux1:
     case param_detail::ParamKey::kRcMapAux2:
@@ -628,7 +563,7 @@ MavlinkParamServer::SetResult MavlinkParamServer::TrySetFixedParam(
 }
 
 MavlinkParamServer::SetResult MavlinkParamServer::TrySetRcMapParam(
-    const FixedParamRef &param, float param_value) {
+    const ParamRef &param, float param_value) {
   const param_detail::ParamDef &def =
       param_detail::kParamTable[param.mavlink_index];
   const std::optional<message::RcMapConfigMsg> base =
@@ -675,66 +610,10 @@ MavlinkParamServer::SetResult MavlinkParamServer::TrySetRcMapParam(
   return SetResult::kAccepted;
 }
 
-MavlinkParamServer::SetResult MavlinkParamServer::TrySetRcCalibrationParam(
-    const RcCalibrationParamRef &param, float param_value) {
-  const std::optional<message::RcCalibrationConfigMsg> base =
-      fc_config_->RcCalibrationWriteBase();
-  if (!base.has_value()) {
-    ESP_LOGW(kTag, "RC_CAL write rejected: current calibration unavailable");
-    return SetResult::kMissingBaseConfig;
-  }
-  message::RcCalibrationConfigMsg updated = *base;
-  // Overwritten by every arm below, but a scoped enum can still hold a value
-  // outside its enumerators, and the log call further down would then read an
-  // uninitialised pointer.
-  // NOLINTNEXTLINE(clang-analyzer-deadcode.DeadStores)
-  const char *field_name = "MIN";
-
-  switch (param.field) {
-    case RcCalField::kMin:
-      field_name = "MIN";
-      updated.min_us[param.channel_index] =
-          static_cast<uint16_t>(std::lround(param_value));
-      break;
-    case RcCalField::kMax:
-      field_name = "MAX";
-      updated.max_us[param.channel_index] =
-          static_cast<uint16_t>(std::lround(param_value));
-      break;
-    case RcCalField::kTrim:
-      field_name = "TRIM";
-      updated.trim_us[param.channel_index] =
-          static_cast<uint16_t>(std::lround(param_value));
-      break;
-    case RcCalField::kRev:
-      field_name = "REV";
-      updated.rev[param.channel_index] = (param_value < 0.0f) ? -1 : 1;
-      break;
-  }
-
-  if (!message::IsRcCalibrationConfigValid(updated)) {
-    ESP_LOGW(kTag, "RC_CAL write rejected: ch=%u field=%s result=%u/%u/%u/%d",
-             static_cast<unsigned>(param.channel_index + 1u), field_name,
-             static_cast<unsigned>(updated.min_us[param.channel_index]),
-             static_cast<unsigned>(updated.trim_us[param.channel_index]),
-             static_cast<unsigned>(updated.max_us[param.channel_index]),
-             static_cast<int>(updated.rev[param.channel_index]));
-    return SetResult::kInvalidResultingConfig;
-  }
-
-  fc_config_->WriteRcCalibration(updated);
-  return SetResult::kAccepted;
-}
-
 std::optional<FcConfigCache::Record> MavlinkParamServer::RecordFor(
     const ParamRef &param) const {
-  const auto *fixed = std::get_if<FixedParamRef>(&param);
-  if (fixed == nullptr) {
-    return FcConfigCache::Record::kRcCalibration;
-  }
-
   const param_detail::ParamDef &def =
-      param_detail::kParamTable[fixed->mavlink_index];
+      param_detail::kParamTable[param.mavlink_index];
   switch (def.key) {
     case param_detail::ParamKey::kCalAcc0Id:
     case param_detail::ParamKey::kCalGyro0Id:
@@ -746,6 +625,10 @@ std::optional<FcConfigCache::Record> MavlinkParamServer::RecordFor(
     case param_detail::ParamKey::kRcMapYaw:
     case param_detail::ParamKey::kRcMapThrottle:
       return FcConfigCache::Record::kRcMap;
+    case param_detail::ParamKey::kSensBoardXOff:
+    case param_detail::ParamKey::kSensBoardYOff:
+    case param_detail::ParamKey::kSensBoardZOff:
+      return FcConfigCache::Record::kBoardTrim;
     default:
       return std::nullopt;
   }
@@ -776,9 +659,7 @@ uint32_t MavlinkParamServer::ComputeParamHash() const {
       if (!encoded.has_value()) {
         continue;
       }
-      if (const auto *fixed = std::get_if<FixedParamRef>(&*param);
-          fixed != nullptr &&
-          param_detail::kParamTable[fixed->mavlink_index].px4_volatile) {
+      if (param_detail::kParamTable[param->mavlink_index].px4_volatile) {
         continue;
       }
       if (previous != nullptr && std::strcmp(encoded->id, previous) <= 0) {
@@ -908,7 +789,7 @@ std::optional<mavlink_message_t> MavlinkParamServer::PackParamValue(
   mavlink_msg_param_value_pack(
       cfg_->sysid, kMavlinkComponentId, &m, encoded->id,
       param_detail::EncodeParamValue(encoded->value, encoded->type),
-      encoded->type, param_detail::kTotalParamCount, ParamMavlinkIndex(param));
+      encoded->type, param_detail::kTotalParamCount, param.mavlink_index);
   return m;
 }
 

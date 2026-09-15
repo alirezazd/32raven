@@ -49,38 +49,6 @@ static void OnReqRcMap(const AppContext &ctx, const message::Packet &) {
   ctx.sys->FcLinkSvc().SendRcMapConfig(rc_map);
 }
 
-static void OnReqRcCalibration(const AppContext &ctx, const message::Packet &) {
-  const auto &cal = ctx.sys->RcRx().GetCalibration();
-  message::RcCalibrationConfigMsg rc_cal{};
-  static_assert(sizeof(rc_cal.min_us) == sizeof(cal.min_us));
-  static_assert(sizeof(rc_cal.max_us) == sizeof(cal.max_us));
-  static_assert(sizeof(rc_cal.trim_us) == sizeof(cal.trim_us));
-  static_assert(sizeof(rc_cal.rev) == sizeof(cal.rev));
-  memcpy(rc_cal.min_us, cal.min_us, sizeof(rc_cal.min_us));
-  memcpy(rc_cal.max_us, cal.max_us, sizeof(rc_cal.max_us));
-  memcpy(rc_cal.trim_us, cal.trim_us, sizeof(rc_cal.trim_us));
-  memcpy(rc_cal.rev, cal.rev, sizeof(rc_cal.rev));
-  if (!message::IsRcCalibrationConfigValid(rc_cal)) {
-    Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
-  }
-  ctx.sys->FcLinkSvc().SendRcCalibrationConfig(rc_cal);
-}
-
-static message::RcCalibrationConfigMsg GetRcCalibrationConfigMsg(
-    RcReceiver &receiver) {
-  const auto &cal = receiver.GetCalibration();
-  message::RcCalibrationConfigMsg rc_cal{};
-  static_assert(sizeof(rc_cal.min_us) == sizeof(cal.min_us));
-  static_assert(sizeof(rc_cal.max_us) == sizeof(cal.max_us));
-  static_assert(sizeof(rc_cal.trim_us) == sizeof(cal.trim_us));
-  static_assert(sizeof(rc_cal.rev) == sizeof(cal.rev));
-  memcpy(rc_cal.min_us, cal.min_us, sizeof(rc_cal.min_us));
-  memcpy(rc_cal.max_us, cal.max_us, sizeof(rc_cal.max_us));
-  memcpy(rc_cal.trim_us, cal.trim_us, sizeof(rc_cal.trim_us));
-  memcpy(rc_cal.rev, cal.rev, sizeof(rc_cal.rev));
-  return rc_cal;
-}
-
 static void OnSetRcMapConfig(const AppContext &ctx,
                              const message::Packet &pkt) {
   // Outside Standby the config belongs to the flight or to the host: the
@@ -100,23 +68,6 @@ static void OnSetRcMapConfig(const AppContext &ctx,
   ctx.sys->FcLinkSvc().SendRcMapConfig(rc_map);
 }
 
-static void OnSetRcCalibration(const AppContext &ctx,
-                               const message::Packet &pkt) {
-  // Standby only, for the reasons in OnSetRcMapConfig.
-  const auto &req = message::PayloadAs<message::RcCalibrationConfigMsg>(pkt);
-  if (ctx.sm->CurrentState() == ctx.standby_state &&
-      message::IsRcCalibrationConfigValid(req)) {
-    (void)ctx.sys->RcRx().SetCalibrationConfig(req);
-  }
-
-  const message::RcCalibrationConfigMsg rc_cal =
-      GetRcCalibrationConfigMsg(ctx.sys->RcRx());
-  if (!message::IsRcCalibrationConfigValid(rc_cal)) {
-    Panic(ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig);
-  }
-  ctx.sys->FcLinkSvc().SendRcCalibrationConfig(rc_cal);
-}
-
 static void OnReqReceiverBind(const AppContext &ctx, const message::Packet &) {
   ctx.sys->CrsfLinkSvc().RequestReceiverBind();
   ctx.sys->FcLinkSvc().SendLog("CRSF RX bind requested");
@@ -129,9 +80,9 @@ static void OnReqReceiverCancelBind(const AppContext &ctx,
 }
 
 // No arm check here: SensorCalService owns that and the busy test both. The
-// outcome is not a reply -- the run outlasts this packet. The gyro ends in a
-// tone; the accel and the compass, which the operator has to turn the airframe
-// through, report every captured pose.
+// outcome is not a reply -- the run outlasts this packet and reports its own
+// edges, every captured pose included for the two the operator turns the
+// airframe through.
 static void OnCalibrate(const AppContext &ctx, const message::Packet &pkt) {
   const uint8_t sensor = message::PayloadAs<message::CalibrateMsg>(pkt).sensor;
   if (!message::IsCalSensorValid(sensor)) {
@@ -150,6 +101,10 @@ static void OnCalibrate(const AppContext &ctx, const message::Packet &pkt) {
     case message::CalSensor::kMag:
       started = ctx.sys->SensorCalSvc().StartMag(ctx.now_us);
       hint = ": turn on each side";
+      break;
+    case message::CalSensor::kLevel:
+      started = ctx.sys->SensorCalSvc().StartLevel(ctx.now_us);
+      hint = ": hold level and still";
       break;
     case message::CalSensor::kCount:
       break;
@@ -189,6 +144,7 @@ static void OnReqCalibrationId(const AppContext &ctx,
     case message::CalSensor::kMag:
       cfg.id = ctx.sys->SensorCalSvc().MagCalibrationId();
       break;
+    case message::CalSensor::kLevel:
     case message::CalSensor::kCount:
       break;
   }
@@ -196,6 +152,26 @@ static void OnReqCalibrationId(const AppContext &ctx,
     Panic(ErrorCode::Common::kFcLinkInvalidCalibrationIdConfig);
   }
   ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kCalibrationIdConfig, cfg);
+}
+
+static void OnReqBoardTrim(const AppContext &ctx, const message::Packet &) {
+  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kBoardTrimConfig,
+                                  ctx.sys->SensorCalSvc().BoardTrim());
+}
+
+// Standby only, for the reasons in OnSetRcMapConfig; the echo is what says
+// whether the write took.
+static void OnSetBoardTrim(const AppContext &ctx, const message::Packet &pkt) {
+  const auto &req = message::PayloadAs<message::BoardTrimConfigMsg>(pkt);
+  if (ctx.sm->CurrentState() == ctx.standby_state &&
+      message::IsBoardTrimConfigValid(req)) {
+    (void)ctx.sys->SensorCalSvc().SetBoardTrim(req);
+  }
+  const message::BoardTrimConfigMsg trim = ctx.sys->SensorCalSvc().BoardTrim();
+  if (!message::IsBoardTrimConfigValid(trim)) {
+    Panic(ErrorCode::Common::kFcLinkInvalidBoardTrimConfig);
+  }
+  ctx.sys->FcLinkSvc().SendPacket(message::MsgId::kBoardTrimConfig, trim);
 }
 
 // Privileged only in that FcLink access is the whole gate, as for kReboot and
@@ -254,14 +230,14 @@ static void OnLogRead(const AppContext &ctx, const message::Packet &pkt) {
 static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kHandshake, OnHandshake},
     {message::MsgId::kReqRcMap, OnReqRcMap},
-    {message::MsgId::kReqRcCalibration, OnReqRcCalibration},
     {message::MsgId::kSetRcMapConfig, OnSetRcMapConfig},
-    {message::MsgId::kSetRcCalibrationConfig, OnSetRcCalibration},
     {message::MsgId::kReqReceiverBind, OnReqReceiverBind},
     {message::MsgId::kReqReceiverCancelBind, OnReqReceiverCancelBind},
     {message::MsgId::kCalibrate, OnCalibrate},
     {message::MsgId::kCancelCalibration, OnCancelCalibration},
     {message::MsgId::kReqCalibrationId, OnReqCalibrationId},
+    {message::MsgId::kReqBoardTrim, OnReqBoardTrim},
+    {message::MsgId::kSetBoardTrimConfig, OnSetBoardTrim},
     {message::MsgId::kRcChannels, OnRcChannels},
     {message::MsgId::kPrivilegedArm, OnPrivilegedArm},
     {message::MsgId::kSetUsbMode, OnSetUsbMode},

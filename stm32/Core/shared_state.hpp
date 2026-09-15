@@ -222,6 +222,14 @@ struct MagCalibration {
   bool calibrated = false;
 };
 
+// v_body = rotation * v_board: the board's remaining tilt inside the
+// airframe after the coarse mount, as the rotation the IMU's vectors go
+// through. Identity by default. The compass is on the frame, not the board,
+// and does not get it.
+struct BoardTrim {
+  Eigen::Matrix3f rotation = Eigen::Matrix3f::Identity();
+};
+
 struct ControlLoopLoad {
   // Written by the control tick, so it says the loop ran rather than that
   // something meant it to. The sample path's own stamp cannot: it moves
@@ -375,6 +383,7 @@ class SharedState {
   void UpdateMagCalibration(const MagCalibration &data) {
     mag_calibration_ = data;
   }
+  void UpdateBoardTrim(const BoardTrim &data) { board_trim_ = data; }
 
   void UpdateControlLoopLoad(const ControlLoopLoad &data) {
     control_loop_load_ = data;
@@ -409,6 +418,7 @@ class SharedState {
     return gyro_calibration_;
   }
   const MagCalibration &GetMagCalibration() const { return mag_calibration_; }
+  const BoardTrim &GetBoardTrim() const { return board_trim_; }
 
   const ControlLoopLoad &GetControlLoopLoad() const {
     return control_loop_load_;
@@ -451,6 +461,7 @@ class SharedState {
   AccelCalibration accel_calibration_{};
   GyroCalibration gyro_calibration_{};
   MagCalibration mag_calibration_{};
+  BoardTrim board_trim_{};
   ControlLoopLoad control_loop_load_{};
   uint32_t main_tick_count_ = 0;
   ImuTemperature imu_temp_{};

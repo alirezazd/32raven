@@ -30,8 +30,7 @@ class FcLink {
   // Send one-shot RC channel mapping config.
   void SendRcChannels(const message::RcChannelsMsg &msg);
   void SendRcMapConfig(const message::RcMapConfigMsg &cfg);
-  void SendRcCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
-  void SendEscTelemetry(const EscTelemetryData &data);
+  void SendEscTelemetry(const EscTelemetryData &data, uint8_t online_mask);
   void SendSystemStatus(const message::SystemStatusMsg &msg);
   void SendVehicleStatus(const message::VehicleStatusMsg &msg);
 

@@ -41,6 +41,7 @@ class Mavlink {
     kBatt,
     kRc,
     kEsc,
+    kEscInfo,
     kCount,
   };
 
@@ -92,6 +93,9 @@ class Mavlink {
   void ReportPanic(PanicSource source, uint32_t error_code);
   // Each edge of a calibration run, as the line an operator reads.
   void ReportCalProgress(const message::CalStatusMsg &msg);
+  // A flight computer log line that is a calibration's result or reason --
+  // it begins "[cal] " -- goes to the page too, which collects those.
+  void ReportCalLine(const char *text);
   uint32_t GetRxPacketCount() const;
   uint32_t GetTxPacketCount() const;
   uint32_t GetRxHeartbeatCount() const;
@@ -325,6 +329,13 @@ class Mavlink {
   uint32_t last_hb_done_ms_ = 0;
   uint32_t next_tx_poll_ms_ = 0;
   bool link_enabled_ = false;
+  // A ground station connects on the first heartbeat it hears and shows the
+  // mode that one carried, and before the flight computer's first report
+  // there is no mode to carry. So the first heartbeat of a link waits for
+  // that report -- bounded, because a flight computer that never reports is
+  // still a vehicle the station has to be told about.
+  static constexpr uint32_t kFirstHeartbeatWaitMs = 1000;
+  uint32_t link_up_ms_ = 0;
 
   TxFrameState StartHeartbeatFrame(uint32_t now_ms);
   TxFrameState StartSysStatusFrame(uint32_t now_ms);
@@ -336,6 +347,7 @@ class Mavlink {
   std::optional<TxFrameState> StartBatteryStatusFrame(uint32_t now_ms);
   std::optional<TxFrameState> StartRcChannelsFrame();
   std::optional<TxFrameState> StartEscStatusFrame();
+  std::optional<TxFrameState> StartEscInfoFrame();
 
   IMavlinkTransport *transport_ = nullptr;
   FcLink *fc_link_ = nullptr;

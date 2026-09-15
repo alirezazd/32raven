@@ -11,7 +11,7 @@
 
 class FcLink;
 
-// The flight computer's RC map, RC calibration and calibration ids as last
+// The flight computer's RC map, board trim and calibration ids as last
 // reported, plus the writes a ground station asked for that the flight
 // computer has not yet echoed back. Nothing MAVLink here: the parameter
 // server reads and writes records, and this gets them across the link.
@@ -19,9 +19,9 @@ class FcConfigCache {
  public:
   enum class Record : uint8_t {
     kRcMap,
-    kRcCalibration,
     kGyroCalibrationId,
     kMagCalibrationId,
+    kBoardTrim,
   };
 
   void Init(FcLink &fc_link);
@@ -34,14 +34,11 @@ class FcConfigCache {
   // A record arriving from the flight computer settles any write waiting on
   // it. An invalid record panics: the peer is the authority on these.
   void Adopt(const message::RcMapConfigMsg &cfg);
-  void Adopt(const message::RcCalibrationConfigMsg &cfg);
   void Adopt(const message::CalibrationIdConfigMsg &cfg);
+  void Adopt(const message::BoardTrimConfigMsg &cfg);
 
   const std::optional<message::RcMapConfigMsg> &RcMap() const {
     return rc_map_.value;
-  }
-  const std::optional<message::RcCalibrationConfigMsg> &RcCalibration() const {
-    return rc_calibration_.value;
   }
   const std::optional<message::CalibrationIdConfigMsg> &GyroCalibrationId()
       const {
@@ -51,26 +48,33 @@ class FcConfigCache {
       const {
     return mag_calibration_id_.value;
   }
+  const std::optional<message::BoardTrimConfigMsg> &BoardTrim() const {
+    return board_trim_.value;
+  }
 
   // Held and not mid-write. A record not held is asked for, rate-limited;
   // the caller tries again next poll.
   bool Available(Record record, uint32_t now_ms);
+  // The record a request has gone unanswered for long enough to call a
+  // fault, once, by name; null otherwise. That request is not sent again:
+  // the record stays unavailable until an answer arrives on its own.
+  const char *TakeStalled();
 
   std::optional<message::RcMapConfigMsg> RcMapWriteBase() const {
     return rc_map_.WriteBase();
   }
-  std::optional<message::RcCalibrationConfigMsg> RcCalibrationWriteBase()
-      const {
-    return rc_calibration_.WriteBase();
+  std::optional<message::BoardTrimConfigMsg> BoardTrimWriteBase() const {
+    return board_trim_.WriteBase();
   }
   // Sent at the next Poll and resent until the flight computer echoes it.
   void WriteRcMap(const message::RcMapConfigMsg &value);
-  void WriteRcCalibration(const message::RcCalibrationConfigMsg &value);
+  void WriteBoardTrim(const message::BoardTrimConfigMsg &value);
 
  private:
   struct RequestState {
     uint32_t next_request_ms = 0;
     bool waiting = false;
+    uint16_t sent = 0;
   };
 
   // One record. Nothing writes a calibration id, so those slots' `write`
@@ -113,8 +117,9 @@ class FcConfigCache {
                    const char *description, uint32_t now_ms);
 
   FcLink *fc_link_ = nullptr;
+  const char *stalled_ = nullptr;
   Slot<message::RcMapConfigMsg> rc_map_{};
-  Slot<message::RcCalibrationConfigMsg> rc_calibration_{};
   Slot<message::CalibrationIdConfigMsg> gyro_calibration_id_{};
   Slot<message::CalibrationIdConfigMsg> mag_calibration_id_{};
+  Slot<message::BoardTrimConfigMsg> board_trim_{};
 };

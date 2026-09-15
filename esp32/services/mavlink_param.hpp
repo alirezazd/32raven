@@ -51,21 +51,9 @@ class MavlinkParamServer {
       MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN + 1u;
   static constexpr uint8_t kReplyQueueDepth = 64;
 
-  struct FixedParamRef {
+  struct ParamRef {
     uint16_t mavlink_index = 0;
   };
-
-  // Values are the per-channel parameter offsets; mavlink_index arithmetic and
-  // the index->field modulo both depend on them.
-  enum class RcCalField : uint8_t { kMin = 0, kMax = 1, kTrim = 2, kRev = 3 };
-
-  struct RcCalibrationParamRef {
-    uint16_t mavlink_index = 0;
-    uint8_t channel_index = 0;
-    RcCalField field = RcCalField::kMin;
-  };
-
-  using ParamRef = std::variant<FixedParamRef, RcCalibrationParamRef>;
 
   struct EncodedParam {
     char id[kParamIdCStringLen]{};
@@ -78,27 +66,19 @@ class MavlinkParamServer {
     uint16_t next_param_index = 0;
   };
 
-  static uint16_t ParamMavlinkIndex(const ParamRef &param);
-  static std::optional<ParamRef> TryResolveRcCalibrationParam(
-      const char *param_id);
   std::optional<ParamRef> TryResolveParam(int16_t requested_index,
                                           const char *requested_id) const;
-  std::optional<ParamRef> TryResolveParamByIndex(uint16_t param_index) const;
+  static std::optional<ParamRef> TryResolveParamByIndex(uint16_t param_index);
 
   std::optional<EncodedParam> TryEncodeParam(const ParamRef &param) const;
-  std::optional<EncodedParam> TryEncodeFixedParam(
-      const FixedParamRef &param) const;
   std::optional<float> TryEncodeGyroCalibrationIdParam() const;
   std::optional<float> TryEncodeMagCalibrationIdParam() const;
-  std::optional<float> TryEncodeRcMapParam(const FixedParamRef &param) const;
-  std::optional<EncodedParam> TryEncodeRcCalibrationParam(
-      const RcCalibrationParamRef &param) const;
+  std::optional<float> TryEncodeRcMapParam(const ParamRef &param) const;
+  std::optional<float> TryEncodeBoardTrimParam(const ParamRef &param) const;
 
   SetResult TrySetParam(const ParamRef &param, float param_value);
-  SetResult TrySetFixedParam(const FixedParamRef &param, float param_value);
-  SetResult TrySetRcMapParam(const FixedParamRef &param, float param_value);
-  SetResult TrySetRcCalibrationParam(const RcCalibrationParamRef &param,
-                                     float param_value);
+  SetResult TrySetRcMapParam(const ParamRef &param, float param_value);
+  SetResult TrySetBoardTrimParam(const ParamRef &param, float param_value);
 
   // The flight-computer record a parameter is served from, if any.
   std::optional<FcConfigCache::Record> RecordFor(const ParamRef &param) const;

@@ -468,9 +468,12 @@ void DMA2_Stream5_IRQHandler(void) {
  * @brief This function handles DMA2 stream6 global interrupt.
  */
 void DMA2_Stream6_IRQHandler(void) {
+  // USART6 TX: DMA2 Stream6 => High 4-7. FEIF is not an error here: in direct
+  // mode the USART's request is already pending when the stream enables, so
+  // the flag sets on every start while the transfer runs to completion.
   const uint32_t hisr = DMA2->HISR;
 
-  if (hisr & (DMA_HISR_TEIF6 | DMA_HISR_DMEIF6 | DMA_HISR_FEIF6)) {
+  if (hisr & (DMA_HISR_TEIF6 | DMA_HISR_DMEIF6)) {
     DMA2->HIFCR = DMA_HIFCR_CTEIF6 | DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CFEIF6 |
                   DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTCIF6;
     DMA2_Stream6->CR &= ~DMA_SxCR_EN;

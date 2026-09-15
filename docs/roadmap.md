@@ -939,39 +939,6 @@ field added to the schema — a wire change, wanting the same flash as #42's.
 Reads zero on a bench with four ESCs answering, so nothing observes it until the ring is
 actually pressed.
 
-### #56 — RC calibration is a concept the link does not have — 🟢 SUPPORTING
-
-CRSF carries channels as an 11-bit value over a range the protocol fixes, so there is nothing
-per-airframe to measure. Endpoints, subtrim and reverse are already set in the transmitter
-before the values reach the air, and `RcReceiver::ApplyCalibration` then maps them a second
-time against a stored `min`/`trim`/`max`/`rev`. Two places hold the same setting and nothing
-notices when they disagree. Betaflight and INAV omit the whole idea for this reason; PX4 keeps
-it because it still supports PPM and analog receivers, where the range genuinely varies.
-
-It is not a small thing to carry. The set is 64 of the roughly 101 parameters the bridge
-serves, 112 of the 120 bytes `FcConfigCache` holds, the `RCC1` EEPROM record, and the only
-real user of the cache's write-retry path.
-
-- **STM32.** `ApplyCalibration` and `ScaleSegment` in `rc_receiver.cpp` collapse to one fixed
-  map from the CRSF range onto `kCalibratedMinUs`/`kCalibratedMaxUs`, which is a constant
-  rather than configuration. `LoadOrInitRcCalibration` and `SaveRcCalibration` go with them,
-  and so does the `[stm32.rc.calibration]` record in `config/ee.toml`.
-- **ESP32.** `RcCalField`, `RcCalibrationParamRef` and the three resolve/encode/set functions
-  leave `mavlink_param.*`, which drops `ParamRef` back to one type instead of a variant.
-  `FcConfigCache` loses a slot and `Record::kRcCalibration`. `RC_CHAN_CNT` is served out of
-  `kRcCalibrationChannelCount` and dangles once that is gone.
-- **Wire.** `RcCalibrationConfigMsg` and its three `MsgId`s leave `libs/message.hpp`, so the
-  contract hash moves and both boards have to be flashed together. Two error enumerators go.
-- **Generator.** `_RC_BLOCK_RE`, `_RC_FIELD_RE` and `_CHANNEL_COUNT_RE` in
-  `generate_param_metadata.py` exist only to read the RC encoder, and are the reason that
-  script parses a member function body rather than a table. Removing the set removes the cause.
-- **GCS fork.** `PX4AutoPilotPlugin::vehicleComponents` appends `PX4RadioComponent`
-  unconditionally. Leaving it once the parameters are gone gives a broken setup page rather
-  than an absent one, so the two repositories have to land together.
-
-The RC *map* is not part of this and stays. Which channel carries roll is per-airframe, and
-the link has no opinion about it.
-
 ### #53 — The LR900-P replaces WiFi as the MAVLink link — 🧊 DEFERRED
 
 The Telem UART is already the aircraft's link (#41), 57600 and SiK-shaped, and the MicoAir

@@ -3,309 +3,145 @@
 
 #include "ee_config_storage.hpp"
 
-#include <cstring>
-#include <iterator>
-
-#include "error_code.hpp"
-#include "message.hpp"
-#include "panic.hpp"
-
 namespace {
 
-static_assert(ee_schema::layout::kTotalSize <= EE::kCapacity);
+static_assert(ee_schema::kTotalSize <= EE::kCapacity);
 
-struct LegacyRcCalibrationV1 {
-  static constexpr uint32_t kMagic = 0x31434352u;
-  static constexpr uint32_t kSchemaHash = 0x1F7CC2B2u;
+constexpr uint32_t kErasedMagic = 0xFFFFFFFFu;
 
-  uint32_t magic;
-  uint32_t schema_hash;
-  uint32_t size;
-  uint16_t min_us[4];
-  uint16_t max_us[4];
-};
-
-static_assert(sizeof(LegacyRcCalibrationV1) == 28);
-
-bool IsErased(const void *data, size_t len) {
-  const auto *bytes = static_cast<const uint8_t *>(data);
-  for (size_t i = 0; i < len; ++i) {
-    if (bytes[i] != 0xFFu) {
-      return false;
+const ee_schema::KnownRecord *FindKnown(uint32_t magic) {
+  for (const ee_schema::KnownRecord &known : ee_schema::kKnownRecords) {
+    if (known.magic == magic) {
+      return &known;
     }
   }
-  return true;
+  return nullptr;
 }
 
-ee_schema::ImuAccelCalibration MakeDefaultImuAccelCalibration() {
+ee_schema::ImuAccelCalibration DefaultImuAccelCalibration() {
   ee_schema::ImuAccelCalibration cal{};
-  ee_schema::ImuAccelCalibration::PopulateHeader(cal);
-  cal.offsets[0] = 0.0f;
-  cal.offsets[1] = 0.0f;
-  cal.offsets[2] = 0.0f;
   cal.gains[0] = 1.0f;
   cal.gains[1] = 1.0f;
   cal.gains[2] = 1.0f;
   return cal;
 }
 
-ee_schema::ImuGyroCalibration MakeDefaultImuGyroCalibration() {
-  ee_schema::ImuGyroCalibration cal{};
-  ee_schema::ImuGyroCalibration::PopulateHeader(cal);
-  return cal;
-}
-
-ee_schema::MagnetometerCalibration MakeDefaultMagnetometerCalibration() {
+ee_schema::MagnetometerCalibration DefaultMagnetometerCalibration() {
   ee_schema::MagnetometerCalibration cal{};
-  ee_schema::MagnetometerCalibration::PopulateHeader(cal);
   cal.diag[0] = 1.0f;
   cal.diag[1] = 1.0f;
   cal.diag[2] = 1.0f;
   return cal;
 }
 
-ee_schema::RcCalibration MakeDefaultRcCalibration() {
-  ee_schema::RcCalibration cal{};
-  ee_schema::RcCalibration::PopulateHeader(cal);
-  for (size_t i = 0; i < std::size(cal.min_us); ++i) {
-    cal.min_us[i] = 1000;
-    cal.max_us[i] = 2000;
-    cal.trim_us[i] = 1500;
-    cal.rev[i] = 1;
-  }
-  return cal;
-}
-
-ee_schema::RcMap MakeDefaultRcMap(const ee_schema::RcMap &fallback) {
-  ee_schema::RcMap map = fallback;
-  ee_schema::RcMap::PopulateHeader(map);
-  return map;
-}
-
-message::RcCalibrationConfigMsg ToRcCalibrationConfig(
-    const ee_schema::RcCalibration &cal) {
-  message::RcCalibrationConfigMsg cfg{};
-  static_assert(sizeof(cfg.min_us) == sizeof(cal.min_us));
-  static_assert(sizeof(cfg.max_us) == sizeof(cal.max_us));
-  static_assert(sizeof(cfg.trim_us) == sizeof(cal.trim_us));
-  static_assert(sizeof(cfg.rev) == sizeof(cal.rev));
-  std::memcpy(cfg.min_us, cal.min_us, sizeof(cfg.min_us));
-  std::memcpy(cfg.max_us, cal.max_us, sizeof(cfg.max_us));
-  std::memcpy(cfg.trim_us, cal.trim_us, sizeof(cfg.trim_us));
-  std::memcpy(cfg.rev, cal.rev, sizeof(cfg.rev));
-  return cfg;
-}
-
-message::RcMapConfigMsg ToRcMapConfig(const ee_schema::RcMap &map) {
-  return {
-      .roll = map.roll_channel,
-      .pitch = map.pitch_channel,
-      .yaw = map.yaw_channel,
-      .throttle = map.throttle_channel,
-  };
-}
-
-bool IsLegacyRcCalibrationV1(const ee_schema::RcCalibration &cal) {
-  LegacyRcCalibrationV1 legacy{};
-  std::memcpy(&legacy, &cal, sizeof(legacy));
-  return legacy.magic == LegacyRcCalibrationV1::kMagic &&
-         legacy.schema_hash == LegacyRcCalibrationV1::kSchemaHash &&
-         legacy.size == sizeof(LegacyRcCalibrationV1);
-}
-
-bool IsRcCalibrationValid(const ee_schema::RcCalibration &cal) {
-  return message::IsRcCalibrationConfigValid(ToRcCalibrationConfig(cal));
-}
-
-bool IsRcMapValid(const ee_schema::RcMap &map) {
-  return message::IsRcMapConfigValid(ToRcMapConfig(map));
-}
-
 }  // namespace
+
+std::optional<size_t> EeConfigStorage::Walk::Find(uint32_t magic) const {
+  for (size_t i = 0; i < found_count; ++i) {
+    if (found[i].magic == magic) {
+      return found[i].place.offset;
+    }
+  }
+  return std::nullopt;
+}
+
+EeConfigStorage::Walk EeConfigStorage::WalkImage(const EE &ee) {
+  Walk walk{};
+  const uint32_t image_size = ee.Size();
+  uint32_t offset = 0;
+  while (offset + sizeof(ee_schema::RecordHeader) <= image_size) {
+    ee_schema::RecordHeader header{};
+    if (!ee.ReadObject(header, offset)) {
+      Panic(ErrorCode::Stm32::kEepromInvalidConfig);
+    }
+    if (header.magic == kErasedMagic) {
+      break;
+    }
+    // The journal's CRC covers these bytes, so a header that cannot be
+    // stepped over was written that way, by a firmware with a bug.
+    if (header.size < sizeof(ee_schema::RecordHeader) ||
+        (header.size % 4u) != 0u || offset + header.size > image_size) {
+      Panic(ErrorCode::Stm32::kEepromInvalidConfig);
+    }
+    if (FindKnown(header.magic) == nullptr) {
+      walk.foreign = true;
+    } else {
+      if (walk.Find(header.magic).has_value() ||
+          walk.found_count >= ee_schema::kKnownRecordCount) {
+        Panic(ErrorCode::Stm32::kEepromInvalidConfig);
+      }
+      walk.found[walk.found_count++] =
+          Walk::Entry{header.magic, EE::Segment{offset, header.size}};
+    }
+    offset += header.size;
+  }
+  walk.end = offset;
+  return walk;
+}
+
+void EeConfigStorage::Normalize(EE &ee) {
+  const Walk walk = WalkImage(ee);
+  if (!walk.foreign) {
+    return;
+  }
+  if (walk.found_count == 0u) {
+    ee.Format();
+    return;
+  }
+
+  // The known records, in the order they were found, and nothing else.
+  EE::Segment kept[ee_schema::kKnownRecordCount];
+  for (size_t i = 0; i < walk.found_count; ++i) {
+    kept[i] = walk.found[i].place;
+  }
+  if (!ee.Rewrite(std::span<const EE::Segment>(kept, walk.found_count))) {
+    Panic(ErrorCode::Stm32::kEepromWriteFailed);
+  }
+}
 
 ee_schema::ImuAccelCalibration EeConfigStorage::LoadOrInitImuAccelCalibration(
     EE &ee) {
-  ee_schema::ImuAccelCalibration cal{};
-  if (!ee.ReadObject(cal, ee_schema::layout::kImuAccelCalibrationOffset)) {
-    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
-  }
-
-  if (IsErased(&cal, sizeof(cal))) {
-    cal = MakeDefaultImuAccelCalibration();
-    if (!ee.WriteObject(cal, ee_schema::layout::kImuAccelCalibrationOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-    return cal;
-  }
-
-  if (!ee_schema::ImuAccelCalibration::IsExactSchema(cal)) {
-    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
-  }
-
-  return cal;
-}
-
-bool EeConfigStorage::SaveImuAccelCalibration(
-    EE &ee, const ee_schema::ImuAccelCalibration &cal) {
-  ee_schema::ImuAccelCalibration to_write = cal;
-  ee_schema::ImuAccelCalibration::PopulateHeader(to_write);
-  return ee.WriteObject(to_write,
-                        ee_schema::layout::kImuAccelCalibrationOffset);
+  return LoadOrInit(ee, DefaultImuAccelCalibration());
 }
 
 ee_schema::ImuGyroCalibration EeConfigStorage::LoadOrInitImuGyroCalibration(
     EE &ee) {
-  ee_schema::ImuGyroCalibration cal{};
-  if (!ee.ReadObject(cal, ee_schema::layout::kImuGyroCalibrationOffset)) {
-    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
-  }
-
-  if (IsErased(&cal, sizeof(cal))) {
-    cal = MakeDefaultImuGyroCalibration();
-    if (!ee.WriteObject(cal, ee_schema::layout::kImuGyroCalibrationOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-    return cal;
-  }
-
-  if (!ee_schema::ImuGyroCalibration::IsExactSchema(cal)) {
-    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
-  }
-
-  return cal;
-}
-
-bool EeConfigStorage::SaveImuGyroCalibration(
-    EE &ee, const ee_schema::ImuGyroCalibration &cal) {
-  ee_schema::ImuGyroCalibration to_write = cal;
-  ee_schema::ImuGyroCalibration::PopulateHeader(to_write);
-  return ee.WriteObject(to_write,
-                        ee_schema::layout::kImuGyroCalibrationOffset);
+  return LoadOrInit(ee, ee_schema::ImuGyroCalibration{});
 }
 
 ee_schema::MagnetometerCalibration
 EeConfigStorage::LoadOrInitMagnetometerCalibration(EE &ee) {
-  ee_schema::MagnetometerCalibration cal{};
-  if (!ee.ReadObject(cal, ee_schema::layout::kMagnetometerCalibrationOffset)) {
-    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
-  }
-
-  if (IsErased(&cal, sizeof(cal))) {
-    cal = MakeDefaultMagnetometerCalibration();
-    if (!ee.WriteObject(cal,
-                        ee_schema::layout::kMagnetometerCalibrationOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-    return cal;
-  }
-
-  if (!ee_schema::MagnetometerCalibration::IsExactSchema(cal)) {
-    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
-  }
-
-  return cal;
+  return LoadOrInit(ee, DefaultMagnetometerCalibration());
 }
 
-bool EeConfigStorage::SaveMagnetometerCalibration(
-    EE &ee, const ee_schema::MagnetometerCalibration &cal) {
-  ee_schema::MagnetometerCalibration to_write = cal;
-  ee_schema::MagnetometerCalibration::PopulateHeader(to_write);
-  return ee.WriteObject(to_write,
-                        ee_schema::layout::kMagnetometerCalibrationOffset);
-}
-
-ee_schema::RcCalibration EeConfigStorage::LoadOrInitRcCalibration(EE &ee) {
-  ee_schema::RcCalibration cal{};
-  if (!ee.ReadObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
-    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
-  }
-
-  if (IsErased(&cal, sizeof(cal))) {
-    cal = MakeDefaultRcCalibration();
-    if (!ee.WriteObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-    return cal;
-  }
-
-  if (!ee_schema::RcCalibration::IsExactSchema(cal)) {
-    if (!IsLegacyRcCalibrationV1(cal)) {
-      Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
-    }
-
-    LegacyRcCalibrationV1 legacy{};
-    std::memcpy(&legacy, &cal, sizeof(legacy));
-    ee_schema::RcCalibration migrated = MakeDefaultRcCalibration();
-    for (size_t i = 0; i < 4; ++i) {
-      migrated.min_us[i] = legacy.min_us[i];
-      migrated.max_us[i] = legacy.max_us[i];
-      migrated.trim_us[i] =
-          (uint16_t)((legacy.min_us[i] + legacy.max_us[i]) / 2u);
-    }
-    if (!ee.WriteObject(migrated, ee_schema::layout::kRcCalibrationOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-    return migrated;
-  }
-
-  if (!IsRcCalibrationValid(cal)) {
-    cal = MakeDefaultRcCalibration();
-    if (!ee.WriteObject(cal, ee_schema::layout::kRcCalibrationOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-  }
-
-  return cal;
-}
-
-bool EeConfigStorage::SaveRcCalibration(EE &ee,
-                                      const ee_schema::RcCalibration &cal) {
-  if (!IsRcCalibrationValid(cal)) {
-    return false;
-  }
-  ee_schema::RcCalibration to_write = cal;
-  ee_schema::RcCalibration::PopulateHeader(to_write);
-  return ee.WriteObject(to_write, ee_schema::layout::kRcCalibrationOffset);
+ee_schema::BoardTrim EeConfigStorage::LoadOrInitBoardTrim(EE &ee) {
+  return LoadOrInit(ee, ee_schema::BoardTrim{});
 }
 
 ee_schema::RcMap EeConfigStorage::LoadOrInitRcMap(
     EE &ee, const ee_schema::RcMap &default_map) {
-  if (!IsRcMapValid(default_map)) {
-    Panic(ErrorCode::Stm32::kRcReceiverInvalidConfig);
-  }
+  return LoadOrInit(ee, default_map);
+}
 
-  ee_schema::RcMap map{};
-  if (!ee.ReadObject(map, ee_schema::layout::kRcMapOffset)) {
-    Panic(ErrorCode::Stm32::kEepromInvalidConfig);
-  }
+bool EeConfigStorage::SaveImuAccelCalibration(
+    EE &ee, const ee_schema::ImuAccelCalibration &cal) {
+  return Save(ee, cal);
+}
 
-  if (IsErased(&map, sizeof(map))) {
-    map = MakeDefaultRcMap(default_map);
-    if (!ee.WriteObject(map, ee_schema::layout::kRcMapOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-    return map;
-  }
+bool EeConfigStorage::SaveImuGyroCalibration(
+    EE &ee, const ee_schema::ImuGyroCalibration &cal) {
+  return Save(ee, cal);
+}
 
-  if (!ee_schema::RcMap::IsExactSchema(map)) {
-    Panic(ErrorCode::Stm32::kEepromSchemaMismatch);
-  }
+bool EeConfigStorage::SaveMagnetometerCalibration(
+    EE &ee, const ee_schema::MagnetometerCalibration &cal) {
+  return Save(ee, cal);
+}
 
-  if (!IsRcMapValid(map)) {
-    map = MakeDefaultRcMap(default_map);
-    if (!ee.WriteObject(map, ee_schema::layout::kRcMapOffset)) {
-      Panic(ErrorCode::Stm32::kEepromWriteFailed);
-    }
-  }
-
-  return map;
+bool EeConfigStorage::SaveBoardTrim(EE &ee, const ee_schema::BoardTrim &trim) {
+  return Save(ee, trim);
 }
 
 bool EeConfigStorage::SaveRcMap(EE &ee, const ee_schema::RcMap &map) {
-  if (!IsRcMapValid(map)) {
-    return false;
-  }
-  ee_schema::RcMap to_write = map;
-  ee_schema::RcMap::PopulateHeader(to_write);
-  return ee.WriteObject(to_write, ee_schema::layout::kRcMapOffset);
+  return Save(ee, map);
 }

@@ -285,6 +285,14 @@ void Mavlink::ReportCalProgress(const message::CalStatusMsg &msg) {
   }
 }
 
+void Mavlink::ReportCalLine(const char *text) {
+  constexpr char kPrefix[] = "[cal] ";
+  if (std::strncmp(text, kPrefix, sizeof(kPrefix) - 1) != 0) {
+    return;
+  }
+  QueueStatusText(text, MAV_SEVERITY_INFO);
+}
+
 void Mavlink::ReportPanic(PanicSource source, uint32_t error_code) {
   const char *source_name = "ESP32";
   if (source == PanicSource::kStm32) {
@@ -443,7 +451,10 @@ Mavlink::TxFrameState Mavlink::StartStatusTextFrame(const StatusText &work) {
 namespace {
 
 // SYS_STATUS rides at a fixed second: a GCS's health view has one cadence.
+// ESC_INFO is that view's per-motor half -- which are online, how hot -- and
+// rides at the same one.
 constexpr uint16_t kSysStatusPeriodMs = 1000;
+constexpr uint16_t kEscInfoPeriodMs = 1000;
 
 // The periods in TxSlot order, which is the order the scheduler indexes.
 constexpr std::array<uint32_t, Mavlink::kTxSlotCount> SlotPeriodsMs(
@@ -451,7 +462,7 @@ constexpr std::array<uint32_t, Mavlink::kTxSlotCount> SlotPeriodsMs(
   return {{cfg.tx.periods.hb_ms, kSysStatusPeriodMs, cfg.tx.periods.gps_ms,
            cfg.tx.periods.att_ms, cfg.tx.periods.gpos_ms,
            cfg.tx.periods.batt_ms, cfg.tx.periods.rc_ms,
-           cfg.tx.periods.esc_ms}};
+           cfg.tx.periods.esc_ms, kEscInfoPeriodMs}};
 }
 
 // The longest frame a slot can put on the wire: its payload's full length
@@ -467,6 +478,7 @@ constexpr uint32_t MaxFrameBytes(Mavlink::TxSlot slot) {
       MAVLINK_MSG_ID_BATTERY_STATUS_LEN,
       MAVLINK_MSG_ID_RC_CHANNELS_LEN,
       MAVLINK_MSG_ID_ESC_STATUS_LEN,
+      MAVLINK_MSG_ID_ESC_INFO_LEN,
   }};
   return kPayloadLen[static_cast<size_t>(slot)] + MAVLINK_NUM_NON_PAYLOAD_BYTES;
 }
@@ -573,6 +585,11 @@ void Mavlink::InitTxSchedule(uint32_t now_ms, bool force_heartbeat_due) {
 
 bool Mavlink::ShouldSendHbNow(uint32_t now_ms) const {
   if (cfg_.tx.periods.hb_ms == 0 || cfg_.tx.schedule.hb_deadline_ms == 0) {
+    return false;
+  }
+  if (!vehicle_status_.have_data &&
+      static_cast<int32_t>(now_ms - link_up_ms_) <
+          static_cast<int32_t>(kFirstHeartbeatWaitMs)) {
     return false;
   }
 
@@ -994,6 +1011,36 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartEscStatusFrame() {
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
+// What ESC_STATUS does not say and the ground station's ESC page reads:
+// which motors are answering, and their temperatures. Failure flags and
+// per-ESC error counts stay zero -- the bus counts its faults as a whole, and
+// a number that is not the motor's would be read as if it were.
+std::optional<Mavlink::TxFrameState> Mavlink::StartEscInfoFrame() {
+  if (!esc_telemetry_.have_data) {
+    return std::nullopt;
+  }
+
+  const message::EscTelemetryMsg &esc = esc_telemetry_.value;
+  uint16_t failure_flags[message::kEscTelemetryMotorCount] = {};
+  uint32_t error_count[message::kEscTelemetryMotorCount] = {};
+  int16_t temperature[message::kEscTelemetryMotorCount];
+  for (uint8_t i = 0; i < message::kEscTelemetryMotorCount; ++i) {
+    const bool online = (esc.online_mask & (1u << i)) != 0u;
+    temperature[i] = online ? static_cast<int16_t>(esc.temperature_c[i] * 100)
+                            : INT16_MAX;
+  }
+
+  mavlink_message_t m{};
+  mavlink_msg_esc_info_pack(cfg_.sysid, kMavlinkComponentId, &m, 0,
+                            esc.timestamp_us,
+                            static_cast<uint16_t>(esc.frame_count),
+                            message::kEscTelemetryMotorCount,
+                            ESC_CONNECTION_TYPE_DSHOT, esc.online_mask,
+                            failure_flags, error_count, temperature);
+
+  return TxFrameState{m, /*is_heartbeat=*/false};
+}
+
 std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
     uint32_t now_ms) {
   // The heartbeat holds a ladder slot for its offset but is dispatched by
@@ -1028,6 +1075,9 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartNextScheduledFrame(
         break;
       case TxSlot::kEsc:
         frame = StartEscStatusFrame();
+        break;
+      case TxSlot::kEscInfo:
+        frame = StartEscInfoFrame();
         break;
       case TxSlot::kHb:
       case TxSlot::kCount:

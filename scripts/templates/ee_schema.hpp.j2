@@ -8,6 +8,17 @@
 
 namespace ee_schema {
 
+// What every record begins with, and all a walk of the stored image reads:
+// the tag says which record, the hash which shape, the size where the next
+// one starts.
+struct RecordHeader {
+  uint32_t magic;
+  uint32_t schema_hash;
+  uint32_t size;
+};
+
+static_assert(sizeof(RecordHeader) == 12);
+
 {% for blob in blobs %}
 struct {{ blob.type_name }} {
   static constexpr uint32_t kMagic = {{ blob.magic_hex }};
@@ -37,16 +48,30 @@ struct {{ blob.type_name }} {
 };
 
 static_assert(sizeof({{ blob.type_name }}) == {{ blob.expected_size }});
+static_assert(sizeof({{ blob.type_name }}) % 4u == 0u);
+static_assert(offsetof({{ blob.type_name }}, size) ==
+              offsetof(RecordHeader, size));
 
 {% endfor %}
-namespace layout {
+// Every record this firmware knows. A stored record with any other tag is
+// one a past firmware wrote, and is dropped when the image is packed.
+struct KnownRecord {
+  uint32_t magic;
+  uint32_t schema_hash;
+  uint32_t size;
+};
 
-{% for entry in layout.entries %}
-inline constexpr size_t k{{ entry.type_name }}Offset = {{ entry.offset }}u;
+inline constexpr KnownRecord kKnownRecords[] = {
+{% for blob in blobs %}
+    {{ '{' }}{{ blob.type_name }}::kMagic, {{ blob.type_name }}::kSchemaHash,
+     sizeof({{ blob.type_name }}){{ '}' }},
 {% endfor %}
+};
 
-inline constexpr size_t kTotalSize = {{ layout.total_size }}u;
+inline constexpr size_t kKnownRecordCount =
+    sizeof(kKnownRecords) / sizeof(kKnownRecords[0]);
 
-} // namespace layout
+// The image with every known record present and nothing else.
+inline constexpr size_t kTotalSize = {{ total_size }}u;
 
 } // namespace ee_schema

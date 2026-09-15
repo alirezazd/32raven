@@ -190,16 +190,8 @@ void FcLink::SendRcMapConfig(const message::RcMapConfigMsg &cfg) {
   Send(pkt);
 }
 
-void FcLink::SendRcCalibrationConfig(
-    const message::RcCalibrationConfigMsg &cfg) {
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kRcCalibrationConfig;
-  pkt.header.len = message::PayloadLength<message::RcCalibrationConfigMsg>();
-  memcpy(pkt.payload, &cfg, sizeof(cfg));
-  Send(pkt);
-}
-
-void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
+void FcLink::SendEscTelemetry(const EscTelemetryData &data,
+                              uint8_t online_mask) {
   message::EscTelemetryMsg msg{};
   msg.frame_count = data.frame_count;
   msg.crc_error_count = data.crc_error_count;
@@ -208,6 +200,7 @@ void FcLink::SendEscTelemetry(const EscTelemetryData &data) {
   msg.rx_dma_error_count = data.rx_dma_error_count;
   msg.uart_error_count = data.uart_error_count;
   msg.valid_mask = data.valid_mask;
+  msg.online_mask = online_mask;
   msg.timestamp_us = data.timestamp_us;
 
   static_assert(common_config::kAirframeMotorCount <=

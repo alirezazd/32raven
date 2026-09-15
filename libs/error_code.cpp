@@ -17,8 +17,8 @@ const char *GetMessage(ErrorCode::Common code) {
       return "Command Handler Invalid Packet";
     case ErrorCode::Common::kFcLinkInvalidCalibrationIdConfig:
       return "FcLink Invalid Calibration ID Config";
-    case ErrorCode::Common::kFcLinkInvalidRcCalibrationConfig:
-      return "FcLink Invalid RC Calibration Config";
+    case ErrorCode::Common::kFcLinkInvalidBoardTrimConfig:
+      return "FcLink Invalid Board Trim Config";
   }
   return "Unknown error";
 }
@@ -233,8 +233,8 @@ const char *GetMessage(ErrorCode::Esp32 code) {
       return "FcLink Invalid RC Map Config";
     case ErrorCode::Esp32::kFcLinkRcMapSetFailed:
       return "FcLink RC Map Set Failed";
-    case ErrorCode::Esp32::kFcLinkRcCalibrationSetFailed:
-      return "FcLink RC Calibration Set Failed";
+    case ErrorCode::Esp32::kFcLinkBoardTrimSetFailed:
+      return "FcLink Board Trim Set Failed";
     case ErrorCode::Esp32::kLedTaskCreateFailed:
       return "LED Task Create Failed";
     case ErrorCode::Esp32::kLedTimerInitFailed:

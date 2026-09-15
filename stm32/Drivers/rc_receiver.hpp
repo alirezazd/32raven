@@ -26,10 +26,6 @@ class RcReceiver {
 
   void ProcessRawState(const message::RcChannelsMsg &msg, uint32_t now_us);
 
-  const ee_schema::RcCalibration &GetCalibration() const {
-    return calibration_;
-  }
-  ee_schema::RcCalibration &GetCalibration() { return calibration_; }
   message::RcMapConfigMsg GetRcMapConfig() const {
     return {
         .roll = cfg_.roll_channel,
@@ -39,13 +35,12 @@ class RcReceiver {
     };
   }
   bool SetRcMapConfig(const message::RcMapConfigMsg &cfg);
-  bool SetCalibrationConfig(const message::RcCalibrationConfigMsg &cfg);
 
-  bool SaveCalibration();
-
-  // Calibrated CRSF channel µs → normalized body-axis input [-1, +1].
-  // 1500 µs = neutral. Saturates at ±1. Returns 0 if `us == 0` (RC not yet
-  // seen — neutral is the safe default).
+  // CRSF channel µs → normalized body-axis input [-1, +1]. The range is the
+  // protocol's and the endpoints, subtrim and reverse are the transmitter's,
+  // so there is no calibration between the two: 1500 µs = neutral, saturates
+  // at ±1. Returns 0 if `us == 0` (RC not yet seen — neutral is the safe
+  // default).
   static float NormalizedAxis(uint16_t us);
 
   // Throttle: [1000, 2000] µs → [0, 1]. 1000 = idle, 2000 = full.
@@ -63,8 +58,6 @@ class RcReceiver {
   friend class System;
 
   void Init(const Config &cfg, EE &ee, SharedState &blackboard);
-  uint16_t ApplyCalibration(uint16_t raw_us, uint16_t min_us, uint16_t trim_us,
-                            uint16_t max_us, int8_t rev) const;
   bool IsConfigValid(const Config &cfg) const;
   // Each takes the value being assembled rather than a member: the published
   // RcData is the only copy, so an update reads it back, edits it, and writes
@@ -84,6 +77,5 @@ class RcReceiver {
   SharedState *blackboard_ = nullptr;
   bool initialized_ = false;
   uint32_t last_log_us_ = 0;
-  ee_schema::RcCalibration calibration_{};
   Config cfg_{};
 };

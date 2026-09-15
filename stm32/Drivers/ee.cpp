@@ -8,6 +8,7 @@
 #include <span>
 
 #include "checksum.hpp"
+#include "ee_config_storage.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32_config.hpp"
@@ -86,6 +87,8 @@ void EE::Init(GPIO &gpio, Spi1 &spi) {
   } else {
     next_write_address_ = AlignUp(RecordEnd(active_record_), kRecordAlign);
   }
+
+  EeConfigStorage::Normalize(*this);
 }
 
 void EE::Format() {
@@ -126,25 +129,8 @@ bool EE::Read(void *dst, size_t len, size_t offset) const {
   return true;
 }
 
-bool EE::Write(const void *src, size_t len, size_t offset) {
-  if (src == nullptr || !CheckRange(len, offset)) {
-    return false;
-  }
-
-  if (len == 0u) {
-    return true;
-  }
-
-  const uint8_t *src_bytes = static_cast<const uint8_t *>(src);
-  if (CompareLogical(static_cast<uint32_t>(offset), src_bytes, len)) {
-    return true;
-  }
-
-  const uint32_t current_size =
-      active_record_.valid ? active_record_.header.size : 0u;
-  const size_t write_end = offset + len;
-  const uint32_t new_size =
-      std::max(current_size, static_cast<uint32_t>(write_end));
+template <typename Fill>
+bool EE::WriteRecord(uint32_t new_size, Fill &&fill) {
   if (new_size > kCapacity) {
     return false;
   }
@@ -162,32 +148,8 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
     const size_t page_len =
         std::min(static_cast<size_t>(kPageSize),
                  static_cast<size_t>(new_size - page_offset));
-
-    if (active_record_.valid && page_offset < current_size) {
-      const size_t readable =
-          std::min(page_len, static_cast<size_t>(current_size - page_offset));
-      if (!ReadRaw(PayloadAddress(active_record_) + page_offset, page,
-                   readable)) {
-        return false;
-      }
-      if (readable < page_len) {
-        std::memset(page + readable, 0xFF, page_len - readable);
-      }
-    } else {
-      std::memset(page, 0xFF, page_len);
-    }
-
-    const size_t page_end = static_cast<size_t>(page_offset) + page_len;
-    if (offset < page_end && write_end > page_offset) {
-      const size_t dst_offset =
-          (offset > page_offset) ? (offset - page_offset) : 0u;
-      const size_t src_offset =
-          (page_offset > offset) ? (page_offset - offset) : 0u;
-      const size_t copy_begin = std::max(static_cast<size_t>(offset),
-                                         static_cast<size_t>(page_offset));
-      const size_t copy_end = std::min(write_end, page_end);
-      const size_t copy_len = copy_end - copy_begin;
-      std::memcpy(&page[dst_offset], &src_bytes[src_offset], copy_len);
+    if (!fill(page_offset, page, page_len)) {
+      return false;
     }
 
     crc32 = checksum::Crc32Update(crc32, std::span{page, page_len});
@@ -239,6 +201,94 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
   }
 
   return true;
+}
+
+bool EE::Write(const void *src, size_t len, size_t offset) {
+  if (src == nullptr || !CheckRange(len, offset)) {
+    return false;
+  }
+
+  if (len == 0u) {
+    return true;
+  }
+
+  const uint8_t *src_bytes = static_cast<const uint8_t *>(src);
+  if (CompareLogical(static_cast<uint32_t>(offset), src_bytes, len)) {
+    return true;
+  }
+
+  const uint32_t current_size = Size();
+  const size_t write_end = offset + len;
+  const uint32_t new_size =
+      std::max(current_size, static_cast<uint32_t>(write_end));
+
+  // Each page is the old image with the write laid over it, erased where
+  // the old image ends.
+  return WriteRecord(new_size, [&](uint32_t page_offset, uint8_t *page,
+                                   size_t page_len) {
+    if (active_record_.valid && page_offset < current_size) {
+      const size_t readable =
+          std::min(page_len, static_cast<size_t>(current_size - page_offset));
+      if (!ReadRaw(PayloadAddress(active_record_) + page_offset, page,
+                   readable)) {
+        return false;
+      }
+      if (readable < page_len) {
+        std::memset(page + readable, 0xFF, page_len - readable);
+      }
+    } else {
+      std::memset(page, 0xFF, page_len);
+    }
+
+    const size_t page_end = static_cast<size_t>(page_offset) + page_len;
+    if (offset < page_end && write_end > page_offset) {
+      const size_t dst_offset =
+          (offset > page_offset) ? (offset - page_offset) : 0u;
+      const size_t src_offset =
+          (page_offset > offset) ? (page_offset - offset) : 0u;
+      const size_t copy_begin = std::max(static_cast<size_t>(offset),
+                                         static_cast<size_t>(page_offset));
+      const size_t copy_end = std::min(write_end, page_end);
+      std::memcpy(&page[dst_offset], &src_bytes[src_offset],
+                  copy_end - copy_begin);
+    }
+    return true;
+  });
+}
+
+bool EE::Rewrite(std::span<const Segment> segments) {
+  uint32_t new_size = 0u;
+  for (const Segment &segment : segments) {
+    if (segment.offset + segment.len > Size()) {
+      return false;
+    }
+    new_size += segment.len;
+  }
+
+  // Each page is whatever of the segments lands on it, read from where they
+  // sit in the old image.
+  return WriteRecord(new_size, [&](uint32_t page_offset, uint8_t *page,
+                                   size_t page_len) {
+    std::memset(page, 0xFF, page_len);
+    const uint32_t page_end = page_offset + static_cast<uint32_t>(page_len);
+    uint32_t placed = 0u;
+    for (const Segment &segment : segments) {
+      const uint32_t begin = placed;
+      const uint32_t end = placed + segment.len;
+      placed = end;
+      if (end <= page_offset || begin >= page_end) {
+        continue;
+      }
+      const uint32_t copy_begin = std::max(begin, page_offset);
+      const uint32_t copy_end = std::min(end, page_end);
+      if (!ReadRaw(PayloadAddress(active_record_) + segment.offset +
+                       (copy_begin - begin),
+                   page + (copy_begin - page_offset), copy_end - copy_begin)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 std::optional<EE::JedecId> EE::ReadJedecId() const {

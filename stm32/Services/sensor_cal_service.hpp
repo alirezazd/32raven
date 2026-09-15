@@ -8,6 +8,7 @@
 
 #include "ee_schema.hpp"
 #include "mag_fit.hpp"
+#include "message.hpp"
 #include "shared_state.hpp"
 
 class EE;
@@ -38,11 +39,21 @@ class GyroCal {
   };
 
   enum class State : uint8_t { kIdle, kCollecting, kApplied, kFailed };
+  // Why a run ended in kFailed, for the line the operator reads.
+  enum class Failure : uint8_t {
+    kNone,
+    kArmed,
+    kBias,       // a mean past the bound: motion, or a part that is broken
+    kNeverStill,
+  };
 
   State Status() const { return state_; }
   bool Collecting() const {
     return collecting_.load(std::memory_order_relaxed);
   }
+  Failure Reason() const { return failure_; }
+  // The mean a failed run measured, for the line that says so.
+  const float *ResultRadS() const { return result_rad_s_; }
 
   // Control tick. The caller has already validated the burst.
   void Feed(const ImuBurst &burst);
@@ -69,6 +80,7 @@ class GyroCal {
   float result_rad_s_[3]{};
 
   State state_ = State::kIdle;
+  Failure failure_ = Failure::kNone;
   uint32_t deadline_us_ = 0;
   uint32_t fault_mark_ = 0;
   uint32_t samples_needed_ = 0;
@@ -125,11 +137,19 @@ class AccelCal {
     kFailed,
     kCancelled,
   };
+  enum class Failure : uint8_t {
+    kNone,
+    kArmed,
+    kTimeout,
+    kGeometry,  // opposite poses of an axis did not straddle its zero
+    kStore,
+  };
 
   State Status() const { return state_; }
   bool Collecting() const {
     return collecting_.load(std::memory_order_relaxed);
   }
+  Failure Reason() const { return failure_; }
   // Which sides are already captured, one bit per AccelSide. Read by the
   // reporter to tell the operator what is left.
   uint8_t SidesDone() const {
@@ -179,6 +199,7 @@ class AccelCal {
   ee_schema::ImuAccelCalibration record_{};
 
   State state_ = State::kIdle;
+  Failure failure_ = Failure::kNone;
   uint32_t deadline_us_ = 0;
   uint32_t fault_mark_ = 0;
 
@@ -343,6 +364,86 @@ class MagCal {
   float result_cost_ = 0.0f;
 };
 
+
+// PX4's level-horizon routine: with the airframe resting in its level flight
+// attitude, the estimate's roll and pitch are the board's tilt inside the
+// frame, and become the trim. Not a sensor calibration -- the sensors are
+// already corrected by the time the estimate exists -- so it reads the
+// estimate, not a burst, and nothing runs on the control tick.
+//
+// The trim is also what a ground station reads and writes as
+// SENS_BOARD_{X,Y,Z}_OFF, so the stored record is owned here and both paths
+// go through the same store.
+class LevelCal {
+ public:
+  enum class State : uint8_t {
+    kIdle,
+    kCollecting,  // a window of attitude samples, restarted on motion
+    kApplied,
+    kFailed,
+    kCancelled,
+  };
+  enum class Failure : uint8_t {
+    kNone,
+    kArmed,
+    kNoEstimate,  // the estimator stopped moving mid-run
+    kMotion,      // every window saw the frame move
+    kExcess,      // a tilt the coarse mount should have taken
+    kStore,
+  };
+
+  // PX4's numbers: a half-second window is still when both angles stayed
+  // within half a degree of themselves, and fifty windows is the patience.
+  static constexpr uint32_t kWindowUs = 500000;
+  static constexpr uint32_t kMaxWindows = 50;
+
+  State Status() const { return state_; }
+  bool Running() const { return state_ == State::kCollecting; }
+  Failure Reason() const { return failure_; }
+  // The stored trim, in the degrees the wire carries.
+  message::BoardTrimConfigMsg Trim() const;
+  // A ground station's write. False when refused: out of bounds, mid-run,
+  // or the store failed.
+  bool SetTrim(const message::BoardTrimConfigMsg &trim);
+
+  State Poll(uint32_t now_us);
+
+ private:
+  friend class SensorCalService;
+  void Init(SharedState &blackboard, EE &ee);
+  bool Start(uint32_t now_us);
+  void Cancel();
+
+  static bool IsPlausible(const ee_schema::BoardTrim &trim);
+  void Publish();
+  bool Store(const ee_schema::BoardTrim &trim);
+  void BeginWindow(uint32_t now_us);
+  void EndWindow(uint32_t now_us);
+
+  SharedState *blackboard_ = nullptr;
+  EE *ee_ = nullptr;
+  ee_schema::BoardTrim record_{};
+
+  State state_ = State::kIdle;
+  Failure failure_ = Failure::kNone;
+  uint32_t window_start_us_ = 0;
+  uint32_t windows_ = 0;
+  uint64_t last_estimate_us_ = 0;
+  uint32_t last_sample_us_ = 0;
+  // The board's angles with the stored trim taken back out, so a repeat run
+  // measures the same tilt rather than the residual.
+  float roll_sum_ = 0.0f;
+  float pitch_sum_ = 0.0f;
+  uint32_t count_ = 0;
+  float roll_min_ = 0.0f;
+  float roll_max_ = 0.0f;
+  float pitch_min_ = 0.0f;
+  float pitch_max_ = 0.0f;
+  // The measure the run ended on, degrees, for the line that reports it.
+  float result_roll_deg_ = 0.0f;
+  float result_pitch_deg_ = 0.0f;
+};
+
 // Owns the calibrators, not the calibrations: it reads the burst once, hands it
 // to whoever is collecting, and turns an outcome into a tone.
 class SensorCalService {
@@ -364,6 +465,7 @@ class SensorCalService {
   bool StartGyro(uint32_t now_us);
   bool StartAccel(uint32_t now_us);
   bool StartMag(uint32_t now_us);
+  bool StartLevel(uint32_t now_us);
   // Stops whichever run is going. The accel and compass runs have a page
   // waiting on the outcome, and report the cancel so that page can close.
   void Cancel();
@@ -373,6 +475,11 @@ class SensorCalService {
   // What a ground station reads as CAL_MAG0_ID: the part once a calibration
   // is stored, zero before, which is how the page knows one is needed.
   uint32_t MagCalibrationId() const;
+  // The board trim a ground station reads and writes.
+  message::BoardTrimConfigMsg BoardTrim() const { return level_.Trim(); }
+  bool SetBoardTrim(const message::BoardTrimConfigMsg &trim) {
+    return level_.SetTrim(trim);
+  }
 
   // Control tick, after the AHRS. A no-op unless a run is in progress, so the
   // caller offers every burst rather than deciding.
@@ -402,7 +509,14 @@ class SensorCalService {
   // `turn` is the edge into kRotating, the one the operator has to act on.
   void ReportMag(MagCal::State outcome, uint8_t sides_done, AccelSide side,
                  uint8_t progress, bool captured, bool turn);
-  void ReportMagFailure();
+  // The result or the reason, as lines the ground station's page collects:
+  // each begins "[cal] " and fits a STATUSTEXT, and goes out before the
+  // status that closes the page's log.
+  void LogGyroOutcome(GyroCal::State outcome, bool stored);
+  void LogAccelOutcome(AccelCal::State outcome);
+  void LogMagOutcome(MagCal::State outcome);
+  void ReportLevel(LevelCal::State outcome);
+  void LogLevelOutcome(LevelCal::State outcome);
   // The status line both pose runs send, and the tone beside it: one for the
   // outcome, and a beep where `act` says the operator has to do something an
   // airframe in their hands cannot show them.
@@ -413,6 +527,7 @@ class SensorCalService {
   GyroCal gyro_;
   AccelCal accel_;
   MagCal mag_;
+  LevelCal level_;
   SharedState *blackboard_ = nullptr;
   FcLink *fclink_ = nullptr;
   bool initialized_ = false;
@@ -444,4 +559,6 @@ class SensorCalService {
   AccelSide reported_mag_side_ = AccelSide::kCount;
   uint8_t reported_mag_progress_ = 0;
   uint32_t mag_progress_sent_us_ = 0;
+
+  LevelCal::State reported_level_state_ = LevelCal::State::kIdle;
 };

@@ -49,7 +49,7 @@ static void OnConfig(const AppContext &ctx, const message::Packet &pkt) {
 // omitted: an absent id is an unknown one, and unknown ids panic.
 static void OnIgnored(const AppContext &, const message::Packet &) {}
 
-static void OnLog(const AppContext &, const message::Packet &pkt) {
+static void OnLog(const AppContext &ctx, const message::Packet &pkt) {
   if (pkt.header.len == 0) {
     return;
   }
@@ -58,6 +58,7 @@ static void OnLog(const AppContext &, const message::Packet &pkt) {
   memcpy(buf, pkt.payload, pkt.header.len);
   buf[pkt.header.len] = '\0';
   ESP_LOGI(FcLink::kPeerLogTag, "%s", buf);
+  ctx.sys->Mavlink().ReportCalLine(buf);
 }
 
 static void OnTone(const AppContext &ctx, const message::Packet &pkt) {
@@ -162,10 +163,9 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kVehicleStatus, OnTelemetry<message::VehicleStatusMsg>},
     {message::MsgId::kEscTelemetry, OnTelemetry<message::EscTelemetryMsg>},
     {message::MsgId::kRcMapConfig, OnConfig<message::RcMapConfigMsg>},
-    {message::MsgId::kRcCalibrationConfig,
-     OnConfig<message::RcCalibrationConfigMsg>},
     {message::MsgId::kCalibrationIdConfig,
      OnConfig<message::CalibrationIdConfigMsg>},
+    {message::MsgId::kBoardTrimConfig, OnConfig<message::BoardTrimConfigMsg>},
     {message::MsgId::kLogListReply, OnLogListReply},
     {message::MsgId::kLogData, OnLogData},
 };

@@ -8,9 +8,12 @@
 #include <cstdint>
 #include <span>
 
+#include <Eigen/Geometry>
+
 #include "ee_config_storage.hpp"
 #include "error_code.hpp"
 #include "fc_link.hpp"
+#include "math/attitude_euler.hpp"
 #include "message.hpp"
 #include "panic.hpp"
 #include "shared_state.hpp"
@@ -112,6 +115,7 @@ bool GyroCal::Start(uint32_t now_us) {
       now_us + static_cast<uint32_t>(SecondsToMicros(cfg_.timeout_s));
   fault_mark_ = SamplePathFaults(*blackboard_);
   samples_needed_ = 0;
+  failure_ = Failure::kNone;
   state_ = State::kCollecting;
   collected_.store(false, std::memory_order_relaxed);
   ResetRun();
@@ -204,6 +208,7 @@ GyroCal::State GyroCal::Poll(uint32_t now_us) {
   // the run that abandons them.
   if (blackboard_->IsArmed()) {
     collecting_.store(false, std::memory_order_relaxed);
+    failure_ = Failure::kArmed;
     state_ = State::kFailed;
     return state_;
   }
@@ -216,6 +221,7 @@ GyroCal::State GyroCal::Poll(uint32_t now_us) {
           gyro_scale_;
     }
     if (!IsPlausible(result_rad_s_)) {
+      failure_ = Failure::kBias;
       state_ = State::kFailed;
       return state_;
     }
@@ -228,6 +234,7 @@ GyroCal::State GyroCal::Poll(uint32_t now_us) {
   // failure restarts collection, so this is what stops it retrying forever.
   if (static_cast<int32_t>(now_us - deadline_us_) >= 0) {
     collecting_.store(false, std::memory_order_relaxed);
+    failure_ = Failure::kNeverStill;
     state_ = State::kFailed;
   }
   return state_;
@@ -307,6 +314,7 @@ bool AccelCal::Start(uint32_t now_us) {
   deadline_us_ =
       now_us + static_cast<uint32_t>(SecondsToMicros(cfg_.timeout_s));
   fault_mark_ = SamplePathFaults(*blackboard_);
+  failure_ = Failure::kNone;
   state_ = State::kDetecting;
   sides_done_.store(0, std::memory_order_relaxed);
   collected_.store(false, std::memory_order_relaxed);
@@ -494,6 +502,7 @@ AccelCal::State AccelCal::Poll(uint32_t now_us) {
 
   if (blackboard_->IsArmed()) {
     collecting_.store(false, std::memory_order_relaxed);
+    failure_ = Failure::kArmed;
     state_ = State::kFailed;
     return state_;
   }
@@ -509,18 +518,25 @@ AccelCal::State AccelCal::Poll(uint32_t now_us) {
       // for axis-aligned poses is exactly the pair below.
       const float span = up_mps2_[axis] - down_mps2_[axis];
       if (span <= 0.0f) {
+        failure_ = Failure::kGeometry;
         state_ = State::kFailed;
         return state_;
       }
       cal.offsets[axis] = (up_mps2_[axis] + down_mps2_[axis]) * 0.5f;
       cal.gains[axis] = (2.0f * kGravityMps2) / span;
     }
-    state_ = Store(cal) ? State::kApplied : State::kFailed;
+    if (!Store(cal)) {
+      failure_ = Failure::kStore;
+      state_ = State::kFailed;
+      return state_;
+    }
+    state_ = State::kApplied;
     return state_;
   }
 
   if (static_cast<int32_t>(now_us - deadline_us_) >= 0) {
     collecting_.store(false, std::memory_order_relaxed);
+    failure_ = Failure::kTimeout;
     state_ = State::kFailed;
   }
   return state_;
@@ -920,6 +936,185 @@ uint8_t MagCal::Progress() const {
                               (per * message::kAccelSideCount));
 }
 
+
+namespace {
+
+// PX4's motion bound and its excess bound: half a degree of spread within a
+// window is rest; a mean past 0.8 rad is a mount, not a trim.
+constexpr float kLevelStillRad = 0.5f * kDegToRad;
+constexpr float kLevelExcessRad = 0.8f;
+// The estimator stopping for this long mid-run ends it.
+constexpr uint32_t kLevelEstimateTimeoutUs = 100000;
+
+// v_body = R * v_board, PX4's order: yaw about Z, then pitch, then roll.
+Eigen::Matrix3f TrimRotation(const ee_schema::BoardTrim &trim) {
+  return (Eigen::AngleAxisf(trim.yaw_deg * kDegToRad, Eigen::Vector3f::UnitZ()) *
+          Eigen::AngleAxisf(trim.pitch_deg * kDegToRad,
+                            Eigen::Vector3f::UnitY()) *
+          Eigen::AngleAxisf(trim.roll_deg * kDegToRad, Eigen::Vector3f::UnitX()))
+      .toRotationMatrix();
+}
+
+}  // namespace
+
+void LevelCal::Init(SharedState &blackboard, EE &ee) {
+  blackboard_ = &blackboard;
+  ee_ = &ee;
+  record_ = EeConfigStorage::LoadOrInitBoardTrim(ee);
+  Publish();
+}
+
+bool LevelCal::IsPlausible(const ee_schema::BoardTrim &trim) {
+  return message::IsBoardTrimConfigValid(message::BoardTrimConfigMsg{
+      .roll_deg = trim.roll_deg,
+      .pitch_deg = trim.pitch_deg,
+      .yaw_deg = trim.yaw_deg});
+}
+
+void LevelCal::Publish() {
+  BoardTrim published{};
+  if (IsPlausible(record_)) {
+    published.rotation = TrimRotation(record_);
+  }
+  blackboard_->UpdateBoardTrim(published);
+}
+
+bool LevelCal::Store(const ee_schema::BoardTrim &trim) {
+  if (!IsPlausible(trim) || ee_ == nullptr) {
+    return false;
+  }
+  const ee_schema::BoardTrim previous = record_;
+  record_ = trim;
+  if (EeConfigStorage::SaveBoardTrim(*ee_, record_)) {
+    Publish();
+    return true;
+  }
+  record_ = previous;
+  return false;
+}
+
+message::BoardTrimConfigMsg LevelCal::Trim() const {
+  return message::BoardTrimConfigMsg{.roll_deg = record_.roll_deg,
+                                     .pitch_deg = record_.pitch_deg,
+                                     .yaw_deg = record_.yaw_deg};
+}
+
+bool LevelCal::SetTrim(const message::BoardTrimConfigMsg &trim) {
+  if (Running() || !message::IsBoardTrimConfigValid(trim)) {
+    return false;
+  }
+  ee_schema::BoardTrim record = record_;
+  record.roll_deg = trim.roll_deg;
+  record.pitch_deg = trim.pitch_deg;
+  record.yaw_deg = trim.yaw_deg;
+  return Store(record);
+}
+
+bool LevelCal::Start(uint32_t now_us) {
+  if (blackboard_ == nullptr || blackboard_->IsArmed() || Running() ||
+      !blackboard_->IsControlLoopRunning()) {
+    return false;
+  }
+  failure_ = Failure::kNone;
+  windows_ = 0;
+  last_estimate_us_ = blackboard_->GetEstimate().timestamp_us;
+  last_sample_us_ = now_us;
+  state_ = State::kCollecting;
+  BeginWindow(now_us);
+  return true;
+}
+
+void LevelCal::Cancel() {
+  if (Running()) {
+    state_ = State::kCancelled;
+  }
+}
+
+void LevelCal::BeginWindow(uint32_t now_us) {
+  window_start_us_ = now_us;
+  roll_sum_ = 0.0f;
+  pitch_sum_ = 0.0f;
+  count_ = 0;
+  roll_min_ = 100.0f;
+  roll_max_ = -100.0f;
+  pitch_min_ = 100.0f;
+  pitch_max_ = -100.0f;
+}
+
+LevelCal::State LevelCal::Poll(uint32_t now_us) {
+  if (!Running()) {
+    return state_;
+  }
+  if (blackboard_->IsArmed()) {
+    failure_ = Failure::kArmed;
+    state_ = State::kFailed;
+    return state_;
+  }
+
+  const EstimatorState &estimate = blackboard_->GetEstimate();
+  if (estimate.timestamp_us != last_estimate_us_) {
+    last_estimate_us_ = estimate.timestamp_us;
+    last_sample_us_ = now_us;
+    // The board's own attitude: the estimate is of the trimmed frame, so
+    // the stored trim is composed back in before the angles are read.
+    const Eigen::Quaternionf board =
+        estimate.attitude_world_to_body *
+        Eigen::Quaternionf(TrimRotation(record_));
+    const math::EulerZyx angles = math::EulerZyxFromQuaternion(board);
+    roll_sum_ += angles.roll;
+    pitch_sum_ += angles.pitch;
+    ++count_;
+    roll_min_ = angles.roll < roll_min_ ? angles.roll : roll_min_;
+    roll_max_ = angles.roll > roll_max_ ? angles.roll : roll_max_;
+    pitch_min_ = angles.pitch < pitch_min_ ? angles.pitch : pitch_min_;
+    pitch_max_ = angles.pitch > pitch_max_ ? angles.pitch : pitch_max_;
+  } else if (now_us - last_sample_us_ >= kLevelEstimateTimeoutUs) {
+    failure_ = Failure::kNoEstimate;
+    state_ = State::kFailed;
+    return state_;
+  }
+
+  if (now_us - window_start_us_ >= kWindowUs) {
+    EndWindow(now_us);
+  }
+  return state_;
+}
+
+void LevelCal::EndWindow(uint32_t now_us) {
+  const bool still = count_ > 0u && (roll_max_ - roll_min_) < kLevelStillRad &&
+                     (pitch_max_ - pitch_min_) < kLevelStillRad;
+  if (!still) {
+    if (++windows_ >= kMaxWindows) {
+      failure_ = Failure::kMotion;
+      state_ = State::kFailed;
+      return;
+    }
+    BeginWindow(now_us);
+    return;
+  }
+
+  const float roll = roll_sum_ / static_cast<float>(count_);
+  const float pitch = pitch_sum_ / static_cast<float>(count_);
+  result_roll_deg_ = roll / kDegToRad;
+  result_pitch_deg_ = pitch / kDegToRad;
+  if (std::fabs(roll) > kLevelExcessRad || std::fabs(pitch) > kLevelExcessRad) {
+    failure_ = Failure::kExcess;
+    state_ = State::kFailed;
+    return;
+  }
+
+  // Yaw is the operator's to set; no rest measures it.
+  ee_schema::BoardTrim trim = record_;
+  trim.roll_deg = result_roll_deg_;
+  trim.pitch_deg = result_pitch_deg_;
+  if (!Store(trim)) {
+    failure_ = Failure::kStore;
+    state_ = State::kFailed;
+    return;
+  }
+  state_ = State::kApplied;
+}
+
 namespace {
 
 // The state travels as the wire's enum rather than a class's: they agree
@@ -964,6 +1159,22 @@ message::CalState ToWire(MagCal::State state) {
   return message::CalState::kIdle;
 }
 
+message::CalState ToWire(LevelCal::State state) {
+  switch (state) {
+    case LevelCal::State::kIdle:
+      return message::CalState::kIdle;
+    case LevelCal::State::kCollecting:
+      return message::CalState::kCollecting;
+    case LevelCal::State::kApplied:
+      return message::CalState::kApplied;
+    case LevelCal::State::kFailed:
+      return message::CalState::kFailed;
+    case LevelCal::State::kCancelled:
+      return message::CalState::kCancelled;
+  }
+  return message::CalState::kIdle;
+}
+
 }  // namespace
 
 SensorCalService &SensorCalService::GetInstance() {
@@ -981,13 +1192,14 @@ void SensorCalService::Init(const Config &cfg, SharedState &blackboard, EE &ee,
   gyro_.Init(cfg.gyro, blackboard, ee);
   accel_.Init(cfg.accel, blackboard, ee);
   mag_.Init(cfg.mag, blackboard, ee);
+  level_.Init(blackboard, ee);
   initialized_ = true;
 }
 
 bool SensorCalService::StartGyro(uint32_t now_us) {
   // Each calibrator already refuses while it is running, so only the others
   // have to be tested here.
-  if (accel_.Collecting() || mag_.Running()) {
+  if (accel_.Collecting() || mag_.Running() || level_.Running()) {
     return false;
   }
   if (gyro_auto_) {
@@ -996,12 +1208,17 @@ bool SensorCalService::StartGyro(uint32_t now_us) {
   const bool started = gyro_.Start(now_us);
   if (started) {
     gyro_auto_ = false;
+    // A host run has a page waiting on it. Poll compares the run's state
+    // before and after its own step, so the edges made here and in Cancel are
+    // reported where they happen.
+    ReportCal(message::CalSensor::kGyro, message::CalState::kCollecting, 0,
+              AccelSide::kCount, 0, false);
   }
   return started;
 }
 
 bool SensorCalService::StartAccel(uint32_t now_us) {
-  if (mag_.Running()) {
+  if (mag_.Running() || level_.Running()) {
     return false;
   }
   if (gyro_.Collecting()) {
@@ -1014,7 +1231,7 @@ bool SensorCalService::StartAccel(uint32_t now_us) {
 }
 
 bool SensorCalService::StartMag(uint32_t now_us) {
-  if (accel_.Collecting()) {
+  if (accel_.Collecting() || level_.Running()) {
     return false;
   }
   if (gyro_.Collecting()) {
@@ -1024,6 +1241,19 @@ bool SensorCalService::StartMag(uint32_t now_us) {
     gyro_.Cancel();
   }
   return mag_.Start(now_us);
+}
+
+bool SensorCalService::StartLevel(uint32_t now_us) {
+  if (accel_.Collecting() || mag_.Running()) {
+    return false;
+  }
+  if (gyro_.Collecting()) {
+    if (!gyro_auto_) {
+      return false;
+    }
+    gyro_.Cancel();
+  }
+  return level_.Start(now_us);
 }
 
 uint32_t SensorCalService::MagCalibrationId() const {
@@ -1064,9 +1294,14 @@ void SensorCalService::MaybeCollectBurst() {
 }
 
 void SensorCalService::Cancel() {
+  if (gyro_.Collecting() && !gyro_auto_) {
+    ReportCal(message::CalSensor::kGyro, message::CalState::kCancelled, 0,
+              AccelSide::kCount, 0, false);
+  }
   gyro_.Cancel();
   accel_.Cancel();
   mag_.Cancel();
+  level_.Cancel();
 }
 
 void SensorCalService::Poll(uint32_t now_us) {
@@ -1118,22 +1353,68 @@ void SensorCalService::Poll(uint32_t now_us) {
     mag_progress_sent_us_ = now_us;
     ReportMag(mag_state, mag_sides, mag_side, progress, captured, turn);
   }
+
+  const LevelCal::State level_state = level_.Poll(now_us);
+  if (level_state != reported_level_state_) {
+    reported_level_state_ = level_state;
+    ReportLevel(level_state);
+  }
 }
 
 void SensorCalService::ScheduleGyro(uint32_t now_us) {
   if (gyro_.Collecting() || accel_.Collecting() || mag_.Running() ||
-      blackboard_->IsArmed()) {
+      level_.Running() || blackboard_->IsArmed()) {
     return;
   }
   gyro_auto_ = gyro_.Start(now_us);
 }
 
+namespace {
+
+// Bounded for the line: a diverged fit prints as its cap, not as garbage.
+long Milli(float value) {
+  const float milli = value * 1000.0f;
+  return milli > 9999.0f ? 9999L : milli < -9999.0f ? -9999L
+                                                     : static_cast<long>(milli);
+}
+
+long Micro(float value) {
+  const float micro = value * 1e6f;
+  return micro > 999999999.0f ? 999999999L : static_cast<long>(micro);
+}
+
+// A positive scale as "1.010": three decimals, no float formatting.
+struct Fixed3 {
+  long whole;
+  long frac;
+};
+
+Fixed3 ToFixed3(float value) {
+  const long milli = Milli(value);
+  return Fixed3{milli / 1000L, milli % 1000L};
+}
+
+// A signed angle as "-1.2": one decimal, the sign kept off the fraction.
+struct Fixed1 {
+  const char *sign;
+  long whole;
+  long frac;
+};
+
+Fixed1 ToFixed1(float value) {
+  const long deci = Milli(value) / 100L;
+  const long magnitude = deci < 0 ? -deci : deci;
+  return Fixed1{deci < 0 ? "-" : "", magnitude / 10L, magnitude % 10L};
+}
+
+}  // namespace
+
 void SensorCalService::ReportGyro(GyroCal::State outcome) {
   if (outcome == GyroCal::State::kFailed) {
     if (!gyro_auto_) {
-      fclink_->SendPacket(message::MsgId::kTone,
-                          message::ToneMsg{.tone = static_cast<uint8_t>(
-                                               message::Tone::kError)});
+      LogGyroOutcome(outcome, false);
+      ReportCal(message::CalSensor::kGyro, message::CalState::kFailed, 0,
+                AccelSide::kCount, 0, false);
     }
     return;
   }
@@ -1145,20 +1426,55 @@ void SensorCalService::ReportGyro(GyroCal::State outcome) {
   if (gyro_auto_ && !first) {
     return;
   }
-  const GyroCalibration &cal = blackboard_->GetGyroCalibration();
-  const bool stored = gyro_.Store();
-  fclink_->SendLog("gyro: offsets %ld %ld %ld mdps%s",
-                   static_cast<long>(cal.offsets_rad_s[0] * kRadToMdps),
-                   static_cast<long>(cal.offsets_rad_s[1] * kRadToMdps),
-                   static_cast<long>(cal.offsets_rad_s[2] * kRadToMdps),
-                   stored ? "" : ", not stored");
-  fclink_->SendPacket(
-      message::MsgId::kTone,
-      message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kConfirm)});
+  LogGyroOutcome(outcome, gyro_.Store());
+  // The session's first result is sounded whoever started the run; only a
+  // host's has a page to tell.
+  if (gyro_auto_) {
+    fclink_->SendPacket(
+        message::MsgId::kTone,
+        message::ToneMsg{
+            .tone = static_cast<uint8_t>(message::Tone::kConfirm)});
+    return;
+  }
+  ReportCal(message::CalSensor::kGyro, message::CalState::kApplied, 0,
+            AccelSide::kCount, 100, false);
+}
+
+void SensorCalService::LogGyroOutcome(GyroCal::State outcome, bool stored) {
+  if (outcome == GyroCal::State::kApplied) {
+    const GyroCalibration &cal = blackboard_->GetGyroCalibration();
+    fclink_->SendLog("[cal] gyro off %ld %ld %ld mdps%s",
+                     static_cast<long>(cal.offsets_rad_s[0] * kRadToMdps),
+                     static_cast<long>(cal.offsets_rad_s[1] * kRadToMdps),
+                     static_cast<long>(cal.offsets_rad_s[2] * kRadToMdps),
+                     stored ? "" : ", not stored");
+    return;
+  }
+  switch (gyro_.Reason()) {
+    case GyroCal::Failure::kNone:
+      break;
+    case GyroCal::Failure::kArmed:
+      fclink_->SendLog("[cal] gyro failed: armed");
+      break;
+    case GyroCal::Failure::kBias: {
+      const float *bias = gyro_.ResultRadS();
+      fclink_->SendLog("[cal] gyro failed: bias %ld %ld %ld dps",
+                       static_cast<long>(bias[0] / kDegToRad),
+                       static_cast<long>(bias[1] / kDegToRad),
+                       static_cast<long>(bias[2] / kDegToRad));
+      break;
+    }
+    case GyroCal::Failure::kNeverStill:
+      fclink_->SendLog("[cal] gyro failed: not still for %lu s",
+                       static_cast<unsigned long>(
+                           kSensorCalConfig.gyro.duration_s));
+      break;
+  }
 }
 
 void SensorCalService::ReportAccel(AccelCal::State outcome, uint8_t sides_done,
                                    AccelSide side, bool captured) {
+  LogAccelOutcome(outcome);
   // Recognising a pose is silent -- it is the edge that asks the operator to
   // keep holding, and a beep there would be the same sound as the one meaning
   // "move on".
@@ -1166,6 +1482,41 @@ void SensorCalService::ReportAccel(AccelCal::State outcome, uint8_t sides_done,
   ReportCal(message::CalSensor::kAccel, ToWire(outcome), sides_done, side,
             static_cast<uint8_t>(100u * done / message::kAccelSideCount),
             captured);
+}
+
+void SensorCalService::LogAccelOutcome(AccelCal::State outcome) {
+  if (outcome == AccelCal::State::kApplied) {
+    const AccelCalibration &cal = blackboard_->GetAccelCalibration();
+    fclink_->SendLog("[cal] accel off %ld %ld %ld mm/s2",
+                     Milli(cal.offsets_mps2[0]), Milli(cal.offsets_mps2[1]),
+                     Milli(cal.offsets_mps2[2]));
+    const Fixed3 x = ToFixed3(cal.gains[0]);
+    const Fixed3 y = ToFixed3(cal.gains[1]);
+    const Fixed3 z = ToFixed3(cal.gains[2]);
+    fclink_->SendLog("[cal] accel scale %ld.%03ld %ld.%03ld %ld.%03ld",
+                     x.whole, x.frac, y.whole, y.frac, z.whole, z.frac);
+    return;
+  }
+  if (outcome != AccelCal::State::kFailed) {
+    return;
+  }
+  switch (accel_.Reason()) {
+    case AccelCal::Failure::kNone:
+      break;
+    case AccelCal::Failure::kArmed:
+      fclink_->SendLog("[cal] accel failed: armed");
+      break;
+    case AccelCal::Failure::kTimeout:
+      fclink_->SendLog("[cal] accel failed: timed out, %u of 6 poses",
+                       static_cast<unsigned>(std::popcount(accel_.SidesDone())));
+      break;
+    case AccelCal::Failure::kGeometry:
+      fclink_->SendLog("[cal] accel failed: opposite poses read alike");
+      break;
+    case AccelCal::Failure::kStore:
+      fclink_->SendLog("[cal] accel failed: not stored");
+      break;
+  }
 }
 
 void SensorCalService::ReportMag(MagCal::State outcome, uint8_t sides_done,
@@ -1179,64 +1530,103 @@ void SensorCalService::ReportMag(MagCal::State outcome, uint8_t sides_done,
         message::CalibrationIdConfigMsg{
             .sensor = static_cast<uint8_t>(message::CalSensor::kMag),
             .id = MagCalibrationId()});
-    const MagFitParams &fit = mag_.Result();
-    fclink_->SendLog(
-        "mag: field %ld mG, offset %ld %ld %ld uT, diag %ld %ld %ld, offdiag "
-        "%ld %ld %ld permille, cost %ld e-6",
-        static_cast<long>(fit.radius * 1000.0f),
-        static_cast<long>(fit.offset(0) * kMicroteslaPerGauss),
-        static_cast<long>(fit.offset(1) * kMicroteslaPerGauss),
-        static_cast<long>(fit.offset(2) * kMicroteslaPerGauss),
-        static_cast<long>(fit.diag(0) * 1000.0f),
-        static_cast<long>(fit.diag(1) * 1000.0f),
-        static_cast<long>(fit.diag(2) * 1000.0f),
-        static_cast<long>(fit.offdiag(0) * 1000.0f),
-        static_cast<long>(fit.offdiag(1) * 1000.0f),
-        static_cast<long>(fit.offdiag(2) * 1000.0f),
-        static_cast<long>(mag_.ResultCost() * 1e6f));
-  } else if (outcome == MagCal::State::kFailed) {
-    ReportMagFailure();
   }
+  LogMagOutcome(outcome);
   // Start turning, move to the next pose: the two edges the operator acts on.
   ReportCal(message::CalSensor::kMag, ToWire(outcome), sides_done, side,
             progress, captured || turn);
 }
 
-void SensorCalService::ReportMagFailure() {
+void SensorCalService::LogMagOutcome(MagCal::State outcome) {
+  if (outcome == MagCal::State::kApplied) {
+    const MagFitParams &fit = mag_.Result();
+    fclink_->SendLog("[cal] mag off %ld %ld %ld uT, field %ld mG",
+                     static_cast<long>(fit.offset(0) * kMicroteslaPerGauss),
+                     static_cast<long>(fit.offset(1) * kMicroteslaPerGauss),
+                     static_cast<long>(fit.offset(2) * kMicroteslaPerGauss),
+                     Milli(fit.radius));
+    const Fixed3 x = ToFixed3(fit.diag(0));
+    const Fixed3 y = ToFixed3(fit.diag(1));
+    const Fixed3 z = ToFixed3(fit.diag(2));
+    fclink_->SendLog("[cal] mag scale %ld.%03ld %ld.%03ld %ld.%03ld cost %ld e-6",
+                     x.whole, x.frac, y.whole, y.frac, z.whole, z.frac,
+                     Micro(mag_.ResultCost()));
+    return;
+  }
+  if (outcome != MagCal::State::kFailed) {
+    return;
+  }
   const MagFit &fit = mag_.Fit();
   switch (mag_.Reason()) {
     case MagCal::Failure::kNone:
       break;
     case MagCal::Failure::kArmed:
-      fclink_->SendLog("mag: failed, armed");
+      fclink_->SendLog("[cal] mag failed: armed");
       break;
     case MagCal::Failure::kTimeout:
-      fclink_->SendLog("mag: failed, run timed out");
+      fclink_->SendLog("[cal] mag failed: run timed out");
       break;
     case MagCal::Failure::kNoTurn:
-      fclink_->SendLog("mag: failed, pose named but never turned on");
+      fclink_->SendLog("[cal] mag failed: pose named but never turned on");
       break;
     case MagCal::Failure::kSphereFit:
-      fclink_->SendLog(
-          "mag: failed, sphere fit did not converge: %lu points, %u "
-          "iterations, cost %ld e-6, field %ld mG",
-          static_cast<unsigned long>(mag_.Points()),
-          static_cast<unsigned>(fit.Iteration()),
-          static_cast<long>(fit.Cost() * 1e6f),
-          static_cast<long>(fit.Params().radius * 1000.0f));
+      fclink_->SendLog("[cal] mag failed: no fit, %lu pts, %u iter",
+                       static_cast<unsigned long>(mag_.Points()),
+                       static_cast<unsigned>(fit.Iteration()));
+      fclink_->SendLog("[cal] mag fit cost %ld e-6, field %ld mG",
+                       Micro(fit.Cost()), Milli(fit.Params().radius));
       break;
     case MagCal::Failure::kBounds:
-      fclink_->SendLog(
-          "mag: failed, fit out of bounds: %lu points, field %ld mG, diag "
-          "%ld %ld %ld permille",
-          static_cast<unsigned long>(mag_.Points()),
-          static_cast<long>(mag_.Result().radius * 1000.0f),
-          static_cast<long>(mag_.Result().diag(0) * 1000.0f),
-          static_cast<long>(mag_.Result().diag(1) * 1000.0f),
-          static_cast<long>(mag_.Result().diag(2) * 1000.0f));
+      fclink_->SendLog("[cal] mag failed: out of bounds, field %ld mG",
+                       Milli(mag_.Result().radius));
       break;
     case MagCal::Failure::kStore:
-      fclink_->SendLog("mag: failed, result not stored");
+      fclink_->SendLog("[cal] mag failed: not stored");
+      break;
+  }
+}
+
+void SensorCalService::ReportLevel(LevelCal::State outcome) {
+  if (outcome == LevelCal::State::kApplied) {
+    // The trim first, so a ground station that re-reads its parameters on
+    // "done" finds the new one in the bridge's cache.
+    fclink_->SendPacket(message::MsgId::kBoardTrimConfig, level_.Trim());
+  }
+  LogLevelOutcome(outcome);
+  ReportCal(message::CalSensor::kLevel, ToWire(outcome), 0, AccelSide::kCount,
+            outcome == LevelCal::State::kApplied ? 100 : 0, false);
+}
+
+void SensorCalService::LogLevelOutcome(LevelCal::State outcome) {
+  if (outcome == LevelCal::State::kApplied) {
+    const message::BoardTrimConfigMsg trim = level_.Trim();
+    const Fixed1 roll = ToFixed1(trim.roll_deg);
+    const Fixed1 pitch = ToFixed1(trim.pitch_deg);
+    fclink_->SendLog("[cal] level trim roll %s%ld.%ld pitch %s%ld.%ld deg",
+                     roll.sign, roll.whole, roll.frac, pitch.sign, pitch.whole,
+                     pitch.frac);
+    return;
+  }
+  if (outcome != LevelCal::State::kFailed) {
+    return;
+  }
+  switch (level_.Reason()) {
+    case LevelCal::Failure::kNone:
+      break;
+    case LevelCal::Failure::kArmed:
+      fclink_->SendLog("[cal] level failed: armed");
+      break;
+    case LevelCal::Failure::kNoEstimate:
+      fclink_->SendLog("[cal] level failed: no attitude estimate");
+      break;
+    case LevelCal::Failure::kMotion:
+      fclink_->SendLog("[cal] level failed: motion, never still for 0.5 s");
+      break;
+    case LevelCal::Failure::kExcess:
+      fclink_->SendLog("[cal] level failed: tilt over 45 deg, fix the mount");
+      break;
+    case LevelCal::Failure::kStore:
+      fclink_->SendLog("[cal] level failed: not stored");
       break;
   }
 }

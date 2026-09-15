@@ -105,6 +105,9 @@ EstimatorState Ahrs::Process(SharedState &shared) {
                                      accel_cal.offsets_mps2[2]};
   const Eigen::Vector3f accel_gain{accel_cal.gains[0], accel_cal.gains[1],
                                    accel_cal.gains[2]};
+  // After the sensor corrections, which are the part's own: the trim turns
+  // the corrected board vectors into the airframe's.
+  const Eigen::Matrix3f &trim = shared.GetBoardTrim().rotation;
 
   // The burst carries counts and one stamp, so the samples inside it are
   // spaced by the chip's own dt and the oldest sits a whole burst behind the
@@ -116,18 +119,18 @@ EstimatorState Ahrs::Process(SharedState &shared) {
 
   for (uint8_t i = 0; i < burst.count; ++i) {
     const Eigen::Vector3f gyro_meas =
-        Eigen::Vector3f{static_cast<float>(burst.gyro[0][i]),
-                        static_cast<float>(burst.gyro[1][i]),
-                        static_cast<float>(burst.gyro[2][i])} *
-            burst.gyro_scale -
-        gyro_offset;
+        trim * (Eigen::Vector3f{static_cast<float>(burst.gyro[0][i]),
+                                static_cast<float>(burst.gyro[1][i]),
+                                static_cast<float>(burst.gyro[2][i])} *
+                    burst.gyro_scale -
+                gyro_offset);
     const Eigen::Vector3f accel_raw =
         Eigen::Vector3f{static_cast<float>(burst.accel[0][i]),
                         static_cast<float>(burst.accel[1][i]),
                         static_cast<float>(burst.accel[2][i])} *
         burst.accel_scale;
     const Eigen::Vector3f accel =
-        (accel_raw - accel_offset).cwiseProduct(accel_gain);
+        trim * (accel_raw - accel_offset).cwiseProduct(accel_gain);
     gyro_accum += gyro_meas;
     accel_accum += accel;
 

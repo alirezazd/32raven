@@ -3,6 +3,8 @@
 
 #include "mavlink.hpp"
 
+#include <cstdio>
+
 #include "error_code.hpp"
 #include "esp_log.h"
 #include "panic.hpp"
@@ -54,6 +56,11 @@ void Mavlink::SetTransport(IMavlinkTransport *transport) {
 void Mavlink::Poll(uint32_t now_ms) {
   ServiceRx();
   fc_config_.Poll(now_ms);
+  if (const char *record = fc_config_.TakeStalled()) {
+    char text[MAVLINK_MSG_STATUSTEXT_FIELD_TEXT_LEN + 1];
+    std::snprintf(text, sizeof(text), "FC not answering: %s", record);
+    NotifyGcsIssueOnce(text, MAV_SEVERITY_ERROR);
+  }
   ServiceTx(now_ms);
 }
 
@@ -65,6 +72,7 @@ void Mavlink::SetTelemetryLink(bool enabled) {
     const uint32_t now_ms = Sys().Timebase().NowMs();
     InitTxSchedule(now_ms, true);
     next_tx_poll_ms_ = now_ms;
+    link_up_ms_ = now_ms;
     link_enabled_ = true;
     return;
   }

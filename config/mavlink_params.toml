@@ -11,8 +11,9 @@
 # build when the two disagree in either direction.
 #
 # Read-only is the rule, not the exception: `TrySetFixedParam` answers
-# kUnsupported for everything except the four RC map entries, so a parameter
-# without `readOnly = false` below is one the vehicle will refuse to change.
+# kUnsupported for everything except the four RC map entries and the three
+# board trim angles, so a parameter without `readOnly = false` below is one
+# the vehicle will refuse to change.
 
 schema_version = 1
 
@@ -64,7 +65,49 @@ shortDesc = "Board rotation"
 longDesc = """
 Always zero. The sensor orientation is a build-time setting on the flight \
 controller, not something the ground station can change, so no rotation is \
-reported here rather than one that could be edited and ignored."""
+reported here rather than one that could be edited and ignored. The fine \
+trim past that mount is the three SENS_BOARD_*_OFF angles."""
+group = "Calibration"
+category = "System"
+
+[params.SENS_BOARD_X_OFF]
+shortDesc = "Board roll offset"
+longDesc = """
+The board's remaining roll inside the airframe after the built-in mount. \
+Set by Level Horizon, with the vehicle resting in its level flight attitude, \
+or by hand."""
+units = "deg"
+min = -45.0
+max = 45.0
+decimalPlaces = 1
+readOnly = false
+group = "Calibration"
+category = "System"
+
+[params.SENS_BOARD_Y_OFF]
+shortDesc = "Board pitch offset"
+longDesc = """
+The board's remaining pitch inside the airframe after the built-in mount. \
+Set by Level Horizon, with the vehicle resting in its level flight attitude, \
+or by hand."""
+units = "deg"
+min = -45.0
+max = 45.0
+decimalPlaces = 1
+readOnly = false
+group = "Calibration"
+category = "System"
+
+[params.SENS_BOARD_Z_OFF]
+shortDesc = "Board yaw offset"
+longDesc = """
+The board's remaining yaw inside the airframe after the built-in mount. No \
+calibration measures it; set by hand."""
+units = "deg"
+min = -45.0
+max = 45.0
+decimalPlaces = 1
+readOnly = false
 group = "Calibration"
 category = "System"
 
@@ -124,14 +167,9 @@ units = "s"
 group = "Radio"
 category = "System"
 
-[params.RC_CHAN_CNT]
-shortDesc = "Calibrated channel count"
-longDesc = "Number of RC channels this firmware holds calibration for."
-group = "Radio"
-category = "System"
-
-# The four a radio calibration actually writes. 1..4 and no repeats: the map
-# is rejected whole if two sticks land on one channel.
+# The four sticks. 1..4 and no repeats: the map is rejected whole if two
+# sticks land on one channel. This is the whole of the radio setup -- the
+# link is CRSF, whose range the protocol fixes, so there is no calibration.
 [params.RC_MAP_ROLL]
 shortDesc = "Roll channel"
 longDesc = "RC channel carrying roll. Must be 1-4, and no two sticks may share a channel."
@@ -318,52 +356,3 @@ shortDesc = "Magnetometer 2 rotation"
 longDesc = "Always -1, the value for a magnetometer that is not fitted."
 group = "Sensors"
 category = "System"
-
-# The radio calibration, sixteen channels of it, written by the ground
-# station's calibration wizard and never by hand. `{n}` is the channel number.
-#
-# The firmware checks the three pulse fields against each other -- min below
-# max, trim between them -- and nothing else, so the bounds here are what a
-# stick can plausibly produce rather than a limit the vehicle enforces.
-[rc_calibration.MIN]
-shortDesc = "Channel {n} minimum"
-longDesc = "Pulse width at the low end of channel {n}, set by the radio calibration."
-units = "us"
-min = 800
-max = 2200
-readOnly = false
-group = "Radio calibration"
-category = "Standard"
-
-[rc_calibration.MAX]
-shortDesc = "Channel {n} maximum"
-longDesc = "Pulse width at the high end of channel {n}, set by the radio calibration."
-units = "us"
-min = 800
-max = 2200
-readOnly = false
-group = "Radio calibration"
-category = "Standard"
-
-[rc_calibration.TRIM]
-shortDesc = "Channel {n} centre"
-longDesc = "Pulse width with channel {n} centred, set by the radio calibration."
-units = "us"
-min = 800
-max = 2200
-readOnly = false
-group = "Radio calibration"
-category = "Standard"
-
-[rc_calibration.REV]
-shortDesc = "Channel {n} direction"
-longDesc = "Whether channel {n} is reversed. Only +1 and -1 are accepted."
-readOnly = false
-group = "Radio calibration"
-category = "Standard"
-[[rc_calibration.REV.values]]
-value = 1
-description = "Normal"
-[[rc_calibration.REV.values]]
-value = -1
-description = "Reversed"

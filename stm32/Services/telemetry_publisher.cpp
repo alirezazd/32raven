@@ -47,17 +47,20 @@ constexpr uint32_t kEscFreshTimeoutUs = 1000000u;
 // -- and one of them counts bytes, which no threshold over the sum can mean
 // anything about. Every ESC that has ever answered still answering is the
 // thing the ground station is being told.
-bool EscTelemetryArriving(const EscTelemetryData &esc, uint32_t now_us) {
+uint8_t EscOnlineMask(const EscTelemetryData &esc, uint32_t now_us) {
+  uint8_t online = 0;
   for (size_t i = 0; i < esc.motors.size(); ++i) {
-    if ((esc.valid_mask & (1u << i)) == 0u) {
-      continue;
-    }
-    if (ElapsedMicros(now_us, esc.motors[i].timestamp_us) >
-        kEscFreshTimeoutUs) {
-      return false;
+    if ((esc.valid_mask & (1u << i)) != 0u &&
+        ElapsedMicros(now_us, esc.motors[i].timestamp_us) <=
+            kEscFreshTimeoutUs) {
+      online |= static_cast<uint8_t>(1u << i);
     }
   }
-  return true;
+  return online;
+}
+
+bool EscTelemetryArriving(const EscTelemetryData &esc, uint32_t now_us) {
+  return EscOnlineMask(esc, now_us) == esc.valid_mask;
 }
 
 // The FcLink ladder, fixed here rather than configured: the link is this
@@ -547,13 +550,11 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishVehicleStatus(
 
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishEscTelemetry(
     TelemetryPublisher &self, uint32_t now_us) {
-  (void)self;
-  (void)now_us;
   const EscTelemetryData &esc = self.blackboard_->GetEscTelemetry();
   if (esc.valid_mask == 0u) {
     return PublishResult::kSkipped;
   }
-  self.fclink_svc_->SendEscTelemetry(esc);
+  self.fclink_svc_->SendEscTelemetry(esc, EscOnlineMask(esc, now_us));
   return PublishResult::kSent;
 }
 

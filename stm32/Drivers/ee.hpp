@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <type_traits>
 
 #include "gpio.hpp"
@@ -26,10 +27,24 @@ class EE {
 
   uint32_t Capacity() const { return kCapacity; }
   bool IsInitialized() const { return initialized_; }
+  // The image as stored; reads past it come back erased.
+  uint32_t Size() const {
+    return active_record_.valid ? active_record_.header.size : 0u;
+  }
+
+  // A piece of the current image.
+  struct Segment {
+    uint32_t offset;
+    uint32_t len;
+  };
 
   void Format();
   bool Read(void *dst, size_t len, size_t offset = 0) const;
+  // Merges into the image, which only ever grows by it.
   bool Write(const void *src, size_t len, size_t offset = 0);
+  // The image becomes the segments back to back, streamed from the current
+  // record into one new one: how it shrinks or reorders.
+  bool Rewrite(std::span<const Segment> segments);
 
   template <typename T>
   bool ReadObject(T &dst, size_t offset = 0) const {
@@ -111,6 +126,12 @@ class EE {
   bool PrepareWriteSpace(uint32_t record_size);
   bool EnsureRangeErased(uint32_t begin, uint32_t end, uint32_t preserve_begin,
                          uint32_t preserve_end);
+  // One record of `new_size` bytes, each page supplied by
+  // `fill(page_offset, page, page_len)` while the previous record is still
+  // the one Read sees, and made the newest only once whole: the header goes
+  // last, so a torn write is never found.
+  template <typename Fill>
+  bool WriteRecord(uint32_t new_size, Fill &&fill);
   bool ReadLogical(uint32_t offset, void *dst, size_t len) const;
   bool CompareLogical(uint32_t offset, const uint8_t *data, size_t len) const;
   bool CheckRange(size_t len, size_t offset) const;

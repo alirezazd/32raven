@@ -27,12 +27,9 @@ enum class MsgId : uint8_t {
   kHandshakeReply = 0x03,
   kReqRcMap = 0x04,
   kRcMapConfig = 0x05,
-  kReqRcCalibration = 0x06,
-  kRcCalibrationConfig = 0x07,
   kReqCalibrationId = 0x08,
   kCalibrationIdConfig = 0x09,
   kSetRcMapConfig = 0x0A,
-  kSetRcCalibrationConfig = 0x0B,
   kReqReceiverBind = 0x0C,
   kCalibrate = 0x0D,
   kReqReceiverCancelBind = 0x0E,
@@ -54,6 +51,9 @@ enum class MsgId : uint8_t {
   kLogData = 0x1E,
   kMagnetometer = 0x1F,
   kCancelCalibration = 0x20,
+  kReqBoardTrim = 0x21,
+  kBoardTrimConfig = 0x22,
+  kSetBoardTrimConfig = 0x23,
   kReboot = 0xC0,
   kBootload = 0xC1,
   kError = 0xEE
@@ -99,11 +99,13 @@ struct RcMapConfigMsg {
   uint8_t throttle;
 } __attribute__((packed));
 
-struct RcCalibrationConfigMsg {
-  uint16_t min_us[16];
-  uint16_t max_us[16];
-  uint16_t trim_us[16];
-  int8_t rev[16];
+// The board's remaining tilt inside the airframe once the coarse mount is
+// applied: PX4's SENS_BOARD_{X,Y,Z}_OFF, in the degrees a ground station
+// reads and writes, so a value written comes back bit for bit.
+struct BoardTrimConfigMsg {
+  float roll_deg;
+  float pitch_deg;
+  float yaw_deg;
 } __attribute__((packed));
 
 struct GpsData {
@@ -190,10 +192,13 @@ inline constexpr uint8_t kAccelSideAllMask = 0x3Fu;
 
 // The runs a ground station can ask for, and the byte that names one on the
 // wire: which to start, which a status is about, whose id is being asked for.
+// Level is the board trim measured at rest, not a sensor, and rides the same
+// byte because the ground station starts it the same way.
 enum class CalSensor : uint8_t {
   kGyro = 0,
   kAccel,
   kMag,
+  kLevel,
   kCount,
 };
 
@@ -206,7 +211,7 @@ inline constexpr bool IsCalSensorValid(uint8_t sensor) {
 
 // PX4's words, which the ground station's calibration page matches on.
 inline constexpr const char *kCalSensorNames[kCalSensorCount] = {
-    "gyro", "accel", "mag"};
+    "gyro", "accel", "mag", "level"};
 
 struct CalibrateMsg {
   uint8_t sensor;  // CalSensor
@@ -218,7 +223,7 @@ struct ReqCalibrationIdMsg {
 
 // The part's device id. The IMU's is always known; the compass's is zero
 // until a calibration is stored, which is how a ground station reads
-// "calibrated": the id being there at all.
+// "calibrated": the id being there at all. The level has no part.
 struct CalibrationIdConfigMsg {
   uint8_t sensor;  // CalSensor
   uint32_t id;
@@ -405,7 +410,8 @@ struct EscTelemetryMsg {
   int16_t current_centiamps[kEscTelemetryMotorCount];
   int32_t consumption_mah[kEscTelemetryMotorCount];
   int16_t temperature_c[kEscTelemetryMotorCount];
-  uint8_t valid_mask;
+  uint8_t valid_mask;   // has ever answered
+  uint8_t online_mask;  // answered within the last second
 } __attribute__((packed));
 
 struct Packet {
@@ -444,15 +450,10 @@ inline constexpr std::array<WireEntry, 35> kWireContract = {{
     {MsgId::kHandshakeReply, PayloadLength<HandshakeMsg>(), false},
     {MsgId::kReqRcMap, 0, false},
     {MsgId::kRcMapConfig, PayloadLength<RcMapConfigMsg>(), false},
-    {MsgId::kReqRcCalibration, 0, false},
-    {MsgId::kRcCalibrationConfig, PayloadLength<RcCalibrationConfigMsg>(),
-     false},
     {MsgId::kReqCalibrationId, PayloadLength<ReqCalibrationIdMsg>(), false},
     {MsgId::kCalibrationIdConfig, PayloadLength<CalibrationIdConfigMsg>(),
      false},
     {MsgId::kSetRcMapConfig, PayloadLength<RcMapConfigMsg>(), false},
-    {MsgId::kSetRcCalibrationConfig, PayloadLength<RcCalibrationConfigMsg>(),
-     false},
     {MsgId::kReqReceiverBind, 0, false},
     {MsgId::kCalibrate, PayloadLength<CalibrateMsg>(), false},
     {MsgId::kReqReceiverCancelBind, 0, false},
@@ -474,6 +475,9 @@ inline constexpr std::array<WireEntry, 35> kWireContract = {{
     {MsgId::kLogData, PayloadLength<LogDataMsg>(), false},
     {MsgId::kMagnetometer, PayloadLength<MagnetometerMsg>(), false},
     {MsgId::kCancelCalibration, 0, false},
+    {MsgId::kReqBoardTrim, 0, false},
+    {MsgId::kBoardTrimConfig, PayloadLength<BoardTrimConfigMsg>(), false},
+    {MsgId::kSetBoardTrimConfig, PayloadLength<BoardTrimConfigMsg>(), false},
     {MsgId::kReboot, 0, false},
     {MsgId::kBootload, 0, false},
     {MsgId::kError, 0, false},
@@ -564,33 +568,23 @@ inline constexpr bool IsRcMapConfigValid(const RcMapConfigMsg &cfg) {
          cfg.pitch != cfg.throttle && cfg.yaw != cfg.throttle;
 }
 
-inline constexpr size_t kRcCalibrationChannelCount = 16u;
-
-inline constexpr bool IsRcCalibrationRevValid(int8_t rev) {
-  return rev == 1 || rev == -1;
+inline constexpr bool IsCalibrationIdConfigValid(
+    const CalibrationIdConfigMsg &cfg) {
+  const bool imu = cfg.sensor == static_cast<uint8_t>(CalSensor::kGyro) ||
+                   cfg.sensor == static_cast<uint8_t>(CalSensor::kAccel);
+  return IsCalSensorValid(cfg.sensor) && (!imu || cfg.id != 0u);
 }
 
-inline constexpr bool IsRcCalibrationRangeValid(uint16_t min_us,
-                                                uint16_t max_us,
-                                                uint16_t trim_us) {
-  return min_us < max_us && trim_us >= min_us && trim_us <= max_us;
-}
+// PX4's bounds. A trim past them is a wrong coarse mount, not a trim.
+inline constexpr float kBoardTrimMaxDeg = 45.0f;
 
-inline bool IsRcCalibrationConfigValid(const RcCalibrationConfigMsg &cfg) {
-  for (size_t i = 0; i < kRcCalibrationChannelCount; ++i) {
-    if (!IsRcCalibrationRangeValid(cfg.min_us[i], cfg.max_us[i],
-                                   cfg.trim_us[i]) ||
-        !IsRcCalibrationRevValid(cfg.rev[i])) {
+inline bool IsBoardTrimConfigValid(const BoardTrimConfigMsg &cfg) {
+  for (const float deg : {cfg.roll_deg, cfg.pitch_deg, cfg.yaw_deg}) {
+    if (!(deg >= -kBoardTrimMaxDeg) || !(deg <= kBoardTrimMaxDeg)) {
       return false;
     }
   }
   return true;
-}
-
-inline constexpr bool IsCalibrationIdConfigValid(
-    const CalibrationIdConfigMsg &cfg) {
-  return IsCalSensorValid(cfg.sensor) &&
-         (cfg.sensor == static_cast<uint8_t>(CalSensor::kMag) || cfg.id != 0u);
 }
 
 inline Packet MakePacket(MsgId id) {

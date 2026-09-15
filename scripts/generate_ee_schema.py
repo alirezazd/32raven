@@ -145,44 +145,16 @@ def collect_blobs(node: object) -> list[dict[str, object]]:
     return blobs
 
 
-def order_blobs(blobs: list[dict[str, object]]) -> list[dict[str, object]]:
-    # Slot order, not walk order: the walk follows the TOML's nesting, so a
-    # record added under an existing table would land in the middle of the
-    # layout and move every record after it off the bytes a board holds.
-    slots: dict[int, str] = {}
+def check_unique(blobs: list[dict[str, object]]) -> None:
+    tags: dict[str, str] = {}
     for blob in blobs:
         type_name = str(blob["type_name"])
-        if "slot" not in blob:
-            raise ValueError(f"record '{type_name}' has no slot")
-        slot = int(blob["slot"])
-        if slot in slots:
+        tag = str(blob["tag"])
+        if tag in tags:
             raise ValueError(
-                f"records '{slots[slot]}' and '{type_name}' share slot {slot}"
+                f"records '{tags[tag]}' and '{type_name}' share tag '{tag}'"
             )
-        slots[slot] = type_name
-    if sorted(slots) != list(range(len(slots))):
-        raise ValueError(f"slots must run 0..{len(slots) - 1}: {sorted(slots)}")
-    return sorted(blobs, key=lambda blob: int(blob["slot"]))
-
-
-def layout_context(blobs: list[dict[str, object]]) -> dict[str, object]:
-    # Emit a packed EEPROM layout so runtime code can use generated offsets
-    # instead of hardcoding them in EeConfigStorage.
-    entries: list[dict[str, object]] = []
-    offset = 0
-    for blob in blobs:
-        type_name = str(blob["type_name"])
-        entries.append(
-            {
-                "type_name": type_name,
-                "offset": offset,
-            }
-        )
-        offset += struct_size(list(blob["fields"]))
-    return {
-        "entries": entries,
-        "total_size": offset,
-    }
+        tags[tag] = type_name
 
 
 def _template_env() -> Environment:
@@ -196,11 +168,12 @@ def _template_env() -> Environment:
 
 
 def emit_header(source: pathlib.Path, config: dict[str, object]) -> str:
-    blobs = order_blobs(collect_blobs(config.get("stm32", {})))
+    blobs = collect_blobs(config.get("stm32", {}))
+    check_unique(blobs)
     context = {
         "autogen_warning": AUTOGEN_WARNING.format(source=source.name),
         "blobs": [blob_context(blob) for blob in blobs],
-        "layout": layout_context(blobs),
+        "total_size": sum(struct_size(list(blob["fields"])) for blob in blobs),
     }
     return _template_env().get_template("ee_schema.hpp.j2").render(**context)
 
