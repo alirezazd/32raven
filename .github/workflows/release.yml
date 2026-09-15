@@ -163,9 +163,17 @@ jobs:
           print("| `SHA256SUMS` | checksums for everything above |")
           PY
 
+          # Anchored on the release this one replaces, since that release is
+          # gone by the time anything reads the notes.
+          previous="$(gh release list --exclude-drafts --limit 1 \
+            --json tagName --jq '.[0].tagName // empty')"
+          args=(-f tag_name="$GITHUB_REF_NAME")
+          if [ -n "$previous" ]; then
+            args+=(-f previous_tag_name="$previous")
+          fi
           printf '\n' >> notes.md
           gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
-            -f tag_name="$GITHUB_REF_NAME" --jq .body >> notes.md
+            "${args[@]}" --jq .body >> notes.md
 
       - name: Publish
         env:
@@ -179,3 +187,15 @@ jobs:
             args+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" "${args[@]}" dist/*
+
+      # One release at a time: the newest is the only one a ground station
+      # is checked against, and a board flashed from an older one should be
+      # reflashed rather than found. The tags stay, so the changelog and
+      # `git describe` keep resolving.
+      - name: Retire the previous releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release list --json tagName \
+            --jq '.[] | select(.tagName != env.GITHUB_REF_NAME) | .tagName' \
+            | xargs -r -n1 gh release delete --yes
