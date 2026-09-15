@@ -120,6 +120,15 @@ inline constexpr ParamDef kParamTable[] = {
 inline constexpr uint16_t kTotalParamCount =
     static_cast<uint16_t>(sizeof(kParamTable) / sizeof(kParamTable[0]));
 
+constexpr uint16_t IndexOfKey(ParamKey key) {
+  for (uint16_t i = 0; i < kTotalParamCount; ++i) {
+    if (kParamTable[i].key == key) {
+      return i;
+    }
+  }
+  return kTotalParamCount;
+}
+
 // QGC asks any px4Firmware() vehicle for this before downloading parameters:
 // a matching hash lets it load its own cache instead. Virtual, so it is not in
 // kTotalParamCount and rides the reply queue on an index no real one uses.
@@ -580,22 +589,36 @@ MavlinkParamServer::SetResult MavlinkParamServer::TrySetRcMapParam(
     return SetResult::kInvalidValue;
   }
 
-  switch (def.key) {
-    case param_detail::ParamKey::kRcMapRoll:
-      updated.roll = static_cast<uint8_t>(value);
-      break;
-    case param_detail::ParamKey::kRcMapPitch:
-      updated.pitch = static_cast<uint8_t>(value);
-      break;
-    case param_detail::ParamKey::kRcMapYaw:
-      updated.yaw = static_cast<uint8_t>(value);
-      break;
-    case param_detail::ParamKey::kRcMapThrottle:
-      updated.throttle = static_cast<uint8_t>(value);
-      break;
-    default:
-      return SetResult::kUnsupported;
+  struct Stick {
+    param_detail::ParamKey key;
+    uint8_t *channel;
+  };
+  Stick sticks[] = {
+      {param_detail::ParamKey::kRcMapRoll, &updated.roll},
+      {param_detail::ParamKey::kRcMapPitch, &updated.pitch},
+      {param_detail::ParamKey::kRcMapYaw, &updated.yaw},
+      {param_detail::ParamKey::kRcMapThrottle, &updated.throttle},
+  };
+  Stick *target = nullptr;
+  for (Stick &stick : sticks) {
+    if (stick.key == def.key) {
+      target = &stick;
+    }
   }
+  if (target == nullptr) {
+    return SetResult::kUnsupported;
+  }
+
+  // Four sticks over four channels: the stick that had this one takes the
+  // one given up, so a single write is a swap and the map stays whole. The
+  // other stick's new value is announced with the write's own reply.
+  for (Stick &stick : sticks) {
+    if (&stick != target && *stick.channel == value) {
+      *stick.channel = *target->channel;
+      QueueReply(param_detail::IndexOfKey(stick.key));
+    }
+  }
+  *target->channel = static_cast<uint8_t>(value);
 
   if (!message::IsRcMapConfigValid(updated)) {
     ESP_LOGW(kTag, "RC_MAP write rejected: invalid map r=%u p=%u y=%u t=%u",

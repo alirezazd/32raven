@@ -167,44 +167,92 @@ units = "s"
 group = "Radio"
 category = "System"
 
-# The four sticks. 1..4 and no repeats: the map is rejected whole if two
-# sticks land on one channel. This is the whole of the radio setup -- the
+# The four sticks over channels 1..4, always one each: giving a stick another
+# stick's channel swaps the two. This is the whole of the radio setup -- the
 # link is CRSF, whose range the protocol fixes, so there is no calibration.
 [params.RC_MAP_ROLL]
 shortDesc = "Roll channel"
-longDesc = "RC channel carrying roll. Must be 1-4, and no two sticks may share a channel."
+longDesc = "RC channel carrying roll. Giving it another stick's channel swaps the two."
 min = 1
 max = 4
 readOnly = false
 group = "Radio"
 category = "Standard"
+[[params.RC_MAP_ROLL.values]]
+value = 1
+description = "Channel 1"
+[[params.RC_MAP_ROLL.values]]
+value = 2
+description = "Channel 2"
+[[params.RC_MAP_ROLL.values]]
+value = 3
+description = "Channel 3"
+[[params.RC_MAP_ROLL.values]]
+value = 4
+description = "Channel 4"
 
 [params.RC_MAP_PITCH]
 shortDesc = "Pitch channel"
-longDesc = "RC channel carrying pitch. Must be 1-4, and no two sticks may share a channel."
+longDesc = "RC channel carrying pitch. Giving it another stick's channel swaps the two."
 min = 1
 max = 4
 readOnly = false
 group = "Radio"
 category = "Standard"
+[[params.RC_MAP_PITCH.values]]
+value = 1
+description = "Channel 1"
+[[params.RC_MAP_PITCH.values]]
+value = 2
+description = "Channel 2"
+[[params.RC_MAP_PITCH.values]]
+value = 3
+description = "Channel 3"
+[[params.RC_MAP_PITCH.values]]
+value = 4
+description = "Channel 4"
 
 [params.RC_MAP_YAW]
 shortDesc = "Yaw channel"
-longDesc = "RC channel carrying yaw. Must be 1-4, and no two sticks may share a channel."
+longDesc = "RC channel carrying yaw. Giving it another stick's channel swaps the two."
 min = 1
 max = 4
 readOnly = false
 group = "Radio"
 category = "Standard"
+[[params.RC_MAP_YAW.values]]
+value = 1
+description = "Channel 1"
+[[params.RC_MAP_YAW.values]]
+value = 2
+description = "Channel 2"
+[[params.RC_MAP_YAW.values]]
+value = 3
+description = "Channel 3"
+[[params.RC_MAP_YAW.values]]
+value = 4
+description = "Channel 4"
 
 [params.RC_MAP_THROTTLE]
 shortDesc = "Throttle channel"
-longDesc = "RC channel carrying throttle. Must be 1-4, and no two sticks may share a channel."
+longDesc = "RC channel carrying throttle. Giving it another stick's channel swaps the two."
 min = 1
 max = 4
 readOnly = false
 group = "Radio"
 category = "Standard"
+[[params.RC_MAP_THROTTLE.values]]
+value = 1
+description = "Channel 1"
+[[params.RC_MAP_THROTTLE.values]]
+value = 2
+description = "Channel 2"
+[[params.RC_MAP_THROTTLE.values]]
+value = 3
+description = "Channel 3"
+[[params.RC_MAP_THROTTLE.values]]
+value = 4
+description = "Channel 4"
 
 # Present so the radio page renders, and pinned to zero. A write of 0 is
 # accepted so a ground station clearing them does not see an error; anything
