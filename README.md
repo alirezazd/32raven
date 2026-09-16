@@ -58,6 +58,14 @@ Configuration — pins, rates, WiFi — lives in one menu: `make 32raven-menucon
 Host builds without Docker, flashing details, and every other target: the handbook's
 **[firmware section](https://alirezazd.github.io/32raven/firmware/)**, or `make help`.
 
+## Ground station
+
+32Raven flies with **[32RavenQGC](https://github.com/alirezazd/qgroundcontrol)**, a
+QGroundControl fork that knows the board: its parameters, its radio and sensor setup pages,
+its MAVLink dialect. Installers for Windows, macOS, Linux and Android are on its
+[releases page](https://github.com/alirezazd/qgroundcontrol/releases). Stock QGroundControl
+connects too, over plain MAVLink, but sees a generic autopilot and offers none of the setup.
+
 ## License
 
 32raven is **dual-licensed**:
