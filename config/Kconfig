@@ -2288,6 +2288,19 @@ config STM32_MAG_ORIENTATION_M100_5883_CONNECTOR_RIGHT
 
 endchoice
 
+config STM32_MAG_HEADING_OFFSET_CDEG
+    int "Heading offset (0.01 deg)"
+    range -18000 18000
+    default 0
+    help
+      Added to the compass bearing to make it true, in hundredths of a
+      degree, east positive. One number for two things the compass cannot
+      tell apart: the local magnetic declination, and the module sitting a
+      few degrees off the nose beyond what the orientation above names.
+      Measured rather than looked up: point the nose at a known true bearing
+      and enter the difference from what the ground station's rose shows. A
+      declination of 13 deg west alone is -1300.
+
 choice
     prompt "Output data rate"
     default STM32_MAG_ODR_50HZ

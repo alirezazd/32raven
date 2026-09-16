@@ -80,8 +80,6 @@ class Mavlink {
       UpdateCache(esc_telemetry_, value, now_ms);
     } else if constexpr (std::is_same_v<T, message::AttitudeMsg>) {
       UpdateCache(attitude_, value, now_ms);
-    } else if constexpr (std::is_same_v<T, message::MagnetometerMsg>) {
-      UpdateCache(magnetometer_, value, now_ms);
     } else {
       static_assert(sizeof(T) == 0, "unsupported MAVLink telemetry cache type");
     }
@@ -146,7 +144,6 @@ class Mavlink {
   CachedValue<message::RcChannelsMsg> rc_channels_{};
   CachedValue<message::SystemStatusMsg> system_status_{};
   CachedValue<message::VehicleStatusMsg> vehicle_status_{};
-  CachedValue<message::MagnetometerMsg> magnetometer_{};
   CachedValue<message::EscTelemetryMsg> esc_telemetry_{};
   // Three of the STM32's VehicleStatus periods: at or below one, a heartbeat
   // lands on an expired report and names a mode the aircraft is not in.
@@ -340,8 +337,6 @@ class Mavlink {
   TxFrameState StartHeartbeatFrame(uint32_t now_ms);
   TxFrameState StartSysStatusFrame(uint32_t now_ms);
   std::optional<TxFrameState> StartGpsRawIntFrame();
-  // Absent until a sample arrives, or the vector is too short to point.
-  std::optional<float> MagneticHeading(float roll, float pitch) const;
   std::optional<TxFrameState> StartAttitudeFrame();
   std::optional<TxFrameState> StartGlobalPositionIntFrame();
   std::optional<TxFrameState> StartBatteryStatusFrame(uint32_t now_ms);

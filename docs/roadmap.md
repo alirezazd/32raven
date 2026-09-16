@@ -633,8 +633,8 @@ keeps DCM as an explicit fallback lane. Either is fine; two writers is not.
 The part is a QMC5883**P**, not the MMC5983MA this item was written around and not the
 QMC5883L either: it is the compass half of the HGLRC M100-5883, whose other half is the M10
 already on USART2. Fixed at I2C address 0x2C, chip ID 0x80, four field ranges from ±2G at
-15000 LSB/G to ±30G at 1000. The driver publishes a body-frame vector in microtesla, and the
-ESP32 turns it into the heading a ground station draws.
+15000 LSB/G to ±30G at 1000. The driver publishes a body-frame vector in microtesla, the flight
+computer turns it into the heading a ground station draws, and the bridge forwards that.
 
 HGLRC has shipped both parts under the same 5883 badge and they share nothing but the name --
 different address, different chip ID, data one register higher, status elsewhere, two ranges
@@ -649,10 +649,14 @@ a few centimetres away. PX4's answer is `CAL_MAG_COMP_TYP`: a second calibration
 the field against battery current or throttle and subtracts the fitted share live. The battery
 monitor reads current, so the input exists; the run and the term in the correction do not.
 
-**The heading is magnetic, not true.** No declination is applied anywhere. PX4 takes it from a
-World Magnetic Model table by GPS position; one airframe in one hemisphere is served as well by a
-Kconfig offset measured once against a known bearing, and a mast glued a few degrees off the
-nose is the same offset by another name, so one knob covers both.
+**Interference is not detected.** The fit fixes the field's strength as its radius, and a
+corrected sample whose norm strays from it is a field the calibration never saw -- a magnet
+near the board, a power lead moved, an ESC current the iron term does not cover. Nothing
+compares the two. PX4 gates on it twice: a pre-arm check, and EKF2's field-strength test in
+flight, which stops fusing the compass rather than steering on a lie. Here the radius would be
+stored with the calibration (the record does not keep it), the corrected norm held against it
+where the correction is applied, and the warning reach the pilot over the channels #11 lists.
+While nothing fuses the compass a warning is all it is; once #27 does, it is also the gate.
 
 **The estimator is deliberately not a consumer.** Yaw still bypasses the attitude loop, so a yaw
 reference is #27's business, and the compass reaching it is a decision rather than a next step.

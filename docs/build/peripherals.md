@@ -268,8 +268,11 @@ a clear antenna, and nothing else. Put it wherever the airframe has room.
 The QMC5883P on the M100-5883 GPS module, on I2C1 over the same cable as the GPS. Its mounting
 is a Kconfig choice named by where the module's connector points, and the iron of the frame is
 calibrated from the ground station's compass page: six poses, a turn on each, stored on the
-flight computer. Siting matters more than wiring — motors and current-carrying wire are what
-corrupt it, and the stored calibration does not cover what they add while running (`TBD(#45)`).
+flight computer. The heading the ground station draws is true, not magnetic, by one offset in
+Kconfig (`STM32_MAG_HEADING_OFFSET_CDEG`) that covers the local declination and any yaw the
+module sits off the nose: point the nose at a known bearing and enter the difference the rose
+shows. Siting matters more than wiring — motors and current-carrying wire are what corrupt it,
+and the stored calibration does not cover what they add while running (`TBD(#45)`).
 
 ## Barometer
 

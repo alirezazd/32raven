@@ -107,6 +107,7 @@ inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
         .priority = {{ topic.priority }}u,
     },
 {% endfor %}
+    .heading_offset_rad = {{ mag.heading_offset_rad }},
 };
 
 inline constexpr UartConfig kUart1Config = {

@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <Eigen/Core>
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -18,7 +20,6 @@ struct BatteryData;
 namespace message {
 struct AttitudeMsg;
 struct GpsData;
-struct MagnetometerMsg;
 struct SystemStatusMsg;
 struct UsbStatusMsg;
 struct VehicleStatusMsg;
@@ -51,10 +52,13 @@ class TelemetryPublisher {
     TopicConfig crsf_rpm{};
     TopicConfig crsf_temperature{};
     TopicConfig crsf_gps_time{};
+    // Declination and the module's yaw off the nose, as the one angle the
+    // compass bearing is short of true. East positive.
+    float heading_offset_rad = 0.0f;
   };
 
   // Public only so the .cpp's config tables can be sized by them.
-  static constexpr size_t kFcLinkTopicCount = 8u;
+  static constexpr size_t kFcLinkTopicCount = 7u;
   static constexpr size_t kCrsfTopicCount = CrsfLinkService::kTopicCount;
 
   static TelemetryPublisher &GetInstance();
@@ -112,7 +116,6 @@ class TelemetryPublisher {
     kUsbStatus,
     kGps,
     kAttitude,
-    kMagnetometer,
     kCount,
   };
 
@@ -156,7 +159,10 @@ class TelemetryPublisher {
   message::UsbStatusMsg BuildUsbStatusMsg() const;
   message::GpsData BuildGpsMsg() const;
   message::AttitudeMsg BuildAttitudeMsg() const;
-  message::MagnetometerMsg BuildMagnetometerMsg() const;
+  Eigen::Vector3f CorrectedField() const;
+  // Tilt-compensated bearing of the corrected field, true; NaN while the
+  // field is too short to point.
+  float CompassHeading() const;
 
   static PublishResult PublishSystemStatus(TelemetryPublisher &self,
                                            uint32_t now_us);
@@ -171,8 +177,6 @@ class TelemetryPublisher {
   static PublishResult PublishGps(TelemetryPublisher &self, uint32_t now_us);
   static PublishResult PublishAttitude(TelemetryPublisher &self,
                                        uint32_t now_us);
-  static PublishResult PublishMagnetometer(TelemetryPublisher &self,
-                                          uint32_t now_us);
 
   // CrsfLinkService owns the payloads and the change detection; the silence
   // bound is the scheduler's, so it is passed in rather than duplicated there.

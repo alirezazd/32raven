@@ -7,12 +7,15 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <numbers>
 #include <optional>
 
 #include "common_config.hpp"
 #include "crsf_link_service.hpp"
 #include "error_code.hpp"
 #include "fc_link.hpp"
+#include "math/attitude_euler.hpp"
 #include "message.hpp"
 #include "shared_state.hpp"
 #include "slot_stagger.hpp"
@@ -97,11 +100,6 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kFcLinkTopicCount>
         // only reached with the loop suspended, which is when the ground
         // station most needs telling the estimate is stale.
         {.period = 100000u, .max_silence = 1000000u, .priority = 7u},
-        // Magnetometer: a heading on a map, nothing more, so this is a fifth
-        // of the driver's own read rate. No silence bound -- the field moves
-        // whenever the airframe does, so there is no unchanged payload to
-        // suppress and nothing for one to rescue.
-        {.period = 200000u, .max_silence = 0u, .priority = 6u},
     }};
 
 constexpr std::array<uint32_t, TelemetryPublisher::kFcLinkTopicCount>
@@ -113,7 +111,6 @@ constexpr std::array<uint32_t, TelemetryPublisher::kFcLinkTopicCount>
         sizeof(message::UsbStatusMsg) + message::kPacketOverhead,
         sizeof(message::GpsData) + message::kPacketOverhead,
         sizeof(message::AttitudeMsg) + message::kPacketOverhead,
-        sizeof(message::MagnetometerMsg) + message::kPacketOverhead,
     }};
 
 // The ladder at full rate.
@@ -674,7 +671,32 @@ message::AttitudeMsg TelemetryPublisher::BuildAttitudeMsg() const {
       .qx = q.x(),
       .qy = q.y(),
       .qz = q.z(),
+      .heading_rad = CompassHeading(),
   };
+}
+
+float TelemetryPublisher::CompassHeading() const {
+  constexpr float kMinFieldMicrotesla = 5.0f;
+  if (blackboard_->GetMagnetometer().timestamp_us == 0u) {
+    return std::numeric_limits<float>::quiet_NaN();
+  }
+  const Eigen::Vector3f field = CorrectedField();
+  if (field.norm() < kMinFieldMicrotesla) {
+    return std::numeric_limits<float>::quiet_NaN();
+  }
+  const math::EulerZyx att = math::EulerZyxFromQuaternion(
+      blackboard_->GetEstimate().attitude_world_to_body);
+  const float sin_roll = std::sin(att.roll);
+  const float cos_roll = std::cos(att.roll);
+  const float sin_pitch = std::sin(att.pitch);
+  const float cos_pitch = std::cos(att.pitch);
+  const float level_x = (field.x() * cos_pitch) +
+                        (field.y() * sin_roll * sin_pitch) +
+                        (field.z() * cos_roll * sin_pitch);
+  const float level_y = (field.y() * cos_roll) - (field.z() * sin_roll);
+  const float heading = std::atan2(-level_y, level_x) +
+                        kTelemetryPublisherConfig.heading_offset_rad;
+  return std::remainder(heading, 2.0f * std::numbers::pi_v<float>);
 }
 
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishGps(
@@ -728,37 +750,18 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishAttitude(
 // reason the accel's is applied in the estimator: the calibrator reads the
 // raw vector and must not be fed its own output, and the log keeps the raw
 // field so a fit can be re-derived from a flight.
-message::MagnetometerMsg TelemetryPublisher::BuildMagnetometerMsg() const {
+Eigen::Vector3f TelemetryPublisher::CorrectedField() const {
   const MagnetometerData &mag = blackboard_->GetMagnetometer();
   const MagCalibration &cal = blackboard_->GetMagCalibration();
   const float raw[3] = {mag.x - cal.offsets_ut[0], mag.y - cal.offsets_ut[1],
                         mag.z - cal.offsets_ut[2]};
-  float corrected[3] = {0.0f, 0.0f, 0.0f};
+  Eigen::Vector3f corrected = Eigen::Vector3f::Zero();
   for (int row = 0; row < 3; ++row) {
     for (int col = 0; col < 3; ++col) {
       corrected[row] += cal.soft_iron[row][col] * raw[col];
     }
   }
-  return message::MagnetometerMsg{
-      .timestamp_us = mag.timestamp_us,
-      .x = corrected[0],
-      .y = corrected[1],
-      .z = corrected[2],
-  };
-}
-
-TelemetryPublisher::PublishResult TelemetryPublisher::PublishMagnetometer(
-    TelemetryPublisher &self, uint32_t now_us) {
-  (void)now_us;
-  // Nothing to say before the first sample. After it, every frame carries the
-  // newest reading whether or not the driver replaced it this period -- the
-  // stamp is what tells the far end how old it is.
-  if (self.blackboard_->GetMagnetometer().timestamp_us == 0u) {
-    return PublishResult::kSkipped;
-  }
-  self.fclink_svc_->SendPacket(message::MsgId::kMagnetometer,
-                               self.BuildMagnetometerMsg());
-  return PublishResult::kSent;
+  return corrected;
 }
 
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfTopic(
@@ -895,7 +898,7 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {
       PublishSystemStatus, PublishVehicleStatus, PublishEscTelemetry,
       PublishRcChannels,   PublishUsbStatus,     PublishGps,
-      PublishAttitude,     PublishMagnetometer,
+      PublishAttitude,
   };
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
       PublishCrsfHeartbeat,   PublishCrsfGps,      PublishCrsfBattery,

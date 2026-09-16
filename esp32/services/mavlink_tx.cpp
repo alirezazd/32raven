@@ -4,6 +4,7 @@
 #include <mavlink.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -817,35 +818,6 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartGpsRawIntFrame() {
   return TxFrameState{m, /*is_heartbeat=*/false};
 }
 
-// Tilt-compensated: level the vector with the reported attitude, then take
-// its bearing. Magnetic, not true -- no declination, no iron correction (#45).
-std::optional<float> Mavlink::MagneticHeading(float roll, float pitch) const {
-  const std::optional<message::MagnetometerMsg> mag =
-      GetCachedValue(magnetometer_);
-  if (!mag.has_value() || mag->timestamp_us == 0u) {
-    return std::nullopt;
-  }
-
-  // Too short to have a direction: zeros, or saturated on every axis.
-  constexpr float kMinFieldMicrotesla = 5.0f;
-  const float norm =
-      std::sqrt((mag->x * mag->x) + (mag->y * mag->y) + (mag->z * mag->z));
-  if (norm < kMinFieldMicrotesla) {
-    return std::nullopt;
-  }
-
-  const float sin_roll = std::sin(roll);
-  const float cos_roll = std::cos(roll);
-  const float sin_pitch = std::sin(pitch);
-  const float cos_pitch = std::cos(pitch);
-
-  const float level_x = (mag->x * cos_pitch) + (mag->y * sin_roll * sin_pitch) +
-                        (mag->z * cos_roll * sin_pitch);
-  const float level_y = (mag->y * cos_roll) - (mag->z * sin_roll);
-
-  return std::atan2(-level_y, level_x);
-}
-
 std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame() {
   const std::optional<message::AttitudeMsg> latest = GetCachedValue(attitude_);
   if (!latest.has_value()) {
@@ -866,9 +838,10 @@ std::optional<Mavlink::TxFrameState> Mavlink::StartAttitudeFrame() {
   const float estimator_yaw = std::atan2(
       2.0f * ((qw * qz) + (qx * qy)), 1.0f - (2.0f * ((qy * qy) + (qz * qz))));
 
-  // Estimator yaw has no reference and drifts unbounded. This is what the
-  // link reports, not what anything flies on.
-  const float yaw = MagneticHeading(roll, pitch).value_or(estimator_yaw);
+  // Estimator yaw has no reference and drifts unbounded; the compass's is
+  // what the link reports whenever the flight computer has one.
+  const float yaw =
+      std::isnan(latest->heading_rad) ? estimator_yaw : latest->heading_rad;
 
   mavlink_message_t m{};
 

@@ -49,7 +49,6 @@ enum class MsgId : uint8_t {
   kLogListReply = 0x1C,
   kLogRead = 0x1D,
   kLogData = 0x1E,
-  kMagnetometer = 0x1F,
   kCancelCalibration = 0x20,
   kReqBoardTrim = 0x21,
   kBoardTrimConfig = 0x22,
@@ -141,26 +140,16 @@ struct GpsData {
   float posCovDD;  // [m²]
 } __attribute__((packed));
 
-// Body frame, microtesla, with the axis map, the range scale and the stored
-// iron correction applied, so this is the field in the vehicle's own frame
-// and nothing downstream needs to know which part measured it.
-//
-// The part's own OVL and DOR tallies stay on the flight computer. Nothing off
-// the vehicle has asked for them, and the log is where they belong first.
-struct MagnetometerMsg {
-  uint32_t timestamp_us;
-  float x;
-  float y;
-  float z;
-} __attribute__((packed));
-
-// World-to-body, the convention Ahrs documents and propagates.
+// World-to-body, the convention Ahrs documents and propagates. The
+// quaternion's yaw has no reference; heading_rad is the compass's, true, the
+// yaw a ground station draws -- NaN while there is no field to point with.
 struct AttitudeMsg {
   uint64_t timestamp_us;
   float qw;
   float qx;
   float qy;
   float qz;
+  float heading_rad;
 } __attribute__((packed));
 
 // Wire vocabularies: the enumerator is the transmitted byte -- append only,
@@ -444,7 +433,7 @@ struct WireEntry {
   bool bounded;
 };
 
-inline constexpr std::array<WireEntry, 35> kWireContract = {{
+inline constexpr std::array<WireEntry, 34> kWireContract = {{
     {MsgId::kHandshake, PayloadLength<HandshakeMsg>(), false},
     {MsgId::kLog, kMaxLogTextPayload, true},
     {MsgId::kHandshakeReply, PayloadLength<HandshakeMsg>(), false},
@@ -473,7 +462,6 @@ inline constexpr std::array<WireEntry, 35> kWireContract = {{
     {MsgId::kLogListReply, PayloadLength<LogListReplyMsg>(), false},
     {MsgId::kLogRead, PayloadLength<LogReadMsg>(), false},
     {MsgId::kLogData, PayloadLength<LogDataMsg>(), false},
-    {MsgId::kMagnetometer, PayloadLength<MagnetometerMsg>(), false},
     {MsgId::kCancelCalibration, 0, false},
     {MsgId::kReqBoardTrim, 0, false},
     {MsgId::kBoardTrimConfig, PayloadLength<BoardTrimConfigMsg>(), false},

@@ -2255,6 +2255,9 @@ def _ee_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
 
 
 def _mag_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    heading_offset_rad = math.radians(
+        sym_int(kconf, "STM32_MAG_HEADING_OFFSET_CDEG") / 100
+    )
     return {
         "odr": choice_value(kconf, MAG_ODR_CHOICES),
         "range": choice_value(kconf, MAG_RANGE_CHOICES),
@@ -2266,6 +2269,7 @@ def _mag_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 choice_value(kconf, MAG_ORIENTATION_CHOICES)
             ]
         ),
+        "heading_offset_rad": f"{heading_offset_rad:.6f}f",
     }
 
 
