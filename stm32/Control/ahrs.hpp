@@ -1,94 +1,61 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
-// AHRS — Mahony complementary filter on the unit quaternion.
-// Fuses body-frame gyro (prediction) with body-frame accel
-// (gravity reference) into a drift-bounded orientation. Runs once per
-// control tick.
-// Gains (Config):
-//   - kp_accel = 0 → accel correction off; pure gyro integration.
-//   - kp_accel > 0 → accel pulls the quaternion toward truth.
-//   - ki_bias  > 0 → gyro bias learned alongside the quaternion.
-// Trust attenuation (smoothstep ramps, no boundary chatter):
-//   - Accel correction scaled by a two-sided weight: 1.0 within
-//     ±accel_trust_full_dev_g of |accel|/g == 1.0, → 0.0 by
-//     accel_trust_zero_dev_g, 0.0 beyond.
-//   - Bias update additionally scaled by a one-sided weight: 1.0 below
-//     gyro_quiescent_full_rad_s, → 0.0 by gyro_quiescent_zero_rad_s.
-//     Spin-rate gate (cf. PX4/ArduPilot/INAV) keeps the bias estimator
-//     from absorbing transient maneuver errors.
-//   All four band fields 0.0 disables attenuation (weight always 1).
-// Convention (NED world, +Z = down):
-//   q = attitude_world_to_body, propagated by right-multiply with a
-//   body-frame angular increment:
-//     v_world = q · v_body ; v_body = q.conjugate() · v_world
-//   World "up" is (0, 0, -1). At rest accel reads specific force along
-//   body "up" (normal force opposes gravity), so a normalised sample is
-//   a direct measurement of "up" in body.
+// Mahony complementary filter on the unit quaternion: the gyro propagates it,
+// the accel pulls it toward gravity. NED; q is attitude_world_to_body.
 
 #pragma once
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <cstdint>
+#include <optional>
 
 #include "shared_state.hpp"
 
 class Ahrs {
  public:
   struct Config {
-    // Tilt-error proportional gain (rad/s per rad of mismatch); 0
-    // disables accel correction. Typical ~1.0.
+    // rad/s per rad of tilt error; 0 is pure gyro integration.
     float kp_accel = 0.0f;
-    // Tilt-error integral gain driving the bias estimator; 0 freezes
-    // bias at zero. Typical ~0.005-0.01.
+    // Integral gain of the gyro-bias estimator; 0 holds the bias at zero.
     float ki_bias = 0.0f;
 
-    // Accel-trust band, as deviations of |a|/g from 1.0: weight 1
-    // inside ±full, ramps to 0 by ±zero. zero <= full disables it.
+    // |a|/g's distance from 1: accel fully trusted inside full, not at all
+    // past zero. zero <= full disables the band.
     float accel_trust_full_dev_g = 0.0f;
     float accel_trust_zero_dev_g = 0.0f;
 
-    // Gyro-quiescence band for the bias path, |gyro| in rad/s: weight 1
-    // below full, ramps to 0 by zero. zero <= full disables it.
+    // |gyro| in rad/s: the bias learns fully below full, not at all past
+    // zero. zero <= full disables the band.
     float gyro_quiescent_full_rad_s = 0.0f;
     float gyro_quiescent_zero_rad_s = 0.0f;
+
+    // |mag|/field_ut's distance from 1: disturbed past enter, clean again
+    // inside clear, each only once held for the hold time.
+    float mag_enter_band = 0.0f;
+    float mag_clear_band = 0.0f;
+    uint32_t mag_verdict_hold_us = 0;
   };
 
   Ahrs() = default;
 
-  // Apply cfg and Reset internal state. Panics on invalid config.
-  // Called once by System::InitComponent.
-  void Init(const Config &cfg);
+  // Panics on an invalid config.
+  void Init(const Config &cfg, SharedState &blackboard);
 
-  // Clear quaternion to identity, gyro bias to zero, internal state to
-  // defaults. Call on arm transitions or after IMU re-init.
-  void Reset();
-
-  // Runtime config swap; preserves quaternion + bias state. Use for
-  // tuning gains at runtime without restarting the filter.
-  // Panics on invalid config.
-  void SetConfig(const Config &cfg);
-
-  const Config &GetConfig() const { return cfg_; }
-
-  // Consume whatever the driver last published to the SharedState's mailbox.
-  // Aggregates the gyro for the rate controller's measurement input, integrates
-  // the quaternion with per-sample Mahony correction, then releases the slot
-  // back to the interrupt.
-  //
-  // The store arrives per call rather than as a member: this class holds no
-  // pointer to it, which is what keeps it a filter and not a service.
-  EstimatorState Process(SharedState &shared);
-
-  // Diagnostics.
-  const Eigen::Quaternionf &Attitude() const { return q_; }
-  const Eigen::Vector3f &GyroBiasEstimate() const { return bias_; }
+  // Consumes the IMU mailbox and hands the slot back to the interrupt.
+  EstimatorState Process();
 
  private:
+  // Timed on the samples' own stamps, so a sample held over ticks counts once.
+  bool TrackMagInterference(float field_ratio, uint32_t sample_us);
+
   Config cfg_{};
+  SharedState *blackboard_ = nullptr;
   Eigen::Quaternionf q_ = Eigen::Quaternionf::Identity();
   Eigen::Vector3f bias_ = Eigen::Vector3f::Zero();
-  uint64_t last_sample_ts_us_ = 0;
-  bool has_last_sample_ts_ = false;
+  // Dates the gap before the next burst's first sample; nullopt until one.
+  std::optional<uint64_t> last_imu_sample_us_;
+  // The first sample that contradicted the verdict; nullopt while none does.
+  std::optional<uint32_t> mag_contrary_since_us_;
 };

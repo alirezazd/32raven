@@ -180,6 +180,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Services/msp_service.cpp
     Services/four_way_service.cpp
     Drivers/esc_bootloader.cpp
+    Services/sensor_health_monitor.cpp
     Services/sentinel.cpp
     Services/telemetry_publisher.cpp
     Services/fc_link.cpp

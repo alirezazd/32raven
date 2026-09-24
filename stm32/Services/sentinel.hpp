@@ -18,10 +18,8 @@
 // all because "it will not arm and will not say why" is its own failure mode,
 // which is why Betaflight carries twenty of these.
 //
-// Sentinel's own, like the phase below: the gate is the only reader, and
-// nothing off the board is told which interlock refused -- the tone a refusal
-// makes is the same whichever it was. A reader that wanted the reason is what
-// would put this back on the blackboard.
+// Sentinel's own: the gate is the only reader, and the blackboard carries only
+// whether one holds, for the handset's marker.
 //
 // Deliberately no never-seen-RC member. Arming over FcLink with no transmitter
 // powered on has to keep working, which is PX4's _manual_control_lost_at_arming
@@ -32,6 +30,7 @@ inline constexpr uint16_t kArmBlockRcLoss = 1u << 2;
 inline constexpr uint16_t kArmBlockLowBattery = 1u << 3;
 inline constexpr uint16_t kArmBlockThrottleHigh = 1u << 4;
 inline constexpr uint16_t kArmBlockGyroUncalibrated = 1u << 5;
+inline constexpr uint16_t kArmBlockMagInterference = 1u << 6;
 
 // How much the RC link is currently trusted. Deliberately not called a
 // failsafe *state*: none of these change what the vehicle does. kGuard flies

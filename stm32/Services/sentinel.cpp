@@ -215,6 +215,7 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
     blockers |= kArmBlockThrottleHigh;
   }
   arm_blockers_ = blockers;
+  blackboard_->SetArmBlocked(blockers != 0u);
 
   // Cleared wherever the switch is not asking, so the next time it is counts
   // as a new question. Without this a pilot who cycles the switch and is
@@ -269,8 +270,13 @@ void Sentinel::Supervise(uint32_t now_us) {
       blackboard_->GetGyroCalibration().source == GyroCalSource::kNone
           ? kArmBlockGyroUncalibrated
           : 0u;
+  // Interference at rest is the site -- rebar, a parked car -- and a take-off
+  // from it is where a yaw error starts.
+  const uint16_t mag_blocker = blackboard_->GetEstimate().mag.interference
+                                   ? kArmBlockMagInterference
+                                   : 0u;
   const uint16_t standing_blockers =
-      state_blockers | BatteryBlocker() | gyro_blocker;
+      state_blockers | BatteryBlocker() | gyro_blocker | mag_blocker;
 
   // The bench states suspend the sample interrupt on purpose, so a frozen
   // heartbeat there is the state machine's doing rather than a stall -- and
@@ -281,6 +287,7 @@ void Sentinel::Supervise(uint32_t now_us) {
     // reasons below are the ones that do not apply: the receiver is switched
     // off, so its silence is not a link the pilot lost.
     arm_blockers_ = standing_blockers;
+    blackboard_->SetArmBlocked(standing_blockers != 0u);
     return;
   }
 

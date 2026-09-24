@@ -1404,6 +1404,15 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
                 f"CONFIG_{zero_sym} must be at least CONFIG_{full_sym}; the "
                 f"{gate} gate treats an inverted pair as no gate at all"
             )
+    # Clearing inside a band wider than the one that entered would flip the
+    # verdict back on the very reading that set it.
+    if sym_int(kconf, "STM32_AHRS_MAG_CLEAR_BAND_MILLI") > sym_int(
+        kconf, "STM32_AHRS_MAG_ENTER_BAND_MILLI"
+    ):
+        raise ValueError(
+            "CONFIG_STM32_AHRS_MAG_CLEAR_BAND_MILLI must be at most "
+            "CONFIG_STM32_AHRS_MAG_ENTER_BAND_MILLI"
+        )
 
     cell_empty_mv = sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV")
     cell_full_mv = sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV")
@@ -2125,6 +2134,13 @@ def _ahrs_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "gyro_quiescent_zero_milli": sym_int(
             kconf, "STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI"
         ),
+        "mag_enter_band_milli": sym_int(
+            kconf, "STM32_AHRS_MAG_ENTER_BAND_MILLI"
+        ),
+        "mag_clear_band_milli": sym_int(
+            kconf, "STM32_AHRS_MAG_CLEAR_BAND_MILLI"
+        ),
+        "mag_verdict_hold_ms": sym_int(kconf, "STM32_AHRS_MAG_VERDICT_HOLD_MS"),
     }
 
 

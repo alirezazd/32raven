@@ -52,7 +52,7 @@ type = "uint8_t"
 
 [stm32.mag.calibration]
 type_name = "MagnetometerCalibration"
-tag = "MGC1"
+tag = "MGC2"
 
 [[stm32.mag.calibration.fields]]
 name = "offsets_ut"
@@ -68,6 +68,10 @@ count = 3
 name = "offdiag"
 type = "float"
 count = 3
+
+[[stm32.mag.calibration.fields]]
+name = "field_ut"
+type = "float"
 
 [[stm32.mag.calibration.fields]]
 name = "calibrated"

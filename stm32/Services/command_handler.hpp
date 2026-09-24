@@ -3,18 +3,20 @@
 
 #pragma once
 
-#include "dispatcher.hpp"
+#include "message.hpp"
 
-struct AppContext;
+struct StateMachineContext;
 
 class CommandHandler {
  public:
   static CommandHandler &GetInstance();
 
-  void Init();
-  bool Dispatch(const AppContext &ctx, const message::Packet &pkt);
+  bool Dispatch(const StateMachineContext &ctx, const message::Packet &pkt);
 
  private:
+  friend class System;
+  void Init();
+
   CommandHandler() = default;
   ~CommandHandler() = default;
   CommandHandler(const CommandHandler &) = delete;

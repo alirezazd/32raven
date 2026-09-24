@@ -10,10 +10,9 @@
 
 #include "common_config.hpp"
 #include "message.hpp"
+#include "rc_receiver.hpp"
+#include "shared_state.hpp"
 #include "uart.hpp"
-
-class RcReceiver;
-class SharedState;
 
 class CrsfLinkService {
  public:
@@ -148,13 +147,6 @@ class CrsfLinkService {
   }
   uint8_t ExpectedRfMode() const { return cfg_.expected_rf_mode; }
 
-  void Init(const Config &cfg, Uart6 &uart, SharedState &blackboard,
-            RcReceiver &rc_receiver);
-
-  CrsfLinkService() = default;
-  ~CrsfLinkService() = default;
-  CrsfLinkService(const CrsfLinkService &) = delete;
-  CrsfLinkService &operator=(const CrsfLinkService &) = delete;
   void PollRx(uint32_t now_us, size_t byte_budget = 128u);
   void PollCommands();
 
@@ -170,6 +162,13 @@ class CrsfLinkService {
 
  private:
   friend class System;
+  void Init(const Config &cfg, Uart6 &uart, SharedState &blackboard,
+            RcReceiver &rc_receiver);
+
+  CrsfLinkService() = default;
+  ~CrsfLinkService() = default;
+  CrsfLinkService(const CrsfLinkService &) = delete;
+  CrsfLinkService &operator=(const CrsfLinkService &) = delete;
 
   struct ElrsRateRow {
     uint8_t rf_mode;

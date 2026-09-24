@@ -219,6 +219,9 @@ struct MagCalibration {
   float offsets_ut[3] = {0.0f, 0.0f, 0.0f};
   float soft_iron[3][3] = {
       {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}};
+  // The field's strength as the fit found it: what a corrected sample's
+  // norm should read.
+  float field_ut = 0.0f;
   bool calibrated = false;
 };
 
@@ -238,11 +241,24 @@ struct ControlLoopLoad {
   uint32_t busy_cycles = 0;
 };
 
+// The compass on its own clock: slower than the control tick, so a sample is
+// held across ticks and carries the stamp that says which one it is.
+struct MagSample {
+  uint32_t timestamp_us = 0;  // zero until the first sample
+  Eigen::Vector3f body_ut = Eigen::Vector3f::Zero();
+  // |body_ut| held away from field_ut long enough to be a field the
+  // calibration never saw. False until calibrated.
+  bool interference = false;
+};
+
 struct EstimatorState {
   uint64_t timestamp_us = 0;
   // Both averaged over the burst the control tick consumed.
   Eigen::Vector3f gyro_body_rad_s = Eigen::Vector3f::Zero();
   Eigen::Vector3f accel_body_mps2 = Eigen::Vector3f::Zero();
+  // Corrected as the accel is, and published unfused: yaw is still the gyro's
+  // alone.
+  MagSample mag{};
   // Body attitude in world (NED).
   Eigen::Quaternionf attitude_world_to_body = Eigen::Quaternionf::Identity();
 };
@@ -319,6 +335,22 @@ struct SystemHealth {
   I2cFaults sensor_i2c{};
 };
 
+struct SensorStatus {
+  bool present = false;  // has reported at least once
+  bool healthy = false;
+};
+
+// As SensorHealthMonitor judged each sensor.
+struct SensorHealth {
+  SensorStatus imu;
+  SensorStatus gps;
+  SensorStatus battery;
+  SensorStatus rc;
+  SensorStatus esc;
+  SensorStatus mag;
+  uint8_t esc_online = 0;  // bit per motor still answering, as valid_mask
+};
+
 struct CrsfLinkData {
   uint32_t timestamp_us = 0;
   uint8_t uplink_rssi_ant1_dbm = 0;
@@ -368,6 +400,7 @@ class SharedState {
   void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
   void UpdateFcLink(const FcLinkData &data) { fc_link_ = data; }
   void UpdateSystemHealth(const SystemHealth &data) { system_health_ = data; }
+  void UpdateSensorHealth(const SensorHealth &data) { sensor_health_ = data; }
   // Written from the TIM5 interrupt. Milliseconds in one word so the store
   // cannot be observed torn, which a 64-bit microsecond count would be.
   void UpdateUptimeMs(uint32_t uptime_ms) { uptime_ms_ = uptime_ms; }
@@ -408,6 +441,7 @@ class SharedState {
   const CrsfLinkData &GetCrsfLink() const { return crsf_link_; }
   const FcLinkData &GetFcLink() const { return fc_link_; }
   const SystemHealth &GetSystemHealth() const { return system_health_; }
+  const SensorHealth &GetSensorHealth() const { return sensor_health_; }
   // Monotonic since boot; wraps at 49.7 days rather than TIM2's 71.6 min.
   uint32_t UptimeMs() const { return uptime_ms_; }
   const ImuHealth &GetImuHealth() const { return imu_health_; }
@@ -430,6 +464,9 @@ class SharedState {
   const UsbStatusData &GetUsbStatus() const { return usb_; }
   FlightMode GetFlightMode() const { return mode_; }
   bool IsArmed() const { return armed_; }
+  // Whether an arm request would be refused right now, without the reason:
+  // the handset's marker wants a yes or no, and the reason stays Sentinel's.
+  bool IsArmBlocked() const { return arm_blocked_; }
   bool IsControlLoopRunning() const { return control_loop_running_; }
   // message::kVehicleFailsafeFlag*. Readable from the control loop, which is
   // what keeps it here rather than behind a Sentinel accessor.
@@ -442,10 +479,11 @@ class SharedState {
   friend class Ahrs;
   ImuBurstSlot &ImuBurstMailbox() { return imu_slot_; }
 
-  // Sentinel is the only writer of both: changing the arm state goes through
+  // Sentinel is the only writer of these: changing the arm state goes through
   // Sentinel::RequestArm, which carries the interlock and the stop frames.
   friend class Sentinel;
   void SetArmed(bool armed) { armed_ = armed; }
+  void SetArmBlocked(bool blocked) { arm_blocked_ = blocked; }
   void SetFailsafeFlags(uint32_t flags) { failsafe_flags_ = flags; }
 
   GpsData gps_{};
@@ -456,6 +494,7 @@ class SharedState {
   CrsfLinkData crsf_link_{};
   FcLinkData fc_link_{};
   SystemHealth system_health_{};
+  SensorHealth sensor_health_{};
   uint32_t uptime_ms_ = 0;
   ImuHealth imu_health_{};
   AccelCalibration accel_calibration_{};
@@ -471,5 +510,6 @@ class SharedState {
   FlightMode mode_ = FlightMode::kAcro;
   uint32_t failsafe_flags_ = 0;
   bool armed_ = false;
+  bool arm_blocked_ = false;
   bool control_loop_running_ = false;
 };

@@ -11,8 +11,6 @@
 #include "message.hpp"
 #include "shared_state.hpp"
 
-class SharedState;
-
 class RcReceiver {
  public:
   struct Config {

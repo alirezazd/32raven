@@ -12,6 +12,16 @@ namespace {
 
 constexpr float kGravityMps2 = 9.80665f;
 
+Eigen::Vector3f CorrectField(const MagCalibration &cal,
+                             const MagnetometerData &mag) {
+  const Eigen::Vector3f raw(mag.x - cal.offsets_ut[0],
+                            mag.y - cal.offsets_ut[1],
+                            mag.z - cal.offsets_ut[2]);
+  return Eigen::Map<const Eigen::Matrix<float, 3, 3, Eigen::RowMajor>>(
+             &cal.soft_iron[0][0]) *
+         raw;
+}
+
 bool IsConfigValid(const Ahrs::Config &cfg) {
   if (cfg.kp_accel < 0.0f) return false;
   if (cfg.ki_bias < 0.0f) return false;
@@ -19,18 +29,16 @@ bool IsConfigValid(const Ahrs::Config &cfg) {
   if (cfg.accel_trust_zero_dev_g < 0.0f) return false;
   if (cfg.gyro_quiescent_full_rad_s < 0.0f) return false;
   if (cfg.gyro_quiescent_zero_rad_s < 0.0f) return false;
+  if (!(cfg.mag_clear_band > 0.0f)) return false;
+  if (cfg.mag_clear_band > cfg.mag_enter_band) return false;
   return true;
 }
 
-// Cubic-Hermite smoothstep on [0, 1]: zero derivative at both endpoints,
-// branchless, ~3 FMAs on Cortex-M4.
+// Zero slope at both ends, so the weights it ramps have no kink to chatter on.
 inline float SmoothStep01(float t) { return t * t * (3.0f - (2.0f * t)); }
 
-// Two-sided trust weight: 1.0 within ±full_dev of the centre, smooth
-// ramp to 0.0 by ±zero_dev, 0.0 beyond. When zero_dev <= full_dev the
-// attenuation is disabled (returns 1.0 unconditionally).
-float TwoSidedTrustWeight(float value, float centre, float full_dev,
-                          float zero_dev) {
+float ComputeTwoSidedTrustWeight(float value, float centre, float full_dev,
+                                 float zero_dev) {
   if (zero_dev <= full_dev) return 1.0f;
   const float dev = std::fabs(value - centre);
   if (dev <= full_dev) return 1.0f;
@@ -39,9 +47,7 @@ float TwoSidedTrustWeight(float value, float centre, float full_dev,
   return 1.0f - SmoothStep01(t);
 }
 
-// One-sided low-pass weight: 1.0 below full, smooth ramp to 0.0 by
-// zero, 0.0 above. When zero <= full the attenuation is disabled.
-float OneSidedQuiescentWeight(float value, float full, float zero) {
+float ComputeOneSidedQuiescentWeight(float value, float full, float zero) {
   if (zero <= full) return 1.0f;
   if (value <= full) return 1.0f;
   if (value >= zero) return 0.0f;
@@ -51,39 +57,32 @@ float OneSidedQuiescentWeight(float value, float full, float zero) {
 
 }  // namespace
 
-void Ahrs::Init(const Config &cfg) {
+void Ahrs::Init(const Config &cfg, SharedState &blackboard) {
   if (!IsConfigValid(cfg)) {
     Panic(ErrorCode::Stm32::kAhrsInvalidConfig);
   }
   cfg_ = cfg;
-  Reset();
+  blackboard_ = &blackboard;
 }
 
-void Ahrs::Reset() {
-  q_ = Eigen::Quaternionf::Identity();
-  bias_ = Eigen::Vector3f::Zero();
-  last_sample_ts_us_ = 0;
-  has_last_sample_ts_ = false;
-}
-
-void Ahrs::SetConfig(const Config &cfg) {
-  if (!IsConfigValid(cfg)) {
-    Panic(ErrorCode::Stm32::kAhrsInvalidConfig);
+EstimatorState Ahrs::Process() {
+  const MagnetometerData &raw_mag = blackboard_->GetMagnetometer();
+  const MagCalibration &mag_cal = blackboard_->GetMagCalibration();
+  MagSample mag{.timestamp_us = raw_mag.timestamp_us,
+                .body_ut = CorrectField(mag_cal, raw_mag)};
+  if (mag_cal.calibrated && mag.timestamp_us != 0u) {
+    mag.interference = TrackMagInterference(
+        mag.body_ut.norm() / mag_cal.field_ut, mag.timestamp_us);
   }
-  cfg_ = cfg;
-}
 
-EstimatorState Ahrs::Process(SharedState &shared) {
-  ImuBurstSlot &inbox = shared.ImuBurstMailbox();
+  ImuBurstSlot &inbox = blackboard_->ImuBurstMailbox();
   const ImuBurst &burst = inbox.burst;
 
-  // Nothing to integrate, so the attitude estimate stands and the kinematic
-  // fields report zero rather than repeating the previous burst's rates.
-  // timestamp_us stays 0, which is what tells a reader the zeros are an absence
-  // and not a measurement of stillness. The slot is left alone: with nothing
-  // published there is nothing to release.
+  // timestamp_us stays 0, so the zero rates read as no data, not stillness.
+  // Nothing was read, so the slot is not released.
   if (!inbox.fresh || burst.count == 0) {
     EstimatorState idle{};
+    idle.mag = mag;
     idle.attitude_world_to_body = q_;
     return idle;
   }
@@ -91,27 +90,23 @@ EstimatorState Ahrs::Process(SharedState &shared) {
   Eigen::Vector3f gyro_accum = Eigen::Vector3f::Zero();
   Eigen::Vector3f accel_accum = Eigen::Vector3f::Zero();
 
-  // Applied here rather than in the driver: the burst carries counts and one
-  // scale, so a float offset has no home in it, and correcting upstream would
-  // feed a calibrator its own output during a run. The log keeps the raw
-  // counts, which is what lets a fit be re-derived from a flight after the fact.
-  const GyroCalibration &gyro_cal = shared.GetGyroCalibration();
+  // Corrected here, not in the driver: a calibrator reading the burst must
+  // see raw counts, and so must the log a fit is re-derived from.
+  const GyroCalibration &gyro_cal = blackboard_->GetGyroCalibration();
   const Eigen::Vector3f gyro_offset{gyro_cal.offsets_rad_s[0],
                                     gyro_cal.offsets_rad_s[1],
                                     gyro_cal.offsets_rad_s[2]};
-  const AccelCalibration &accel_cal = shared.GetAccelCalibration();
+  const AccelCalibration &accel_cal = blackboard_->GetAccelCalibration();
   const Eigen::Vector3f accel_offset{accel_cal.offsets_mps2[0],
                                      accel_cal.offsets_mps2[1],
                                      accel_cal.offsets_mps2[2]};
   const Eigen::Vector3f accel_gain{accel_cal.gains[0], accel_cal.gains[1],
                                    accel_cal.gains[2]};
-  // After the sensor corrections, which are the part's own: the trim turns
-  // the corrected board vectors into the airframe's.
-  const Eigen::Matrix3f &trim = shared.GetBoardTrim().rotation;
+  // After the part's own corrections: it turns board vectors into airframe.
+  const Eigen::Matrix3f &trim = blackboard_->GetBoardTrim().rotation;
 
-  // The burst carries counts and one stamp, so the samples inside it are
-  // spaced by the chip's own dt and the oldest sits a whole burst behind the
-  // newest. Same reconstruction a ULog reader performs on these fields.
+  // One stamp, on the newest sample; the rest sit dt apart behind it, as a
+  // ULog reader reconstructs them.
   const float dt_in_burst_s = burst.dt_us * 1e-6f;
   const uint64_t first_ts_us =
       burst.timestamp_us -
@@ -134,37 +129,27 @@ EstimatorState Ahrs::Process(SharedState &shared) {
     gyro_accum += gyro_meas;
     accel_accum += accel;
 
-    // Sample 0 alone spans a gap the burst cannot describe -- back to the
-    // previous burst's newest sample. The very first sample we ever see (no
-    // prior timestamp) skips integration.
+    // Sample 0 spans the gap back to the previous burst, which only the
+    // stored stamp can date; with none yet it is not integrated.
     float dt_s = dt_in_burst_s;
     if (i == 0) {
       dt_s = 0.0f;
-      if (has_last_sample_ts_ && first_ts_us > last_sample_ts_us_) {
-        dt_s = static_cast<float>(first_ts_us - last_sample_ts_us_) * 1e-6f;
+      if (last_imu_sample_us_ && first_ts_us > *last_imu_sample_us_) {
+        dt_s = static_cast<float>(first_ts_us - *last_imu_sample_us_) * 1e-6f;
       }
     }
     if (dt_s <= 0.0f) continue;
 
-    // Mahony correction term, attenuated by a smooth trust weight.
-    //   v_ref  = q.conjugate() · world_up = where q thinks "up" is,
-    //                                       in body frame
-    //   v_meas = accel.normalized()       = where "up" actually is,
-    //                                       in body frame (specific
-    //                                       force at rest)
-    //   err    = v_meas × v_ref           = body-frame angular velocity
-    //                                       that would rotate ref onto
-    //                                       meas (zero when q correct).
-    // Accel-trust weight decays smoothly from 1.0 inside the
-    // ±accel_trust_full_dev_g band to 0.0 at ±accel_trust_zero_dev_g, so
-    // no chatter at the gate boundary.
+    // At rest the accel measures body "up"; crossed with where q puts up, it
+    // is the body rate that would rotate one onto the other.
     Eigen::Vector3f mes_err = Eigen::Vector3f::Zero();
     const float accel_norm = accel.norm();
     if (accel_norm > 1e-3f) {
       const float accel_norm_g = accel_norm / kGravityMps2;
       const float accel_trust =
-          TwoSidedTrustWeight(accel_norm_g, 1.0f, cfg_.accel_trust_full_dev_g,
-                              cfg_.accel_trust_zero_dev_g);
+          ComputeTwoSidedTrustWeight(accel_norm_g, 1.0f,
+                                     cfg_.accel_trust_full_dev_g,
+                                     cfg_.accel_trust_zero_dev_g);
       if (accel_trust > 0.0f) {
         const Eigen::Vector3f world_up(0.0f, 0.0f, -1.0f);
         const Eigen::Vector3f v_ref = q_.conjugate() * world_up;
@@ -173,22 +158,17 @@ EstimatorState Ahrs::Process(SharedState &shared) {
       }
     }
 
-    // PI gyro-bias update (Mahony & Hamel). mes_err is already accel-trust
-    // weighted; a second |gyro| quiescence gate stops bias learning while
-    // maneuvering. Both gates must be open for a full update.
-    const float gyro_quiescent = OneSidedQuiescentWeight(
+    // Mahony & Hamel's integral term, gated off again while the airframe
+    // spins so a manoeuvre is not learned as bias.
+    const float gyro_quiescent = ComputeOneSidedQuiescentWeight(
         gyro_meas.norm(), cfg_.gyro_quiescent_full_rad_s,
         cfg_.gyro_quiescent_zero_rad_s);
     bias_ -= cfg_.ki_bias * mes_err * dt_s * gyro_quiescent;
 
-    // Corrected body rate. With Config defaults (kp_accel = 0, bias = 0)
-    // this collapses to gyro_meas — pure gyro integration.
     const Eigen::Vector3f gyro_corrected =
         gyro_meas - bias_ + cfg_.kp_accel * mes_err;
 
-    // First-order quaternion integration:
-    //   q_dot = 0.5 · q ⊗ (0, ω)
-    //   q_new ≈ q · (1, 0.5·ω·dt), normalized.
+    // First order: q ⊗ (1, ω·dt/2), renormalised.
     const Eigen::Quaternionf dq(1.0f, 0.5f * gyro_corrected.x() * dt_s,
                                 0.5f * gyro_corrected.y() * dt_s,
                                 0.5f * gyro_corrected.z() * dt_s);
@@ -202,15 +182,34 @@ EstimatorState Ahrs::Process(SharedState &shared) {
   out.timestamp_us = last_ts_us;
   out.gyro_body_rad_s = gyro_accum * inv_count;
   out.accel_body_mps2 = accel_accum * inv_count;
+  out.mag = mag;
   out.attitude_world_to_body = q_;
 
-  last_sample_ts_us_ = last_ts_us;
-  has_last_sample_ts_ = true;
+  last_imu_sample_us_ = last_ts_us;
 
-  // Released only now, with nothing left to read from the slot. Release
-  // ordering so the reads above cannot sink past the store that hands the slot
+  // Keeps the reads above from sinking past the store that hands the slot
   // back to the interrupt.
   std::atomic_signal_fence(std::memory_order_release);
   inbox.fresh = false;
+  return out;
+}
+
+bool Ahrs::TrackMagInterference(float field_ratio, uint32_t sample_us) {
+  // The verdict the previous tick published.
+  const bool interference = blackboard_->GetEstimate().mag.interference;
+  const float band = interference ? cfg_.mag_clear_band : cfg_.mag_enter_band;
+  const bool out = std::fabs(field_ratio - 1.0f) > band;
+  if (out == interference) {
+    mag_contrary_since_us_.reset();
+    return interference;
+  }
+  if (!mag_contrary_since_us_) {
+    mag_contrary_since_us_ = sample_us;
+    return interference;
+  }
+  if (sample_us - *mag_contrary_since_us_ < cfg_.mag_verdict_hold_us) {
+    return interference;
+  }
+  mag_contrary_since_us_.reset();
   return out;
 }

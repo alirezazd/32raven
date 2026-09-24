@@ -560,6 +560,9 @@ inline constexpr Ahrs::Config kAhrsConfig = {
     .accel_trust_zero_dev_g    = {{ ahrs.accel_trust_zero_dev_milli }} * 0.001f,
     .gyro_quiescent_full_rad_s = {{ ahrs.gyro_quiescent_full_milli }} * 0.001f,
     .gyro_quiescent_zero_rad_s = {{ ahrs.gyro_quiescent_zero_milli }} * 0.001f,
+    .mag_enter_band            = {{ ahrs.mag_enter_band_milli }} * 0.001f,
+    .mag_clear_band            = {{ ahrs.mag_clear_band_milli }} * 0.001f,
+    .mag_verdict_hold_us       = {{ ahrs.mag_verdict_hold_ms }}u * 1000u,
 };
 
 {# Outer attitude loop gains (Stage-2 Stabilize mode). Kconfig stores

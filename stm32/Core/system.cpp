@@ -32,6 +32,8 @@ constexpr std::array<System::Component,
         System::Component::kTimeBase,
         System::Component::kGpio,
         System::Component::kUart1,
+        System::Component::kFcLink,
+        System::Component::kCommandHandler,
         System::Component::kSpi1,
         System::Component::kEe,
         System::Component::kBattery,
@@ -59,6 +61,7 @@ constexpr std::array<System::Component,
         System::Component::kRateController,
         System::Component::kAttitudeController,
         System::Component::kSentinel,
+        System::Component::kSensorHealthMonitor,
         System::Component::kTelemetryPublisher,
         System::Component::kSdio,
         System::Component::kLogService,
@@ -133,11 +136,10 @@ void System::Poll(uint32_t now_us) {
   // load is a failsafe that does not exist.
   SentinelSvc().Supervise(now_us);
   PublishSystemHealth(now_us);
+  SensorHealthSvc().Poll(now_us);
   Batt().Poll(now_us);
   Mag().Poll(now_us);
   TelemetryPubSvc().Poll(now_us);
-  // Last, so what the publisher just queued goes out on this pass.
-  FcLinkSvc().Poll();
 }
 
 void System::SuspendFlightComponents() {
@@ -184,7 +186,7 @@ void System::InitComponent(Component c) {
       ::Rcc::GetInstance().Init(kRccConfig);
       break;
     case Component::kTimeBase:
-      System::GetInstance().Time().Init(kTimeBaseConfig, blackboard_);
+      Time().Init(kTimeBaseConfig, blackboard_);
       break;
     case Component::kGpio:
       GPIO::GetInstance().Init(kGpioDefault);
@@ -231,6 +233,12 @@ void System::InitComponent(Component c) {
       break;
     case Component::kUart1:
       Uart1::GetInstance().Init(kUart1Config);
+      break;
+    case Component::kFcLink:
+      FcLinkSvc().Init(Uart1::GetInstance(), blackboard_);
+      break;
+    case Component::kCommandHandler:
+      GetCommandHandler().Init();
       break;
     case Component::kSpi2:
       Spi2::GetInstance().Init(kSpi2Config);
@@ -288,13 +296,16 @@ void System::InitComponent(Component c) {
       mixer_.Init(kMultirotorMixerConfig, blackboard_);
       break;
     case Component::kAhrs:
-      ahrs_.Init(kAhrsConfig);
+      ahrs_.Init(kAhrsConfig, blackboard_);
       break;
     case Component::kRateController:
       rate_controller_.Init(kRateControllerConfig);
       break;
     case Component::kAttitudeController:
       attitude_controller_.Init(kAttitudeControllerConfig);
+      break;
+    case Component::kSensorHealthMonitor:
+      SensorHealthSvc().Init(blackboard_);
       break;
     case Component::kSdio:
       Sdio::GetInstance().Init();

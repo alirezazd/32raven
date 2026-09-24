@@ -6,15 +6,12 @@
 #include <atomic>
 #include <cstdint>
 
+#include "ee.hpp"
 #include "ee_schema.hpp"
+#include "fc_link.hpp"
 #include "mag_fit.hpp"
 #include "message.hpp"
 #include "shared_state.hpp"
-
-class EE;
-class FcLink;
-class SensorCalService;
-class SharedState;
 
 // Averages the gyro's zero-rate bias out of bursts SensorCalService feeds it.
 // Motion or a gap in the samples restarts the run rather than failing it, so
@@ -48,6 +45,7 @@ class GyroCal {
   };
 
   State Status() const { return state_; }
+  bool Running() const { return state_ == State::kCollecting; }
   bool Collecting() const {
     return collecting_.load(std::memory_order_relaxed);
   }
@@ -55,14 +53,13 @@ class GyroCal {
   // The mean a failed run measured, for the line that says so.
   const float *ResultRadS() const { return result_rad_s_; }
 
+ private:
+  friend class SensorCalService;
+  void Init(const Config &cfg, SharedState &blackboard, EE &ee);
   // Control tick. The caller has already validated the burst.
   void Feed(const ImuBurst &burst);
   // Slow loop, where the outcome is reported from.
   State Poll(uint32_t now_us);
-
- private:
-  friend class SensorCalService;
-  void Init(const Config &cfg, SharedState &blackboard, EE &ee);
   // False when the run was refused -- armed, or one already going.
   bool Start(uint32_t now_us);
   void Cancel();
@@ -146,6 +143,9 @@ class AccelCal {
   };
 
   State Status() const { return state_; }
+  bool Running() const {
+    return state_ == State::kDetecting || state_ == State::kCollecting;
+  }
   bool Collecting() const {
     return collecting_.load(std::memory_order_relaxed);
   }
@@ -159,12 +159,11 @@ class AccelCal {
   // but kCollecting, and kCollecting the instant the board is disturbed.
   AccelSide CurrentSide() const { return side_; }
 
-  void Feed(const ImuBurst &burst);
-  State Poll(uint32_t now_us);
-
  private:
   friend class SensorCalService;
   void Init(const Config &cfg, SharedState &blackboard, EE &ee);
+  void Feed(const ImuBurst &burst);
+  State Poll(uint32_t now_us);
   bool Start(uint32_t now_us);
   void Cancel();
 
@@ -294,11 +293,10 @@ class MagCal {
   uint32_t Points() const { return count_; }
   const MagFit &Fit() const { return fit_; }
 
-  State Poll(uint32_t now_us);
-
  private:
   friend class SensorCalService;
   void Init(const Config &cfg, SharedState &blackboard, EE &ee);
+  State Poll(uint32_t now_us);
   // False when the run was refused -- armed, going, or nothing to read: in the
   // bench states the estimator is stale and a run would sit detecting until
   // its deadline.
@@ -406,11 +404,10 @@ class LevelCal {
   // or the store failed.
   bool SetTrim(const message::BoardTrimConfigMsg &trim);
 
-  State Poll(uint32_t now_us);
-
  private:
   friend class SensorCalService;
   void Init(SharedState &blackboard, EE &ee);
+  State Poll(uint32_t now_us);
   bool Start(uint32_t now_us);
   void Cancel();
 

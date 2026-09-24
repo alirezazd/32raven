@@ -27,6 +27,7 @@
 #include "rcc.hpp"
 #include "sdio.hpp"
 #include "sensor_cal_service.hpp"
+#include "sensor_health_monitor.hpp"
 #include "sentinel.hpp"
 #include "shared_state.hpp"
 #include "telemetry_publisher.hpp"
@@ -66,6 +67,8 @@ class System {
     kCrsfLink,
     kLed,
     kUart1,
+    kFcLink,
+    kCommandHandler,
 
     // SECONDARY DRIVERS
     kSpi2,
@@ -88,6 +91,7 @@ class System {
     kRateController,
     kAttitudeController,
     kSentinel,
+    kSensorHealthMonitor,
     kTelemetryPublisher,
     kSdio,
     kLogService,
@@ -130,6 +134,9 @@ class System {
   RateController &RateControllerSvc() { return rate_controller_; }
   AttitudeController &AttitudeControllerSvc() { return attitude_controller_; }
   Sentinel &SentinelSvc() { return Sentinel::GetInstance(); }
+  SensorHealthMonitor &SensorHealthSvc() {
+    return SensorHealthMonitor::GetInstance();
+  }
 
   SharedState &Blackboard() { return blackboard_; }
   // Latched at boot and constant after, so it is read where it is reported

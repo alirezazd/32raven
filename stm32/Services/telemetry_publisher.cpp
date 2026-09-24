@@ -24,47 +24,34 @@
 
 namespace {
 
-// Was RcData::rx_online, recomputed on a tick. Derived at read time instead:
-// silence needs no code, and each consumer is free to pick its own bound --
-// this one only has to answer "is the GCS being shown a live link".
+struct SensorFlags {
+  uint32_t present = 0;
+  uint32_t healthy = 0;
+};
+
+// The wire carries the verdicts as message::kSystemSensorFlag* bits.
+SensorFlags PackSensorFlags(const SensorHealth &health) {
+  SensorFlags flags{};
+  const auto pack = [&flags](const SensorStatus &status, uint32_t bit) {
+    flags.present |= status.present ? bit : 0u;
+    flags.healthy |= status.healthy ? bit : 0u;
+  };
+  pack(health.imu, message::kSystemSensorFlagImu);
+  pack(health.gps, message::kSystemSensorFlagGps);
+  pack(health.battery, message::kSystemSensorFlagBattery);
+  pack(health.rc, message::kSystemSensorFlagRcReceiver);
+  pack(health.esc, message::kSystemSensorFlagEsc);
+  pack(health.mag, message::kSystemSensorFlagMag);
+  return flags;
+}
+
+// Each consumer sets its own bound; this one only answers "is the GCS being
+// shown a live link".
 constexpr uint32_t kRcFreshTimeoutUs = 1500000u;
 // ~200 control ticks at any configured rate. Generous on purpose: this only
 // answers "is the ground station being shown a live loop", and an indicator
 // that flickers on scheduling jitter is worse than one that lags.
 constexpr uint32_t kControlLoopAliveTimeoutUs = 200000u;
-
-// The sample interrupt stamps ImuHealth every burst, so this is ~100 burst
-// periods. Deliberately well past Sentinel's stall window: a path that stalls
-// and is recovered should not blink the health bit on its way back.
-constexpr uint32_t kImuFreshTimeoutUs = 100000u;
-
-// AM32 emits telemetry per commutation, so a running motor stamps this far
-// faster. Sized for an idle disarmed ESC that still answers, which at the
-// round-robin's rate is some sixty turns of the request cycle.
-constexpr uint32_t kEscFreshTimeoutUs = 1000000u;
-
-// Whether the propulsion telemetry is healthy, which is a question about what
-// arrives rather than about what the bus loses on the way. One unterminated
-// wire, four talkers and no arbitration corrupt a frame now and then whether
-// or not anything is wrong, so the error counters answer a different question
-// -- and one of them counts bytes, which no threshold over the sum can mean
-// anything about. Every ESC that has ever answered still answering is the
-// thing the ground station is being told.
-uint8_t EscOnlineMask(const EscTelemetryData &esc, uint32_t now_us) {
-  uint8_t online = 0;
-  for (size_t i = 0; i < esc.motors.size(); ++i) {
-    if ((esc.valid_mask & (1u << i)) != 0u &&
-        ElapsedMicros(now_us, esc.motors[i].timestamp_us) <=
-            kEscFreshTimeoutUs) {
-      online |= static_cast<uint8_t>(1u << i);
-    }
-  }
-  return online;
-}
-
-bool EscTelemetryArriving(const EscTelemetryData &esc, uint32_t now_us) {
-  return EscOnlineMask(esc, now_us) == esc.valid_mask;
-}
 
 // The FcLink ladder, fixed here rather than configured: the link is this
 // project at both ends, and each cadence is what its consumer on the ESP32
@@ -419,53 +406,8 @@ uint16_t TelemetryPublisher::ComputeControlLoopLoad() {
 message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
     uint32_t now_us, uint16_t load) const {
   const SharedState &blackboard = *blackboard_;
-  const GpsData &gps = blackboard.GetGps();
   const BatteryData &battery = blackboard.GetBattery();
-  const RcData &rc = blackboard.GetRc();
-
-  uint32_t sensors_present = 0;
-  uint32_t sensors_health = 0;
-
-  const ImuHealth &imu = blackboard.GetImuHealth();
-  if (imu.timestamp_us != 0u) {
-    sensors_present |= message::kSystemSensorFlagImu;
-    if (IsHealthy(FaultSource::kImu) &&
-        ElapsedMicros(now_us, imu.timestamp_us) <= kImuFreshTimeoutUs) {
-      sensors_health |= message::kSystemSensorFlagImu;
-    }
-  }
-
-  if (gps.timestamp_us != 0u) {
-    sensors_present |= message::kSystemSensorFlagGps;
-    if ((now_us - gps.timestamp_us) <= kGpsFreshTimeoutUs &&
-        gps.fix_type >= 2u && IsHealthy(FaultSource::kGps)) {
-      sensors_health |= message::kSystemSensorFlagGps;
-    }
-  }
-
-  if (battery.voltage > 0.0f) {
-    sensors_present |= message::kSystemSensorFlagBattery;
-    if ((now_us - battery.timestamp_us) <= kBatteryFreshTimeoutUs &&
-        IsHealthy(FaultSource::kBattery)) {
-      sensors_health |= message::kSystemSensorFlagBattery;
-    }
-  }
-
-  if (rc.timestamp_us != 0u) {
-    sensors_present |= message::kSystemSensorFlagRcReceiver;
-    if ((now_us - rc.timestamp_us) <= kRcFreshTimeoutUs &&
-        IsHealthy(FaultSource::kRc)) {
-      sensors_health |= message::kSystemSensorFlagRcReceiver;
-    }
-  }
-
-  const EscTelemetryData &esc = blackboard.GetEscTelemetry();
-  if (esc.valid_mask != 0u) {
-    sensors_present |= message::kSystemSensorFlagEsc;
-    if (EscTelemetryArriving(esc, now_us)) {
-      sensors_health |= message::kSystemSensorFlagEsc;
-    }
-  }
+  const SensorFlags sensors = PackSensorFlags(blackboard.GetSensorHealth());
 
   message::SystemStatusMsg msg{};
   msg.uptime_ms = blackboard_->UptimeMs();
@@ -475,8 +417,8 @@ message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
   msg.loop_counter = loop_running ? blackboard.MainTickCount() : 0u;
   msg.control_loop_load = load;
   msg.error_code = static_cast<uint32_t>(ErrorCode::Common::kOk);
-  msg.sensor_present_flags = sensors_present;
-  msg.sensor_health_flags = sensors_health;
+  msg.sensor_present_flags = sensors.present;
+  msg.sensor_health_flags = sensors.healthy;
   msg.batt_voltage = BatteryVoltageMv(battery);
   msg.batt_current = BatteryCurrentCa(battery);
   msg.batt_remaining = BatteryRemainingPct(battery);
@@ -490,6 +432,38 @@ message::SystemStatusMsg TelemetryPublisher::BuildSystemStatusMsg(
       ElapsedMicros(now_us, blackboard.GetControlLoopLoad().timestamp_us) <
           kControlLoopAliveTimeoutUs;
   msg.flags = loop_alive ? message::kSystemStatusFlagLoopAlive : 0u;
+  return msg;
+}
+
+message::EscTelemetryMsg TelemetryPublisher::BuildEscTelemetryMsg() const {
+  const EscTelemetryData &esc = blackboard_->GetEscTelemetry();
+  message::EscTelemetryMsg msg{};
+  msg.frame_count = esc.frame_count;
+  msg.crc_error_count = esc.crc_error_count;
+  msg.unassigned_frame_count = esc.unassigned_frame_count;
+  msg.rx_drop_bytes = esc.rx_drop_bytes;
+  msg.rx_dma_error_count = esc.rx_dma_error_count;
+  msg.uart_error_count = esc.uart_error_count;
+  msg.valid_mask = esc.valid_mask;
+  msg.online_mask = blackboard_->GetSensorHealth().esc_online;
+  msg.timestamp_us = esc.timestamp_us;
+
+  static_assert(common_config::kAirframeMotorCount <=
+                message::kEscTelemetryMotorCount);
+  for (uint8_t i = 0; i < common_config::kAirframeMotorCount; ++i) {
+    const EscTelemetryMotorData &src = esc.motors[i];
+    msg.rpm[i] = src.rpm;
+    msg.electrical_rpm[i] = src.electrical_rpm;
+    msg.voltage_centivolts[i] =
+        static_cast<uint16_t>(std::lround(src.voltage * 100.0f));
+    msg.current_centiamps[i] =
+        src.current ? static_cast<int16_t>(std::lround(*src.current * 100.0f))
+                    : int16_t{-1};
+    msg.consumption_mah[i] = src.consumption_mah
+                                 ? static_cast<int32_t>(*src.consumption_mah)
+                                 : int32_t{-1};
+    msg.temperature_c[i] = src.temperature_c;
+  }
   return msg;
 }
 
@@ -532,7 +506,8 @@ message::UsbStatusMsg TelemetryPublisher::BuildUsbStatusMsg() const {
 
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishSystemStatus(
     TelemetryPublisher &self, uint32_t now_us) {
-  self.fclink_svc_->SendSystemStatus(
+  self.fclink_svc_->SendPacket(
+      message::MsgId::kSystemStatus,
       self.BuildSystemStatusMsg(now_us, self.ComputeControlLoopLoad()));
   return PublishResult::kSent;
 }
@@ -541,17 +516,19 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishVehicleStatus(
     TelemetryPublisher &self, uint32_t now_us) {
   (void)self;
   (void)now_us;
-  self.fclink_svc_->SendVehicleStatus(self.BuildVehicleStatusMsg());
+  self.fclink_svc_->SendPacket(message::MsgId::kVehicleStatus,
+                               self.BuildVehicleStatusMsg());
   return PublishResult::kSent;
 }
 
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishEscTelemetry(
-    TelemetryPublisher &self, uint32_t now_us) {
+    TelemetryPublisher &self, uint32_t) {
   const EscTelemetryData &esc = self.blackboard_->GetEscTelemetry();
   if (esc.valid_mask == 0u) {
     return PublishResult::kSkipped;
   }
-  self.fclink_svc_->SendEscTelemetry(esc, EscOnlineMask(esc, now_us));
+  self.fclink_svc_->SendPacket(message::MsgId::kEscTelemetry,
+                               self.BuildEscTelemetryMsg());
   return PublishResult::kSent;
 }
 
@@ -594,7 +571,7 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishRcChannels(
   }
   msg.link_quality = link_fresh ? link.uplink_link_quality : 0u;
   msg.flags = flags;
-  self.fclink_svc_->SendRcChannels(msg);
+  self.fclink_svc_->SendPacket(message::MsgId::kRcChannels, msg);
 
   self.rc_sent_timestamp_us_ = rc.timestamp_us;
   self.rc_sent_flags_ = flags;
@@ -677,15 +654,16 @@ message::AttitudeMsg TelemetryPublisher::BuildAttitudeMsg() const {
 
 float TelemetryPublisher::CompassHeading() const {
   constexpr float kMinFieldMicrotesla = 5.0f;
-  if (blackboard_->GetMagnetometer().timestamp_us == 0u) {
+  const EstimatorState &estimate = blackboard_->GetEstimate();
+  if (estimate.mag.timestamp_us == 0u) {
     return std::numeric_limits<float>::quiet_NaN();
   }
-  const Eigen::Vector3f field = CorrectedField();
+  const Eigen::Vector3f &field = estimate.mag.body_ut;
   if (field.norm() < kMinFieldMicrotesla) {
     return std::numeric_limits<float>::quiet_NaN();
   }
-  const math::EulerZyx att = math::EulerZyxFromQuaternion(
-      blackboard_->GetEstimate().attitude_world_to_body);
+  const math::EulerZyx att =
+      math::EulerZyxFromQuaternion(estimate.attitude_world_to_body);
   const float sin_roll = std::sin(att.roll);
   const float cos_roll = std::cos(att.roll);
   const float sin_pitch = std::sin(att.pitch);
@@ -744,24 +722,6 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishAttitude(
   self.attitude_sent_timestamp_us_ = estimate.timestamp_us;
   self.have_attitude_ = true;
   return PublishResult::kSent;
-}
-
-// The iron correction is applied here rather than in the driver, for the
-// reason the accel's is applied in the estimator: the calibrator reads the
-// raw vector and must not be fed its own output, and the log keeps the raw
-// field so a fit can be re-derived from a flight.
-Eigen::Vector3f TelemetryPublisher::CorrectedField() const {
-  const MagnetometerData &mag = blackboard_->GetMagnetometer();
-  const MagCalibration &cal = blackboard_->GetMagCalibration();
-  const float raw[3] = {mag.x - cal.offsets_ut[0], mag.y - cal.offsets_ut[1],
-                        mag.z - cal.offsets_ut[2]};
-  Eigen::Vector3f corrected = Eigen::Vector3f::Zero();
-  for (int row = 0; row < 3; ++row) {
-    for (int col = 0; col < 3; ++col) {
-      corrected[row] += cal.soft_iron[row][col] * raw[col];
-    }
-  }
-  return corrected;
 }
 
 TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfTopic(
@@ -832,7 +792,6 @@ void TelemetryPublisher::Init(SharedState &blackboard, FcLink &fclink,
   blackboard_ = &blackboard;
   fclink_svc_ = &fclink;
   crsf_svc_ = &crsf;
-  last_link_window_us_ = now_us;
   fclink_.scheduler.Init(kFcLinkTopicConfigs, fclink_.states, kFcLinkStaggerUs,
                          now_us);
   crsf_configs_ = kCrsfTopicConfigs;
@@ -866,33 +825,7 @@ void TelemetryPublisher::PollGroup(Group<N> &group,
   }
 }
 
-void TelemetryPublisher::UpdateFaultWindows(uint32_t now_us) {
-  if ((now_us - last_link_window_us_) < kLinkErrorWindowUs) {
-    return;
-  }
-  last_link_window_us_ = now_us;
-
-  const SystemHealth &health = blackboard_->GetSystemHealth();
-
-  // Ordered by FaultSource. Transport plus the parser above it, because a peer
-  // emitting garbage over a flawless UART is not healthy. The IMU and the
-  // battery come pre-summed: path_faults already folds the IMU's bus in beside
-  // its parser, and nothing frames an ADC reading.
-  const std::array<uint32_t, std::to_underlying(FaultSource::kCount)> totals = {
-      blackboard_->GetImuHealth().path_faults,
-      health.gps_uart.Total() + blackboard_->GetGps().checksum_failures,
-      health.rc_uart.Total() + blackboard_->GetCrsfLink().checksum_failures,
-      health.batt_adc.Total(),
-  };
-
-  for (size_t i = 0; i < totals.size(); ++i) {
-    fault_windows_[i].healthy = totals[i] == fault_windows_[i].last_total;
-    fault_windows_[i].last_total = totals[i];
-  }
-}
-
 void TelemetryPublisher::Poll(uint32_t now_us) {
-  UpdateFaultWindows(now_us);
   FitCrsfLadder();
 
   static constexpr std::array<Publish, kFcLinkTopicCount> kFcLinkPublishers = {

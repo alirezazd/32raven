@@ -8,11 +8,10 @@
 #include <optional>
 
 #include "ee.hpp"
+#include "gpio.hpp"
 #include "icm42688p_reg.hpp"
 #include "shared_state.hpp"
 #include "spi.hpp"
-
-class GPIO;
 
 class Icm42688p {
  public:

@@ -227,7 +227,7 @@ void EncodeTemperaturePayload(const EscTelemetryData &esc,
 // EdgeTX renders this as the FM field, so it is the one status the pilot reads
 // without looking away from the aircraft. Betaflight's vocabulary, because
 // that is what the handset's users already know how to read.
-uint8_t EncodeFlightModePayload(FlightMode mode, bool armed,
+uint8_t EncodeFlightModePayload(FlightMode mode, bool armed, bool arm_blocked,
                                 uint8_t payload[kFlightModePayloadSize]) {
   const char *name = (mode == FlightMode::kStabilize) ? "STAB" : "ACRO";
   uint8_t len = 0;
@@ -235,10 +235,8 @@ uint8_t EncodeFlightModePayload(FlightMode mode, bool armed,
     payload[len] = static_cast<uint8_t>(name[len]);
     len++;
   }
-  // Betaflight's disarmed markers are '*' ready, '!' arming blocked. Nothing
-  // here can say blocked yet, so the honest answer is the one it can prove.
   if (!armed) {
-    payload[len++] = static_cast<uint8_t>('*');
+    payload[len++] = static_cast<uint8_t>(arm_blocked ? '!' : '*');
   }
   payload[len++] = 0u;
   return len;
@@ -427,9 +425,9 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
     }
     case TelemetryTopic::kFlightMode: {
       frame.type = kCrsfFrameTypeFlightMode;
-      frame.len = EncodeFlightModePayload(blackboard_->GetFlightMode(),
-                                          blackboard_->IsArmed(),
-                                          frame.payload.data());
+      frame.len = EncodeFlightModePayload(
+          blackboard_->GetFlightMode(), blackboard_->IsArmed(),
+          blackboard_->IsArmBlocked(), frame.payload.data());
       return frame;
     }
     case TelemetryTopic::kAttitude: {

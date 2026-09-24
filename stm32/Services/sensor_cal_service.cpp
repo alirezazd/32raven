@@ -199,10 +199,6 @@ void GyroCal::Feed(const ImuBurst &burst) {
 }
 
 GyroCal::State GyroCal::Poll(uint32_t now_us) {
-  if (state_ != State::kCollecting) {
-    return state_;
-  }
-
   // Latched here rather than on the control tick, so the tick's gate stays one
   // load. Up to a main tick of samples lands after the arm, and goes out with
   // the run that abandons them.
@@ -496,10 +492,6 @@ void AccelCal::Feed(const ImuBurst &burst) {
 }
 
 AccelCal::State AccelCal::Poll(uint32_t now_us) {
-  if (state_ != State::kDetecting && state_ != State::kCollecting) {
-    return state_;
-  }
-
   if (blackboard_->IsArmed()) {
     collecting_.store(false, std::memory_order_relaxed);
     failure_ = Failure::kArmed;
@@ -567,6 +559,10 @@ void MagCal::Init(const Config &cfg, SharedState &blackboard, EE &ee) {
 
 bool MagCal::IsPlausible(const ee_schema::MagnetometerCalibration &cal) {
   constexpr float kMaxOffsetUt = 200.0f;
+  if (!(cal.field_ut >= MagFit::kMinRadius * kMicroteslaPerGauss) ||
+      !(cal.field_ut < MagFit::kMaxRadius * kMicroteslaPerGauss)) {
+    return false;
+  }
   for (int axis = 0; axis < 3; ++axis) {
     if (!(cal.diag[axis] > 0.5f) || !(cal.diag[axis] < 2.0f)) {
       return false;
@@ -595,6 +591,7 @@ void MagCal::Publish() {
     published.soft_iron[2][0] = record_.offdiag[1];
     published.soft_iron[1][2] = record_.offdiag[2];
     published.soft_iron[2][1] = record_.offdiag[2];
+    published.field_ut = record_.field_ut;
     published.calibrated = true;
   }
   blackboard_->UpdateMagCalibration(published);
@@ -653,9 +650,6 @@ void MagCal::BeginDetecting() {
 }
 
 MagCal::State MagCal::Poll(uint32_t now_us) {
-  if (!Running()) {
-    return state_;
-  }
   if (blackboard_->IsArmed()) {
     failure_ = Failure::kArmed;
     state_ = State::kFailed;
@@ -905,6 +899,7 @@ void MagCal::PollFitting() {
     cal.diag[axis] = result_.diag(axis);
     cal.offdiag[axis] = result_.offdiag(axis);
   }
+  cal.field_ut = result_.radius * kMicroteslaPerGauss;
   cal.calibrated = 1u;
   if (!Store(cal)) {
     failure_ = Failure::kStore;
@@ -1042,9 +1037,6 @@ void LevelCal::BeginWindow(uint32_t now_us) {
 }
 
 LevelCal::State LevelCal::Poll(uint32_t now_us) {
-  if (!Running()) {
-    return state_;
-  }
   if (blackboard_->IsArmed()) {
     failure_ = Failure::kArmed;
     state_ = State::kFailed;
@@ -1208,9 +1200,8 @@ bool SensorCalService::StartGyro(uint32_t now_us) {
   const bool started = gyro_.Start(now_us);
   if (started) {
     gyro_auto_ = false;
-    // A host run has a page waiting on it. Poll compares the run's state
-    // before and after its own step, so the edges made here and in Cancel are
-    // reported where they happen.
+    // A host run has a page waiting on it. Poll only reports how a gyro run
+    // ends, so its start is reported here and its cancel in Cancel.
     ReportCal(message::CalSensor::kGyro, message::CalState::kCollecting, 0,
               AccelSide::kCount, 0, false);
   }
@@ -1305,12 +1296,15 @@ void SensorCalService::Cancel() {
 }
 
 void SensorCalService::Poll(uint32_t now_us) {
-  // Reported on the edge, not the value: a run sits in kApplied or kFailed
-  // until the next Start, and the operator wants one tone, not one per tick.
-  const GyroCal::State before = gyro_.Status();
-  const GyroCal::State after = gyro_.Poll(now_us);
-  if (after != before) {
-    ReportGyro(after);
+  // Only a running calibrator is polled, but the edges below are compared
+  // every pass: Start and Cancel make theirs outside Poll.
+  if (gyro_.Running()) {
+    // Reported on the edge, not the value: a run sits in kApplied or kFailed
+    // until the next Start, and the operator wants one tone, not one per tick.
+    const GyroCal::State outcome = gyro_.Poll(now_us);
+    if (outcome != GyroCal::State::kCollecting) {
+      ReportGyro(outcome);
+    }
   }
   ScheduleGyro(now_us);
 
@@ -1320,7 +1314,10 @@ void SensorCalService::Poll(uint32_t now_us) {
   // Two of the three are Feed's to make, so the comparison is against what was
   // last reported -- a before/after pair taken around Poll would already carry
   // Feed's work in both halves and never differ.
-  const AccelCal::State accel_state = accel_.Poll(now_us);
+  if (accel_.Running()) {
+    accel_.Poll(now_us);
+  }
+  const AccelCal::State accel_state = accel_.Status();
   const uint8_t sides = accel_.SidesDone();
   const AccelSide side = accel_.CurrentSide();
   if (accel_state != reported_accel_state_ || sides != reported_accel_sides_ ||
@@ -1332,7 +1329,10 @@ void SensorCalService::Poll(uint32_t now_us) {
     ReportAccel(accel_state, sides, side, captured);
   }
 
-  const MagCal::State mag_state = mag_.Poll(now_us);
+  if (mag_.Running()) {
+    mag_.Poll(now_us);
+  }
+  const MagCal::State mag_state = mag_.Status();
   const uint8_t mag_sides = mag_.SidesDone();
   const AccelSide mag_side = mag_.CurrentSide();
   const uint8_t progress = mag_.Progress();
@@ -1354,7 +1354,10 @@ void SensorCalService::Poll(uint32_t now_us) {
     ReportMag(mag_state, mag_sides, mag_side, progress, captured, turn);
   }
 
-  const LevelCal::State level_state = level_.Poll(now_us);
+  if (level_.Running()) {
+    level_.Poll(now_us);
+  }
+  const LevelCal::State level_state = level_.Status();
   if (level_state != reported_level_state_) {
     reported_level_state_ = level_state;
     ReportLevel(level_state);

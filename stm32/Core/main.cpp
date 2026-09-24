@@ -1,53 +1,33 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Alireza Azadi
 
-#include "ctx.hpp"
-#include "states.hpp"
+#include "state_machine_context.hpp"
 #include "system.hpp"
 
 namespace {
 
-AppContext app{};
-StateMachine<AppContext> sm(app);
-
-StandbyState standby_state;
-ArmedState armed_state;
-EscConfigState esc_config_state;
-MscState msc_state;
+StateMachineContext ctx{};
+StateMachine<StateMachineContext> sm(ctx);
 
 }  // namespace
 
-// The control tick, body of PendSV_Handler. Nothing here calls it: the sample
-// interrupt pends PendSV once a burst is parsed, so the rate is the IMU's, not
-// the main loop's, and this runs above every thread-mode caller below.
+// The control tick is phase-locked to the IMU's, so the IMU tick drives it.
 extern "C" void ImuTick(void) {
-  // The burst lands in the SharedState's mailbox and Ahrs releases it once it
-  // has consumed -- so there is nothing to acknowledge here. The sample
-  // interrupt can pend this before main() has assigned the states, which is why
-  // the hook is checked rather than assumed.
-  if (app.control_tick_state != nullptr) {
-    app.control_tick_state->OnControlTick(app);
+  if (ctx.control_tick_state != nullptr) {
+    ctx.control_tick_state->OnControlTick(ctx);
   }
 }
 
 int main(void) {
   System::GetInstance().Init();
-  app.sys = &System::GetInstance();
-  app.sm = &sm;
-  app.standby_state = &standby_state;
-  app.armed_state = &armed_state;
-  app.esc_config_state = &esc_config_state;
-  app.msc_state = &msc_state;
-  System::GetInstance().GetCommandHandler().Init();
-  System::GetInstance().FcLinkSvc().Init(&app, Uart1::GetInstance(),
-                                         System::GetInstance().Blackboard());
+  ctx.sm = &sm;
 
-  app.now_us = app.sys->Time().Micros();
-  sm.Start(standby_state);
+  ctx.now_us = System::GetInstance().Time().Micros();
+  sm.Start(ctx.standby_state);
   while (1) {
-    app.now_us = app.sys->Time().Micros();
-    app.sm->Step();
-    app.sys->Wdg().Kick();  // main-loop liveness; wedged loop -> reset
+    ctx.now_us = System::GetInstance().Time().Micros();
+    ctx.sm->Step();
+    System::GetInstance().Wdg().Kick();
     __WFI();
   }
 }

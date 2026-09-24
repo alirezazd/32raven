@@ -2,42 +2,45 @@
 // Copyright (C) 2026 Alireza Azadi
 
 #pragma once
-#include "ctx.hpp"
 #include "icm42688p.hpp"
 #include "state_machine.hpp"
 
+struct StateMachineContext;
+
 struct IControlTickState {
   virtual ~IControlTickState() = default;
-  virtual void OnControlTick(AppContext &ctx) = 0;
+  virtual void OnControlTick(StateMachineContext &ctx) = 0;
 };
 
-struct StandbyState : public IState<AppContext>, public IControlTickState {
+struct StandbyState : public IState<StateMachineContext>,
+                      public IControlTickState {
   const char *Name() const override { return "Standby"; }
-  void OnEnter(AppContext &ctx) override;
-  void OnStep(AppContext &ctx) override;
-  void OnControlTick(AppContext &ctx) override;
+  void OnEnter(StateMachineContext &ctx) override;
+  void OnStep(StateMachineContext &ctx) override;
+  void OnControlTick(StateMachineContext &ctx) override;
 };
 
-struct ArmedState : public IState<AppContext>, public IControlTickState {
+struct ArmedState : public IState<StateMachineContext>,
+                    public IControlTickState {
   const char *Name() const override { return "Armed"; }
-  void OnEnter(AppContext &ctx) override;
-  void OnExit(AppContext &ctx) override;
-  void OnStep(AppContext &ctx) override;
-  void OnControlTick(AppContext &ctx) override;
+  void OnEnter(StateMachineContext &ctx) override;
+  void OnExit(StateMachineContext &ctx) override;
+  void OnStep(StateMachineContext &ctx) override;
+  void OnControlTick(StateMachineContext &ctx) override;
 };
 
-struct EscConfigState : public IState<AppContext> {
+struct EscConfigState : public IState<StateMachineContext> {
   const char *Name() const override { return "EscConfig"; }
-  void OnEnter(AppContext &ctx) override;
-  void OnExit(AppContext &ctx) override;
-  void OnStep(AppContext &ctx) override;
+  void OnEnter(StateMachineContext &ctx) override;
+  void OnExit(StateMachineContext &ctx) override;
+  void OnStep(StateMachineContext &ctx) override;
 
  private:
 };
 
-struct MscState : public IState<AppContext> {
+struct MscState : public IState<StateMachineContext> {
   const char *Name() const override { return "Msc"; }
-  void OnEnter(AppContext &ctx) override;
-  void OnExit(AppContext &ctx) override;
-  void OnStep(AppContext &ctx) override;
+  void OnEnter(StateMachineContext &ctx) override;
+  void OnExit(StateMachineContext &ctx) override;
+  void OnStep(StateMachineContext &ctx) override;
 };

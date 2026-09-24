@@ -7,11 +7,10 @@
 #include <cstdint>
 #include <span>
 
+#include "log_service.hpp"
 #include "sdio.hpp"
-
-class UsbCdc;
-class LogService;
-class SharedState;
+#include "shared_state.hpp"
+#include "usb_cdc.hpp"
 
 // SCSI-over-BOT for the SD card: the host owns the volume for the whole
 // session -- reads, writes, deletes, even a reformat -- and the firmware

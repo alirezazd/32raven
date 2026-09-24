@@ -4,9 +4,8 @@
 #pragma once
 #include <cstdint>
 
+#include "gpio.hpp"
 #include "stm32f4xx.h"
-
-class GPIO;
 
 class Button {
  public:

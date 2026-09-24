@@ -3,27 +3,16 @@
 
 #pragma once
 
-#include <Eigen/Core>
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
 
 #include "crsf_link_service.hpp"
+#include "fc_link.hpp"
+#include "message.hpp"
+#include "shared_state.hpp"
 #include "topic_scheduler.hpp"
-
-class FcLink;
-class SharedState;
-struct BatteryData;
-
-namespace message {
-struct AttitudeMsg;
-struct GpsData;
-struct SystemStatusMsg;
-struct UsbStatusMsg;
-struct VehicleStatusMsg;
-}  // namespace message
 
 // Every periodic publication on this board. The FcLink group's cadences are
 // fixed in the .cpp: both ends of that link are this project, each consumer's
@@ -70,42 +59,6 @@ class TelemetryPublisher {
 
   void Init(SharedState &blackboard, FcLink &fclink, CrsfLinkService &crsf,
             uint32_t now_us);
-
-  // Faults belong to the sensor whose path suffered them, so each folds into
-  // that sensor's health bit rather than getting a field of its own. FcLink's
-  // own UART is absent on purpose: a report about FcLink's transport only
-  // arrives over FcLink when it was not needed.
-  //
-  // Every counter behind these is a since-boot total that nothing resets, so
-  // the window is what keeps `onboard_control_sensors_health` meaning what
-  // MAVLink says it means -- an error now, not an error ever. A ground station
-  // that wants "degraded this session" holds that itself; it sees every frame,
-  // where the vehicle would have to lie in all of them to say the same thing.
-  struct FaultWindow {
-    uint32_t last_total = 0;
-    bool healthy = true;
-  };
-
-  // Indexes fault_windows_. Every sensor that counts a fault appears; the
-  // window is only half of each bit, which also has to be fresh.
-  enum class FaultSource : uint8_t {
-    kImu,
-    kGps,
-    kRc,
-    kBattery,
-    kCount,
-  };
-
-  // Long enough that a single retried DMA error does not hold a sensor
-  // unhealthy across a whole GCS refresh, short enough to still catch a
-  // repeating fault.
-  static constexpr uint32_t kLinkErrorWindowUs = 1000000u;
-
-  void UpdateFaultWindows(uint32_t now_us);
-  // Only the window: the sensor's own bit also has to be fresh.
-  bool IsHealthy(FaultSource source) const {
-    return fault_windows_[std::to_underlying(source)].healthy;
-  }
 
   // The .cpp's config array is built in this order and indexed by it.
   enum class FcLinkTopic : uint8_t {
@@ -156,10 +109,10 @@ class TelemetryPublisher {
   message::SystemStatusMsg BuildSystemStatusMsg(uint32_t now_us,
                                                 uint16_t load) const;
   message::VehicleStatusMsg BuildVehicleStatusMsg() const;
+  message::EscTelemetryMsg BuildEscTelemetryMsg() const;
   message::UsbStatusMsg BuildUsbStatusMsg() const;
   message::GpsData BuildGpsMsg() const;
   message::AttitudeMsg BuildAttitudeMsg() const;
-  Eigen::Vector3f CorrectedField() const;
   // Tilt-compensated bearing of the corrected field, true; NaN while the
   // field is too short to point.
   float CompassHeading() const;
@@ -216,9 +169,6 @@ class TelemetryPublisher {
   SharedState *blackboard_ = nullptr;
   FcLink *fclink_svc_ = nullptr;
   CrsfLinkService *crsf_svc_ = nullptr;
-  uint32_t last_link_window_us_ = 0;
-  std::array<FaultWindow, std::to_underlying(FaultSource::kCount)>
-      fault_windows_{};
   Group<kFcLinkTopicCount> fclink_{};  // -> UART1, the ESP32
   Group<kCrsfTopicCount> crsf_{};      // -> UART6, the receiver
   bool initialized_ = false;

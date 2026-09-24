@@ -819,10 +819,11 @@ void LogService::AppendDefinitions(uint64_t now64) {
   std::memcpy(&accel_values[3], accel_cal.gains, sizeof(accel_cal.gains));
   AppendInfo("float[6] accel_calibration", accel_values, sizeof(accel_values));
   const MagCalibration &mag_cal = blackboard_->GetMagCalibration();
-  float mag_values[12];
+  float mag_values[13];
   std::memcpy(&mag_values[0], mag_cal.offsets_ut, sizeof(mag_cal.offsets_ut));
   std::memcpy(&mag_values[3], mag_cal.soft_iron, sizeof(mag_cal.soft_iron));
-  AppendInfo("float[12] mag_calibration", mag_values, sizeof(mag_values));
+  mag_values[12] = mag_cal.field_ut;
+  AppendInfo("float[13] mag_calibration", mag_values, sizeof(mag_values));
   const BoardTrim &trim = blackboard_->GetBoardTrim();
   float trim_values[9];
   for (int row = 0; row < 3; ++row) {

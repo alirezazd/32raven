@@ -4326,6 +4326,37 @@ config STM32_AHRS_GYRO_QUIESCENT_ZERO_MILLI
       maneuvering and accel is unreliable. Must be ≥ the full-update
       threshold; setting it equal never freezes the estimator at all.
 
+config STM32_AHRS_MAG_ENTER_BAND_MILLI
+    int "Compass interference: enter band (x1000)"
+    range 1 1000
+    default 150
+    help
+      The compass is judged disturbed once its corrected field strength
+      has stayed outside ±this share of the strength its calibration
+      found for the hold time below, scaled by 1000 (150 = ±15 %). A good
+      calibration scatters a few percent; a magnet or a motor moves it
+      tens. While disturbed, the ground station shows the compass as
+      unhealthy and the vehicle refuses to arm.
+
+config STM32_AHRS_MAG_CLEAR_BAND_MILLI
+    int "Compass interference: clear band (x1000)"
+    range 1 1000
+    default 100
+    help
+      A disturbed compass is judged clean again once its field strength
+      has stayed inside ±this share for the hold time below, scaled by
+      1000 (100 = ±10 %). Must be at most the enter band: the gap between
+      the two keeps a reading near the edge from flipping the verdict.
+
+config STM32_AHRS_MAG_VERDICT_HOLD_MS
+    int "Compass interference: hold time (ms)"
+    range 100 10000
+    default 500
+    help
+      How long the field strength must stay on the other side of a band
+      before the verdict changes, in either direction. Timed on the
+      compass's own samples, so it does not depend on its data rate.
+
 endmenu
 
 menu "Rate Controller"

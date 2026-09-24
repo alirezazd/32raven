@@ -3,15 +3,13 @@
 
 #include "fc_link.hpp"
 
-#include <cmath>
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
 #include <optional>
-#include <span>
 
 #include "checksum.hpp"
-#include "ctx.hpp"
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "system.hpp"
@@ -22,139 +20,101 @@ FcLink &FcLink::GetInstance() {
   return instance;
 }
 
-void FcLink::Init(const AppContext *ctx, Uart1 &uart, SharedState &blackboard) {
+void FcLink::Init(Uart1 &uart, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kFcLinkReinit);
   }
   initialized_ = true;
-  ctx_ = ctx;
   uart_ = &uart;
   blackboard_ = &blackboard;
 }
 
-void FcLink::NoteValidFrame() {
-  if (blackboard_ == nullptr) {
-    return;
-  }
-  FcLinkData next = blackboard_->GetFcLink();
-  next.timestamp_us = ctx_->now_us;
-  blackboard_->UpdateFcLink(next);
-}
-
-void FcLink::NoteChecksumFailure() {
-  checksum_failures_ = checksum_failures_ + 1u;
-  if (blackboard_ == nullptr) {
-    return;
-  }
-  FcLinkData next = blackboard_->GetFcLink();
-  next.checksum_failures = checksum_failures_;
-  blackboard_->UpdateFcLink(next);
-}
-
-void FcLink::Poll(size_t rx_budget, size_t tx_budget) {
-  if (!ctx_) return;
-
-  auto &uart = *uart_;
-
-  // 1. RX Parsing
-  size_t rx_count = 0;
-  while (rx_count < rx_budget) {
-    const std::optional<uint8_t> next = uart.ReadByte();
+std::optional<message::Packet> FcLink::PopPacket(uint32_t now_us) {
+  while (rx_budget_left_ > 0) {
+    const std::optional<uint8_t> next = uart_->ReadByte();
     if (!next) {
       break;
     }
     const uint8_t byte = next.value();
-    rx_count++;
+    rx_budget_left_--;
+    message::Header &header = rx_pkt_.header;
     switch (rx_state_) {
       case RxState::kMagic1:
         if (byte == message::kMagic1) rx_state_ = RxState::kMagic2;
         break;
       case RxState::kMagic2:
-        if (byte == message::kMagic2)
-          rx_state_ = RxState::kId;
-        else
-          rx_state_ = RxState::kMagic1;
+        rx_state_ = byte == message::kMagic2 ? RxState::kId : RxState::kMagic1;
         break;
       case RxState::kId:
-        rx_pkt_internal_.id = byte;
+        header.id = byte;
         rx_state_ = RxState::kLen;
         break;
       case RxState::kLen:
-        rx_len_ = byte;
+        header.len = byte;
         rx_idx_ = 0;
         if (!message::IsPayloadLengthValid(
-                static_cast<message::MsgId>(rx_pkt_internal_.id), rx_len_)) {
+                static_cast<message::MsgId>(header.id), header.len)) {
           rx_state_ = RxState::kMagic1;
           break;
         }
-        rx_state_ = (rx_len_ > 0) ? RxState::kPayload : RxState::kCrc1;
+        rx_state_ = header.len > 0 ? RxState::kPayload : RxState::kCrc1;
         break;
       case RxState::kPayload:
-        rx_pkt_internal_.payload[rx_idx_++] = byte;
-        if (rx_idx_ >= rx_len_) rx_state_ = RxState::kCrc1;
+        rx_pkt_.payload[rx_idx_++] = byte;
+        if (rx_idx_ >= header.len) rx_state_ = RxState::kCrc1;
         break;
       case RxState::kCrc1:
-        rx_pkt_internal_.crc = byte;
+        rx_pkt_.crc = byte;
         rx_state_ = RxState::kCrc2;
         break;
-      case RxState::kCrc2:
-        rx_pkt_internal_.crc |= ((uint16_t)byte << 8);
-
-        {
-          // Rebuild header+payload to recompute CRC over the wire format.
-          uint8_t check_buf[sizeof(message::Header) + message::kMaxPayload];
-          message::Header *h = (message::Header *)check_buf;
-          h->magic[0] = message::kMagic1;
-          h->magic[1] = message::kMagic2;
-          h->id = rx_pkt_internal_.id;
-          h->len = rx_len_;
-          if (rx_len_ > 0)
-            memcpy(check_buf + sizeof(message::Header),
-                   rx_pkt_internal_.payload, rx_len_);
-
-          // Ahead of the id/len check, not behind it: corruption lands in the
-          // id as readily as the payload, and a frame rejected as unknown
-          // would leave the fault that caused it uncounted.
-          if (checksum::XModem(std::span{check_buf}.first(
-                  sizeof(message::Header) + rx_len_)) != rx_pkt_internal_.crc) {
-            NoteChecksumFailure();
-          } else if (message::IsPacketValid(rx_pkt_internal_.id,
-                                            rx_pkt_internal_.payload,
-                                            rx_len_)) {
-            message::Packet pkt;
-            pkt.header.id = rx_pkt_internal_.id;
-            pkt.header.len = rx_len_;
-            pkt.crc = rx_pkt_internal_.crc;
-            if (rx_len_ > 0)
-              memcpy(pkt.payload, rx_pkt_internal_.payload, rx_len_);
-
-            NoteValidFrame();
-            CommandHandler::GetInstance().Dispatch(*ctx_, pkt);
-          }
-        }
+      case RxState::kCrc2: {
+        rx_pkt_.crc |= static_cast<uint16_t>(byte << 8);
         rx_state_ = RxState::kMagic1;
-        break;
+
+        uint16_t crc = 0;
+        crc = checksum::XModemUpdate(crc, message::kMagic1);
+        crc = checksum::XModemUpdate(crc, message::kMagic2);
+        crc = checksum::XModemUpdate(crc, header.id);
+        crc = checksum::XModemUpdate(crc, header.len);
+        for (uint8_t i = 0; i < header.len; ++i) {
+          crc = checksum::XModemUpdate(crc, rx_pkt_.payload[i]);
+        }
+
+        FcLinkData link = blackboard_->GetFcLink();
+        // Before the id/len check: a corrupt id rejected as unknown would leave
+        // the fault that caused it uncounted.
+        if (crc != rx_pkt_.crc) {
+          link.checksum_failures++;
+          blackboard_->UpdateFcLink(link);
+          break;
+        }
+        if (!message::IsPacketValid(header.id, rx_pkt_.payload, header.len)) {
+          break;
+        }
+        // Only a frame that passed its CRC is the peer being heard from.
+        link.timestamp_us = now_us;
+        blackboard_->UpdateFcLink(link);
+        return rx_pkt_;
+      }
     }
   }
+  return std::nullopt;
+}
 
-  // 2. TX Flushing (RingBuffer -> UART)
-  // Send in bounded chunks to keep this path deterministic, and never pop more
-  // than the UART can take: these bytes have already left tx_rb_, and Send is
-  // all or nothing, so a chunk it refuses is a chunk nobody still holds.
-  uint8_t tx_chunk[64];
-  size_t room = tx_budget < sizeof(tx_chunk) ? tx_budget : sizeof(tx_chunk);
-  const size_t tx_free = uart.TxFree();
-  if (tx_free < room) {
-    room = tx_free;
-  }
+void FcLink::BeginRx() { rx_budget_left_ = kRxByteBudget; }
+
+void FcLink::FlushTx() {
+  flushed_ = true;
+  // Never pop more than the UART can take: popped bytes have left tx_rb_, and
+  // Send is all or nothing, so a refused chunk would be lost.
+  uint8_t chunk[64];
+  const size_t room = std::min(sizeof(chunk), uart_->TxFree());
   size_t n = 0;
-  uint8_t tx_byte = 0;
-  while (n < room && tx_rb_.Pop(tx_byte)) {
-    tx_chunk[n++] = tx_byte;
+  while (n < room && tx_rb_.Pop(chunk[n])) {
+    ++n;
   }
   if (n > 0) {
-    // Cannot be refused: room was clamped to TxFree above.
-    (void)uart.Send(tx_chunk, n);
+    (void)uart_->Send(chunk, n);
   }
 }
 
@@ -174,75 +134,6 @@ bool FcLink::Send(const message::Packet &pkt) {
   return tx_rb_.PushBlock(buf, len) == len;
 }
 
-void FcLink::SendRcChannels(const message::RcChannelsMsg &msg) {
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kRcChannels;
-  pkt.header.len = message::PayloadLength<message::RcChannelsMsg>();
-  memcpy(pkt.payload, &msg, sizeof(msg));
-  Send(pkt);
-}
-
-void FcLink::SendRcMapConfig(const message::RcMapConfigMsg &cfg) {
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kRcMapConfig;
-  pkt.header.len = message::PayloadLength<message::RcMapConfigMsg>();
-  memcpy(pkt.payload, &cfg, sizeof(cfg));
-  Send(pkt);
-}
-
-void FcLink::SendEscTelemetry(const EscTelemetryData &data,
-                              uint8_t online_mask) {
-  message::EscTelemetryMsg msg{};
-  msg.frame_count = data.frame_count;
-  msg.crc_error_count = data.crc_error_count;
-  msg.unassigned_frame_count = data.unassigned_frame_count;
-  msg.rx_drop_bytes = data.rx_drop_bytes;
-  msg.rx_dma_error_count = data.rx_dma_error_count;
-  msg.uart_error_count = data.uart_error_count;
-  msg.valid_mask = data.valid_mask;
-  msg.online_mask = online_mask;
-  msg.timestamp_us = data.timestamp_us;
-
-  static_assert(common_config::kAirframeMotorCount <=
-                message::kEscTelemetryMotorCount);
-  for (uint8_t i = 0; i < common_config::kAirframeMotorCount; ++i) {
-    const EscTelemetryMotorData &src = data.motors[i];
-    msg.rpm[i] = src.rpm;
-    msg.electrical_rpm[i] = src.electrical_rpm;
-    msg.voltage_centivolts[i] =
-        static_cast<uint16_t>(std::lround(src.voltage * 100.0f));
-    msg.current_centiamps[i] =
-        src.current ? static_cast<int16_t>(std::lround(*src.current * 100.0f))
-                    : int16_t{-1};
-    msg.consumption_mah[i] = src.consumption_mah
-                                 ? static_cast<int32_t>(*src.consumption_mah)
-                                 : int32_t{-1};
-    msg.temperature_c[i] = src.temperature_c;
-  }
-
-  message::Packet pkt{};
-  pkt.header.id = static_cast<uint8_t>(message::MsgId::kEscTelemetry);
-  pkt.header.len = message::PayloadLength<message::EscTelemetryMsg>();
-  memcpy(pkt.payload, &msg, sizeof(msg));
-  Send(pkt);
-}
-
-void FcLink::SendSystemStatus(const message::SystemStatusMsg &msg) {
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kSystemStatus;
-  pkt.header.len = message::PayloadLength<message::SystemStatusMsg>();
-  memcpy(pkt.payload, &msg, sizeof(msg));
-  Send(pkt);
-}
-
-void FcLink::SendVehicleStatus(const message::VehicleStatusMsg &msg) {
-  message::Packet pkt{};
-  pkt.header.id = (uint8_t)message::MsgId::kVehicleStatus;
-  pkt.header.len = message::PayloadLength<message::VehicleStatusMsg>();
-  memcpy(pkt.payload, &msg, sizeof(msg));
-  Send(pkt);
-}
-
 void FcLink::SendLog(const char *format, ...) {
   char buf[message::kMaxLogTextPayload + 1];
   va_list args;
@@ -260,18 +151,15 @@ void FcLink::SendLog(const char *format, ...) {
     memcpy(pkt.payload, buf, len);
     Send(pkt);
 
-    // Before Init, Poll -- the only drain -- never runs, so a boot-time log
-    // would sit in the ring and vanish entirely if init wedges.
-    // Named directly rather than taken at Init: this branch is what runs
-    // before Init, so there is no reference to have been given one.
-    if (ctx_ == nullptr) {
+    // Until the first FlushTx, a boot-time log would sit in the ring and vanish
+    // if init wedges. The UART is named directly: Init may not have run yet.
+    if (!flushed_) {
       auto &uart = Uart1::GetInstance();
       uint8_t byte = 0;
       uint8_t chunk[64];
       size_t n = 0;
-      // Unguarded and discarded, unlike Poll's drain: this is the last thing
-      // that runs, so a chunk the ring cannot take is one nobody will send
-      // later either. Whatever does fit is still worth more than stopping.
+      // Unguarded, unlike FlushTx: this may be the last code to run, so a chunk
+      // the UART refuses would never be sent anyway; what fits beats stopping.
       while (tx_rb_.Pop(byte)) {
         chunk[n++] = byte;
         if (n == sizeof(chunk)) {

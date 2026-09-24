@@ -6,34 +6,76 @@
 #include <cmath>
 
 #include "multirotor_mixer.hpp"
+#include "state_machine_context.hpp"
 #include "stm32_config.hpp"
 #include "system.hpp"
 
 static uint32_t g_main_tick_counter = 0;
 static ControlLoopLoad g_control_loop_load{};
 
-static void MainTick(AppContext &ctx);
+static void DrainFcLink(StateMachineContext &ctx) {
+  FcLink &fc_link = System::GetInstance().FcLinkSvc();
+  fc_link.BeginRx();
+  while (auto packet =
+             fc_link.PopPacket(System::GetInstance().Time().Micros())) {
+    System::GetInstance().GetCommandHandler().Dispatch(ctx, *packet);
+  }
+  fc_link.FlushTx();
+}
 
-static void EnterFlightLoop(AppContext &ctx, IControlTickState *state) {
+static void MainTick(StateMachineContext &ctx) {
+  auto micros = [&]() -> uint32_t {
+    return System::GetInstance().Time().Micros();
+  };
+  UsbCdc::GetInstance().Poll(micros());
+
+  // Ahead of System::Poll so a fix parsed here reaches the blackboard before
+  // TelemetryPublisher reads it, rather than a pass later.
+  System::GetInstance().GpsSvc().Poll();
+
+  System::GetInstance().Poll(micros());
+
+  auto &btn = System::GetInstance().Btn();
+  btn.Poll(micros() / 1000u);
+  if (btn.ConsumePress()) {
+    System::GetInstance().Led().Toggle();
+  }
+
+  g_main_tick_counter++;
+  System::GetInstance().Blackboard().UpdateMainTickCount(g_main_tick_counter);
+
+  System::GetInstance().CrsfLinkSvc().PollRx(micros());
+  System::GetInstance().EscSvc().Poll(micros());
+
+  System::GetInstance().LogSvc().Poll(micros());
+  System::GetInstance().SensorCalSvc().Poll(micros());
+
+  System::GetInstance().CrsfLinkSvc().PollCommands();
+  // Last, so everything the pass queued goes out on it.
+  DrainFcLink(ctx);
+}
+
+static void EnterFlightLoop(StateMachineContext &ctx,
+                            IControlTickState *state) {
   ctx.control_tick_state = state;
   // Stamped before the loop is declared running, or the stamp left over from
   // before a bench state would report the loop dead until its first tick.
-  const uint32_t now_us = ctx.sys->Time().Micros();
+  const uint32_t now_us = System::GetInstance().Time().Micros();
   g_control_loop_load.timestamp_us = now_us;
-  ctx.sys->Blackboard().UpdateControlLoopLoad(g_control_loop_load);
-  ctx.sys->Blackboard().SetControlLoopRunning(true);
-  ctx.sys->ResumeFlightComponents();
+  System::GetInstance().Blackboard().UpdateControlLoopLoad(g_control_loop_load);
+  System::GetInstance().Blackboard().SetControlLoopRunning(true);
+  System::GetInstance().ResumeFlightComponents();
 }
 
-static void StepFlightLoop(AppContext &ctx) {
-  if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
+static void StepFlightLoop(StateMachineContext &ctx) {
+  if (System::GetInstance().Time().ConsumeTim5Ticks() == 0u) {
     return;
   }
 
   MainTick(ctx);
 }
 
-static void ControlTickFlightLoop(AppContext &ctx) {
+static void ControlTickFlightLoop() {
   const uint32_t tick_start_cycles = TimeBase::Cycles();
   // AHRS: aggregate IMU burst → averaged ω + integrated quaternion →
   // EstimatorState → Blackboard. Acro reads gyro_body_rad_s; Stabilize also
@@ -41,15 +83,14 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   // Before the AHRS, which clears the mailbox's fresh flag: that flag is what
   // holds the interrupt off the slot, so the raw burst has to be taken while
   // it still stands.
-  ctx.sys->LogSvc().PushRawImu();
+  System::GetInstance().LogSvc().PushRawImu();
 
-  const EstimatorState estimate =
-      ctx.sys->AhrsSvc().Process(ctx.sys->Blackboard());
-  ctx.sys->Blackboard().UpdateEstimate(estimate);
+  const EstimatorState estimate = System::GetInstance().AhrsSvc().Process();
+  System::GetInstance().Blackboard().UpdateEstimate(estimate);
 
   // After the AHRS on purpose: calibration has no deadline, so it reads the
   // slot on the sequence rather than holding the interrupt out of it longer.
-  ctx.sys->SensorCalSvc().MaybeCollectBurst();
+  System::GetInstance().SensorCalSvc().MaybeCollectBurst();
 
   // Cascade: sticks → rate_sp → rate PID → torque → mixer → DShot.
   // Mixer and ESC both read the blackboard's armed flag, which Sentinel is
@@ -63,7 +104,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   constexpr float kMaxRateRollPitch = kPilotAcroMaxRateRollPitch;
   constexpr float kMaxRateYaw = kPilotAcroMaxRateYaw;
 
-  const RcData &rc = ctx.sys->Blackboard().GetRc();
+  const RcData &rc = System::GetInstance().Blackboard().GetRc();
 
   // Published before the cascade below reads it back.
   {
@@ -71,14 +112,14 @@ static void ControlTickFlightLoop(AppContext &ctx) {
         rc.channels_raw[kFlightModeChannelSlot] >= kFlightModeThresholdUs
             ? FlightMode::kStabilize
             : FlightMode::kAcro;
-    ctx.sys->Blackboard().SetFlightMode(new_mode);
+    System::GetInstance().Blackboard().SetFlightMode(new_mode);
   }
 
   // Linear remap of raw stick [0,1] onto [thr_min,1] (PX4 MPC_MANTHR_MIN).
   // Raw `stick` kept separately: the integrator-freeze threshold compares
   // against pilot intent, not post-mapping thrust — see CommitTorque below.
   const float stick = RcReceiver::NormalizedThrottle(rc.throttle_us);
-  const float thr_min = ctx.sys->RcRx().ThrottleMin();
+  const float thr_min = System::GetInstance().RcRx().ThrottleMin();
   const float pilot_thrust = thr_min + ((1.0f - thr_min) * stick);
 
   // Throttle-authority scaling: at low thrust the mixer has little
@@ -86,7 +127,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   // and prevent integrator wind-up + spiral on stick whip during descent.
   //   authority = (pilot_thrust − idle) / (1 − idle)
   // 1 at/above hover; → 0 as pilot_thrust → idle (rate_sp → 0).
-  const float mixer_idle = ctx.sys->MixerSvc().GetConfig().idle;
+  const float mixer_idle = System::GetInstance().MixerSvc().GetConfig().idle;
   const float band = 1.0f - mixer_idle;
   float authority = 1.0f;
   if (band > 0.0f) {
@@ -101,7 +142,8 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   //                controller → roll/pitch rate setpoint. Yaw stays
   //                rate-from-stick (no heading reference without a mag).
   Eigen::Vector3f rate_sp;
-  if (ctx.sys->Blackboard().GetFlightMode() == FlightMode::kStabilize) {
+  if (System::GetInstance().Blackboard().GetFlightMode() ==
+      FlightMode::kStabilize) {
     // Stick → desired tilt: roll about body-X, pitch about body-Y, no
     // yaw (yaw bypasses the attitude loop). Direct quaternion build is
     // cheaper than AngleAxis and avoids template bloat.
@@ -143,7 +185,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
     const Eigen::Quaternionf q_desired = q_yaw * q_rp;
 
     const Eigen::Vector3f attitude_rate_sp =
-        ctx.sys->AttitudeControllerSvc().Step(q_desired,
+        System::GetInstance().AttitudeControllerSvc().Step(q_desired,
                                               estimate.attitude_world_to_body);
     rate_sp = attitude_rate_sp;
     // Yaw bypasses the attitude loop — stick = desired yaw rate.
@@ -159,7 +201,7 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   rate_sp *= authority;  // bound demand to deliverable torque, see above
 
   // 1) Pre-clip torque demand; PID integrators not yet committed.
-  const auto torque = ctx.sys->RateControllerSvc().ComputeTorque(
+  const auto torque = System::GetInstance().RateControllerSvc().ComputeTorque(
       rate_sp, estimate.gyro_body_rad_s, kFastDtSec);
 
   const multirotor_mixer::Inputs in{
@@ -172,9 +214,9 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   //    when disarmed; armed, applied_torque is the post-saturation
   //    effective torque (= commanded in linear region, < commanded after
   //    Betaflight motor-mix rescale).
-  const auto mix = ctx.sys->MixerSvc().Mix(in);
-  (void)ctx.sys->EscSvc().WriteMotorsThrust(mix.motors,
-                                            ctx.sys->Time().Micros());
+  const auto mix = System::GetInstance().MixerSvc().Mix(in);
+  (void)System::GetInstance().EscSvc().WriteMotorsThrust(
+      mix.motors, System::GetInstance().Time().Micros());
 
   // 3) Commit integrators with APPLIED torque. Back-calc anti-windup
   //    drains at rate Kt = Ki/Kp whenever applied ≠ commanded — covers
@@ -182,84 +224,62 @@ static void ControlTickFlightLoop(AppContext &ctx) {
   //    Raw stick (not pilot_thrust) lets RateController freeze integrators
   //    on commanded descent; post-floor thrust never drops below the
   //    freeze threshold, so it would never freeze at min stick.
-  ctx.sys->RateControllerSvc().CommitTorque(mix.applied_torque, kFastDtSec,
-                                            stick);
+  System::GetInstance().RateControllerSvc().CommitTorque(mix.applied_torque,
+                                                         kFastDtSec, stick);
 
   g_control_loop_load.busy_cycles += TimeBase::Cycles() - tick_start_cycles;
-  const uint32_t now_us = ctx.sys->Time().Micros();
+  const uint32_t now_us = System::GetInstance().Time().Micros();
   g_control_loop_load.timestamp_us = now_us;
-  ctx.sys->Blackboard().UpdateControlLoopLoad(g_control_loop_load);
+  System::GetInstance().Blackboard().UpdateControlLoopLoad(g_control_loop_load);
 }
 
-static void MainTick(AppContext &ctx) {
-  auto micros = [&]() -> uint32_t { return ctx.sys->Time().Micros(); };
-  UsbCdc::GetInstance().Poll(micros());
-
-  // Ahead of System::Poll so a fix parsed here reaches the blackboard before
-  // TelemetryPublisher reads it, rather than a pass later.
-  ctx.sys->GpsSvc().Poll();
-
-  ctx.sys->Poll(micros());
-
-  auto &btn = ctx.sys->Btn();
-  btn.Poll(micros() / 1000u);
-  if (btn.ConsumePress()) {
-    ctx.sys->Led().Toggle();
-  }
-
-  g_main_tick_counter++;
-  ctx.sys->Blackboard().UpdateMainTickCount(g_main_tick_counter);
-
-  ctx.sys->CrsfLinkSvc().PollRx(micros());
-  ctx.sys->EscSvc().Poll(micros());
-
-  ctx.sys->LogSvc().Poll(micros());
-  ctx.sys->SensorCalSvc().Poll(micros());
-
-  ctx.sys->CrsfLinkSvc().PollCommands();
+void StandbyState::OnControlTick(StateMachineContext &) {
+  ControlTickFlightLoop();
 }
 
-void StandbyState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
+void ArmedState::OnControlTick(StateMachineContext &) {
+  ControlTickFlightLoop();
+}
 
-void ArmedState::OnControlTick(AppContext &ctx) { ControlTickFlightLoop(ctx); }
-
-void StandbyState::OnEnter(AppContext &ctx) {
+void StandbyState::OnEnter(StateMachineContext &ctx) {
   EnterFlightLoop(ctx, this);
-  ctx.sys->Led().Set(false);
+  System::GetInstance().Led().Set(false);
 }
 
-void StandbyState::OnStep(AppContext &ctx) {
+void StandbyState::OnStep(StateMachineContext &ctx) {
   StepFlightLoop(ctx);
 
   // No edge to these from Armed, which is what makes the interlock
   // structural: no session can start on a vehicle whose motors are live.
-  if (ctx.sys->MspSvc().EscConfigGranted()) {
-    ctx.sm->ReqTransition(*ctx.esc_config_state);
+  if (System::GetInstance().MspSvc().EscConfigGranted()) {
+    ctx.sm->ReqTransition(ctx.esc_config_state);
     return;
   }
-  if (ctx.sys->MscSvc().MscGranted()) {
-    ctx.sm->ReqTransition(*ctx.msc_state);
+  if (System::GetInstance().MscSvc().MscGranted()) {
+    ctx.sm->ReqTransition(ctx.msc_state);
     return;
   }
 
-  if (ctx.sys->Blackboard().IsArmed()) {
-    ctx.sm->ReqTransition(*ctx.armed_state);
+  if (System::GetInstance().Blackboard().IsArmed()) {
+    ctx.sm->ReqTransition(ctx.armed_state);
   }
 }
 
-void ArmedState::OnEnter(AppContext &ctx) {
+void ArmedState::OnEnter(StateMachineContext &ctx) {
   EnterFlightLoop(ctx, this);
-  ctx.sys->LogSvc().StartFlight(ctx.now_us);
-  ctx.sys->Led().Set(true);
+  System::GetInstance().LogSvc().StartFlight(ctx.now_us);
+  System::GetInstance().Led().Set(true);
 }
 
-void ArmedState::OnExit(AppContext &ctx) { ctx.sys->LogSvc().StopFlight(); }
+void ArmedState::OnExit(StateMachineContext &) {
+  System::GetInstance().LogSvc().StopFlight();
+}
 
-void ArmedState::OnStep(AppContext &ctx) {
+void ArmedState::OnStep(StateMachineContext &ctx) {
   StepFlightLoop(ctx);
 
-  if (!ctx.sys->Blackboard().IsArmed()) {
-    ctx.sm->ReqTransition(*ctx.standby_state);
+  if (!System::GetInstance().Blackboard().IsArmed()) {
+    ctx.sm->ReqTransition(ctx.standby_state);
   }
 }
 
@@ -267,66 +287,70 @@ void ArmedState::OnStep(AppContext &ctx) {
 // poll, so the record that poll published still claims a port the host has
 // already given up. Nothing polls MSP once this state ends, making here the
 // only place the correction can be made.
-void EscConfigState::OnExit(AppContext &ctx) {
-  ctx.sys->MspSvc().PublishUsbStatus(ctx.sys->Time().Micros());
+void EscConfigState::OnExit(StateMachineContext &) {
+  System::GetInstance().MspSvc().PublishUsbStatus(
+      System::GetInstance().Time().Micros());
 }
 
-void EscConfigState::OnEnter(AppContext &ctx) {
+void EscConfigState::OnEnter(StateMachineContext &ctx) {
   // Stop the cascade in both directions. Clearing the hook stops the work --
   // ImuTick returns immediately -- and masking the interrupt stops the
   // thing that would otherwise tear a bit-banged byte apart 520 us at a time.
   ctx.control_tick_state = nullptr;
-  ctx.sys->Blackboard().SetControlLoopRunning(false);
-  ctx.sys->SuspendFlightComponents();
-  ctx.sys->Led().Set(true);
+  System::GetInstance().Blackboard().SetControlLoopRunning(false);
+  System::GetInstance().SuspendFlightComponents();
+  System::GetInstance().Led().Set(true);
 }
 
-void EscConfigState::OnStep(AppContext &ctx) {
-  if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
+void EscConfigState::OnStep(StateMachineContext &ctx) {
+  if (System::GetInstance().Time().ConsumeTim5Ticks() == 0u) {
     return;
   }
 
-  const uint32_t current_time = ctx.sys->Time().Micros();
+  const uint32_t current_time = System::GetInstance().Time().Micros();
 
   UsbCdc::GetInstance().Poll(current_time);
-  ctx.sys->MspSvc().Poll(current_time);
-  ctx.sys->Poll(current_time);
+  System::GetInstance().MspSvc().Poll(current_time);
+  System::GetInstance().Poll(current_time);
+  DrainFcLink(ctx);
 
   // Gated because passthrough hands the pins to the bit-bang.
-  if (!ctx.sys->FourWaySvc().IsActive()) {
-    ctx.sys->EscSvc().Poll(current_time);
+  if (!System::GetInstance().FourWaySvc().IsActive()) {
+    System::GetInstance().EscSvc().Poll(current_time);
   }
 
-  if (!ctx.sys->MspSvc().EscConfigGranted()) {
-    ctx.sm->ReqTransition(*ctx.standby_state);
+  if (!System::GetInstance().MspSvc().EscConfigGranted()) {
+    ctx.sm->ReqTransition(ctx.standby_state);
   }
 }
 
 // As EscConfigState::OnExit, for the record MscService keeps.
-void MscState::OnExit(AppContext &ctx) {
-  ctx.sys->MscSvc().PublishUsbStatus(ctx.sys->Time().Micros());
+void MscState::OnExit(StateMachineContext &) {
+  System::GetInstance().MscSvc().PublishUsbStatus(
+      System::GetInstance().Time().Micros());
 }
 
-void MscState::OnEnter(AppContext &ctx) {
+void MscState::OnEnter(StateMachineContext &ctx) {
   // The card changed hands in SetMscMode, before attach.
   ctx.control_tick_state = nullptr;
-  ctx.sys->Blackboard().SetControlLoopRunning(false);
-  ctx.sys->SuspendFlightComponents();
-  ctx.sys->Led().Set(true);
+  System::GetInstance().Blackboard().SetControlLoopRunning(false);
+  System::GetInstance().SuspendFlightComponents();
+  System::GetInstance().Led().Set(true);
 }
 
-void MscState::OnStep(AppContext &ctx) {
-  if (ctx.sys->Time().ConsumeTim5Ticks() == 0u) {
+void MscState::OnStep(StateMachineContext &ctx) {
+  if (System::GetInstance().Time().ConsumeTim5Ticks() == 0u) {
     return;
   }
 
-  const uint32_t current_time = ctx.sys->Time().Micros();
+  const uint32_t current_time = System::GetInstance().Time().Micros();
 
   UsbCdc::GetInstance().Poll(current_time);
-  ctx.sys->MscSvc().Poll(current_time);
-  ctx.sys->Poll(current_time);
+  System::GetInstance().MscSvc().Poll(current_time);
+  System::GetInstance().Poll(current_time);
+  DrainFcLink(ctx);
 
-  if (!ctx.sys->MscSvc().MscGranted()) {
-    ctx.sm->ReqTransition(*ctx.standby_state);
+  if (!System::GetInstance().MscSvc().MscGranted()) {
+    ctx.sm->ReqTransition(ctx.standby_state);
   }
 }
