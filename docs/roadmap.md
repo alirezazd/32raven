@@ -561,3 +561,13 @@ exceptions files in disagreeing grammars (both empty), six Python constants in f
 file format with path, rule and a mandatory reason, an inline `// LINT(<rule>): <reason>` held to
 the `NOLINT` standard, and stale entries failing. Fourteen scripts have no exemption mechanism
 and hold because of it — they keep having no entries until something real needs one.
+
+### #57 — Replace Eigen once the estimator's algebra stops growing — 🧊 DEFERRED
+
+Eigen supplies `Vector3f`, `Matrix3f`, `Quaternionf`, a few `AngleAxisf` and one `Map`; the 9×9
+in `mag_fit` is solved by its own Gauss–Jordan, and no decomposition is linked. That much is a
+few hundred lines in-house. #27's IEKF is not: ~15×15 covariances, product chains, likely a
+Cholesky — where a verified library earns its keep while a new filter is debugged. So after #27,
+write exactly the operations then in use, run them against Eigen on the host as the oracle
+(quaternion storage `xyzw` against the `wxyz` constructor, and product order, are the trap), then
+drop Eigen, and `__assert_func` in `panic.cpp` with it. If #27 is abandoned, nothing waits.
