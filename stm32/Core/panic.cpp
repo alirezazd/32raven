@@ -171,6 +171,14 @@ static void SendPanicMessage(uint32_t error_code) {
 // there says nothing, and fault priority masks the keep-alive tick.
 extern "C" void PanicHardFault(void) { Panic(ErrorCode::Stm32::kHardFault); }
 
+// newlib's assert (Eigen's eigen_assert) calls this by its libc name; newlib's
+// own prints through stdio, dragging stdio and the syscall stubs into the link.
+// NOLINTNEXTLINE(readability-identifier-naming)
+extern "C" [[noreturn]] void __assert_func(const char *, int, const char *,
+                                           const char *) {
+  Panic(ErrorCode::Stm32::kAssertFailed);
+}
+
 [[noreturn]] void PanicImpl(uint32_t code) {
   // Fail safe: stop any in-flight frame and latch the lines low. Gated on the
   // TIM1 clock — touching a clock-gated peripheral (panic before the motor

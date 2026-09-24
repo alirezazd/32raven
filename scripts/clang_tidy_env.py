@@ -40,12 +40,9 @@ GCC_ONLY_FLAGS = frozenset(
 # ESP-IDF component and generated build artifact.
 FIRST_PARTY = re.compile(r"^(stm32|esp32|libs)/")
 
-# Generated or vendored: not ours to tidy. syscalls.c is ST's libc stubs, where
-# the includes state the newlib/picolibc contract the file implements rather
-# than naming types it happens to spell.
+# Generated or vendored: not ours to tidy.
 SKIP = re.compile(
     r"^(third_party/|stm32/lib/|esp32/ui/assets/bitmap/"
-    r"|stm32/Core/syscalls\.c$"
     r"|.*_(config|limits|schema)\.hpp$)"
 )
 

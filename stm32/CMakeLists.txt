@@ -139,7 +139,6 @@ add_subdirectory(cmake/stm32cubemx)
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/stm32f4xx_it.c
-    Core/syscalls.c
     Core/main.cpp
     Core/system.cpp
     Drivers/rcc.cpp

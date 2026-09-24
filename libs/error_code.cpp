@@ -173,6 +173,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "SD card FAT too large -- reformat";
     case ErrorCode::Stm32::kHardFault:
       return "STM32 hard fault";
+    case ErrorCode::Stm32::kAssertFailed:
+      return "STM32 assertion failed";
     case ErrorCode::Stm32::kCommandHandlerReinit:
       return "STM32 command handler re-init";
     case ErrorCode::Stm32::kFcLinkReinit:

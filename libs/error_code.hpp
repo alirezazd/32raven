@@ -113,6 +113,7 @@ enum class Stm32 : uint32_t {
   kSdCardGeometry,
   kEscOutputStalled,
   kFcLinkWireMismatch,
+  kAssertFailed,
 };
 
 enum class Esp32 : uint32_t {

@@ -66,7 +66,6 @@ EXEMPT_PATTERNS = (
     # they can be regenerated and diffed against a fresh CubeMX export.
     "stm32/Core/stm32f4xx_it.c",
     "stm32/Core/stm32f4xx_it.h",
-    "stm32/Core/syscalls.c",
     # Machine-generated: the generator owns the contents, header included.
     "esp32/ui/assets/bitmap/*",
     "stm32/Drivers/ee_schema.hpp",
