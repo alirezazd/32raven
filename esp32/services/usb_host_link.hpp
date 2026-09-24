@@ -8,8 +8,7 @@
 #include <span>
 
 #include "host_link.hpp"
-
-class UsbCdcServer;
+#include "usb_cdc_server.hpp"
 
 // HostLink over the bridge's own USB port, the one make flash-esp32 uses.
 // One byte stream carries both channels in sequence: verbs as lines until a

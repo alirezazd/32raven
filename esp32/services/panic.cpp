@@ -102,17 +102,17 @@ bool SupportsServiceRecovery(uint32_t code) {
 }
 
 void ShowPanicUi(uint32_t code, bool recoverable) {
-  Sys().Ui().SetErrorCode(code);
-  Sys().Ui().SetErrorRecoverable(recoverable);
-  Sys().Ui().SetAppState(Ui::AppState::kHardError);
-  Sys().Ui().DisableInactivityTimeout();
-  Sys().Ui().NotifyUserActivity();
+  System::GetInstance().Ui().SetErrorCode(code);
+  System::GetInstance().Ui().SetErrorRecoverable(recoverable);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kHardError);
+  System::GetInstance().Ui().DisableInactivityTimeout();
+  System::GetInstance().Ui().NotifyUserActivity();
 }
 
 uint32_t EnterRecoveryServiceMode() {
-  System &sys = Sys();
+  System &sys = System::GetInstance();
   sys.Button().FlushEvents();
-  sys.Ui().SetAppState(Ui::AppState::kService);
+  sys.Ui().SetBridgeState(Ui::BridgeState::kService);
   sys.Ui().NotifyUserActivity();
   // Reached from the panic task, so a Panic() here would nest another
   // RunPanicLoop on the same static stack. The checks below report instead.
@@ -133,9 +133,9 @@ uint32_t EnterRecoveryServiceMode() {
 }
 
 [[nodiscard]] uint32_t EnterRecoveryProgramMode(const HostLink &link) {
-  System &sys = Sys();
+  System &sys = System::GetInstance();
   sys.Button().FlushEvents();
-  sys.Ui().SetAppState(Ui::AppState::kProgram);
+  sys.Ui().SetBridgeState(Ui::BridgeState::kProgram);
   sys.Ui().NotifyUserActivity();
   const HostLink::BeginArgs &begin = link.Begin();
   sys.Programmer().Start(begin.size, begin.crc);
@@ -364,7 +364,7 @@ uint32_t RecoverySession::RunUntilFailure() {
 }
 
 uint32_t RunRecoverableLoop() {
-  System &sys = Sys();
+  System &sys = System::GetInstance();
   RecoverySession recovery(sys);
   return recovery.RunUntilFailure();
 }
@@ -378,17 +378,19 @@ constexpr uint32_t kNestedPanicBlinkMs = 15;
 constexpr uint32_t kPanicLogPeriodMs = 2000;
 
 [[noreturn]] void RunPanicLoop(uint32_t code) {
-  Sys().Halt();
+  System::GetInstance().Halt();
   bool recoverable = SupportsServiceRecovery(code);
   const char *msg = GetMessage(code);
-  Sys().TonePlayer().PlayBuiltinNow(::TonePlayer::BuiltinTone::kError);
+  System::GetInstance().TonePlayer().PlayBuiltinNow(
+      ::TonePlayer::BuiltinTone::kError);
   ShowPanicUi(code, recoverable);
   gpio_reset_pin(kPinMap.led);
   gpio_set_direction(kPinMap.led, GPIO_MODE_OUTPUT);
   ESP_LOGE(kTag, "PANIC [0x%08lX]: %s", (unsigned long)code, msg);
-  Sys().Mavlink().ReportPanic(Mavlink::PanicSource::kEsp32, code);
+  System::GetInstance().Mavlink().ReportPanic(Mavlink::PanicSource::kEsp32,
+                                              code);
   if (recoverable) {
-    Sys().Button().FlushEvents();
+    System::GetInstance().Button().FlushEvents();
   }
   constexpr uint32_t kLogEveryTicks = kPanicLogPeriodMs / kPanicBlinkMs;
   // The line above just went out, so the next one is a window away.
@@ -396,15 +398,16 @@ constexpr uint32_t kPanicLogPeriodMs = 2000;
   bool led_on = false;
   while (true) {
     if (recoverable) {
-      Sys().Button().Poll();
-      if (Sys().Button().ConsumeLongPress()) {
+      System::GetInstance().Button().Poll();
+      if (System::GetInstance().Button().ConsumeLongPress()) {
         code = RunRecoverableLoop();
         recoverable = SupportsServiceRecovery(code);
         msg = GetMessage(code);
         ShowPanicUi(code, recoverable);
-        Sys().Mavlink().ReportPanic(Mavlink::PanicSource::kEsp32, code);
+        System::GetInstance().Mavlink().ReportPanic(
+            Mavlink::PanicSource::kEsp32, code);
         if (recoverable) {
-          Sys().Button().FlushEvents();
+          System::GetInstance().Button().FlushEvents();
         }
         // A different code is worth saying now rather than at the next window.
         ticks_since_log = kLogEveryTicks;
@@ -448,7 +451,7 @@ constexpr uint32_t kPanicLogPeriodMs = 2000;
 
 [[noreturn]] void PanicImpl(uint32_t code) {
   EnsurePanicTaskStarted();
-  Sys().Halt();
+  System::GetInstance().Halt();
 
   if (s_panic_task_handle == xTaskGetCurrentTaskHandle()) {
     ReportNestedPanic(code);

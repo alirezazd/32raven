@@ -6,10 +6,10 @@
 #include <algorithm>
 #include <cstdio>
 
-#include "ctx.hpp"
 #include "esp32_config.hpp"
 #include "fc_link.hpp"
 #include "host_link.hpp"
+#include "state_machine_context.hpp"
 #include "system.hpp"
 #include "tcp_server.hpp"
 #include "timebase.hpp"
@@ -35,33 +35,34 @@ static constexpr uint16_t kStm32RequestAttempts =
 
 // Mavlink().Poll stays at the call sites, so a mode that wants the radio has
 // to say so.
-static void DrainFcLink(AppContext &ctx) {
-  ctx.sys->FcLink().Poll();
-  while (auto packet = ctx.sys->FcLink().PopPacket()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *packet);
+static void DrainFcLink(StateMachineContext &ctx) {
+  System::GetInstance().FcLink().Poll();
+  while (auto packet = System::GetInstance().FcLink().PopPacket()) {
+    System::GetInstance().CommandHandler().Dispatch(ctx, *packet);
   }
 }
 
 struct MenuTarget {
-  IState<AppContext> &state;
+  IState<StateMachineContext> &state;
   const char *name;
 };
 
 // The press that wakes the display is spent doing that, so a short press only
 // acts on an awake screen; a long press always acts.
-static bool CycleOnButton(AppContext &ctx, const char *from,
+static bool CycleOnButton(StateMachineContext &ctx, const char *from,
                           const MenuTarget &press,
                           const MenuTarget &long_press) {
-  auto &button = ctx.sys->Button();
+  auto &button = System::GetInstance().Button();
   button.Poll();
 
-  if (button.ConsumePress() && ctx.sys->Ui().NotifyUserActivity()) {
+  if (button.ConsumePress() &&
+      System::GetInstance().Ui().NotifyUserActivity()) {
     ESP_LOGI(kTag, "%s -> %s (press)", from, press.name);
     ctx.sm->ReqTransition(press.state);
     return true;
   }
   if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
+    System::GetInstance().Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "%s -> %s (long press)", from, long_press.name);
     ctx.sm->ReqTransition(long_press.state);
     return true;
@@ -80,151 +81,154 @@ static bool CycleOnButton(AppContext &ctx, const char *from,
 // Service rather than leaving the config menu mid-flash.
 
 // Serving State
-void ServingState::OnEnter(AppContext &ctx) {
+void ServingState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering Serving");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kServing);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kServing);
   // Telem UART is the always-on default link — a SiK radio (or any
   // transparent serial peer) starts seeing heartbeats the moment it's
   // plugged in, with no user action required.
-  ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
-  ctx.sys->Mavlink().SetTelemetryLink(true);
-  ctx.sys->StopNetwork();
-  ctx.sys->Led().SetPattern(LED::Pattern::kBreathe, kServingBreatheMs);
+  System::GetInstance().Mavlink().SetTransport(&System::GetInstance().Telem());
+  System::GetInstance().Mavlink().SetTelemetryLink(true);
+  System::GetInstance().StopNetwork();
+  System::GetInstance().Led().SetPattern(LED::Pattern::kBreathe,
+                                         kServingBreatheMs);
 }
 
-void ServingState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "Serving", {*ctx.mavlink_wifi_state, "MavlinkWifi"},
-                    {*ctx.service_state, "Service"})) {
+void ServingState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "Serving", {ctx.mavlink_wifi_state, "MavlinkWifi"},
+                    {ctx.service_state, "Service"})) {
     return;
   }
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(ctx.now_ms);
+  System::GetInstance().Mavlink().Poll(ctx.now_ms);
 }
 
 // MavlinkWifi State
-void MavlinkWifiState::OnEnter(AppContext &ctx) {
+void MavlinkWifiState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering MavlinkWifi");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkWifi);
-  ctx.sys->Mavlink().SetTransport(&ctx.sys->Udp());
-  ctx.sys->Mavlink().SetTelemetryLink(true);
-  ctx.sys->Tcp().Stop();
-  ctx.sys->Wifi().StartAp();
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kMavlinkWifi);
+  System::GetInstance().Mavlink().SetTransport(&System::GetInstance().Udp());
+  System::GetInstance().Mavlink().SetTelemetryLink(true);
+  System::GetInstance().Tcp().Stop();
+  System::GetInstance().Wifi().StartAp();
   // Telemetry only: a dead socket must not take the whole bench tool down.
-  ctx.sys->Udp().Start();
+  System::GetInstance().Udp().Start();
 }
 
-void MavlinkWifiState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "MavlinkWifi", {*ctx.wifi_log_state, "WifiLog"},
-                    {*ctx.service_state, "Service"})) {
+void MavlinkWifiState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "MavlinkWifi", {ctx.wifi_log_state, "WifiLog"},
+                    {ctx.service_state, "Service"})) {
     return;
   }
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(ctx.now_ms);
+  System::GetInstance().Mavlink().Poll(ctx.now_ms);
 }
 
 // MavlinkUsb State
-void MavlinkUsbState::OnEnter(AppContext &ctx) {
+void MavlinkUsbState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering MavlinkUsb");
   // For now the UI re-uses the WiFi screen — the widget reads the active
   // transport from the Mavlink service to render the right text.
-  ctx.sys->Ui().SetAppState(Ui::AppState::kMavlinkUsb);
-  ctx.sys->Mavlink().SetTransport(&ctx.sys->UsbCdc());
-  ctx.sys->Mavlink().SetTelemetryLink(true);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kMavlinkUsb);
+  System::GetInstance().Mavlink().SetTransport(&System::GetInstance().UsbCdc());
+  System::GetInstance().Mavlink().SetTelemetryLink(true);
   // No AP / UDP socket needed for USB CDC; tear them down so an already
   // associated WiFi peer doesn't keep consuming radio.
-  ctx.sys->StopNetwork();
+  System::GetInstance().StopNetwork();
 }
 
-void MavlinkUsbState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "MavlinkUsb", {*ctx.serving_state, "Serving"},
-                    {*ctx.service_state, "Service"})) {
+void MavlinkUsbState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "MavlinkUsb", {ctx.serving_state, "Serving"},
+                    {ctx.service_state, "Service"})) {
     return;
   }
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(ctx.now_ms);
+  System::GetInstance().Mavlink().Poll(ctx.now_ms);
 }
 
 // Service State
-void ServiceState::OnEnter(AppContext &ctx) {
+void ServiceState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering Service");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kService);
-  ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kServiceBlinkMs);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kService);
+  System::GetInstance().Mavlink().SetTelemetryLink(false);
+  System::GetInstance().Led().SetPattern(LED::Pattern::kBlink, kServiceBlinkMs);
   // Panicking here would be unrecoverable (kTcpServerStartFailed is not
   // Service-recoverable), so a failed start only leaves nothing listening.
-  ctx.sys->StartNetwork();
-  ctx.sys->Tcp().CloseDataRx();
-  ctx.sys->UsbHost().Start();
+  System::GetInstance().StartNetwork();
+  System::GetInstance().Tcp().CloseDataRx();
+  System::GetInstance().UsbHost().Start();
 }
 
 // This mode never drains FcLink, so the STM32's stream has been piling up
 // unparsed the whole time. Handed on as a resync rather than as a buffer the
 // next mode would read as fatal corruption. Program is the other such mode.
-void ServiceState::OnExit(AppContext &ctx) {
-  ctx.sys->FcLink().ResetRxState();
+void ServiceState::OnExit(StateMachineContext &ctx) {
+  System::GetInstance().FcLink().ResetRxState();
   // The USB session is only valid while a mode is attending it, and Program
   // is the only one that keeps doing so -- for the link that armed its
   // transfer, and no other. Anything else leaves it unattended, so it is
   // stopped here and the next entry to Service opens a clean one rather than
   // answering a command that has been sitting in the queue since.
-  if (ctx.host_link != &ctx.sys->UsbHost()) ctx.sys->UsbHost().Stop();
+  if (ctx.host_link != &System::GetInstance().UsbHost())
+    System::GetInstance().UsbHost().Stop();
 }
 
-void ServiceState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "Service", {*ctx.esc_config_state, "EscConfig"},
-                    {*ctx.serving_state, "Serving"})) {
+void ServiceState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "Service", {ctx.esc_config_state, "EscConfig"},
+                    {ctx.serving_state, "Serving"})) {
     return;
   }
 
-  HostLink *const links[] = {&ctx.sys->Tcp(), &ctx.sys->UsbHost()};
+  HostLink *const links[] = {&System::GetInstance().Tcp(),
+                             &System::GetInstance().UsbHost()};
   for (HostLink *link : links) {
     link->Poll();
     while (auto ev = link->PopEvent()) {
-      ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+      System::GetInstance().CommandHandler().Dispatch(ctx, *ev);
     }
     link->ClearLinkDrop();
   }
 }
 
 // Program State
-void ProgramState::OnEnter(AppContext &ctx) {
+void ProgramState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering Program mode");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kProgram);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kProgram);
   // Treat programming start like user activity so the progress UI is visible.
-  ctx.sys->Ui().NotifyUserActivity();
-  ctx.sys->Mavlink().SetTelemetryLink(false);
+  System::GetInstance().Ui().NotifyUserActivity();
+  System::GetInstance().Mavlink().SetTelemetryLink(false);
   const HostLink::BeginArgs &begin = ctx.host_link->Begin();
-  ctx.sys->Programmer().Start(begin.size, begin.crc);
-  ctx.sys->Led().Off();
+  System::GetInstance().Programmer().Start(begin.size, begin.crc);
+  System::GetInstance().Led().Off();
 }
 
 // As ServiceState::OnExit, and the STM32 may also just have been rebooted.
-void ProgramState::OnExit(AppContext &ctx) {
-  ctx.sys->FcLink().ResetRxState();
+void ProgramState::OnExit(StateMachineContext &ctx) {
+  System::GetInstance().FcLink().ResetRxState();
   ctx.host_link = nullptr;
 }
 
-void ProgramState::OnStep(AppContext &ctx) {
-  auto &button = ctx.sys->Button();
+void ProgramState::OnStep(StateMachineContext &ctx) {
+  auto &button = System::GetInstance().Button();
   button.Poll();
 
   if (button.ConsumePress()) {
-    ctx.sys->Ui().NotifyUserActivity();
+    System::GetInstance().Ui().NotifyUserActivity();
   }
   if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
+    System::GetInstance().Ui().NotifyUserActivity();
     ESP_LOGI(kTag, "Program -> Service (long press)");
-    ctx.sys->Programmer().Abort();
+    System::GetInstance().Programmer().Abort();
     ctx.host_link->EndTransfer();
-    ctx.sm->ReqTransition(*ctx.service_state);
+    ctx.sm->ReqTransition(ctx.service_state);
     return;
   }
 
   ctx.host_link->Poll();
-  ctx.sys->Programmer().Poll();
+  System::GetInstance().Programmer().Poll();
 
   auto &link = *ctx.host_link;
-  auto &prog = ctx.sys->Programmer();
+  auto &prog = System::GetInstance().Programmer();
 
   if (prog.Done()) {
     ESP_LOGI(kTag, "Prog Done -> Transitioning to Service");
@@ -235,8 +239,8 @@ void ProgramState::OnStep(AppContext &ctx) {
     link.EndTransfer();
     link.SetStatus(st);
 
-    ctx.sys->Programmer().Boot();
-    ctx.sm->ReqTransition(*ctx.service_state);
+    System::GetInstance().Programmer().Boot();
+    ctx.sm->ReqTransition(ctx.service_state);
     return;
   }
 
@@ -247,12 +251,12 @@ void ProgramState::OnStep(AppContext &ctx) {
       ESP_LOGE(kTag, "ProgramState: ABORT");
       link.EndTransfer();
       prog.Abort();
-      ctx.sm->ReqTransition(*ctx.service_state);
+      ctx.sm->ReqTransition(ctx.service_state);
       return;
     }
     // BEGIN and the LOG pair are queued unanswered, so whoever pops one owes
     // the host a reply; dropping it leaves the host waiting out its timeout.
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+    System::GetInstance().CommandHandler().Dispatch(ctx, *ev);
   }
 
   if (link.TakeLinkDrop()) {
@@ -263,13 +267,14 @@ void ProgramState::OnStep(AppContext &ctx) {
     // the host can retry without walking the menu again. Only the unasked-for
     // endings sound -- an ABORT line is the host's own doing, a dropped
     // link is not, and the STM32 left half-written says so on next boot.
-    ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
-    ctx.sm->ReqTransition(*ctx.service_state);
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        ::TonePlayer::BuiltinTone::kWarning);
+    ctx.sm->ReqTransition(ctx.service_state);
     return;
   }
 
   if (prog.IsVerifying()) {
-    ctx.sys->Led().Toggle();
+    System::GetInstance().Led().Toggle();
     // Writing is over, so rx would otherwise sit frozen at the last written
     // byte for the whole verify pass. state distinguishes the two counts.
     HostLink::Status verifying = link.GetStatus();
@@ -297,17 +302,17 @@ void ProgramState::OnStep(AppContext &ctx) {
     moved = true;
   }
   if (moved) {
-    ctx.sys->Led().Toggle();
+    System::GetInstance().Led().Toggle();
   }
 }
 
-static void SendUsbMode(AppContext &ctx, message::UsbMode mode) {
-  ctx.sys->FcLink().SendPacket(
+static void SendUsbMode(StateMachineContext &ctx, message::UsbMode mode) {
+  System::GetInstance().FcLink().SendPacket(
       message::MsgId::kSetUsbMode,
       message::SetUsbModeMsg{.mode = static_cast<uint8_t>(mode)});
 }
 
-static void DropUsbMode(AppContext &ctx) {
+static void DropUsbMode(StateMachineContext &ctx) {
   SendUsbMode(ctx, message::UsbMode::kNone);
 }
 
@@ -315,18 +320,19 @@ static void DropUsbMode(AppContext &ctx) {
 // Every way out, including giving up on the grant: an STM32 that opened the
 // port after the last retry is otherwise left holding it with nobody to say
 // the session is over.
-void EscConfigState::OnExit(AppContext &ctx) { DropUsbMode(ctx); }
+void EscConfigState::OnExit(StateMachineContext &ctx) { DropUsbMode(ctx); }
 
-void EscConfigState::OnEnter(AppContext &ctx) {
+void EscConfigState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering EscConfig");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kEscConfig);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kEscConfig);
   // The configurator reaches the STM32 over its USB, so the telem UART is idle
   // here. Keeping the radio up means the ground is told the vehicle is not
   // flight-ready rather than being told nothing at all.
-  ctx.sys->Mavlink().SetTransport(&ctx.sys->Telem());
-  ctx.sys->Mavlink().SetTelemetryLink(true);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolModeBlinkMs);
-  ctx.sys->StopNetwork();
+  System::GetInstance().Mavlink().SetTransport(&System::GetInstance().Telem());
+  System::GetInstance().Mavlink().SetTelemetryLink(true);
+  System::GetInstance().Led().SetPattern(LED::Pattern::kBlink,
+                                         kToolModeBlinkMs);
+  System::GetInstance().StopNetwork();
   warned_armed_ = false;
   stream_seen_ = false;
   activity_.Reset(0);
@@ -334,14 +340,14 @@ void EscConfigState::OnEnter(AppContext &ctx) {
   SendUsbMode(ctx, message::UsbMode::kEscConfig);
 }
 
-void EscConfigState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "EscConfig", {*ctx.service_state, "Service"},
-                    {*ctx.serving_state, "Serving"})) {
+void EscConfigState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "EscConfig", {ctx.service_state, "Service"},
+                    {ctx.serving_state, "Serving"})) {
     return;
   }
 
   DrainFcLink(ctx);
-  ctx.sys->Mavlink().Poll(ctx.now_ms);
+  System::GetInstance().Mavlink().Poll(ctx.now_ms);
 
   // The STM32 publishes kUsbStatus only while it is in ESC config, so the
   // stream arriving at all is the grant -- no flag has to carry it, and its
@@ -349,14 +355,15 @@ void EscConfigState::OnStep(AppContext &ctx) {
   // handshake cadence rather than on the report closes the loop that a
   // report-driven retry cannot: no reports means nothing to answer.
   if (!stream_seen_) {
-    if (ctx.sys->Ui().PeerUsb(ctx.now_ms).has_value()) {
+    if (System::GetInstance().Ui().PeerUsb(ctx.now_ms).has_value()) {
       stream_seen_ = true;
     } else if (grant_.Due(ctx.now_ms, FcLink::kHandshakeRetryPeriodMs)) {
       if (grant_.Exhausted(kStm32RequestAttempts)) {
         ESP_LOGW(kTag, "EscConfig -> Serving (STM32 never opened the port)");
-        ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
-        ctx.sys->Ui().NotifyUserActivity();
-        ctx.sm->ReqTransition(*ctx.serving_state);
+        System::GetInstance().TonePlayer().PlayBuiltin(
+            ::TonePlayer::BuiltinTone::kWarning);
+        System::GetInstance().Ui().NotifyUserActivity();
+        ctx.sm->ReqTransition(ctx.serving_state);
         return;
       }
       grant_.Sent(ctx.now_ms);
@@ -366,44 +373,47 @@ void EscConfigState::OnStep(AppContext &ctx) {
 
   // Edge triggered because the report arrives every second either way, so
   // anything less would hold the screen awake for the whole session.
-  if (const auto usb = ctx.sys->Ui().PeerUsb(ctx.now_ms)) {
+  if (const auto usb = System::GetInstance().Ui().PeerUsb(ctx.now_ms)) {
     const uint32_t frames =
         (static_cast<uint32_t>(usb->rx_frames) << 8) | usb->tx_frames;
     if (activity_.Advanced(frames)) {
-      ctx.sys->Ui().NotifyUserActivity();
+      System::GetInstance().Ui().NotifyUserActivity();
     }
   }
 
   // The port stays shut while armed, and the screen says so -- but the screen
   // may well be asleep, so say it out loud too. Edge-triggered: the condition
   // holds for as long as the vehicle stays armed.
-  const bool armed = ctx.sys->Mavlink().PeerArmed(ctx.now_ms).value_or(false);
+  const bool armed =
+      System::GetInstance().Mavlink().PeerArmed(ctx.now_ms).value_or(false);
   if (armed && !warned_armed_) {
-    ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
-    ctx.sys->Ui().NotifyUserActivity();
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        ::TonePlayer::BuiltinTone::kWarning);
+    System::GetInstance().Ui().NotifyUserActivity();
   }
   warned_armed_ = armed;
 }
 
 // UsbLog State
 // As EscConfigState::OnExit.
-void UsbLogState::OnExit(AppContext &ctx) { DropUsbMode(ctx); }
+void UsbLogState::OnExit(StateMachineContext &ctx) { DropUsbMode(ctx); }
 
-void UsbLogState::OnEnter(AppContext &ctx) {
+void UsbLogState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering UsbLog");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kUsbLog);
-  ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolModeBlinkMs);
-  ctx.sys->StopNetwork();
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kUsbLog);
+  System::GetInstance().Mavlink().SetTelemetryLink(false);
+  System::GetInstance().Led().SetPattern(LED::Pattern::kBlink,
+                                         kToolModeBlinkMs);
+  System::GetInstance().StopNetwork();
   stream_seen_ = false;
   activity_.Reset(0);
   grant_.Begin(ctx.now_ms);
   SendUsbMode(ctx, message::UsbMode::kMsc);
 }
 
-void UsbLogState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "UsbLog", {*ctx.mavlink_usb_state, "MavlinkUsb"},
-                    {*ctx.service_state, "Service"})) {
+void UsbLogState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "UsbLog", {ctx.mavlink_usb_state, "MavlinkUsb"},
+                    {ctx.service_state, "Service"})) {
     return;
   }
 
@@ -412,14 +422,15 @@ void UsbLogState::OnStep(AppContext &ctx) {
   // The kUsbStatus stream exists only inside the session, so its arrival is
   // the grant.
   if (!stream_seen_) {
-    if (ctx.sys->Ui().PeerUsb(ctx.now_ms).has_value()) {
+    if (System::GetInstance().Ui().PeerUsb(ctx.now_ms).has_value()) {
       stream_seen_ = true;
     } else if (grant_.Due(ctx.now_ms, FcLink::kHandshakeRetryPeriodMs)) {
       if (grant_.Exhausted(kStm32RequestAttempts)) {
         ESP_LOGW(kTag, "UsbLog -> Serving (STM32 never granted MSC)");
-        ctx.sys->TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
-        ctx.sys->Ui().NotifyUserActivity();
-        ctx.sm->ReqTransition(*ctx.serving_state);
+        System::GetInstance().TonePlayer().PlayBuiltin(
+            ::TonePlayer::BuiltinTone::kWarning);
+        System::GetInstance().Ui().NotifyUserActivity();
+        ctx.sm->ReqTransition(ctx.serving_state);
         return;
       }
       grant_.Sent(ctx.now_ms);
@@ -428,40 +439,41 @@ void UsbLogState::OnStep(AppContext &ctx) {
   }
 
   // Block counters ride the frame fields; movement means the host is copying.
-  if (const auto usb = ctx.sys->Ui().PeerUsb(ctx.now_ms)) {
+  if (const auto usb = System::GetInstance().Ui().PeerUsb(ctx.now_ms)) {
     const uint32_t frames =
         (static_cast<uint32_t>(usb->rx_frames) << 8) | usb->tx_frames;
     if (activity_.Advanced(frames)) {
-      ctx.sys->Ui().NotifyUserActivity();
+      System::GetInstance().Ui().NotifyUserActivity();
     }
   }
 }
 
 // WifiLog State
-void WifiLogState::OnEnter(AppContext &ctx) {
+void WifiLogState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering WifiLog");
-  ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
-  ctx.sys->Mavlink().SetTelemetryLink(false);
-  ctx.sys->Led().SetPattern(LED::Pattern::kBlink, kToolModeBlinkMs);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kWifiLog);
+  System::GetInstance().Mavlink().SetTelemetryLink(false);
+  System::GetInstance().Led().SetPattern(LED::Pattern::kBlink,
+                                         kToolModeBlinkMs);
   // Best effort: a failed start only leaves nothing listening.
-  ctx.sys->StartNetwork();
-  ctx.sys->Tcp().CloseDataRx();
+  System::GetInstance().StartNetwork();
+  System::GetInstance().Tcp().CloseDataRx();
 }
 
-void WifiLogState::OnStep(AppContext &ctx) {
-  if (CycleOnButton(ctx, "WifiLog", {*ctx.usb_log_state, "UsbLog"},
-                    {*ctx.service_state, "Service"})) {
+void WifiLogState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "WifiLog", {ctx.usb_log_state, "UsbLog"},
+                    {ctx.service_state, "Service"})) {
     return;
   }
 
-  ctx.sys->Tcp().Poll();
+  System::GetInstance().Tcp().Poll();
   DrainFcLink(ctx);
 
-  while (auto ev = ctx.sys->Tcp().PopEvent()) {
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+  while (auto ev = System::GetInstance().Tcp().PopEvent()) {
+    System::GetInstance().CommandHandler().Dispatch(ctx, *ev);
   }
 
-  ctx.sys->Tcp().ClearLinkDrop();
+  System::GetInstance().Tcp().ClearLinkDrop();
 }
 
 // LogPull State
@@ -486,11 +498,11 @@ void LogPullState::PrepareGet(const char *name) {
   offset_ = 0;
 }
 
-void LogPullState::OnEnter(AppContext &ctx) {
+void LogPullState::OnEnter(StateMachineContext &ctx) {
   ESP_LOGI(kTag, "entering LogPull (%s)", op_ == Op::kList ? "list" : name_);
   ctx_ = &ctx;
   // Stays on the WiFi log screen, where the lanes show the transfer.
-  ctx.sys->Ui().SetAppState(Ui::AppState::kWifiLog);
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kWifiLog);
   reply_pending_ = false;
   done_ = false;
   reply_.Clear();
@@ -501,34 +513,34 @@ void LogPullState::OnEnter(AppContext &ctx) {
   tx_frames_ = 0;
   activity_.Reset(0);
   last_progress_ms_ = ctx.now_ms;
-  ctx.sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  System::GetInstance().Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
   mbedtls_sha256_init(&sha_);
   mbedtls_sha256_starts(&sha_, 0);
   SendRequest(ctx);
 }
 
-void LogPullState::SendRequest(AppContext &ctx) {
+void LogPullState::SendRequest(StateMachineContext &ctx) {
   if (op_ == Op::kList) {
-    ctx.sys->FcLink().SendPacket(message::MsgId::kLogList,
+    System::GetInstance().FcLink().SendPacket(message::MsgId::kLogList,
                                  message::LogListMsg{.first = list_first_});
   } else {
     message::LogReadMsg req{};
     std::memcpy(req.name, name_, message::kLogNameLen);
     req.offset = offset_;
     req.len = message::kLogDataMaxBytes;
-    ctx.sys->FcLink().SendPacket(message::MsgId::kLogRead, req);
+    System::GetInstance().FcLink().SendPacket(message::MsgId::kLogRead, req);
   }
   reply_pending_ = true;
   reply_.Sent(ctx.now_ms);
   ++tx_frames_;
-  ctx.sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  System::GetInstance().Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
 }
 
 void LogPullState::OnListReply(const message::LogListReplyMsg &reply) {
   reply_pending_ = false;
   reply_.Clear();
   ++rx_frames_;
-  ctx_->sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  System::GetInstance().Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
   if (static_cast<message::LogStatus>(reply.status) !=
       message::LogStatus::kOk) {
     Finish(*ctx_, "ERR busy\n");
@@ -540,7 +552,7 @@ void LogPullState::OnListReply(const message::LogListReplyMsg &reply) {
     std::memcpy(name, reply.entries[i].name, message::kLogNameLen);
     std::snprintf(line, sizeof(line), "LOG %s %u\n", name,
                   (unsigned)reply.entries[i].size_bytes);
-    ctx_->sys->Tcp().SendCtrlLine(line);
+    System::GetInstance().Tcp().SendCtrlLine(line);
   }
   const uint8_t next = static_cast<uint8_t>(reply.first + reply.count);
   if (reply.count == message::kLogListMaxEntries && next < reply.total) {
@@ -559,7 +571,7 @@ void LogPullState::OnData(const message::LogDataMsg &data) {
   reply_pending_ = false;
   reply_.Clear();
   ++rx_frames_;
-  ctx_->sys->Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
+  System::GetInstance().Ui().UpdateLogTraffic(rx_frames_, tx_frames_);
   if (static_cast<message::LogStatus>(data.status) != message::LogStatus::kOk) {
     Finish(*ctx_, static_cast<message::LogStatus>(data.status) ==
                           message::LogStatus::kNotFound
@@ -580,30 +592,30 @@ void LogPullState::OnData(const message::LogDataMsg &data) {
   offset_ += data.len;
 }
 
-void LogPullState::Finish(AppContext &ctx, const char *ctrl_line) {
-  ctx.sys->Tcp().SendCtrlLine(ctrl_line);
+void LogPullState::Finish(StateMachineContext &ctx, const char *ctrl_line) {
+  System::GetInstance().Tcp().SendCtrlLine(ctrl_line);
   mbedtls_sha256_free(&sha_);
-  ctx.sm->ReqTransition(*ctx.wifi_log_state);
+  ctx.sm->ReqTransition(ctx.wifi_log_state);
 }
 
-void LogPullState::OnStep(AppContext &ctx) {
-  auto &button = ctx.sys->Button();
+void LogPullState::OnStep(StateMachineContext &ctx) {
+  auto &button = System::GetInstance().Button();
   button.Poll();
   if (button.ConsumeLongPress()) {
-    ctx.sys->Ui().NotifyUserActivity();
+    System::GetInstance().Ui().NotifyUserActivity();
     Finish(ctx, "ERR aborted\n");
     return;
   }
 
-  ctx.sys->Tcp().Poll();
-  while (auto ev = ctx.sys->Tcp().PopEvent()) {
+  System::GetInstance().Tcp().Poll();
+  while (auto ev = System::GetInstance().Tcp().PopEvent()) {
     // The pull is what ABORT ends; everything else the dispatch refuses,
     // because a queued verb nobody answers hangs the host.
     if (ev->id == HostLink::EventId::kAbort) {
       Finish(ctx, "ERR aborted\n");
       return;
     }
-    ctx.sys->CommandHandler().Dispatch(ctx, *ev);
+    System::GetInstance().CommandHandler().Dispatch(ctx, *ev);
   }
   DrainFcLink(ctx);
 
@@ -612,13 +624,13 @@ void LogPullState::OnStep(AppContext &ctx) {
   const uint32_t frames =
       (static_cast<uint32_t>(rx_frames_) << 16) | tx_frames_;
   if (activity_.Advanced(frames)) {
-    ctx.sys->Ui().NotifyUserActivity();
+    System::GetInstance().Ui().NotifyUserActivity();
   }
 
   // Forward before requesting more: the unsent tail is the flow control.
   if (chunk_valid_) {
-    const int sent = ctx.sys->Tcp().SendData(&chunk_.data[chunk_sent_],
-                                             chunk_.len - chunk_sent_);
+    const int sent = System::GetInstance().Tcp().SendData(
+        &chunk_.data[chunk_sent_], chunk_.len - chunk_sent_);
     // Negative is the socket reporting the peer gone; zero is only
     // backpressure, which the stall deadline below bounds.
     if (sent < 0) {

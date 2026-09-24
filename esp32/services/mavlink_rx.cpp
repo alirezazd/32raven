@@ -39,7 +39,8 @@ void Mavlink::ServiceRx() {
 void Mavlink::HandleMessage(const mavlink_message_t &msg) {
   switch (msg.msgid) {
     case MAVLINK_MSG_ID_HEARTBEAT: {
-      Sys().Led().SetPattern(LED::Pattern::kDoubleBlink, 300, 1);
+      System::GetInstance().Led().SetPattern(LED::Pattern::kDoubleBlink, 300,
+                                             1);
       break;
     }
     case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:

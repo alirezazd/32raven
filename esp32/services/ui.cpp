@@ -281,14 +281,14 @@ void Ui::Init(const Config &cfg, Ssd1306Panel *panel, WifiController &wifi,
   wifi_ = &wifi;
   programmer_ = &programmer;
   mavlink_ = &mavlink;
-  SetAppState(AppState::kBooting);
+  SetBridgeState(BridgeState::kBooting);
   main_screen_ = MainScreen::kBooting;
   transition_ = {};
   transition_active_ = false;
   if (main_ui_widget_ != nullptr) {
-    main_ui_widget_->SetMode(MainScreen::kBooting);
+    main_ui_widget_->SetScreen(MainScreen::kBooting);
   }
-  last_user_activity_ms_ = Sys().Timebase().NowMs();
+  last_user_activity_ms_ = System::GetInstance().Timebase().NowMs();
   inactivity_fade_start_ms_ = 0;
   display_on_ = true;
   inactivity_fade_active_ = false;
@@ -326,9 +326,9 @@ void Ui::LoadWidget(IWidget *widget) {
   WakeTask();
 }
 
-void Ui::SetAppState(AppState state) {
+void Ui::SetBridgeState(BridgeState state) {
   taskENTER_CRITICAL(&g_ui_lock);
-  app_state_ = state;
+  bridge_state_ = state;
   taskEXIT_CRITICAL(&g_ui_lock);
   WakeTask();
 }
@@ -347,9 +347,9 @@ void Ui::SetErrorRecoverable(bool recoverable) {
   WakeTask();
 }
 
-Ui::AppState Ui::CurrentAppState() const {
+Ui::BridgeState Ui::CurrentBridgeState() const {
   taskENTER_CRITICAL(&g_ui_lock);
-  const AppState state = app_state_;
+  const BridgeState state = bridge_state_;
   taskEXIT_CRITICAL(&g_ui_lock);
   return state;
 }
@@ -375,25 +375,25 @@ uint8_t Ui::CurrentInactivityTimeoutSeconds() const {
   return timeout_s;
 }
 
-Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
+Ui::MainScreen Ui::DeriveMainScreen(BridgeState state) const {
   switch (state) {
-    case AppState::kBooting:
+    case BridgeState::kBooting:
       return MainScreen::kBooting;
-    case AppState::kServing:
+    case BridgeState::kServing:
       return MainScreen::kServing;
-    case AppState::kService:
+    case BridgeState::kService:
       return wifi_->HasAssociatedStations()
                  ? MainScreen::kServiceIdleConnected
                  : MainScreen::kServiceDisconnected;
-    case AppState::kMavlinkWifi:
+    case BridgeState::kMavlinkWifi:
       return wifi_->HasAssociatedStations()
                  ? MainScreen::kMavlinkWifiConnected
                  : MainScreen::kMavlinkWifiDisconnected;
-    case AppState::kMavlinkUsb:
+    case BridgeState::kMavlinkUsb:
       // Re-uses the WiFi MAVLink screen: the text path is the same and only
       // the underlying transport differs.
       return MainScreen::kMavlinkWifiDisconnected;
-    case AppState::kProgram:
+    case BridgeState::kProgram:
       if (programmer_->IsVerifying()) {
         return MainScreen::kVerifying;
       }
@@ -401,9 +401,9 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
         return MainScreen::kVerifying;
       }
       return MainScreen::kProgramming;
-    case AppState::kEscConfig: {
+    case BridgeState::kEscConfig: {
       // Not being told USB is up differs from being told it is down.
-      const uint32_t now_ms = Sys().Timebase().NowMs();
+      const uint32_t now_ms = System::GetInstance().Timebase().NowMs();
       const auto usb = PeerUsb(now_ms);
       if (!usb.has_value() || !usb->configured) {
         return MainScreen::kEscConfigDisconnected;
@@ -415,18 +415,18 @@ Ui::MainScreen Ui::DeriveMainScreen(AppState state) const {
       return usb->port_open ? MainScreen::kEscConfigConnected
                             : MainScreen::kEscConfigIdleConnected;
     }
-    case AppState::kWifiLog:
+    case BridgeState::kWifiLog:
       return wifi_->HasAssociatedStations()
                  ? MainScreen::kWifiLogConnected
                  : MainScreen::kWifiLogDisconnected;
-    case AppState::kUsbLog: {
-      const auto usb = PeerUsb(Sys().Timebase().NowMs());
+    case BridgeState::kUsbLog: {
+      const auto usb = PeerUsb(System::GetInstance().Timebase().NowMs());
       if (usb.has_value() && usb->configured) {
         return MainScreen::kUsbLogActive;
       }
       return MainScreen::kUsbLogIdle;
     }
-    case AppState::kHardError:
+    case BridgeState::kHardError:
     default:
       return MainScreen::kServing;
   }
@@ -504,7 +504,7 @@ void Ui::RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
       .mavlink = mavlink_,
   };
 
-  main_ui_widget_->SetMode(screen);
+  main_ui_widget_->SetScreen(screen);
   main_ui_widget_->OnStep(ctx, now);
   dst.ClearDirtyRanges();
 }
@@ -606,8 +606,8 @@ bool Ui::RenderActiveTransition(TimeMs now) {
 }
 
 void Ui::SyncPresentation(TimeMs now) {
-  const AppState app_state = CurrentAppState();
-  const MainScreen desired_main_screen = DeriveMainScreen(app_state);
+  const BridgeState bridge_state = CurrentBridgeState();
+  const MainScreen desired_main_screen = DeriveMainScreen(bridge_state);
   IWidget *current = nullptr;
   IWidget *pending = nullptr;
 
@@ -616,7 +616,7 @@ void Ui::SyncPresentation(TimeMs now) {
   pending = pending_widget_;
   taskEXIT_CRITICAL(&g_ui_lock);
 
-  if (main_ui_widget_ != nullptr && app_state != AppState::kHardError) {
+  if (main_ui_widget_ != nullptr && bridge_state != BridgeState::kHardError) {
     const bool main_widget_visible = current == main_ui_widget_ &&
                                      pending != boot_widget_ &&
                                      pending != error_widget_;
@@ -644,18 +644,18 @@ void Ui::SyncPresentation(TimeMs now) {
       if (skip_transition) {
         StopTransition();
       }
-      main_ui_widget_->SetMode(desired_main_screen);
+      main_ui_widget_->SetScreen(desired_main_screen);
       main_screen_ = desired_main_screen;
     }
   }
 
-  if (error_widget_ != nullptr && app_state == AppState::kHardError) {
+  if (error_widget_ != nullptr && bridge_state == BridgeState::kHardError) {
     error_widget_->SetErrorCode(CurrentErrorCode());
     error_widget_->SetRecoverable(CurrentErrorRecoverable());
   }
 
   IWidget *desired = nullptr;
-  if (app_state == AppState::kHardError) {
+  if (bridge_state == BridgeState::kHardError) {
     desired = error_widget_;
   } else {
     const bool boot_active = current == boot_widget_ || pending == boot_widget_;
@@ -671,7 +671,7 @@ void Ui::SyncPresentation(TimeMs now) {
 
 bool Ui::NotifyUserActivity() {
   const bool was_awake = IsScreenOn();
-  last_user_activity_ms_ = Sys().Timebase().NowMs();
+  last_user_activity_ms_ = System::GetInstance().Timebase().NowMs();
 
   if (panel_ != nullptr) {
     if (inactivity_fade_active_) {
@@ -690,7 +690,7 @@ void Ui::SetInactivityTimeoutSeconds(uint8_t timeout_s) {
   cfg_.ui_timeout_s = timeout_s;
   taskEXIT_CRITICAL(&g_ui_lock);
 
-  last_user_activity_ms_ = Sys().Timebase().NowMs();
+  last_user_activity_ms_ = System::GetInstance().Timebase().NowMs();
   inactivity_fade_start_ms_ = 0;
   inactivity_fade_active_ = false;
 
@@ -774,7 +774,7 @@ void Ui::ServiceTransition(TimeMs now) {
 
 void Ui::StartMosaicTransition(TimeMs now, TimeMs duration_ms,
                                uint8_t max_block_size) {
-  MainScreen next_screen = DeriveMainScreen(CurrentAppState());
+  MainScreen next_screen = DeriveMainScreen(CurrentBridgeState());
   if (next_screen == MainScreen::kBooting) {
     next_screen = MainScreen::kServing;
   }
@@ -798,12 +798,12 @@ void Ui::Task() {
   };
 
   while (true) {
-    const TimeMs now = Sys().Timebase().NowMs();
+    const TimeMs now = System::GetInstance().Timebase().NowMs();
     Step(now, ctx);
 
     TimeMs wait_ms = GetFrameIntervalMs();
     if (next_step_ms_ != 0) {
-      const TimeMs after_step = Sys().Timebase().NowMs();
+      const TimeMs after_step = System::GetInstance().Timebase().NowMs();
       if (!TimeReached(after_step, next_step_ms_)) {
         wait_ms = next_step_ms_ - after_step;
       }
@@ -867,7 +867,7 @@ void Ui::Step(TimeMs now, WidgetContext &ctx) {
 
   widget->OnStep(ctx, now);
   FlushIfDirty();
-  UpdatePowerState(Sys().Timebase().NowMs());
+  UpdatePowerState(System::GetInstance().Timebase().NowMs());
   next_step_ms_ = TimeAfter(now, GetFrameIntervalMs());
 }
 

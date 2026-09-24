@@ -159,7 +159,7 @@ void Programmer::Init(const Config &cfg, UartFcLink *uart) {
 
   // Ensure STM32 is reset on ESP32 boot
   NrstPulse(ctx_.cfg.reset_pulse_ms);
-  Sys().Timebase().SleepMs(ctx_.cfg.boot_settle_ms);
+  System::GetInstance().Timebase().SleepMs(ctx_.cfg.boot_settle_ms);
 
   phase_ = Phase::kIdle;
 }
@@ -210,7 +210,7 @@ void Programmer::NrstPulse(uint32_t pulse_ms) {
   const int deassert_level = 1;
 
   gpio_set_level(pin, assert_level);
-  Sys().Timebase().SleepMs(pulse_ms);
+  System::GetInstance().Timebase().SleepMs(pulse_ms);
   gpio_set_level(pin, deassert_level);
 }
 
@@ -218,14 +218,14 @@ bool Programmer::EnterStm32Bootloader() {
   // Put STM32 into ROM bootloader: BOOT0=1, reset pulse, settle
   Boot0Set(true);
   NrstPulse(ctx_.cfg.reset_pulse_ms);
-  Sys().Timebase().SleepMs(ctx_.cfg.boot_settle_ms);
+  System::GetInstance().Timebase().SleepMs(ctx_.cfg.boot_settle_ms);
 
   // Flush any junk
   ctx_.uart->Flush();
 
   // Switch to standard baud rate for ROM bootloader
   ctx_.uart->SetBaudRate(115200);
-  Sys().Timebase().SleepMs(10);
+  System::GetInstance().Timebase().SleepMs(10);
 
   // STM32 ROM bootloader sync:
   // Host sends 0x7F, device replies 0x79 (ACK) or 0x1F (NACK)
@@ -243,14 +243,14 @@ bool Programmer::EnterStm32Bootloader() {
     // the reset-to-bootloader transition; keep reading until timeout so one
     // stray byte does not make us miss the actual ACK.
     const TimeMs deadline =
-        TimeAfter(Sys().Timebase().NowMs(),
+        TimeAfter(System::GetInstance().Timebase().NowMs(),
                   static_cast<TimeMs>(ctx_.cfg.sync_timeout_ms));
     uint16_t unexpected_count = 0;
     uint8_t last_unexpected = 0;
     bool saw_nack = false;
 
-    while (!TimeReached(Sys().Timebase().NowMs(), deadline)) {
-      const TimeMs now = Sys().Timebase().NowMs();
+    while (!TimeReached(System::GetInstance().Timebase().NowMs(), deadline)) {
+      const TimeMs now = System::GetInstance().Timebase().NowMs();
       TimeMs remaining = deadline - now;
       if (remaining > 10) {
         remaining = 10;
@@ -298,7 +298,7 @@ bool Programmer::EnterStm32Bootloader() {
     }
 
     // small delay between retries
-    Sys().Timebase().SleepMs(10);
+    System::GetInstance().Timebase().SleepMs(10);
     ctx_.uart->Flush();
   }
 
@@ -723,7 +723,7 @@ std::optional<size_t> Programmer::ReadTargetVerifyChunk(
 // verify.EnabledFor() funnel here, so one tone covers write-only and
 // write-then-verify without either path knowing which ran.
 void Programmer::EnterDone() {
-  Sys().TonePlayer().PlayBuiltin(message::Tone::kConfirm);
+  System::GetInstance().TonePlayer().PlayBuiltin(message::Tone::kConfirm);
   phase_ = Phase::kDone;
 }
 
@@ -745,7 +745,7 @@ void Programmer::WatchForStall() {
     return;
   }
 
-  const TimeMs now = Sys().Timebase().NowMs();
+  const TimeMs now = System::GetInstance().Timebase().NowMs();
   if (stall_mark_ms_ == 0 || ctx_.written != stall_written_) {
     stall_written_ = ctx_.written;
     stall_mark_ms_ = now;

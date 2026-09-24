@@ -120,7 +120,7 @@ void TonePlayer::Task() {
         continue;
       }
 
-      const TimeMs now = Sys().Timebase().NowMs();
+      const TimeMs now = System::GetInstance().Timebase().NowMs();
       if (TimeReached(now, next_change_ms_)) {
         const std::optional<NoteEvent> event = ParseNextNote();
         if (!event) {
@@ -167,7 +167,7 @@ void TonePlayer::Task() {
       continue;
     }
 
-    StartEvent(*event, Sys().Timebase().NowMs());
+    StartEvent(*event, System::GetInstance().Timebase().NowMs());
   }
 }
 

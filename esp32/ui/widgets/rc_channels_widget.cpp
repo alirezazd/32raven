@@ -23,7 +23,7 @@ constexpr int16_t kStatusGap = 3;
 }  // namespace
 
 void RcChannelsWidget::OnEnter(WidgetContext &ctx) {
-  Render(ctx, Sys().Timebase().NowMs());
+  Render(ctx, System::GetInstance().Timebase().NowMs());
 }
 
 void RcChannelsWidget::OnStep(WidgetContext &ctx, TimeMs now) {

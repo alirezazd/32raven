@@ -7,7 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "ui.hpp"
+#include "widget.hpp"
 
 class MatrixWidget : public IWidget {
  public:

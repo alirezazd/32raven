@@ -69,7 +69,7 @@ void Mavlink::SetTelemetryLink(bool enabled) {
   tx_work_queue_.Clear();
 
   if (enabled) {
-    const uint32_t now_ms = Sys().Timebase().NowMs();
+    const uint32_t now_ms = System::GetInstance().Timebase().NowMs();
     InitTxSchedule(now_ms, true);
     next_tx_poll_ms_ = now_ms;
     link_up_ms_ = now_ms;

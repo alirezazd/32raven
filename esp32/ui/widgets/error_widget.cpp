@@ -89,7 +89,7 @@ bool ErrorWidget::CurrentRecoverable() const {
 }
 
 void ErrorWidget::OnEnter(WidgetContext &ctx) {
-  Render(ctx, Sys().Timebase().NowMs());
+  Render(ctx, System::GetInstance().Timebase().NowMs());
 }
 
 void ErrorWidget::OnStep(WidgetContext &ctx, TimeMs now) { Render(ctx, now); }

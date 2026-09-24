@@ -41,7 +41,8 @@ void MatrixWidget::OnEnter(WidgetContext &ctx) {
   ConfigureLayout(*ctx.renderer);
   InitializeColumns();
   Render(ctx);
-  next_step_ms_ = TimeAfter(Sys().Timebase().NowMs(), kStepPeriodMs);
+  next_step_ms_ =
+      TimeAfter(System::GetInstance().Timebase().NowMs(), kStepPeriodMs);
 }
 
 void MatrixWidget::OnStep(WidgetContext &ctx, TimeMs now) {

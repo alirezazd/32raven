@@ -5,17 +5,35 @@
 
 #include <array>
 
-#include "ui.hpp"
+#include "widget.hpp"
 
 class MainUiWidget : public IWidget {
  public:
-  using Mode = Ui::MainScreen;
+  enum class Screen : uint8_t {
+    kBooting,
+    kServing,
+    kServiceDisconnected,
+    kServiceIdleConnected,
+    kMavlinkWifiDisconnected,
+    kMavlinkWifiConnected,
+    kProgramming,
+    kVerifying,
+    // Three stages of one screen; the STM32's USB report picks between them.
+    kEscConfigArmed,          // refused: the vehicle is armed
+    kEscConfigDisconnected,   // no host has enumerated the port
+    kEscConfigIdleConnected,  // enumerated, no configurator attached yet
+    kEscConfigConnected,      // configurator opened the port
+    kWifiLogDisconnected,     // AP up, no station associated
+    kWifiLogConnected,        // a station joined; pulls animate the lanes
+    kUsbLogIdle,              // MSC granted, no host has enumerated the disk
+    kUsbLogActive,            // host mounted the card
+  };
 
   static MainUiWidget &GetInstance();
 
   const char *Name() const override { return "main_ui"; }
 
-  void SetMode(Mode mode);
+  void SetScreen(Screen screen);
   void OnEnter(WidgetContext &ctx) override;
   void OnStep(WidgetContext &ctx, TimeMs now) override;
 
@@ -35,9 +53,9 @@ class MainUiWidget : public IWidget {
     uint32_t last_seen_heartbeat_count = 0;
   };
 
-  Mode CurrentMode() const;
-  void BeginTextPhase(WidgetContext &ctx, TimeMs now, Mode mode);
-  void RenderMode(WidgetContext &ctx, TimeMs now, Mode mode);
+  Screen CurrentScreen() const;
+  void BeginTextPhase(WidgetContext &ctx, TimeMs now, Screen screen);
+  void RenderScreen(WidgetContext &ctx, TimeMs now, Screen screen);
   void EnsureLinkGlyphMetrics(DisplayRenderer &renderer);
   void InitializeServiceLinkAnimation(DisplayRenderer &renderer, TimeMs now,
                                   TimeMs step_period_ms);
@@ -52,7 +70,7 @@ class MainUiWidget : public IWidget {
     uint32_t tx_heartbeat_count = 0;
   };
 
-  static LinkPacketSource PacketSourceForMode(Mode mode, TimeMs now,
+  static LinkPacketSource PacketSourceForScreen(Screen screen, TimeMs now,
                                               const Ui &ui,
                                               const Mavlink &mavlink);
   void ResetLinkPacketAnimation(const LinkPacketSource &source, TimeMs now);
@@ -95,8 +113,8 @@ class MainUiWidget : public IWidget {
   mutable bool service_link_initialized_ = false;
   mutable bool verify_magnifier_moving_right_ = true;
   mutable bool verify_magnifier_initialized_ = false;
-  mutable Mode last_mode_ = Mode::kBooting;
-  Mode mode_ = Mode::kBooting;
+  mutable Screen last_screen_ = Screen::kBooting;
+  Screen screen_ = Screen::kBooting;
 
   MainUiWidget() = default;
 

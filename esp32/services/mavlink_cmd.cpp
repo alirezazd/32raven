@@ -93,8 +93,8 @@ void Mavlink::SysReboot() {
     if (tx_work_queue_.IsEmpty() && tx_frame_.Empty()) {
       break;
     }
-    TransmitNextFrame(Sys().Timebase().NowMs());
-    Sys().Timebase().SleepMs(kDrainStepMs);
+    TransmitNextFrame(System::GetInstance().Timebase().NowMs());
+    System::GetInstance().Timebase().SleepMs(kDrainStepMs);
   }
   esp_restart();
 }
@@ -166,7 +166,7 @@ void Mavlink::HandleCommandLong(const mavlink_message_t &msg,
                                 "reboot");
         break;
       }
-      if (PeerArmed(Sys().Timebase().NowMs()).value_or(false)) {
+      if (PeerArmed(System::GetInstance().Timebase().NowMs()).value_or(false)) {
         QueueCommandAck(static_cast<uint16_t>(cmd.command), MAV_RESULT_DENIED,
                         source_system, source_component);
         break;

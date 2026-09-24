@@ -7,9 +7,8 @@
 #include <optional>
 
 #include "error_code.hpp"
+#include "fc_link.hpp"
 #include "message.hpp"
-
-class FcLink;
 
 // The flight computer's RC map, board trim and calibration ids as last
 // reported, plus the writes a ground station asked for that the flight

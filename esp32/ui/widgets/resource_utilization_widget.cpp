@@ -47,7 +47,8 @@ uint32_t ToKiB(size_t bytes) { return static_cast<uint32_t>(bytes / 1024u); }
 void ResourceUtilizationWidget::OnEnter(WidgetContext &ctx) {
   SampleMetrics();
   Render(ctx);
-  next_update_ms_ = TimeAfter(Sys().Timebase().NowMs(), kUpdatePeriodMs);
+  next_update_ms_ =
+      TimeAfter(System::GetInstance().Timebase().NowMs(), kUpdatePeriodMs);
 }
 
 void ResourceUtilizationWidget::OnStep(WidgetContext &ctx, TimeMs now) {
@@ -66,7 +67,7 @@ void ResourceUtilizationWidget::SampleMetrics() {
   min_free_heap_bytes_ = heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT);
   largest_block_bytes_ = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT);
 
-  const uint64_t sample_time_us = Sys().Timebase().NowUs();
+  const uint64_t sample_time_us = System::GetInstance().Timebase().NowUs();
   const uint32_t idle_runtime = ulTaskGetIdleRunTimeCounter();
   const uint32_t idle_percent = std::min<uint32_t>(
       100u, static_cast<uint32_t>(ulTaskGetIdleRunTimePercent()));

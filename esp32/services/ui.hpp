@@ -9,21 +9,18 @@
 #include <optional>
 #include <span>
 
+#include "boot_widget.hpp"
 #include "display_renderer.hpp"
 #include "error_code.hpp"
+#include "error_widget.hpp"
+#include "main_ui_widget.hpp"
 #include "message.hpp"
 #include "mavlink.hpp"
 #include "programmer.hpp"
 #include "ssd1306_panel.hpp"
 #include "timebase.hpp"
+#include "widget.hpp"
 #include "wifi.hpp"
-
-class Ui;
-class DisplayCanvas;
-struct IWidget;
-class BootWidget;
-class ErrorWidget;
-class MainUiWidget;
 
 class DisplayCanvas : public RenderCanvas {
  public:
@@ -67,22 +64,6 @@ class DisplayCanvas : public RenderCanvas {
   std::array<DirtyRange, kPageCount> dirty_ranges_{};
 };
 
-struct WidgetContext {
-  Ui *ui = nullptr;
-  DisplayRenderer *renderer = nullptr;
-  const WifiController *wifi = nullptr;
-  const Mavlink *mavlink = nullptr;
-
-  void LoadWidget(IWidget *widget) const;
-};
-
-struct IWidget {
-  virtual ~IWidget() = default;
-  virtual const char *Name() const = 0;
-  virtual void OnEnter(WidgetContext &ctx) { (void)ctx; }
-  virtual void OnStep(WidgetContext &ctx, TimeMs now) = 0;
-};
-
 class Ui {
  public:
   enum class TransitionEffect : uint8_t {
@@ -95,7 +76,7 @@ class Ui {
     kRight,
   };
 
-  enum class AppState : uint8_t {
+  enum class BridgeState : uint8_t {
     kBooting,
     kServing,
     kService,
@@ -108,25 +89,7 @@ class Ui {
     kHardError,
   };
 
-  enum class MainScreen : uint8_t {
-    kBooting,
-    kServing,
-    kServiceDisconnected,
-    kServiceIdleConnected,
-    kMavlinkWifiDisconnected,
-    kMavlinkWifiConnected,
-    kProgramming,
-    kVerifying,
-    // Three stages of one screen; the STM32's USB report picks between them.
-    kEscConfigArmed,          // refused: the vehicle is armed
-    kEscConfigDisconnected,   // no host has enumerated the port
-    kEscConfigIdleConnected,  // enumerated, no configurator attached yet
-    kEscConfigConnected,      // configurator opened the port
-    kWifiLogDisconnected,     // AP up, no station associated
-    kWifiLogConnected,        // a station joined; pulls animate the lanes
-    kUsbLogIdle,              // MSC granted, no host has enumerated the disk
-    kUsbLogActive,            // host mounted the card
-  };
+  using MainScreen = MainUiWidget::Screen;
 
   struct Config {
     uint8_t fps_cap = 30;
@@ -171,7 +134,7 @@ class Ui {
   LogTraffic GetLogTraffic() const;
 
   void LoadWidget(IWidget *widget);
-  void SetAppState(AppState state);
+  void SetBridgeState(BridgeState state);
   void SetErrorCode(uint32_t code);
   void SetErrorRecoverable(bool recoverable);
 
@@ -216,11 +179,11 @@ class Ui {
   void Step(TimeMs now, WidgetContext &ctx);
   void WakeTask() const;
   void ServiceTransition(TimeMs now);
-  AppState CurrentAppState() const;
+  BridgeState CurrentBridgeState() const;
   uint32_t CurrentErrorCode() const;
   bool CurrentErrorRecoverable() const;
   uint8_t CurrentInactivityTimeoutSeconds() const;
-  MainScreen DeriveMainScreen(AppState state) const;
+  MainScreen DeriveMainScreen(BridgeState state) const;
   void SyncPresentation(TimeMs now);
   void RenderMainScreenSnapshot(MainScreen screen, TimeMs now,
                                 DisplayCanvas &dst);
@@ -268,7 +231,7 @@ class Ui {
   IWidget *current_widget_ = nullptr;
   IWidget *pending_widget_ = nullptr;
   void *task_handle_ = nullptr;  // TaskHandle_t
-  AppState app_state_ = AppState::kBooting;
+  BridgeState bridge_state_ = BridgeState::kBooting;
   uint32_t error_code_ = static_cast<uint32_t>(ErrorCode::Common::kUnknown);
   bool error_recoverable_ = false;
   MainScreen main_screen_ = MainScreen::kBooting;

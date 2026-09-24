@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include "ctx.hpp"
 #include "host_link.hpp"
 #include "message.hpp"
+#include "state_machine_context.hpp"
 
 class CommandHandler {
  public:
@@ -13,9 +13,9 @@ class CommandHandler {
 
   static CommandHandler &GetInstance();
 
-  void Dispatch(const AppContext &ctx, const message::Packet &pkt);
+  void Dispatch(StateMachineContext &ctx, const message::Packet &pkt);
 
-  void Dispatch(AppContext &ctx, const HostLink::Event &ev);
+  void Dispatch(StateMachineContext &ctx, const HostLink::Event &ev);
 
  private:
   friend class System;

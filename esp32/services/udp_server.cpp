@@ -186,7 +186,8 @@ int UdpServer::Receive(std::span<uint8_t> dst) {
     ESP_LOGW(kTag, "upload shaper overflow: dropped=%u threshold=%u count=%u",
              dropped_bytes, static_cast<unsigned>(cfg_.overflow_threshold),
              static_cast<unsigned>(upload_overflow_count_));
-    Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        ::TonePlayer::BuiltinTone::kError);
     if (upload_overflow_count_ >= cfg_.overflow_threshold) {
       Panic(ErrorCode::Esp32::kUdpServerUploadOverflow);
     }
@@ -316,7 +317,8 @@ int UdpServer::Send(std::span<const uint8_t> bytes) {
     ESP_LOGW(kTag, "download shaper overflow: dropped=%u threshold=%u count=%u",
              dropped_bytes, static_cast<unsigned>(cfg_.overflow_threshold),
              static_cast<unsigned>(download_overflow_count_));
-    Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        ::TonePlayer::BuiltinTone::kError);
     if (download_overflow_count_ >= cfg_.overflow_threshold) {
       Panic(ErrorCode::Esp32::kUdpServerDownloadOverflow);
     }

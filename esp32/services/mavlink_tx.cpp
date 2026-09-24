@@ -78,6 +78,9 @@ uint32_t MapSystemSensorFlagsToMavlink(uint32_t flags) {
   if ((flags & message::kSystemSensorFlagEsc) != 0u) {
     mavlink_flags |= MAV_SYS_STATUS_SENSOR_PROPULSION;
   }
+  if ((flags & message::kSystemSensorFlagMag) != 0u) {
+    mavlink_flags |= MAV_SYS_STATUS_SENSOR_3D_MAG;
+  }
   return mavlink_flags;
 }
 
@@ -88,12 +91,13 @@ struct SensorLabel {
   const char *name;
 };
 
-constexpr std::array<SensorLabel, 5> kSensorLabels = {{
+constexpr std::array<SensorLabel, 6> kSensorLabels = {{
     {message::kSystemSensorFlagImu, "IMU"},
     {message::kSystemSensorFlagGps, "GPS"},
     {message::kSystemSensorFlagBattery, "Battery"},
     {message::kSystemSensorFlagRcReceiver, "RC receiver"},
     {message::kSystemSensorFlagEsc, "ESC"},
+    {message::kSystemSensorFlagMag, "Compass"},
 }};
 
 int8_t NormalizeBatteryRemaining(int8_t battery_remaining) {
@@ -112,7 +116,8 @@ void Mavlink::QueueTxItem(const TxQueueItem &item) {
     (void)tx_work_queue_.Pop(dropped);
     (void)tx_work_queue_.Push(item);
     ESP_LOGW(kTag, "TX work queue full; dropped oldest item");
-    Sys().TonePlayer().PlayBuiltin(TonePlayer::BuiltinTone::kWarning);
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        TonePlayer::BuiltinTone::kWarning);
   }
 }
 
@@ -135,7 +140,8 @@ void Mavlink::NotifyGcsIssue(const char *text, uint8_t severity) {
   }
 
   QueueStatusText(text, severity);
-  Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kWarning);
+  System::GetInstance().TonePlayer().PlayBuiltin(
+      ::TonePlayer::BuiltinTone::kWarning);
 }
 
 void Mavlink::NotifyGcsIssueOnce(const char *text, uint8_t severity) {

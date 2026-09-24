@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "ui.hpp"
+#include "widget.hpp"
 
 class BootWidget : public IWidget {
  public:

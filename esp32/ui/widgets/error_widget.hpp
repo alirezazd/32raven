@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-#include "ui.hpp"
+#include "widget.hpp"
 
 extern "C" {
 #include "freertos/FreeRTOS.h"

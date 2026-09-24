@@ -32,7 +32,8 @@ void DrawCenteredBitmap(WidgetContext &ctx, const PackedBitmap &bitmap) {
 
 void BootWidget::OnEnter(WidgetContext &ctx) {
   DrawCenteredBitmap(ctx, boot_logo::kBitmap);
-  deadline_ms_ = TimeAfter(Sys().Timebase().NowMs(), timeout_ms_);
+  deadline_ms_ =
+      TimeAfter(System::GetInstance().Timebase().NowMs(), timeout_ms_);
   mode_ = Mode::kShowing;
 }
 

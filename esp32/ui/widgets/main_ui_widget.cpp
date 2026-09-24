@@ -32,7 +32,7 @@ extern "C" {
 
 namespace {
 
-using WidgetMode = MainUiWidget::Mode;
+using Screen = MainUiWidget::Screen;
 
 constexpr DisplayTextStyle kStatusStyle{
     .scale = 1,
@@ -120,102 +120,102 @@ char RandomBinaryGlyph() { return ((esp_random() & 0x1u) != 0u) ? '1' : '0'; }
 // fixup in drawChar, so it lands without cp437(true).
 constexpr char kHeartbeatGlyph = '\x03';
 
-const char *StatusTextForMode(WidgetMode mode) {
-  switch (mode) {
-    case WidgetMode::kBooting:
+const char *StatusTextForScreen(Screen screen) {
+  switch (screen) {
+    case Screen::kBooting:
       return "Booting";
-    case WidgetMode::kServing:
+    case Screen::kServing:
       return kServingStatus;
-    case WidgetMode::kServiceDisconnected:
-    case WidgetMode::kServiceIdleConnected:
+    case Screen::kServiceDisconnected:
+    case Screen::kServiceIdleConnected:
       return kServiceStatus;
-    case WidgetMode::kMavlinkWifiDisconnected:
-    case WidgetMode::kMavlinkWifiConnected:
+    case Screen::kMavlinkWifiDisconnected:
+    case Screen::kMavlinkWifiConnected:
       return kMavlinkWifiStatus;
-    case WidgetMode::kEscConfigArmed:
-    case WidgetMode::kEscConfigDisconnected:
-    case WidgetMode::kEscConfigIdleConnected:
-    case WidgetMode::kEscConfigConnected:
+    case Screen::kEscConfigArmed:
+    case Screen::kEscConfigDisconnected:
+    case Screen::kEscConfigIdleConnected:
+    case Screen::kEscConfigConnected:
       return kEscConfigStatus;
-    case WidgetMode::kWifiLogDisconnected:
-    case WidgetMode::kWifiLogConnected:
+    case Screen::kWifiLogDisconnected:
+    case Screen::kWifiLogConnected:
       return kWifiLogStatus;
-    case WidgetMode::kUsbLogIdle:
-    case WidgetMode::kUsbLogActive:
+    case Screen::kUsbLogIdle:
+    case Screen::kUsbLogActive:
       return kUsbLogStatus;
-    case WidgetMode::kProgramming:
+    case Screen::kProgramming:
       return "Programming";
-    case WidgetMode::kVerifying:
+    case Screen::kVerifying:
       return "Verifying";
     default:
       return "";
   }
 }
 
-bool IsServingMode(WidgetMode mode) { return mode == WidgetMode::kServing; }
+bool IsServingScreen(Screen screen) { return screen == Screen::kServing; }
 
-bool IsEscConfigMode(WidgetMode mode) {
-  return mode == WidgetMode::kEscConfigArmed ||
-         mode == WidgetMode::kEscConfigDisconnected ||
-         mode == WidgetMode::kEscConfigIdleConnected ||
-         mode == WidgetMode::kEscConfigConnected;
+bool IsEscConfigScreen(Screen screen) {
+  return screen == Screen::kEscConfigArmed ||
+         screen == Screen::kEscConfigDisconnected ||
+         screen == Screen::kEscConfigIdleConnected ||
+         screen == Screen::kEscConfigConnected;
 }
 
-bool IsWifiLogMode(WidgetMode mode) {
-  return mode == WidgetMode::kWifiLogDisconnected ||
-         mode == WidgetMode::kWifiLogConnected;
+bool IsWifiLogScreen(Screen screen) {
+  return screen == Screen::kWifiLogDisconnected ||
+         screen == Screen::kWifiLogConnected;
 }
 
-bool IsUsbLogMode(WidgetMode mode) {
-  return mode == WidgetMode::kUsbLogIdle || mode == WidgetMode::kUsbLogActive;
+bool IsUsbLogScreen(Screen screen) {
+  return screen == Screen::kUsbLogIdle || screen == Screen::kUsbLogActive;
 }
 
-bool IsServiceVisualMode(WidgetMode mode) {
-  return mode == WidgetMode::kServiceDisconnected ||
-         mode == WidgetMode::kServiceIdleConnected ||
-         mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected || IsEscConfigMode(mode) ||
-         IsWifiLogMode(mode) || IsUsbLogMode(mode) ||
-         mode == WidgetMode::kProgramming || mode == WidgetMode::kVerifying;
+bool IsServiceVisualScreen(Screen screen) {
+  return screen == Screen::kServiceDisconnected ||
+         screen == Screen::kServiceIdleConnected ||
+         screen == Screen::kMavlinkWifiDisconnected ||
+         screen == Screen::kMavlinkWifiConnected || IsEscConfigScreen(screen) ||
+         IsWifiLogScreen(screen) || IsUsbLogScreen(screen) ||
+         screen == Screen::kProgramming || screen == Screen::kVerifying;
 }
 
-bool IsScrollableProgressMode(WidgetMode mode) {
-  return mode == WidgetMode::kProgramming || mode == WidgetMode::kVerifying;
+bool IsScrollableProgressScreen(Screen screen) {
+  return screen == Screen::kProgramming || screen == Screen::kVerifying;
 }
 
 // The transport this screen needs is not up: badge blinks with a "!".
-bool ShouldBlinkCornerBadge(WidgetMode mode) {
-  return mode == WidgetMode::kServiceDisconnected ||
-         mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kEscConfigDisconnected ||
-         mode == WidgetMode::kEscConfigArmed ||
-         mode == WidgetMode::kWifiLogDisconnected ||
-         mode == WidgetMode::kUsbLogIdle;
+bool ShouldBlinkCornerBadge(Screen screen) {
+  return screen == Screen::kServiceDisconnected ||
+         screen == Screen::kMavlinkWifiDisconnected ||
+         screen == Screen::kEscConfigDisconnected ||
+         screen == Screen::kEscConfigArmed ||
+         screen == Screen::kWifiLogDisconnected ||
+         screen == Screen::kUsbLogIdle;
 }
 
-bool IsBodyTextMode(WidgetMode mode) { return ShouldBlinkCornerBadge(mode); }
+bool IsBodyTextScreen(Screen screen) { return ShouldBlinkCornerBadge(screen); }
 
 // Screens that show binary glyphs travelling between the two icons.
-bool HasPacketLanes(WidgetMode mode) {
-  return mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected ||
-         mode == WidgetMode::kEscConfigConnected ||
-         mode == WidgetMode::kWifiLogConnected ||
-         mode == WidgetMode::kUsbLogActive;
+bool HasPacketLanes(Screen screen) {
+  return screen == Screen::kMavlinkWifiDisconnected ||
+         screen == Screen::kMavlinkWifiConnected ||
+         screen == Screen::kEscConfigConnected ||
+         screen == Screen::kWifiLogConnected ||
+         screen == Screen::kUsbLogActive;
 }
 
-bool IsMavlinkMode(WidgetMode mode) {
-  return mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected;
+bool IsMavlinkScreen(Screen screen) {
+  return screen == Screen::kMavlinkWifiDisconnected ||
+         screen == Screen::kMavlinkWifiConnected;
 }
 
-int16_t ProgressBarFillWidth(DisplayRenderer &renderer, WidgetMode mode) {
+int16_t ProgressBarFillWidth(DisplayRenderer &renderer, Screen screen) {
   const size_t width = renderer.Width();
-  if (!IsScrollableProgressMode(mode) || width == 0) {
+  if (!IsScrollableProgressScreen(screen) || width == 0) {
     return 0;
   }
 
-  const Programmer &programmer = Sys().Programmer();
+  const Programmer &programmer = System::GetInstance().Programmer();
   const uint32_t total = programmer.Total();
   if (total == 0) {
     return 0;
@@ -232,7 +232,7 @@ int16_t ProgressBarFillWidth(DisplayRenderer &renderer, WidgetMode mode) {
       total);
 }
 
-void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
+void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, Screen screen) {
   const int16_t width = static_cast<int16_t>(renderer.Width());
   const int16_t height = static_cast<int16_t>(renderer.Height());
   if (width <= 0 || height < kProgressBarHeightPx) {
@@ -242,7 +242,7 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
   const int16_t top = static_cast<int16_t>(height - kProgressBarHeightPx);
   renderer.FillRect(0, top, width, kProgressBarHeightPx, Ink::kOff);
 
-  const int16_t fill_width = ProgressBarFillWidth(renderer, mode);
+  const int16_t fill_width = ProgressBarFillWidth(renderer, screen);
   if (fill_width <= 0) {
     return;
   }
@@ -261,24 +261,24 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, WidgetMode mode) {
   }
 }
 
-// Names the transport the mode is reachable on. Verifying gets none: it runs
+// Names the transport the screen is reachable on. Verifying gets none: it runs
 // off the link that brought it here.
-PackedBitmap CornerBadgeForMode(WidgetMode mode) {
-  if (IsEscConfigMode(mode) || IsUsbLogMode(mode)) {
+PackedBitmap CornerBadgeForScreen(Screen screen) {
+  if (IsEscConfigScreen(screen) || IsUsbLogScreen(screen)) {
     return usb_bitmap::kBitmap;
   }
-  if (IsServiceVisualMode(mode) && mode != WidgetMode::kVerifying) {
+  if (IsServiceVisualScreen(screen) && screen != Screen::kVerifying) {
     return wifi_bitmap::kBitmap;
   }
   return {};
 }
 
-int16_t StatusViewportWidthPx(DisplayRenderer &renderer, WidgetMode mode) {
+int16_t StatusViewportWidthPx(DisplayRenderer &renderer, Screen screen) {
   const DisplayTextBounds prefix_bounds =
       renderer.MeasureText(">", kStatusStyle);
   // The badge shares this band, so the text stops at its edge rather than
   // scrolling underneath it.
-  const PackedBitmap badge = CornerBadgeForMode(mode);
+  const PackedBitmap badge = CornerBadgeForScreen(screen);
   const int16_t badge_reserve =
       badge.Valid() ? static_cast<int16_t>(badge.width + kStatusBadgeGapPx) : 0;
   return static_cast<int16_t>(static_cast<int16_t>(renderer.Width()) -
@@ -287,24 +287,24 @@ int16_t StatusViewportWidthPx(DisplayRenderer &renderer, WidgetMode mode) {
                               kStatusRightInsetPx - badge_reserve);
 }
 
-bool StatusLineScrolls(DisplayRenderer &renderer, WidgetMode mode) {
+bool StatusLineScrolls(DisplayRenderer &renderer, Screen screen) {
   const DisplayTextBounds body_bounds =
-      renderer.MeasureText(StatusTextForMode(mode), kStatusStyle);
+      renderer.MeasureText(StatusTextForScreen(screen), kStatusStyle);
   const DisplayTextBounds dot_slot_bounds =
       renderer.MeasureText("...", kStatusStyle);
   return static_cast<int16_t>(body_bounds.width + dot_slot_bounds.width) >
-         StatusViewportWidthPx(renderer, mode);
+         StatusViewportWidthPx(renderer, screen);
 }
 
-PackedBitmap LeftIconForMode(WidgetMode mode, TimeMs now) {
-  if (IsEscConfigMode(mode)) {
+PackedBitmap LeftIconForScreen(Screen screen, TimeMs now) {
+  if (IsEscConfigScreen(screen)) {
     return am32_bitmap::kBitmap;
   }
-  if (IsWifiLogMode(mode) || IsUsbLogMode(mode)) {
+  if (IsWifiLogScreen(screen) || IsUsbLogScreen(screen)) {
     return sd_card_bitmap::kBitmap;
   }
 
-  if (IsMavlinkMode(mode)) {
+  if (IsMavlinkScreen(screen)) {
     return chip_bitmap::kBitmap;
   }
   return pc_bitmap::kBitmap;
@@ -312,11 +312,12 @@ PackedBitmap LeftIconForMode(WidgetMode mode, TimeMs now) {
 
 // The far end of the session: the PC, the GCS across the WiFi link, or the
 // STM32 when flashing.
-PackedBitmap RightIconForMode(WidgetMode mode, TimeMs now) {
-  if (IsEscConfigMode(mode) || IsUsbLogMode(mode) || IsWifiLogMode(mode)) {
+PackedBitmap RightIconForScreen(Screen screen, TimeMs now) {
+  if (IsEscConfigScreen(screen) || IsUsbLogScreen(screen) ||
+      IsWifiLogScreen(screen)) {
     return pc_bitmap::kBitmap;
   }
-  if (!IsMavlinkMode(mode)) {
+  if (!IsMavlinkScreen(screen)) {
     return chip_bitmap::kBitmap;
   }
 
@@ -333,13 +334,13 @@ PackedBitmap RightIconForMode(WidgetMode mode, TimeMs now) {
   }
 }
 
-bool ShouldAnimateEntryText(WidgetMode mode) {
-  return mode == WidgetMode::kServing ||
-         mode == WidgetMode::kServiceDisconnected ||
-         mode == WidgetMode::kServiceIdleConnected ||
-         mode == WidgetMode::kMavlinkWifiDisconnected ||
-         mode == WidgetMode::kMavlinkWifiConnected || IsEscConfigMode(mode) ||
-         IsWifiLogMode(mode) || IsUsbLogMode(mode);
+bool ShouldAnimateEntryText(Screen screen) {
+  return screen == Screen::kServing ||
+         screen == Screen::kServiceDisconnected ||
+         screen == Screen::kServiceIdleConnected ||
+         screen == Screen::kMavlinkWifiDisconnected ||
+         screen == Screen::kMavlinkWifiConnected || IsEscConfigScreen(screen) ||
+         IsWifiLogScreen(screen) || IsUsbLogScreen(screen);
 }
 
 // Shared by the AP credentials and the ESC-config guidance, which differ only
@@ -502,21 +503,21 @@ MainUiWidget &MainUiWidget::GetInstance() {
   return instance;
 }
 
-void MainUiWidget::SetMode(Mode mode) {
+void MainUiWidget::SetScreen(Screen screen) {
   taskENTER_CRITICAL(&g_main_ui_widget_lock);
-  mode_ = mode;
+  screen_ = screen;
   taskEXIT_CRITICAL(&g_main_ui_widget_lock);
 }
 
-MainUiWidget::Mode MainUiWidget::CurrentMode() const {
+MainUiWidget::Screen MainUiWidget::CurrentScreen() const {
   taskENTER_CRITICAL(&g_main_ui_widget_lock);
-  const Mode mode = mode_;
+  const Screen screen = screen_;
   taskEXIT_CRITICAL(&g_main_ui_widget_lock);
-  return mode;
+  return screen;
 }
 
 void MainUiWidget::OnEnter(WidgetContext &ctx) {
-  const TimeMs now = Sys().Timebase().NowMs();
+  const TimeMs now = System::GetInstance().Timebase().NowMs();
   has_rendered_ = false;
   text_animation_active_ = false;
   text_animation_start_ms_ = now;
@@ -529,16 +530,16 @@ void MainUiWidget::OnEnter(WidgetContext &ctx) {
   service_link_initialized_ = false;
   link_packet_last_step_ms_ = now;
   ResetVerifyMagnifierAnimation(now);
-  last_mode_ = CurrentMode();
+  last_screen_ = CurrentScreen();
 
   if (ctx.ui == nullptr || ctx.renderer == nullptr || ctx.mavlink == nullptr) {
     return;
   }
 
   ResetLinkPacketAnimation(
-      PacketSourceForMode(CurrentMode(), now, *ctx.ui, *ctx.mavlink), now);
+      PacketSourceForScreen(CurrentScreen(), now, *ctx.ui, *ctx.mavlink), now);
 
-  BeginTextPhase(ctx, now, last_mode_);
+  BeginTextPhase(ctx, now, last_screen_);
 }
 
 void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
@@ -546,51 +547,51 @@ void MainUiWidget::OnStep(WidgetContext &ctx, TimeMs now) {
     return;
   }
 
-  const Mode mode = CurrentMode();
-  AdvanceGearAnimation(ctx, now, IsServingMode(mode));
-  const bool service_binary_link_active = mode == Mode::kProgramming;
-  const bool status_scroll_active = StatusLineScrolls(*ctx.renderer, mode);
-  const bool body_text_animation_active = IsBodyTextMode(mode);
+  const Screen screen = CurrentScreen();
+  AdvanceGearAnimation(ctx, now, IsServingScreen(screen));
+  const bool service_binary_link_active = screen == Screen::kProgramming;
+  const bool status_scroll_active = StatusLineScrolls(*ctx.renderer, screen);
+  const bool body_text_animation_active = IsBodyTextScreen(screen);
   const TimeMs service_link_step_period_ms =
       (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
           ? ctx.ui->GetFrameIntervalMs()
           : kDefaultServiceLinkStepPeriodMs;
   const bool verify_magnifier_changed = AdvanceVerifyMagnifierAnimation(
-      now, mode == Mode::kVerifying, service_link_step_period_ms);
+      now, screen == Screen::kVerifying, service_link_step_period_ms);
   const LinkPacketSource packet_source =
-      PacketSourceForMode(mode, now, *ctx.ui, *ctx.mavlink);
+      PacketSourceForScreen(screen, now, *ctx.ui, *ctx.mavlink);
   const bool link_packet_changed = AdvanceLinkPacketAnimation(
       *ctx.renderer, now, packet_source, service_link_step_period_ms);
   const bool link_packet_active =
       link_tx_lane_.active_count > 0 || link_rx_lane_.active_count > 0;
-  const bool mode_changed = mode != last_mode_;
+  const bool screen_changed = screen != last_screen_;
   const bool service_link_changed = AdvanceServiceLinkAnimation(
       *ctx.renderer, now, service_binary_link_active,
       service_link_step_period_ms);
 
-  if (mode_changed) {
-    if (HasPacketLanes(mode) != HasPacketLanes(last_mode_) ||
-        IsMavlinkMode(mode) != IsMavlinkMode(last_mode_)) {
+  if (screen_changed) {
+    if (HasPacketLanes(screen) != HasPacketLanes(last_screen_) ||
+        IsMavlinkScreen(screen) != IsMavlinkScreen(last_screen_)) {
       ResetLinkPacketAnimation(packet_source, now);
     }
-    const bool status_changed = std::strcmp(StatusTextForMode(last_mode_),
-                                            StatusTextForMode(mode)) != 0;
-    last_mode_ = mode;
+    const bool status_changed = std::strcmp(StatusTextForScreen(last_screen_),
+                                            StatusTextForScreen(screen)) != 0;
+    last_screen_ = screen;
     if (status_changed) {
-      BeginTextPhase(ctx, now, mode);
+      BeginTextPhase(ctx, now, screen);
     } else {
-      RenderMode(ctx, now, mode);
+      RenderScreen(ctx, now, screen);
     }
     return;
   }
 
-  const bool serving_animation_active = IsServingMode(mode);
+  const bool serving_animation_active = IsServingScreen(screen);
   if (!has_rendered_ || text_animation_active_ ||
       last_dot_count_ != DotCount(now) || serving_animation_active ||
       service_link_changed || verify_magnifier_changed || link_packet_changed ||
       link_packet_active || body_text_animation_active ||
       status_scroll_active) {
-    RenderMode(ctx, now, mode);
+    RenderScreen(ctx, now, screen);
   }
 }
 
@@ -610,12 +611,13 @@ void MainUiWidget::EnsureLinkGlyphMetrics(DisplayRenderer &renderer) {
   link_glyph_metrics_initialized_ = true;
 }
 
-void MainUiWidget::BeginTextPhase(WidgetContext &ctx, TimeMs now, Mode mode) {
+void MainUiWidget::BeginTextPhase(WidgetContext &ctx, TimeMs now,
+                                  Screen screen) {
   text_animation_start_ms_ = now;
   last_gear_step_ms_ = now;
   ResetVerifyMagnifierAnimation(now);
-  text_animation_active_ = ShouldAnimateEntryText(mode);
-  RenderMode(ctx, now, mode);
+  text_animation_active_ = ShouldAnimateEntryText(screen);
+  RenderScreen(ctx, now, screen);
 }
 
 void MainUiWidget::AdvanceGearAnimation(WidgetContext &ctx, TimeMs now,
@@ -708,20 +710,21 @@ bool MainUiWidget::AdvanceServiceLinkAnimation(DisplayRenderer &renderer,
 
 // MAVLink counts UDP packets locally; ESC config and USB log have to be told,
 // since those frames are on the STM32's USB port and never touch this MCU.
-MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(
-    Mode mode, TimeMs now, const Ui &ui, const Mavlink &mavlink) {
-  if (mode == Mode::kEscConfigConnected || mode == Mode::kUsbLogActive) {
+MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForScreen(
+    Screen screen, TimeMs now, const Ui &ui, const Mavlink &mavlink) {
+  if (screen == Screen::kEscConfigConnected ||
+      screen == Screen::kUsbLogActive) {
     const auto usb = ui.PeerUsb(now);
     return {
         .active = usb.has_value(),
-        .left_icon_width = mode == Mode::kUsbLogActive
+        .left_icon_width = screen == Screen::kUsbLogActive
                                ? sd_card_bitmap::kVisibleWidth
                                : am32_bitmap::kVisibleWidth,
         .rx_count = usb.has_value() ? usb->rx_frames : 0u,
         .tx_count = usb.has_value() ? usb->tx_frames : 0u,
     };
   }
-  if (mode == Mode::kWifiLogConnected) {
+  if (screen == Screen::kWifiLogConnected) {
     const auto traffic = ui.GetLogTraffic();
     return {
         .active = true,
@@ -730,7 +733,7 @@ MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForMode(
         .tx_count = traffic.tx_frames,
     };
   }
-  if (IsMavlinkMode(mode)) {
+  if (IsMavlinkScreen(screen)) {
     return {
         .active = true,
         .left_icon_width = chip_bitmap::kVisibleWidth,
@@ -941,13 +944,13 @@ bool MainUiWidget::AdvanceVerifyMagnifierAnimation(TimeMs now, bool active,
   return true;
 }
 
-void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
+void MainUiWidget::RenderScreen(WidgetContext &ctx, TimeMs now, Screen screen) {
   if (ctx.ui == nullptr || ctx.renderer == nullptr) {
     return;
   }
 
   DisplayRenderer &renderer = *ctx.renderer;
-  const char *status = StatusTextForMode(mode);
+  const char *status = StatusTextForScreen(screen);
   const size_t visible_chars =
       text_animation_active_
           ? renderer.AnimatedTextLength(text_animation_start_ms_, now,
@@ -980,11 +983,11 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
   }
 
   const int16_t progress_bottom_inset =
-      IsScrollableProgressMode(mode)
+      IsScrollableProgressScreen(screen)
           ? (kProgressBarHeightPx + kProgressBarIconGapPx)
           : 0;
   const int16_t service_idle_icon_bottom_inset =
-      (mode == Mode::kServiceIdleConnected)
+      (screen == Screen::kServiceIdleConnected)
           ? static_cast<int16_t>(kProgressBarHeightPx + kProgressBarIconGapPx)
           : 0;
   const int16_t icon_bottom_inset = static_cast<int16_t>(
@@ -992,8 +995,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
   const int16_t status_top = kTextInsetY;
   const int16_t status_y = static_cast<int16_t>(status_top - status_bounds.y);
   const auto finish_render = [&]() {
-    if (IsScrollableProgressMode(mode)) {
-      DrawProgressBar(renderer, now, mode);
+    if (IsScrollableProgressScreen(screen)) {
+      DrawProgressBar(renderer, now, screen);
     }
     if (text_animation_active_ && visible_chars >= std::strlen(status)) {
       text_animation_active_ = false;
@@ -1016,7 +1019,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         static_cast<int16_t>(kTextInsetX - prefix_bounds.x);
     const int16_t viewport_left = static_cast<int16_t>(
         kTextInsetX + static_cast<int16_t>(prefix_bounds.width));
-    const int16_t viewport_width = StatusViewportWidthPx(renderer, mode);
+    const int16_t viewport_width = StatusViewportWidthPx(renderer, screen);
     const int16_t viewport_right =
         static_cast<int16_t>(viewport_left + viewport_width);
     const int16_t content_width =
@@ -1055,7 +1058,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                       line_height, Ink::kOff);
     renderer.DrawText(">", prefix_cursor_x, status_y, kStatusStyle);
   }
-  if (mode == Mode::kServing) {
+  if (screen == Screen::kServing) {
     const int16_t center_line_x = static_cast<int16_t>(renderer.Width() / 2);
     const int16_t right_gear_x = center_line_x;
     const size_t right_gear_y =
@@ -1082,14 +1085,14 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
                          static_cast<size_t>(left_gear_x), left_gear_y, false,
                          kLargeGearRotationPeriodMs);
     }
-  } else if (IsServiceVisualMode(mode)) {
+  } else if (IsServiceVisualScreen(screen)) {
     // Not the entry condition: the verify screen is here and has no badge.
-    const PackedBitmap badge = CornerBadgeForMode(mode);
+    const PackedBitmap badge = CornerBadgeForScreen(screen);
     const bool badge_fits = badge.Valid() && badge.width <= renderer.Width() &&
                             badge.height <= renderer.Height();
     // Blinks while the transport is missing, steady once it is up.
     const bool show_warning_icon =
-        badge_fits && (!ShouldBlinkCornerBadge(mode) ||
+        badge_fits && (!ShouldBlinkCornerBadge(screen) ||
                        (((now / kDotStepPeriodMs) % 2u) == 0u));
     if (show_warning_icon) {
       const int16_t badge_x =
@@ -1100,7 +1103,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       renderer.DrawBitmap(badge, static_cast<size_t>(badge_x),
                           static_cast<size_t>(badge_y));
 
-      if (ShouldBlinkCornerBadge(mode)) {
+      if (ShouldBlinkCornerBadge(screen)) {
         const DisplayTextBounds exclamation_bounds =
             renderer.MeasureText("!", kServiceSleepStyle);
         if (exclamation_bounds.width > 0 && exclamation_bounds.height > 0) {
@@ -1121,21 +1124,21 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
         }
       }
     }
-    if (IsBodyTextMode(mode)) {
+    if (IsBodyTextScreen(screen)) {
       const int16_t body_top = static_cast<int16_t>(status_bounds.height);
-      if (mode == Mode::kUsbLogIdle) {
+      if (screen == Screen::kUsbLogIdle) {
         char guidance[kStatusLineBufferSize]{};
         std::snprintf(guidance, sizeof(guidance), "%s", "Waiting for USB");
         AppendDots(guidance, dot_count);
         DrawBodyTextLines(renderer, now, body_top, guidance);
-      } else if (IsEscConfigMode(mode)) {
+      } else if (IsEscConfigScreen(screen)) {
         // Enumerated, so the missing piece is the configurator opening it.
         char guidance[kStatusLineBufferSize]{};
-        if (mode == Mode::kEscConfigArmed) {
+        if (screen == Screen::kEscConfigArmed) {
           DrawBodyTextLines(renderer, now, body_top, "Disarm first");
         } else {
           std::snprintf(guidance, sizeof(guidance), "%s",
-                        mode == Mode::kEscConfigDisconnected
+                        screen == Screen::kEscConfigDisconnected
                             ? "Waiting for USB"
                             : "Waiting for command");
           AppendDots(guidance, dot_count);
@@ -1153,7 +1156,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       finish_render();
       return;
     }
-    if (mode == Mode::kVerifying &&
+    if (screen == Screen::kVerifying &&
         chip_verify_bitmap::kVisibleWidth <= renderer.Width() &&
         chip_verify_bitmap::kVisibleHeight <= renderer.Height()) {
       const int16_t body_top = static_cast<int16_t>(status_bounds.height);
@@ -1214,8 +1217,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       return;
     }
 
-    const PackedBitmap left_icon = LeftIconForMode(mode, now);
-    const PackedBitmap right_icon = RightIconForMode(mode, now);
+    const PackedBitmap left_icon = LeftIconForScreen(screen, now);
+    const PackedBitmap right_icon = RightIconForScreen(screen, now);
     if (left_icon.Valid() && left_icon.width <= renderer.Width() &&
         right_icon.width <= renderer.Width() &&
         left_icon.height <= renderer.Height() &&
@@ -1234,7 +1237,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
           static_cast<int16_t>(kServiceIconLeftX + left_icon.width);
       const int16_t gap_right = static_cast<int16_t>(right_icon_x);
 
-      if (mode == Mode::kProgramming && gap_left < gap_right) {
+      if (screen == Screen::kProgramming && gap_left < gap_right) {
         if (!service_link_initialized_) {
           const TimeMs service_link_step_period_ms =
               (ctx.ui != nullptr && ctx.ui->GetFrameIntervalMs() > 0)
@@ -1265,7 +1268,7 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
               glyph, static_cast<int16_t>(glyph_left - service_link_glyph_x_),
               link_cursor_y, kServiceSleepStyle);
         }
-      } else if (HasPacketLanes(mode) && gap_left < gap_right) {
+      } else if (HasPacketLanes(screen) && gap_left < gap_right) {
         EnsureLinkGlyphMetrics(renderer);
         const int16_t travel_px = std::max<int16_t>(
             0, gap_right - gap_left - service_link_glyph_width_px_);
@@ -1311,8 +1314,8 @@ void MainUiWidget::RenderMode(WidgetContext &ctx, TimeMs now, Mode mode) {
       renderer.DrawBitmap(right_icon, right_icon_x,
                           static_cast<size_t>(chip_icon_y));
 
-      if ((mode == Mode::kServiceIdleConnected ||
-           mode == Mode::kEscConfigIdleConnected) &&
+      if ((screen == Screen::kServiceIdleConnected ||
+           screen == Screen::kEscConfigIdleConnected) &&
           dot_count > 0 &&
           (kServiceIconLeftX + left_icon.width) <= right_icon_x) {
         constexpr char kSleepChar[] = "z";

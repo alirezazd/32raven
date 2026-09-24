@@ -27,7 +27,8 @@ void DrawTitle(DisplayRenderer &renderer, const char *title) {
 void RendererDemoWidget::OnEnter(WidgetContext &ctx) {
   page_ = Page::kLines;
   Render(ctx);
-  next_page_ms_ = TimeAfter(Sys().Timebase().NowMs(), kPageDurationMs);
+  next_page_ms_ =
+      TimeAfter(System::GetInstance().Timebase().NowMs(), kPageDurationMs);
 }
 
 void RendererDemoWidget::OnStep(WidgetContext &ctx, TimeMs now) {
@@ -43,7 +44,8 @@ void RendererDemoWidget::OnStep(WidgetContext &ctx, TimeMs now) {
       (static_cast<uint8_t>(page_) + 1u) % static_cast<uint8_t>(Page::kCount);
   page_ = static_cast<Page>(next_index);
   if (page_ == Page::kLines) {
-    Sys().TonePlayer().PlayBuiltin(TonePlayer::BuiltinTone::kConfirm);
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        TonePlayer::BuiltinTone::kConfirm);
   }
 
   Render(ctx);

@@ -118,7 +118,8 @@ void FcLink::PerformHandshake() {
         ESP_LOGI(kTag, "Handshake Success!");
         // A reply means both MCUs are up and the link carries traffic each
         // way.
-        Sys().TonePlayer().PlayBuiltin(message::Tone::kDoomShort);
+        System::GetInstance().TonePlayer().PlayBuiltin(
+            message::Tone::kDoomShort);
         return;
       }
       if (id == static_cast<uint8_t>(message::MsgId::kHandshake)) {
@@ -192,7 +193,8 @@ void FcLink::FinishRxPacket() {
       ESP_LOGW(kTag, "Invalid payload for packet id=0x%02X len=%u",
                static_cast<unsigned>(rx_pkt_internal_.id),
                static_cast<unsigned>(rx_len_));
-      Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+      System::GetInstance().TonePlayer().PlayBuiltin(
+          ::TonePlayer::BuiltinTone::kError);
     }
     return;
   }
@@ -210,7 +212,8 @@ void FcLink::FinishRxPacket() {
     if (should_alert_invalid(ErrorCode::Esp32::kFcLinkInvalidPacketCrc)) {
       ESP_LOGW(kTag, "Invalid CRC: calculated=0x%04X received=0x%04X", crc,
                rx_pkt_internal_.crc);
-      Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+      System::GetInstance().TonePlayer().PlayBuiltin(
+          ::TonePlayer::BuiltinTone::kError);
     }
     return;
   }
@@ -262,7 +265,8 @@ void FcLink::Poll() {
                   ErrorCode::Esp32::kFcLinkInvalidPacketMagic1)) {
             ESP_LOGW(kTag, "Invalid magic byte[1]: 0x%02X",
                      static_cast<unsigned>(b));
-            Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+            System::GetInstance().TonePlayer().PlayBuiltin(
+                ::TonePlayer::BuiltinTone::kError);
           }
         }
         break;
@@ -274,7 +278,8 @@ void FcLink::Poll() {
                   ErrorCode::Esp32::kFcLinkInvalidPacketMagic2)) {
             ESP_LOGW(kTag, "Invalid magic byte[2]: 0x%02X",
                      static_cast<unsigned>(b));
-            Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+            System::GetInstance().TonePlayer().PlayBuiltin(
+                ::TonePlayer::BuiltinTone::kError);
           }
           rx_state_ = RxState::kMagic1;
         }
@@ -293,7 +298,8 @@ void FcLink::Poll() {
             ESP_LOGW(kTag, "Invalid payload length: %u for msg id=0x%02X",
                      static_cast<unsigned>(rx_len_),
                      static_cast<unsigned>(rx_pkt_internal_.id));
-            Sys().TonePlayer().PlayBuiltin(::TonePlayer::BuiltinTone::kError);
+            System::GetInstance().TonePlayer().PlayBuiltin(
+                ::TonePlayer::BuiltinTone::kError);
           }
           rx_state_ = RxState::kMagic1;
           break;

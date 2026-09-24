@@ -92,5 +92,3 @@ class System {
   TaskHandle_t main_task_handle_ = nullptr;
   bool initialized_ = false;
 };
-
-inline System &Sys() { return System::GetInstance(); }

@@ -5,7 +5,6 @@
 
 #include <cstring>
 
-#include "ctx.hpp"
 #include "dispatcher.hpp"
 #include "error_code.hpp"
 #include "fc_link.hpp"
@@ -13,6 +12,7 @@
 #include "message.hpp"
 #include "panic.hpp"
 #include "state_machine.hpp"
+#include "state_machine_context.hpp"
 #include "states.hpp"
 #include "system.hpp"
 
@@ -35,21 +35,21 @@ static constexpr const char *kTag = "cmd";
 // check that pairing, so keeping it to a single line per message is the whole
 // defence against routing a packet into the wrong struct.
 template <typename T>
-static void OnTelemetry(const AppContext &ctx, const message::Packet &pkt) {
-  ctx.sys->Mavlink().UpdateTelemetryCache(message::PayloadAs<T>(pkt),
-                                          ctx.sys->Timebase().NowMs());
+static void OnTelemetry(StateMachineContext &ctx, const message::Packet &pkt) {
+  System::GetInstance().Mavlink().UpdateTelemetryCache(
+      message::PayloadAs<T>(pkt), System::GetInstance().Timebase().NowMs());
 }
 
 template <typename T>
-static void OnConfig(const AppContext &ctx, const message::Packet &pkt) {
-  ctx.sys->Mavlink().UpdateConfigCache(message::PayloadAs<T>(pkt));
+static void OnConfig(StateMachineContext &ctx, const message::Packet &pkt) {
+  System::GetInstance().Mavlink().UpdateConfigCache(message::PayloadAs<T>(pkt));
 }
 
 // Expected traffic this side has nothing to do with. Listed rather than
 // omitted: an absent id is an unknown one, and unknown ids panic.
-static void OnIgnored(const AppContext &, const message::Packet &) {}
+static void OnIgnored(StateMachineContext &, const message::Packet &) {}
 
-static void OnLog(const AppContext &ctx, const message::Packet &pkt) {
+static void OnLog(StateMachineContext &ctx, const message::Packet &pkt) {
   if (pkt.header.len == 0) {
     return;
   }
@@ -58,35 +58,36 @@ static void OnLog(const AppContext &ctx, const message::Packet &pkt) {
   memcpy(buf, pkt.payload, pkt.header.len);
   buf[pkt.header.len] = '\0';
   ESP_LOGI(FcLink::kPeerLogTag, "%s", buf);
-  ctx.sys->Mavlink().ReportCalLine(buf);
+  System::GetInstance().Mavlink().ReportCalLine(buf);
 }
 
-static void OnTone(const AppContext &ctx, const message::Packet &pkt) {
-  ctx.sys->TonePlayer().PlayBuiltin(static_cast<message::Tone>(
+static void OnTone(StateMachineContext &ctx, const message::Packet &pkt) {
+  System::GetInstance().TonePlayer().PlayBuiltin(static_cast<message::Tone>(
       message::PayloadAs<message::ToneMsg>(pkt).tone));
-  ctx.sys->Ui().NotifyUserActivity();
+  System::GetInstance().Ui().NotifyUserActivity();
 }
 
-static void OnCalStatus(const AppContext &ctx, const message::Packet &pkt) {
+static void OnCalStatus(StateMachineContext &ctx, const message::Packet &pkt) {
   const auto &msg = message::PayloadAs<message::CalStatusMsg>(pkt);
   if (!message::IsCalSensorValid(msg.sensor)) {
     Panic(ErrorCode::Common::kCommandInvalidPacket);
   }
-  ctx.sys->Mavlink().ReportCalProgress(msg);
+  System::GetInstance().Mavlink().ReportCalProgress(msg);
 }
 
-static void OnPanic(const AppContext &ctx, const message::Packet &pkt) {
+static void OnPanic(StateMachineContext &ctx, const message::Packet &pkt) {
   const uint32_t error_code =
       message::PayloadAs<message::PanicMsg>(pkt).error_code;
 
   // Killing the bridge mid-write is worse than carrying on with a faulted
   // STM32, and a four-way session is writing ESC firmware.
-  if (ctx.sm->CurrentState() == ctx.service_state ||
-      ctx.sm->CurrentState() == ctx.esc_config_state) {
+  if (ctx.sm->CurrentState() == &ctx.service_state ||
+      ctx.sm->CurrentState() == &ctx.esc_config_state) {
     static int64_t last_log_us = 0;
     int64_t now_us = esp_timer_get_time();
     if (now_us - last_log_us >= 5000000) {
-      ctx.sys->Mavlink().ReportPanic(Mavlink::PanicSource::kStm32, error_code);
+      System::GetInstance().Mavlink().ReportPanic(Mavlink::PanicSource::kStm32,
+                                                  error_code);
       ESP_LOGE(kTag, "STM32 Panic (Ignored in Service): Code 0x%08lX: %s",
                static_cast<unsigned long>(error_code), GetMessage(error_code));
       last_log_us = now_us;
@@ -94,16 +95,17 @@ static void OnPanic(const AppContext &ctx, const message::Packet &pkt) {
     return;
   }
 
-  ctx.sys->Mavlink().ReportPanic(Mavlink::PanicSource::kStm32, error_code);
+  System::GetInstance().Mavlink().ReportPanic(Mavlink::PanicSource::kStm32,
+                                              error_code);
   // Enter panic state with error code - this will never return
   Panic(error_code);
 }
 
-static void OnUsbStatus(const AppContext &ctx, const message::Packet &pkt) {
+static void OnUsbStatus(StateMachineContext &ctx, const message::Packet &pkt) {
   const auto &msg = message::PayloadAs<message::UsbStatusMsg>(pkt);
   const auto reported = static_cast<message::UsbMode>(msg.mode);
-  const uint32_t now_ms = ctx.sys->Timebase().NowMs();
-  ctx.sys->Ui().UpdatePeerUsb(
+  const uint32_t now_ms = System::GetInstance().Timebase().NowMs();
+  System::GetInstance().Ui().UpdatePeerUsb(
       {
           .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
           .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
@@ -120,35 +122,36 @@ static void OnUsbStatus(const AppContext &ctx, const message::Packet &pkt) {
   // because the STM32 refuses then, and asking anyway just loops. Unknown
   // arm reads as disarmed on purpose: this frame proves the peer is live.
   message::UsbMode want = message::UsbMode::kNone;
-  if (!ctx.sys->Mavlink().PeerArmed(now_ms).value_or(false)) {
-    if (ctx.sm->CurrentState() == ctx.esc_config_state) {
+  if (!System::GetInstance().Mavlink().PeerArmed(now_ms).value_or(false)) {
+    if (ctx.sm->CurrentState() == &ctx.esc_config_state) {
       want = message::UsbMode::kEscConfig;
-    } else if (ctx.sm->CurrentState() == ctx.usb_log_state) {
+    } else if (ctx.sm->CurrentState() == &ctx.usb_log_state) {
       want = message::UsbMode::kMsc;
     }
   }
   if (reported != want) {
-    ctx.sys->FcLink().SendPacket(
+    System::GetInstance().FcLink().SendPacket(
         message::MsgId::kSetUsbMode,
         message::SetUsbModeMsg{.mode = static_cast<uint8_t>(want)});
   }
 }
 
 // Stale replies to an abandoned pull are not a protocol error.
-static void OnLogListReply(const AppContext &ctx, const message::Packet &pkt) {
-  if (ctx.sm->CurrentState() == ctx.log_pull_state) {
-    ctx.log_pull_state->OnListReply(
+static void OnLogListReply(StateMachineContext &ctx,
+                           const message::Packet &pkt) {
+  if (ctx.sm->CurrentState() == &ctx.log_pull_state) {
+    ctx.log_pull_state.OnListReply(
         message::PayloadAs<message::LogListReplyMsg>(pkt));
   }
 }
 
-static void OnLogData(const AppContext &ctx, const message::Packet &pkt) {
-  if (ctx.sm->CurrentState() == ctx.log_pull_state) {
-    ctx.log_pull_state->OnData(message::PayloadAs<message::LogDataMsg>(pkt));
+static void OnLogData(StateMachineContext &ctx, const message::Packet &pkt) {
+  if (ctx.sm->CurrentState() == &ctx.log_pull_state) {
+    ctx.log_pull_state.OnData(message::PayloadAs<message::LogDataMsg>(pkt));
   }
 }
 
-static const Dispatcher<const AppContext>::Entry kHandlers[] = {
+static const Dispatcher<StateMachineContext>::Entry kHandlers[] = {
     {message::MsgId::kHandshakeReply, OnIgnored},
     {message::MsgId::kLog, OnLog},
     {message::MsgId::kTone, OnTone},
@@ -169,7 +172,7 @@ static const Dispatcher<const AppContext>::Entry kHandlers[] = {
     {message::MsgId::kLogData, OnLogData},
 };
 
-static const Dispatcher<const AppContext> kDispatcher(kHandlers);
+static const Dispatcher<StateMachineContext> kDispatcher(kHandlers);
 
 CommandHandler &CommandHandler::GetInstance() {
   static CommandHandler instance;
@@ -181,7 +184,8 @@ void CommandHandler::Init(const Config &cfg) {
   ESP_LOGI(kTag, "Initialized");
 }
 
-void CommandHandler::Dispatch(const AppContext &ctx, const message::Packet &pkt) {
+void CommandHandler::Dispatch(StateMachineContext &ctx,
+                              const message::Packet &pkt) {
   if (!message::IsPacketValid(pkt.header.id, pkt.payload, pkt.header.len)) {
     ESP_LOGW(kTag, "Rejected invalid packet id=0x%02X len=%u",
              (unsigned)pkt.header.id, (unsigned)pkt.header.len);
@@ -193,19 +197,20 @@ void CommandHandler::Dispatch(const AppContext &ctx, const message::Packet &pkt)
   }
 }
 
-void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
+void CommandHandler::Dispatch(StateMachineContext &ctx,
+                              const HostLink::Event &ev) {
   HostLink &link = *ev.origin;
   // Which mode the board is in decides whether a verb can be served here:
   // BEGIN belongs to Service, the LOG pair to WifiLog, and each refuses the
   // other's.
-  const IState<AppContext> *mode = ctx.sm->CurrentState();
+  const IState<StateMachineContext> *mode = ctx.sm->CurrentState();
 
   switch (ev.id) {
     case HostLink::EventId::kBegin: {
       ESP_LOGI(kTag, "BEGIN size=%u crc=%u target=%s", (unsigned)ev.begin.size,
                (unsigned)ev.begin.crc,
                ev.begin.target[0] != '\0' ? ev.begin.target : "stm32");
-      if (mode != ctx.service_state) {
+      if (mode != &ctx.service_state) {
         link.SendCtrlLine("ERR wrong_mode\n");
         return;
       }
@@ -217,17 +222,17 @@ void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
       }
       // Armed on the link that carried it, so Program answers only that one.
       link.BeginTransfer(ev.begin);
-      ctx.sys->Programmer().SetTarget(ev.begin.target);
+      System::GetInstance().Programmer().SetTarget(ev.begin.target);
       ctx.host_link = &link;
       link.SendCtrlLine("OK\n");
-      ctx.sm->ReqTransition(*ctx.program_state);
+      ctx.sm->ReqTransition(ctx.program_state);
       return;
     }
     case HostLink::EventId::kLogList:
     case HostLink::EventId::kLogGet: {
       // Logs are served from the WiFi log mode, where the screen shows the
       // transfer.
-      if (mode != ctx.wifi_log_state) {
+      if (mode != &ctx.wifi_log_state) {
         link.SendCtrlLine("ERR wrong_mode\n");
         return;
       }
@@ -238,12 +243,12 @@ void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
         return;
       }
       if (ev.id == HostLink::EventId::kLogList) {
-        ctx.log_pull_state->PrepareList();
+        ctx.log_pull_state.PrepareList();
       } else {
-        ctx.log_pull_state->PrepareGet(ev.log_name);
+        ctx.log_pull_state.PrepareGet(ev.log_name);
       }
       link.SendCtrlLine("OK\n");
-      ctx.sm->ReqTransition(*ctx.log_pull_state);
+      ctx.sm->ReqTransition(ctx.log_pull_state);
       return;
     }
     case HostLink::EventId::kAbort: {
@@ -254,7 +259,7 @@ void CommandHandler::Dispatch(AppContext &ctx, const HostLink::Event &ev) {
     case HostLink::EventId::kReset: {
       link.CloseDataRx();
       ESP_LOGW(kTag, "RESET requested. Rebooting...");
-      ctx.sys->Programmer().Boot();
+      System::GetInstance().Programmer().Boot();
       esp_restart();
       return;
     }
