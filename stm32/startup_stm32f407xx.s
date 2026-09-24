@@ -43,7 +43,6 @@ defined in linker script */
 .word  _sbss
 /* end address for the .bss section. defined in linker script */
 .word  _ebss
-/* stack used for SystemInit_ExtMemCtl; always internal RAM used */
 
 /**
  * @brief  This is the code that gets called when the processor first
@@ -60,8 +59,14 @@ defined in linker script */
 Reset_Handler:  
   ldr   sp, =_estack     /* set stack pointer */
   
-/* Call the clock system initialization function.*/
-  bl  SystemInit  
+/* Enable the FPU (CPACR: CP10 and CP11 full access) before any code that may
+   use the float registers. */
+  ldr   r0, =0xE000ED88
+  ldr   r1, [r0]
+  orr   r1, r1, #0x00F00000
+  str   r1, [r0]
+  dsb
+  isb
 
 /* Copy the data segment initializers from flash to SRAM */  
   ldr r0, =_sdata

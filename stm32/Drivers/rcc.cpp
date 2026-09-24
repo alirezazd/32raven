@@ -38,6 +38,8 @@ void ArmSysTick(uint32_t hclk_hz) {
 }
 }  // namespace
 
+uint32_t SystemCoreClock = kHsiHz;
+
 // C-callable tick increment, invoked from stm32f4xx_it.c::SysTick_Handler.
 extern "C" void SystemTickInc(void) {
   g_boot_tick_ms = g_boot_tick_ms + 1u;

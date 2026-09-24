@@ -22,16 +22,8 @@ set(MX_System_Include_Dirs
 set(MX_Application_Src
 
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/stm32f4xx_it.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/sysmem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/syscalls.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../startup_stm32f407xx.s
-)
-
-# CMSIS system init only. The HAL is fully gone: the firmware is register-level
-# (CMSIS headers only, no USE_HAL_DRIVER), so the STM32F4xx_HAL_Driver sources
-# that CubeMX listed here were removed along with the driver tree itself.
-set(STM32_Drivers_Src
-    ${CMAKE_CURRENT_SOURCE_DIR}/../../Core/system_stm32f4xx.c
 )
 
 # Drivers Midllewares
@@ -44,7 +36,6 @@ set(MX_LINK_DIRS
 )
 # Project static libraries
 set(MX_LINK_LIBS 
-    STM32_Drivers
     ${TOOLCHAIN_LINK_LIBRARIES}
     
 )
@@ -53,12 +44,6 @@ add_library(stm32cubemx INTERFACE)
 target_include_directories(stm32cubemx INTERFACE ${MX_Include_Dirs})
 target_include_directories(stm32cubemx SYSTEM INTERFACE ${MX_System_Include_Dirs})
 target_compile_definitions(stm32cubemx INTERFACE ${MX_Defines_Syms})
-
-# Create STM32_Drivers static library
-add_library(STM32_Drivers OBJECT)
-target_sources(STM32_Drivers PRIVATE ${STM32_Drivers_Src})
-target_link_libraries(STM32_Drivers PUBLIC stm32cubemx)
-
 
 # Add STM32CubeMX generated application sources to the project
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE ${MX_Application_Src})

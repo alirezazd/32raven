@@ -47,8 +47,6 @@ void operator delete[](void *, std::size_t) noexcept { __builtin_trap(); }
 // trapping stubs satisfy those references so the real newlib allocators
 // don't link. Traps must never fire (forbidden by check_forbidden.sh,
 // EIGEN_NO_MALLOC, and the operator delete stubs above).
-// `_sbrk` is defined separately in sysmem.c (also patched to trap); not
-// redefined here to avoid a multiple-definition error.
 
 // NOLINTBEGIN(readability-identifier-naming)
 // Newlib reentrant allocator names; must match exactly for the linker to

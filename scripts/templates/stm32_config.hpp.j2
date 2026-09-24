@@ -59,7 +59,7 @@ inline constexpr uint8_t {{ p.adc_const }} = {{ p.adc_channel }}u;
 {% endif %}
 {% endfor %}
 {# SYSCLK after the AHB divider. Rcc::Init publishes it as CMSIS's
-   SystemCoreClock, in place of SystemCoreClockUpdate() reading it back. #}
+   SystemCoreClock. #}
 inline constexpr uint32_t kHclkHz = {{ rcc.hclk_hz }}u;
 
 }  // namespace board
