@@ -60,11 +60,10 @@ Host builds without Docker, flashing details, and every other target: the handbo
 
 ## Ground station
 
-32Raven flies with **[32RavenQGC](https://github.com/alirezazd/qgroundcontrol)**, a
+32Raven pairs with **[32RavenQGC](https://github.com/alirezazd/qgroundcontrol)**, a
 QGroundControl fork that knows the board: its parameters, its radio and sensor setup pages,
 its MAVLink dialect. Installers for Windows, macOS, Linux and Android are on its
-[releases page](https://github.com/alirezazd/qgroundcontrol/releases). Stock QGroundControl
-connects too, over plain MAVLink, but sees a generic autopilot and offers none of the setup.
+[releases page](https://github.com/alirezazd/qgroundcontrol/releases).
 
 ## License
 
