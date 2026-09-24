@@ -44,7 +44,10 @@ MANAGED: dict[str, object] = {
         "**/.docker": True,
     },
     "clangd.arguments": [
-        "--query-driver=/usr/bin/arm-none-eabi-*,/usr/local/bin/arm-none-eabi-*,"
+        # Matched as the database spells the path: Fedora's merged /usr/sbin
+        # and the ccache wrapper do not resolve to /usr/bin first.
+        "--query-driver=/usr/bin/arm-none-eabi-*,/usr/sbin/arm-none-eabi-*,"
+        "/usr/lib64/ccache/arm-none-eabi-*,/usr/local/bin/arm-none-eabi-*,"
         "/opt/**/arm-none-eabi-*,**/bin/arm-none-eabi-*,**/bin/riscv32-esp-elf-*",
         "--background-index",
         "--clang-tidy",
