@@ -40,11 +40,10 @@ Rules:
                 two folders this covers are the ones meant to be uniform.
   singleton-init
                 An Init reachable twice. Private is the usual answer, since
-                only `friend class System` can then reach it. A public Init is
-                allowed where the caller cannot be System -- the two that need
-                an AppContext are constructed after System::Init -- but then
-                the definition has to open with the guard, before anything
-                else runs:
+                only `friend class System` can then reach it. A class System
+                brings up must keep it private; a public Init is allowed only
+                where the caller cannot be System, and then the definition has
+                to open with the guard, before anything else runs:
 
                     void Foo::Init(...) {
                       if (initialized_) {
@@ -402,6 +401,25 @@ def system_rules(headers: list[str]) -> list[str]:
                     f"by {cpp.relative_to(REPO).as_posix()} and declares no "
                     f"GetInstance"
                 )
+                continue
+            if name not in declared:
+                continue
+            # The guard excuses a public Init only for a caller that cannot
+            # be System; one System brings up has no such caller to excuse.
+            header = REPO / declared[name]
+            for info in parse_classes(header.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()):
+                if (
+                    info.name == name
+                    and info.init_line
+                    and info.init_access != "private"
+                ):
+                    findings.append(
+                        f"{declared[name]}:{info.init_line}: [singleton-init] "
+                        f"{name}::Init is {info.init_access}, but "
+                        f"{cpp.relative_to(REPO).as_posix()} brings it up"
+                    )
 
         for name, header in sorted(components.items()):
             if name in declared or name in NOT_A_COMPONENT:

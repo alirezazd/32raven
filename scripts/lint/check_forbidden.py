@@ -127,8 +127,8 @@ STATE_MACHINES = (
 # A driver or service names what it needs in Init and holds the reference.
 # Reaching the System singleton instead hides the dependency from the
 # signature and gives every one of them the whole board's surface. The state
-# machines are outside this -- sequencing is what they do, and AppContext is
-# how they do it.
+# machines are outside this: sequencing is what they do, and it takes the
+# whole board.
 COMPONENT_OWNERS = (
     "stm32/Drivers/",
     "stm32/Services/",
@@ -146,8 +146,7 @@ REACH_EXEMPT = ("Time", "Timebase", "TonePlayer", "Led")
 # Requiring injection here would have the handler depend on the wiring done by
 # whatever just failed.
 # A dispatcher reaches whatever handles the packet it just parsed; that is the
-# job, and AppContext is how it is done -- the same carve-out the state
-# machines get above.
+# job -- the same carve-out the state machines get above.
 REACH_EXEMPT_FILES = (
     "esp32/services/panic.cpp",
     "stm32/Services/command_handler.cpp",
