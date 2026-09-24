@@ -75,93 +75,33 @@ jobs:
         with:
           path: artifacts
 
-      # upload-artifact keeps the paths below the common ancestor, so the
-      # ESP32's two support images arrive in subdirectories. Flattened here
-      # because a release asset list has no directories, and prefixed because
-      # `bootloader.bin` in a flat list does not say whose it is.
       - name: Stage release assets
         run: |
           mkdir -p dist
           cp artifacts/firmware-stm32/32Raven_stm32.bin dist/
-          cp artifacts/firmware-stm32/32Raven_stm32.elf dist/
           cp artifacts/firmware-esp32/32Raven_esp32.bin dist/
-          cp artifacts/firmware-esp32/ota_data_initial.bin \
-            dist/esp32-ota_data_initial.bin
-          cp artifacts/firmware-esp32/bootloader/bootloader.bin \
-            dist/esp32-bootloader.bin
-          cp artifacts/firmware-esp32/partition_table/partition-table.bin \
-            dist/esp32-partition-table.bin
-
-          # The configuration is what this firmware is, and it is not
-          # recoverable from the binaries. Shipped so a release can be rebuilt.
-          cp config/32raven.config dist/32raven.config
-
           ( cd dist && sha256sum ./* > SHA256SUMS )
           ls -l dist
 
-      # Offsets read from the build rather than written here: a partition
-      # table that moves would otherwise leave the instructions pointing at
-      # the old address, and nothing would notice until a board was bricked.
+      # The images are for reference and checking: `make flash-all` builds the
+      # same tag and writes a blank bridge whole, which the images alone cannot.
       - name: Compose release notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 - <<'PY' > notes.md
-          import json
-          import pathlib
+          cat > notes.md <<'MD'
+          ## Flashing
 
-          args = json.loads(
-              pathlib.Path(
-                  "artifacts/firmware-esp32/flasher_args.json"
-              ).read_text()
-          )
-          asset = {
-              "bootloader/bootloader.bin": "esp32-bootloader.bin",
-              "partition_table/partition-table.bin":
-                  "esp32-partition-table.bin",
-              "ota_data_initial.bin": "esp32-ota_data_initial.bin",
-              "32Raven_esp32.bin": "32Raven_esp32.bin",
-          }
-          settings = args["flash_settings"]
-          chip = args["extra_esptool_args"]["chip"]
+          From a checkout of this tag, `make flash-all` builds both boards and
+          writes them over USB, a blank bridge included. Once the bridge runs
+          32Raven, `make flash-wifi-all` does the same over its Wi-Fi.
 
-          print("## Flashing")
-          print()
-          print("The flight computer, over the bridge:")
-          print()
-          print("```")
-          print("make flash-wifi-stm32   # or make flash-stm32 over USB")
-          print("```")
-          print()
-          print(f"The bridge, onto a blank {chip} part:")
-          print()
-          print("```")
-          print(f"esptool.py --chip {chip} write_flash \\")
-          print(
-              f"  --flash_mode {settings['flash_mode']}"
-              f" --flash_size {settings['flash_size']}"
-              f" --flash_freq {settings['flash_freq']} \\"
-          )
-          rows = sorted(args["flash_files"].items(), key=lambda kv: int(kv[0], 16))
-          # No trailing continuation on the last row, or the block pastes
-          # into a shell that then sits waiting for more.
-          joined = " ".join(
-              f"{offset} {asset[path]}" for offset, path in rows
-          )
-          print(f"  {joined}")
-          print("```")
-          print()
-          print("| asset | what it is |")
-          print("| --- | --- |")
-          print("| `32Raven_stm32.bin` | flight computer firmware |")
-          print("| `32Raven_stm32.elf` | the same build with symbols, for reading a panic traceback |")
-          print("| `32Raven_esp32.bin` | bridge firmware, and the only image an over-the-air update needs |")
-          print("| `esp32-bootloader.bin` | second-stage bootloader, only for a blank part |")
-          print("| `esp32-partition-table.bin` | partition table, only for a blank part |")
-          print("| `esp32-ota_data_initial.bin` | selects the slot a blank part boots from |")
-          print("| `32raven.config` | the Kconfig selections these binaries were built from |")
-          print("| `SHA256SUMS` | checksums for everything above |")
-          PY
+          | asset | what it is |
+          | --- | --- |
+          | `32Raven_stm32.bin` | flight computer firmware |
+          | `32Raven_esp32.bin` | bridge firmware |
+          | `SHA256SUMS` | checksums for both |
+          MD
 
           # Anchored on the release this one replaces, since that release and
           # its tag are gone by the time anything reads the notes -- so the
