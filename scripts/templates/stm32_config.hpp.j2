@@ -100,7 +100,8 @@ inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
 {# Authored under RC Receiver -> CRSF Telemetry, because they describe that
    link's content; scheduled here, because TelemetryPublisher owns every cadence. #}
 {% for name in ["heartbeat", "gps", "battery", "flight_mode",
-                "attitude", "rpm", "temperature", "gps_time"] %}
+                "attitude", "rpm", "temperature", "gps_time",
+                "baro_altitude"] %}
 {% set topic = rc_receiver.crsf[name] %}
     .crsf_{{ name }} = {
         .period = {{ topic.period_ms }}u * 1000u,
@@ -343,6 +344,7 @@ inline constexpr uint32_t kBaroFreshTimeoutUs = {{ baro.fresh_timeout_us }}u;
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
     .battery_fresh_timeout_us = kBatteryFreshTimeoutUs,
+    .baro_fresh_timeout_us = kBaroFreshTimeoutUs,
     .expected_rf_mode = {{ rc_receiver.crsf.expected_rf_mode }}u,
     .tlm_ratio_denom = {{ rc_receiver.crsf.tlm_ratio_denom }}u,
     {# In TelemetryTopic order. The heartbeat payload is a constant, so
@@ -356,6 +358,7 @@ inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
         {{ rc_receiver.crsf.rpm.send_on_change | cpp_bool }},
         {{ rc_receiver.crsf.temperature.send_on_change | cpp_bool }},
         {{ rc_receiver.crsf.gps_time.send_on_change | cpp_bool }},
+        {{ rc_receiver.crsf.baro_altitude.send_on_change | cpp_bool }},
     },
 };
 

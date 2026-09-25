@@ -28,6 +28,7 @@ class CrsfLinkService {
     kRpm,
     kTemperature,
     kGpsTime,
+    kBaroAltitude,
     kCount,
   };
 
@@ -47,6 +48,7 @@ class CrsfLinkService {
       1u + (3u * common_config::kAirframeMotorCount),
       1u + (2u * common_config::kAirframeMotorCount),
       9u,  // gps time
+      2u,  // baro altitude: no vario until the estimator has a vertical speed
   }};
 
   enum class TelemetryResult : uint8_t {
@@ -60,6 +62,7 @@ class CrsfLinkService {
   struct Config {
     uint32_t gps_fresh_timeout_us = 2000000u;
     uint32_t battery_fresh_timeout_us = 1000000u;
+    uint32_t baro_fresh_timeout_us = 1000000u;
     // The link the handset is set to: ELRS's own rate enumerator, and the
     // telemetry ratio's denominator with 0 standing for "Std", the ratio each
     // rate defaults to. Declared rather than learnt, because the receiver
@@ -228,7 +231,7 @@ class CrsfLinkService {
     kReceiverCancelBind,
   };
 
-  // TODO(#11): baro 0x09 and vario 0x07 join when the DPS310 lands. Cells
+  // TODO(#27): vario 0x07 joins when the estimator has a vertical speed. Cells
   // 0x0E stays out while only pack voltage is sensed: a per-cell split of it
   // reads as a balanced pack however far one cell has sagged.
   std::optional<TelemetryFrame> PrepareTelemetryTopic(TelemetryTopic topic,

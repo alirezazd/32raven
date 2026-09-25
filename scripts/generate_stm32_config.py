@@ -2574,6 +2574,9 @@ def _rc_receiver_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
                 kconf, "temperature"
             ),
             "gps_time": _crsf_periodic_msg_context(kconf, "gps_time"),
+            "baro_altitude": _crsf_periodic_msg_context(
+                kconf, "baro_altitude"
+            ),
         },
     }
 

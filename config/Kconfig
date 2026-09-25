@@ -3842,6 +3842,52 @@ config STM32_RC_RECEIVER_CRSF_GPS_TIME_MAX_SILENCE_MS
 
 endmenu
 
+menu "Baro Altitude"
+
+config STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_ENABLED
+    bool "Enable"
+    default y
+    help
+      Height from the barometer, shown on the handset as its Alt sensor. Zero
+      is where the aircraft was powered up, and again wherever it was last
+      armed, so the number is height above the take-off point rather than
+      above sea level. Decimetre steps, from -1000 m to +2276 m.
+
+config STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_PERIOD_MS
+    int "Period (ms)" if STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_ENABLED
+    range 1 60000
+    default 1000
+    help
+      Interval between CRSF altitude frames.
+
+config STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_PRIORITY
+    int "Priority" if STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_ENABLED
+    range 0 15
+    default 8
+    help
+      Relative priority used when several CRSF telemetry items are due at the
+      same time. Higher values win. Below battery and flight mode, which the
+      pilot acts on, and above attitude.
+
+config STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_SEND_ON_CHANGE
+    bool "Prefer send on change" if STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_ENABLED
+    default n
+    help
+      Off by design. The sensor's own noise moves the height by about a
+      decimetre, the frame's resolution, so change suppression would almost
+      never fire and only costs a payload comparison.
+
+config STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_MAX_SILENCE_MS
+    int "Max silence (ms)" if STM32_RC_RECEIVER_CRSF_BARO_ALTITUDE_ENABLED
+    range 0 60000
+    default 5000
+    help
+      With send-on-change off this bounds only the link budget: how far a
+      short link may slow the altitude. Also the floor of the link budget,
+      so a value shorter than the link can carry fails the build.
+
+endmenu
+
 endmenu
 
 menu "Channel Mapping"

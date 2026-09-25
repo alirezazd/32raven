@@ -41,6 +41,7 @@ class TelemetryPublisher {
     TopicConfig crsf_rpm{};
     TopicConfig crsf_temperature{};
     TopicConfig crsf_gps_time{};
+    TopicConfig crsf_baro_altitude{};
     // Declination and the module's yaw off the nose, as the one angle the
     // compass bearing is short of true. East positive.
     float heading_offset_rad = 0.0f;
@@ -148,6 +149,8 @@ class TelemetryPublisher {
                                     uint32_t now_us);
   static PublishResult PublishCrsfGpsTime(TelemetryPublisher &self,
                                     uint32_t now_us);
+  static PublishResult PublishCrsfBaroAltitude(TelemetryPublisher &self,
+                                               uint32_t now_us);
   static PublishResult PublishCrsfTemperature(TelemetryPublisher &self,
                                     uint32_t now_us);
   static PublishResult PublishCrsfBattery(TelemetryPublisher &self,

@@ -3,6 +3,7 @@
 
 #include "crsf_link_service.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <optional>
@@ -34,6 +35,7 @@ constexpr uint8_t kCrsfFrameTypeTemperature = 0x0Du;
 constexpr uint8_t kCrsfFrameTypeAttitude = 0x1Eu;
 constexpr uint8_t kCrsfFrameTypeFlightMode = 0x21u;
 constexpr uint8_t kCrsfFrameTypeGpsTime = 0x03u;
+constexpr uint8_t kCrsfFrameTypeBaroAltitude = 0x09u;
 constexpr uint8_t kCrsfAddressFlightController = 0xC8u;
 constexpr uint8_t kCrsfAddressReceiver = 0xECu;
 constexpr uint8_t kCrsfAddressTransmitter = 0xEEu;
@@ -62,6 +64,8 @@ constexpr uint8_t kTemperaturePayloadSize =
 constexpr uint8_t kFlightModePayloadSize =
     PayloadSize(TelemetryTopic::kFlightMode);
 constexpr uint8_t kGpsTimePayloadSize = PayloadSize(TelemetryTopic::kGpsTime);
+constexpr uint8_t kBaroAltitudePayloadSize =
+    PayloadSize(TelemetryTopic::kBaroAltitude);
 
 // Pinned to ExpressLRS's own arithmetic: 250 Hz at 1:64 bursts one data
 // packet per link-statistics packet, at 1:8 fifteen.
@@ -173,6 +177,17 @@ void EncodeGpsPayload(const GpsData &gps, uint8_t payload[kGpsPayloadSize]) {
       altitude_offset_m <= 0 ? 0u : ClampU16((uint32_t)altitude_offset_m);
   StoreBe16(payload + 12u, encoded_altitude);
   payload[14] = gps.num_sats;
+}
+
+// Decimetres plus 10000, so -1000.0 m to +2276.7 m. The metres form, bit 15
+// set, stays unused: EdgeTX sign-extends it into a large negative altitude.
+void EncodeBaroAltitudePayload(const BaroSample &baro,
+                               uint8_t payload[kBaroAltitudePayloadSize]) {
+  constexpr long kOffsetDm = 10000;
+  constexpr long kMaxEncoded = 0x7FFF;
+  const long encoded = std::lround(baro.height_m * 10.0f) + kOffsetDm;
+  StoreBe16(payload, static_cast<uint16_t>(
+                         encoded < 0 ? 0 : std::min(encoded, kMaxEncoded)));
 }
 
 void EncodeHeartbeatPayload(uint8_t payload[kHeartbeatPayloadSize]) {
@@ -387,6 +402,7 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
   static_assert(kTemperaturePayloadSize <= kMaxTelemetryPayload);
   static_assert(kFlightModePayloadSize <= kMaxTelemetryPayload);
   static_assert(kGpsTimePayloadSize <= kMaxTelemetryPayload);
+  static_assert(kBaroAltitudePayloadSize <= kMaxTelemetryPayload);
 
   if (blackboard_ == nullptr) {
     return std::nullopt;
@@ -473,6 +489,17 @@ CrsfLinkService::PrepareTelemetryTopic(TelemetryTopic topic,
       frame.type = kCrsfFrameTypeGpsTime;
       frame.len = kGpsTimePayloadSize;
       EncodeGpsTimePayload(gps, frame.payload.data());
+      return frame;
+    }
+    case TelemetryTopic::kBaroAltitude: {
+      const BaroSample baro = blackboard_->GetEstimate().baro;
+      if (baro.timestamp_us == 0 ||
+          (now_us - baro.timestamp_us) > cfg_.baro_fresh_timeout_us) {
+        return std::nullopt;
+      }
+      frame.type = kCrsfFrameTypeBaroAltitude;
+      frame.len = kBaroAltitudePayloadSize;
+      EncodeBaroAltitudePayload(baro, frame.payload.data());
       return frame;
     }
     case TelemetryTopic::kCount:

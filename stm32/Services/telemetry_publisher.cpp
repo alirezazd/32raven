@@ -154,6 +154,7 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kCrsfTopicCount>
         kTelemetryPublisherConfig.crsf_rpm,
         kTelemetryPublisherConfig.crsf_temperature,
         kTelemetryPublisherConfig.crsf_gps_time,
+        kTelemetryPublisherConfig.crsf_baro_altitude,
     }};
 
 // Whether the ladder driven as slowly as its floors allow still fits a link.
@@ -788,6 +789,12 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfGpsTime(
                           CrsfLinkService::TelemetryTopic::kGpsTime);
 }
 
+TelemetryPublisher::PublishResult TelemetryPublisher::PublishCrsfBaroAltitude(
+    TelemetryPublisher &self, uint32_t now_us) {
+  return PublishCrsfTopic(self, now_us,
+                          CrsfLinkService::TelemetryTopic::kBaroAltitude);
+}
+
 void TelemetryPublisher::Init(SharedState &blackboard, FcLink &fclink,
                               CrsfLinkService &crsf, uint32_t now_us) {
   blackboard_ = &blackboard;
@@ -837,7 +844,7 @@ void TelemetryPublisher::Poll(uint32_t now_us) {
   static constexpr std::array<Publish, kCrsfTopicCount> kCrsfPublishers = {
       PublishCrsfHeartbeat,   PublishCrsfGps,      PublishCrsfBattery,
       PublishCrsfFlightMode,  PublishCrsfAttitude, PublishCrsfRpm,
-      PublishCrsfTemperature, PublishCrsfGpsTime,
+      PublishCrsfTemperature, PublishCrsfGpsTime,  PublishCrsfBaroAltitude,
   };
 
   PollGroup(fclink_, kFcLinkPublishers, kFcLinkFramesPerPoll, now_us);
