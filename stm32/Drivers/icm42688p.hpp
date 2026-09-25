@@ -132,8 +132,8 @@ class Icm42688p {
   Icm42688p(const Icm42688p &) = delete;
   Icm42688p &operator=(const Icm42688p &) = delete;
 
-  void WriteReg(Icm42688pReg::Reg reg, uint8_t val);
-  uint8_t ReadReg(Icm42688pReg::Reg reg);
+  void WriteRegister(Icm42688pReg::Reg target, uint8_t value);
+  uint8_t ReadRegister(Icm42688pReg::Reg source);
   void SetBank(uint8_t bank);
   void CsLow();
   void CsHigh();
