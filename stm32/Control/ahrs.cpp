@@ -65,6 +65,7 @@ void Ahrs::Init(const Config &cfg, SharedState &blackboard) {
 }
 
 EstimatorState Ahrs::Process() {
+  const BaroSample baro = TrackBaroHeight();
   const MagnetometerData &raw_mag = blackboard_->GetMagnetometer();
   const MagCalibration &mag_cal = blackboard_->GetMagCalibration();
   MagSample mag{.timestamp_us = raw_mag.timestamp_us,
@@ -82,6 +83,7 @@ EstimatorState Ahrs::Process() {
   if (!inbox.fresh || burst.count == 0) {
     EstimatorState idle{};
     idle.mag = mag;
+    idle.baro = baro;
     idle.attitude_world_to_body = q_;
     return idle;
   }
@@ -182,6 +184,7 @@ EstimatorState Ahrs::Process() {
   out.gyro_body_rad_s = gyro_accum * inv_count;
   out.accel_body_mps2 = accel_accum * inv_count;
   out.mag = mag;
+  out.baro = baro;
   out.attitude_world_to_body = q_;
 
   last_imu_sample_us_ = last_ts_us;
@@ -211,4 +214,23 @@ bool Ahrs::TrackMagInterference(float field_ratio, uint32_t sample_us) {
   }
   mag_contrary_since_us_.reset();
   return out;
+}
+
+BaroSample Ahrs::TrackBaroHeight() {
+  const BarometerData &raw = blackboard_->GetBarometer();
+  const bool armed = blackboard_->IsArmed();
+  const bool arming = armed && !was_armed_;
+  was_armed_ = armed;
+  if (raw.timestamp_us == 0u) {
+    return {};
+  }
+  if (!ground_pressure_pa_ || arming) {
+    ground_pressure_pa_ = raw.pressure_pa;
+  } else if (raw.timestamp_us == blackboard_->GetEstimate().baro.timestamp_us) {
+    // The sample the previous tick already converted.
+    return blackboard_->GetEstimate().baro;
+  }
+  return {
+      .timestamp_us = raw.timestamp_us,
+      .height_m = math::PressureHeight(raw.pressure_pa, *ground_pressure_pa_)};
 }

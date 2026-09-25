@@ -262,6 +262,14 @@ struct MagSample {
   bool interference = false;
 };
 
+// The barometer on its own clock, held across ticks like the compass. Height
+// is up-positive, from the pressure at boot and again at every arm, so a
+// weather drift between flights never reads as altitude.
+struct BaroSample {
+  uint32_t timestamp_us = 0;  // zero until the first sample
+  float height_m = 0.0f;
+};
+
 struct EstimatorState {
   uint64_t timestamp_us = 0;
   // Both averaged over the burst the control tick consumed.
@@ -270,6 +278,7 @@ struct EstimatorState {
   // Corrected as the accel is, and published unfused: yaw is still the gyro's
   // alone.
   MagSample mag{};
+  BaroSample baro{};
   // Body attitude in world (NED).
   Eigen::Quaternionf attitude_world_to_body = Eigen::Quaternionf::Identity();
 };

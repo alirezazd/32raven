@@ -49,6 +49,7 @@ class Ahrs {
  private:
   // Timed on the samples' own stamps, so a sample held over ticks counts once.
   bool TrackMagInterference(float field_ratio, uint32_t sample_us);
+  BaroSample TrackBaroHeight();
 
   Config cfg_{};
   SharedState *blackboard_ = nullptr;
@@ -58,4 +59,7 @@ class Ahrs {
   std::optional<uint64_t> last_imu_sample_us_;
   // The first sample that contradicted the verdict; nullopt while none does.
   std::optional<uint32_t> mag_contrary_since_us_;
+  // The zero the height is measured from; nullopt until the first sample.
+  std::optional<float> ground_pressure_pa_;
+  bool was_armed_ = false;
 };
