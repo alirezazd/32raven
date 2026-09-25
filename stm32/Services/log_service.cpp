@@ -239,6 +239,24 @@ constexpr char kFmtMag[] =
 // One gauss is 100 microtesla.
 constexpr float kGaussPerMicrotesla = 0.01f;
 
+// PX4's sensor_baro less two fields. error_count: bus faults are the bus's, as
+// the compass's are. is_external: PX4 reads it only to choose between
+// barometers, and there is one.
+struct __attribute__((packed)) BaroRecord {
+  MsgHeader hdr;
+  uint16_t msg_id;
+  uint64_t timestamp;
+  uint64_t timestamp_sample;
+  uint32_t device_id;
+  float pressure;
+  float temperature;
+};
+static_assert(sizeof(BaroRecord) ==
+              sizeof(MsgHeader) + 2u + 8u + 8u + 4u + 4u + 4u);
+constexpr char kFmtBaro[] =
+    "sensor_baro:uint64_t timestamp;uint64_t timestamp_sample;"
+    "uint32_t device_id;float pressure;float temperature;";
+
 struct __attribute__((packed)) ImuHealthRecord {
   MsgHeader hdr;
   uint16_t msg_id;
@@ -347,7 +365,7 @@ constexpr char kFmtLogger[] =
 // is in the file at all. Built rather than listed for that reason.
 template <typename T>
 constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
-                              T gps, T imu_health, T mag, T crsf,
+                              T gps, T imu_health, T mag, T baro, T crsf,
                               T system_health, T logger) {
   std::array<T, LogService::kTopicCount> out{};
   size_t at = 0;
@@ -361,6 +379,7 @@ constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
   out[at++] = gps;
   out[at++] = imu_health;
   out[at++] = mag;
+  out[at++] = baro;
   out[at++] = crsf;
   out[at++] = system_health;
   out[at++] = logger;
@@ -369,12 +388,12 @@ constexpr auto MakeTopicTable(T gyro_fifo, T accel_fifo, T rc, T battery, T esc,
 
 constexpr auto kFormats = MakeTopicTable<const char *>(
     kFmtSensorGyroFifo, kFmtSensorAccelFifo, kFmtRc, kFmtBattery,
-    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtMag, kFmtCrsfLink,
+    kFmtEscTelemetry, kFmtGps, kFmtImuHealth, kFmtMag, kFmtBaro, kFmtCrsfLink,
     kFmtSystemHealth, kFmtLogger);
 constexpr auto kTopicNames = MakeTopicTable<const char *>(
     "sensor_gyro_fifo", "sensor_accel_fifo", "rc_input", "battery",
-    "esc_telemetry", "gps", "imu_health", "sensor_mag", "crsf_link",
-    "system_health", "logger_status");
+    "esc_telemetry", "gps", "imu_health", "sensor_mag", "sensor_baro",
+    "crsf_link", "system_health", "logger_status");
 
 // Sizes the subscription record, so a longer name cannot outgrow it.
 constexpr size_t kLongestTopicName = [] {
@@ -430,9 +449,10 @@ void LogService::Init(const Config &cfg, SharedState &blackboard,
   slow_configs_ = {
       cfg_.rc_input,     cfg_.battery,   cfg_.esc_telemetry,
       cfg_.gps,          cfg_.imu_health, cfg_.magnetometer,
-      cfg_.crsf_link,    cfg_.system_health, cfg_.logger_status,
+      cfg_.barometer,    cfg_.crsf_link, cfg_.system_health,
+      cfg_.logger_status,
   };
-  static_assert(kSlowTopicCount == 9,
+  static_assert(kSlowTopicCount == 10,
                 "slow_configs_ above lists one entry per scheduled topic");
   initialized_ = true;
 
@@ -861,7 +881,7 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
   constexpr size_t kWorstCaseBytes =
       sizeof(RcRecord) + sizeof(BatteryRecord) + sizeof(EscTelemetryRecord) +
       sizeof(GpsRecord) + sizeof(ImuHealthRecord) + sizeof(MagRecord) +
-      sizeof(CrsfLinkRecord) + sizeof(SystemHealthRecord) +
+      sizeof(BaroRecord) + sizeof(CrsfLinkRecord) + sizeof(SystemHealthRecord) +
       sizeof(LoggerRecord);
   static_assert(kWorstCaseBytes < kStagingBytes);
   if (dma_busy_ && (kStagingBytes - fill_len_) < kWorstCaseBytes) {
@@ -962,6 +982,16 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
         rec.y = mag.y * kGaussPerMicrotesla;
         rec.z = mag.z * kGaussPerMicrotesla;
         rec.overflow_count = mag.overflow_count;
+        AppendToStaging(&rec, sizeof(rec));
+        break;
+      }
+      case kMsgBaro: {
+        const BarometerData &baro = blackboard_->GetBarometer();
+        BaroRecord rec = MakeRecord<BaroRecord>(kMsgBaro, now64);
+        rec.timestamp_sample = Stamp64(baro.timestamp_us);
+        rec.device_id = baro.device_id;
+        rec.pressure = baro.pressure_pa;
+        rec.temperature = baro.temperature_c;
         AppendToStaging(&rec, sizeof(rec));
         break;
       }

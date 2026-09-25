@@ -4153,6 +4153,24 @@ config STM32_LOG_TOPIC_MAGNETOMETER_PERIOD_MS
       for -- the part delivers about 49 Hz, so anything above that only repeats
       samples.
 
+config STM32_LOG_TOPIC_BAROMETER_ENABLED
+    bool "Barometer"
+    default y
+    help
+      Static pressure and the part's own temperature, compensated but
+      unfiltered, with the device identifier: what the estimator's height
+      is replayed from.
+
+config STM32_LOG_TOPIC_BAROMETER_PERIOD_MS
+    int "Barometer period (ms)" if STM32_LOG_TOPIC_BAROMETER_ENABLED
+    range 1 60000
+    default 25
+    help
+      PX4: sensor_baro 1000 ms, 100 ms in its high-rate profile. Set here to
+      carry every result the part produces at its default 32 Hz, so a flight
+      log can be replayed through an estimator; a repeat shows as an
+      unchanged timestamp_sample. Raise it to spend less of the card.
+
 config STM32_LOG_TOPIC_CRSF_LINK_ENABLED
     bool "CRSF link"
     default y

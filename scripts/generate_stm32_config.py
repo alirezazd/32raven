@@ -1910,6 +1910,7 @@ LOG_TOPICS = (
     "gps",
     "imu_health",
     "magnetometer",
+    "barometer",
     "crsf_link",
     "system_health",
     "logger_status",

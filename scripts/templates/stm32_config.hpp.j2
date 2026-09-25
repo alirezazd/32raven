@@ -420,7 +420,7 @@ inline constexpr LogService::Config kLogServiceConfig = {
     .prealloc_mb = {{ log_service.prealloc_mb }}u,
     .loop_recording = {{ log_service.loop_recording | cpp_bool }},
 {% for name in ["rc_input", "battery", "esc_telemetry", "gps", "imu_health",
-                "magnetometer", "crsf_link", "system_health",
+                "magnetometer", "barometer", "crsf_link", "system_health",
                 "logger_status"] %}
 {% set topic = log_service.topics[name] %}
     .{{ name }} = {
