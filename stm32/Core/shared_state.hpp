@@ -368,6 +368,7 @@ struct SensorHealth {
   SensorStatus rc;
   SensorStatus esc;
   SensorStatus mag;
+  SensorStatus baro;
   uint8_t esc_online = 0;  // bit per motor still answering, as valid_mask
 };
 

@@ -336,6 +336,10 @@ inline constexpr uint32_t kBatteryFreshTimeoutUs =
 inline constexpr uint32_t kGpsFreshTimeoutUs =
     {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u;
 
+// Ten pressure periods, derived so a slower rate does not read as a dead
+// sensor.
+inline constexpr uint32_t kBaroFreshTimeoutUs = {{ baro.fresh_timeout_us }}u;
+
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
     .gps_fresh_timeout_us = kGpsFreshTimeoutUs,
     .battery_fresh_timeout_us = kBatteryFreshTimeoutUs,

@@ -2338,6 +2338,7 @@ def _baro_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         # Four reads of the ready flags per result, so one waits at most a
         # quarter period to be collected.
         "sample_period_us": 1_000_000 // (4 * 2**rate),
+        "fresh_timeout_us": 10 * 1_000_000 // 2**rate,
     }
 
 

@@ -81,6 +81,9 @@ uint32_t MapSystemSensorFlagsToMavlink(uint32_t flags) {
   if ((flags & message::kSystemSensorFlagMag) != 0u) {
     mavlink_flags |= MAV_SYS_STATUS_SENSOR_3D_MAG;
   }
+  if ((flags & message::kSystemSensorFlagBaro) != 0u) {
+    mavlink_flags |= MAV_SYS_STATUS_SENSOR_ABSOLUTE_PRESSURE;
+  }
   return mavlink_flags;
 }
 
@@ -91,13 +94,14 @@ struct SensorLabel {
   const char *name;
 };
 
-constexpr std::array<SensorLabel, 6> kSensorLabels = {{
+constexpr std::array<SensorLabel, 7> kSensorLabels = {{
     {message::kSystemSensorFlagImu, "IMU"},
     {message::kSystemSensorFlagGps, "GPS"},
     {message::kSystemSensorFlagBattery, "Battery"},
     {message::kSystemSensorFlagRcReceiver, "RC receiver"},
     {message::kSystemSensorFlagEsc, "ESC"},
     {message::kSystemSensorFlagMag, "Compass"},
+    {message::kSystemSensorFlagBaro, "Barometer"},
 }};
 
 int8_t NormalizeBatteryRemaining(int8_t battery_remaining) {
@@ -171,8 +175,8 @@ void Mavlink::ReportSensorHealthChanges(
   const uint32_t present = status.sensor_present_flags;
   const uint32_t health = status.sensor_health_flags & present;
 
-  // The first frame is a baseline, not five announcements: a sensor that came
-  // up unhealthy has nothing to have transitioned from.
+  // The first frame is a baseline, not an announcement per sensor: a sensor
+  // that came up unhealthy has nothing to have transitioned from.
   if (!sensor_health_seen_) {
     sensor_health_seen_ = true;
     last_sensor_health_ = health;

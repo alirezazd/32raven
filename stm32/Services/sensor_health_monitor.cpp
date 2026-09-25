@@ -100,6 +100,13 @@ void SensorHealthMonitor::Poll(uint32_t now_us) {
       !blackboard.GetEstimate().mag.interference &&
       ElapsedMicros(now_us, mag.timestamp_us) <= kMagFreshTimeoutUs;
 
+  // No calibration term: the part carries its own, read at boot.
+  const BarometerData &baro = blackboard.GetBarometer();
+  health.baro.present = baro.timestamp_us != 0u;
+  health.baro.healthy =
+      health.baro.present &&
+      ElapsedMicros(now_us, baro.timestamp_us) <= kBaroFreshTimeoutUs;
+
   blackboard_->UpdateSensorHealth(health);
 }
 

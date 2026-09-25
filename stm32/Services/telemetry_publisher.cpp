@@ -42,6 +42,7 @@ SensorFlags PackSensorFlags(const SensorHealth &health) {
   pack(health.rc, message::kSystemSensorFlagRcReceiver);
   pack(health.esc, message::kSystemSensorFlagEsc);
   pack(health.mag, message::kSystemSensorFlagMag);
+  pack(health.baro, message::kSystemSensorFlagBaro);
   return flags;
 }
 

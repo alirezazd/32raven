@@ -249,6 +249,7 @@ inline constexpr uint32_t kSystemSensorFlagBattery = 1u << 2;
 inline constexpr uint32_t kSystemSensorFlagRcReceiver = 1u << 3;
 inline constexpr uint32_t kSystemSensorFlagEsc = 1u << 4;
 inline constexpr uint32_t kSystemSensorFlagMag = 1u << 5;
+inline constexpr uint32_t kSystemSensorFlagBaro = 1u << 6;
 
 struct SystemStatusMsg {
   uint32_t uptime_ms;
