@@ -7,6 +7,8 @@
 
 #include <cstdint>
 
+#include "math/physics.hpp"
+
 namespace Icm42688pReg {
 
 enum class Reg : uint8_t {
@@ -260,7 +262,6 @@ enum class AccelFs : uint8_t {
   k2g = 0x03,
 };
 
-constexpr float kStandardGravityMps2 = 9.80665f;
 constexpr float kDegToRad = 0.017453292519943295f;
 constexpr float kFifoDataLsb = 32768.0f;
 
@@ -304,7 +305,7 @@ static constexpr float AccelRangeG(AccelFs fs) {
 
 // Datasheet conversion for the 16-bit FIFO accel samples.
 static constexpr float AccelLsbToMps2(AccelFs fs) {
-  return (AccelRangeG(fs) / kFifoDataLsb) * kStandardGravityMps2;
+  return (AccelRangeG(fs) / kFifoDataLsb) * math::kGravityMps2;
 }
 
 // Datasheet conversion for the 16-bit FIFO gyro samples.
@@ -355,7 +356,7 @@ constexpr float kHiResAccelLsbPerG = kHiRes20BitHalfScale / kHiResAccelFsG;
 // HiRes 20-bit LSB → SI conversions. No FS enum: HiRes locks the chip to
 // ±2000 dps + ±16g.
 inline constexpr float AccelLsbToMps2_HiRes() {
-  return (1.0f / kHiResAccelLsbPerG) * kStandardGravityMps2;
+  return (1.0f / kHiResAccelLsbPerG) * math::kGravityMps2;
 }
 inline constexpr float GyroLsbToRadS_HiRes() {
   return (1.0f / kHiResGyroLsbPerDps) * kDegToRad;

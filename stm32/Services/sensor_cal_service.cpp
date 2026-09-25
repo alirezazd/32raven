@@ -14,6 +14,7 @@
 #include "error_code.hpp"
 #include "fc_link.hpp"
 #include "math/attitude_euler.hpp"
+#include "math/physics.hpp"
 #include "message.hpp"
 #include "panic.hpp"
 #include "shared_state.hpp"
@@ -244,7 +245,6 @@ namespace {
 // other two is what keeps two poses from ever matching at once.
 constexpr float kDominantMinG = 0.85f;
 constexpr float kOffAxisMaxG = 0.30f;
-constexpr float kGravityMps2 = 9.80665f;
 
 }  // namespace
 
@@ -257,7 +257,7 @@ void AccelCal::Init(const Config &cfg, SharedState &blackboard, EE &ee) {
 }
 
 bool AccelCal::IsPlausible(const ee_schema::ImuAccelCalibration &cal) {
-  constexpr float kMaxOffsetMps2 = kGravityMps2;
+  constexpr float kMaxOffsetMps2 = math::kGravityMps2;
   for (int axis = 0; axis < 3; ++axis) {
     const float gain = cal.gains[axis];
     if (!(gain > 0.5f) || !(gain < 2.0f)) {
@@ -344,7 +344,7 @@ AccelSide AccelCal::Classify(float scale) const {
   for (int axis = 0; axis < 3; ++axis) {
     mean_g[axis] =
         (static_cast<float>(sum_[axis]) / static_cast<float>(samples_)) *
-        scale / kGravityMps2;
+        scale / math::kGravityMps2;
   }
 
   for (int axis = 0; axis < 3; ++axis) {
@@ -399,8 +399,8 @@ void AccelCal::Feed(const ImuBurst &burst) {
     return;
   }
 
-  const uint32_t still_counts =
-      StillThresholdCounts(cfg_.still_threshold_mg, kGravityMps2, accel_scale_);
+  const uint32_t still_counts = StillThresholdCounts(
+      cfg_.still_threshold_mg, math::kGravityMps2, accel_scale_);
 
   for (uint8_t i = 0; i < burst.count; ++i) {
     for (int axis = 0; axis < 3; ++axis) {
@@ -515,7 +515,7 @@ AccelCal::State AccelCal::Poll(uint32_t now_us) {
         return state_;
       }
       cal.offsets[axis] = (up_mps2_[axis] + down_mps2_[axis]) * 0.5f;
-      cal.gains[axis] = (2.0f * kGravityMps2) / span;
+      cal.gains[axis] = (2.0f * math::kGravityMps2) / span;
     }
     if (!Store(cal)) {
       failure_ = Failure::kStore;
@@ -692,7 +692,7 @@ MagCal::State MagCal::Poll(uint32_t now_us) {
 void MagCal::PollDetecting(uint32_t now_us, float dt_s) {
   const Eigen::Vector3f accel = blackboard_->GetEstimate().accel_body_mps2;
   const float thr =
-      static_cast<float>(cfg_.still_threshold_mg) * 0.001f * kGravityMps2;
+      static_cast<float>(cfg_.still_threshold_mg) * 0.001f * math::kGravityMps2;
   const float thr2 = thr * thr;
   const float w = dt_s / kRestEmaTauS;
 
@@ -756,10 +756,10 @@ AccelSide MagCal::Classify() const {
     if (!others_level) {
       continue;
     }
-    if (std::fabs(accel_ema_[axis] - kGravityMps2) < kPoseErrorMps2) {
+    if (std::fabs(accel_ema_[axis] - math::kGravityMps2) < kPoseErrorMps2) {
       return static_cast<AccelSide>(axis * 2);
     }
-    if (std::fabs(accel_ema_[axis] + kGravityMps2) < kPoseErrorMps2) {
+    if (std::fabs(accel_ema_[axis] + math::kGravityMps2) < kPoseErrorMps2) {
       return static_cast<AccelSide>((axis * 2) + 1);
     }
   }

@@ -6,11 +6,10 @@
 #include <cmath>
 
 #include "error_code.hpp"
+#include "math/physics.hpp"
 #include "panic.hpp"
 
 namespace {
-
-constexpr float kGravityMps2 = 9.80665f;
 
 Eigen::Vector3f CorrectField(const MagCalibration &cal,
                              const MagnetometerData &mag) {
@@ -145,7 +144,7 @@ EstimatorState Ahrs::Process() {
     Eigen::Vector3f mes_err = Eigen::Vector3f::Zero();
     const float accel_norm = accel.norm();
     if (accel_norm > 1e-3f) {
-      const float accel_norm_g = accel_norm / kGravityMps2;
+      const float accel_norm_g = accel_norm / math::kGravityMps2;
       const float accel_trust =
           ComputeTwoSidedTrustWeight(accel_norm_g, 1.0f,
                                      cfg_.accel_trust_full_dev_g,
