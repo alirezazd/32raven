@@ -290,7 +290,9 @@ void System::InitComponent(Component c) {
       I2c1::GetInstance().Init(kI2c1Config, GPIO::GetInstance());
       break;
     case Component::kQmc5883p:
-      Mag().Init(kQmc5883pConfig, I2c1::GetInstance(), blackboard_);
+      Mag().Init(kQmc5883pConfig,
+                 I2c1::GetInstance().PortFor<I2cTenant::kQmc5883p>(),
+                 blackboard_);
       break;
     case Component::kMultirotorMixer:
       mixer_.Init(kMultirotorMixerConfig, blackboard_);

@@ -4,6 +4,7 @@
 #include "qmc5883p.hpp"
 
 #include <array>
+#include <utility>
 
 #include "error_code.hpp"
 #include "panic.hpp"
@@ -21,11 +22,6 @@ constexpr uint8_t kAddr = 0x2C;
 // comes up after System, so there is no link to log over yet.
 constexpr uint8_t kQmc5883lAddr = 0x0D;
 
-constexpr uint8_t kRegChipId = 0x00;
-constexpr uint8_t kRegDataX = 0x01;
-constexpr uint8_t kRegStatus = 0x09;
-constexpr uint8_t kRegCtrl1 = 0x0A;
-constexpr uint8_t kRegCtrl2 = 0x0B;
 constexpr uint8_t kChipId = 0x80;
 
 constexpr uint8_t kStatusDrdy = 1u << 0;
@@ -114,16 +110,16 @@ I2cTransferStatus Qmc5883p::AwaitBus() {
   // length and reports kTimeout once it passes, tearing the engine down
   // itself.
   for (;;) {
-    const I2cTransferStatus status = bus_->Poll(time.Micros());
+    const I2cTransferStatus status = bus_.Poll(time.Micros());
     if (status != I2cTransferStatus::kBusy) {
       return status;
     }
   }
 }
 
-bool Qmc5883p::WriteRegister(uint8_t reg, uint8_t value) {
-  const std::array<uint8_t, 2> tx = {reg, value};
-  if (bus_->StartWrite(kAddr, tx) != Outcome::kOk) {
+bool Qmc5883p::WriteRegister(Reg target, uint8_t value) {
+  const std::array<uint8_t, 2> tx = {std::to_underlying(target), value};
+  if (bus_.StartWrite(kAddr, tx) != Outcome::kOk) {
     return false;
   }
   return AwaitBus() == I2cTransferStatus::kComplete;
@@ -133,33 +129,29 @@ bool Qmc5883p::WriteRegister(uint8_t reg, uint8_t value) {
 // assumed. Without it a register the part declines is indistinguishable from
 // one it took, and the only symptom is a scale factor quietly describing a
 // range the part is not measuring on.
-bool Qmc5883p::ReadRegister(uint8_t reg, uint8_t &value) {
-  if (!StartRead(reg, 1)) {
-    return false;
+std::optional<uint8_t> Qmc5883p::ReadRegister(Reg source) {
+  if (!StartRead(source, 1) || AwaitBus() != I2cTransferStatus::kComplete) {
+    return std::nullopt;
   }
-  if (AwaitBus() != I2cTransferStatus::kComplete) {
-    return false;
-  }
-  const std::span<const uint8_t> rx = bus_->Received();
+  const std::span<const uint8_t> rx = bus_.Received();
   if (rx.empty()) {
-    return false;
+    return std::nullopt;
   }
-  value = rx[0];
-  return true;
+  return rx[0];
 }
 
 // A zero-length write: START, address, STOP. The bus answers kComplete on an
 // ACK and kNackAddr when nothing is there.
 bool Qmc5883p::AddressAnswers(uint8_t addr7) {
-  if (bus_->StartWrite(addr7, {}) != Outcome::kOk) {
+  if (bus_.StartWrite(addr7, {}) != Outcome::kOk) {
     return false;
   }
   return AwaitBus() == I2cTransferStatus::kComplete;
 }
 
-bool Qmc5883p::StartRead(uint8_t reg, size_t len) {
-  const std::array<uint8_t, 1> tx = {reg};
-  return bus_->StartWriteRead(kAddr, tx, len) == Outcome::kOk;
+bool Qmc5883p::StartRead(Reg first, size_t len) {
+  const std::array<uint8_t, 1> tx = {std::to_underlying(first)};
+  return bus_.StartWriteRead(kAddr, tx, len) == Outcome::kOk;
 }
 
 Qmc5883p::BringUpResult Qmc5883p::BringUp() {
@@ -170,11 +162,11 @@ Qmc5883p::BringUpResult Qmc5883p::BringUp() {
     if (attempt != 0u) {
       System::GetInstance().Time().DelayMicros(kProbeRetryUs);
     }
-    if (!StartRead(kRegChipId, 1) ||
+    if (!StartRead(Reg::kChipId, 1) ||
         AwaitBus() != I2cTransferStatus::kComplete) {
       continue;
     }
-    const std::span<const uint8_t> id = bus_->Received();
+    const std::span<const uint8_t> id = bus_.Received();
     if (!id.empty() && id[0] == kChipId) {
       device_id_ = kDeviceBusTypeI2c |
                    (static_cast<uint32_t>(I2cInstance::kI2c1) << 3) |
@@ -193,7 +185,7 @@ Qmc5883p::BringUpResult Qmc5883p::BringUp() {
   // the part may still be measuring from the previous image. Reset puts it
   // back in Suspend, which is the mode the datasheet wants a configuration
   // change to pass through.
-  if (!WriteRegister(kRegCtrl2, kCtrl2SoftReset)) {
+  if (!WriteRegister(Reg::kCtrl2, kCtrl2SoftReset)) {
     return BringUpResult::kRefused;
   }
   System::GetInstance().Time().DelayMicros(kResetSettleUs);
@@ -217,30 +209,29 @@ Qmc5883p::BringUpResult Qmc5883p::BringUp() {
     if (attempt != 0u) {
       System::GetInstance().Time().DelayMicros(kConfigRetryUs);
     }
-    if (!WriteRegister(kRegCtrl2, ctrl2) || !WriteRegister(kRegCtrl1, ctrl1)) {
+    if (!WriteRegister(Reg::kCtrl2, ctrl2) ||
+        !WriteRegister(Reg::kCtrl1, ctrl1)) {
       return BringUpResult::kRefused;
     }
-    uint8_t seen_ctrl1 = 0;
-    uint8_t seen_ctrl2 = 0;
-    if (!ReadRegister(kRegCtrl1, seen_ctrl1) ||
-        !ReadRegister(kRegCtrl2, seen_ctrl2)) {
+    const std::optional<uint8_t> seen_ctrl1 = ReadRegister(Reg::kCtrl1);
+    const std::optional<uint8_t> seen_ctrl2 = ReadRegister(Reg::kCtrl2);
+    if (!seen_ctrl1 || !seen_ctrl2) {
       return BringUpResult::kRefused;
     }
-    if (((seen_ctrl1 ^ ctrl1) & kCtrl1Mask) == 0u &&
-        ((seen_ctrl2 ^ ctrl2) & kCtrl2Mask) == 0u) {
+    if (((*seen_ctrl1 ^ ctrl1) & kCtrl1Mask) == 0u &&
+        ((*seen_ctrl2 ^ ctrl2) & kCtrl2Mask) == 0u) {
       // The output registers still hold whatever was measured before this
       // configuration landed, and DRDY still marks it new. Reading the status
       // clears that flag, so the first sample the loop publishes is one taken
       // on the range this driver is about to scale against.
-      uint8_t discard = 0;
-      (void)ReadRegister(kRegStatus, discard);
+      (void)ReadRegister(Reg::kStatus);
       return BringUpResult::kOk;
     }
   }
   return BringUpResult::kConfigNotKept;
 }
 
-void Qmc5883p::Init(const Config &cfg, I2c1 &bus, SharedState &blackboard) {
+void Qmc5883p::Init(const Config &cfg, Bus bus, SharedState &blackboard) {
   if (initialized_) {
     Panic(ErrorCode::Stm32::kMagReinit);
   }
@@ -259,7 +250,7 @@ void Qmc5883p::Init(const Config &cfg, I2c1 &bus, SharedState &blackboard) {
   }
 
   cfg_ = cfg;
-  bus_ = &bus;
+  bus_ = bus;
   blackboard_ = &blackboard;
   microtesla_per_count_ =
       kMicroteslaPerCount[static_cast<size_t>(cfg.range)];
@@ -291,7 +282,7 @@ void Qmc5883p::Poll(uint32_t now_us) {
   }
 
   if (phase_ != Phase::kIdle) {
-    const I2cTransferStatus status = bus_->Poll(now_us);
+    const I2cTransferStatus status = bus_.Poll(now_us);
     if (status == I2cTransferStatus::kBusy) {
       return;
     }
@@ -304,9 +295,9 @@ void Qmc5883p::Poll(uint32_t now_us) {
     }
 
     if (phase_ == Phase::kReadingStatus) {
-      const std::span<const uint8_t> rx = bus_->Received();
+      const std::span<const uint8_t> rx = bus_.Received();
       status_ = rx.empty() ? 0u : rx[0];
-      if (!StartRead(kRegDataX, kDataLen)) {
+      if (!StartRead(Reg::kDataX, kDataLen)) {
         phase_ = Phase::kIdle;
         return;
       }
@@ -315,7 +306,7 @@ void Qmc5883p::Poll(uint32_t now_us) {
     }
 
     phase_ = Phase::kIdle;
-    DecodeSample(bus_->Received(), now_us);
+    DecodeSample(bus_.Received(), now_us);
     return;
   }
 
@@ -324,10 +315,9 @@ void Qmc5883p::Poll(uint32_t now_us) {
     return;
   }
 
-  // Rejected means the bus is mid-transfer for somebody else. There is no
-  // second tenant yet; when there is, one of them has to back off and this is
-  // the driver that does.
-  if (!StartRead(kRegStatus, 1)) {
+  // Rejected means another tenant's transfer is on the wire. last_start_us_
+  // stays put, so the read retries on the next tick.
+  if (!StartRead(Reg::kStatus, 1)) {
     return;
   }
   last_start_us_ = now_us;

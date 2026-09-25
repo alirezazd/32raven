@@ -194,29 +194,14 @@ void I2c<Inst, BufSize>::RecoverBus() {
 }
 
 template <I2cInstance Inst, size_t BufSize>
-Outcome I2c<Inst, BufSize>::StartWrite(uint8_t addr7,
-                                       std::span<const uint8_t> tx) {
-  return Arm(addr7, tx, 0);
-}
-
-template <I2cInstance Inst, size_t BufSize>
-Outcome I2c<Inst, BufSize>::StartWriteRead(uint8_t addr7,
-                                           std::span<const uint8_t> tx,
-                                           size_t rx_len) {
-  if (tx.empty() || rx_len == 0u) {
-    return Outcome::kInvalid;
-  }
-  return Arm(addr7, tx, rx_len);
-}
-
-template <I2cInstance Inst, size_t BufSize>
-Outcome I2c<Inst, BufSize>::Arm(uint8_t addr7, std::span<const uint8_t> tx,
-                                size_t rx_len) {
+Outcome I2c<Inst, BufSize>::Arm(I2cTenant tenant, uint8_t addr7,
+                                std::span<const uint8_t> tx, size_t rx_len) {
   if (!initialized_ || addr7 > 0x7Fu || tx.size() > BufSize ||
-      rx_len > BufSize) {
+      rx_len > kI2cRxBufSize || tenant >= I2cTenant::kCount) {
     return Outcome::kInvalid;
   }
-  if (status_.load(std::memory_order_acquire) == I2cTransferStatus::kBusy) {
+  if (active_ != nullptr && active_->status.load(std::memory_order_acquire) ==
+                                I2cTransferStatus::kBusy) {
     return Outcome::kRejected;
   }
   I2C_TypeDef *hw = Hw();
@@ -256,7 +241,8 @@ Outcome I2c<Inst, BufSize>::Arm(uint8_t addr7, std::span<const uint8_t> tx,
   hw->CR1 &= ~(I2C_CR1_POS | I2C_CR1_ACK);  // the spin above proved CR1 idle
   phase_ = Phase::kAddrTx;
   started_us_ = System::GetInstance().Time().Micros();
-  status_.store(I2cTransferStatus::kBusy, std::memory_order_relaxed);
+  active_ = &SlotOf(tenant);
+  active_->status.store(I2cTransferStatus::kBusy, std::memory_order_relaxed);
   hw->CR2 |= I2C_CR2_ITEVTEN | I2C_CR2_ITERREN;
   // Publish every plain store above before the START that lets the ISRs
   // consume them; volatile MMIO alone does not order them.
@@ -266,20 +252,26 @@ Outcome I2c<Inst, BufSize>::Arm(uint8_t addr7, std::span<const uint8_t> tx,
 }
 
 template <I2cInstance Inst, size_t BufSize>
-I2cTransferStatus I2c<Inst, BufSize>::Poll(uint32_t now_us) {
-  if (status_.load(std::memory_order_acquire) == I2cTransferStatus::kBusy &&
+I2cTransferStatus I2c<Inst, BufSize>::Poll(I2cTenant tenant, uint32_t now_us) {
+  // Only the active slot is ever kBusy, so the deadline is this tenant's.
+  Slot &slot = SlotOf(tenant);
+  if (slot.status.load(std::memory_order_acquire) ==
+          I2cTransferStatus::kBusy &&
       (now_us - started_us_) > deadline_us_) {
     AbortStuckTransfer();
   }
-  return status_.load(std::memory_order_acquire);
+  return slot.status.load(std::memory_order_acquire);
 }
 
 template <I2cInstance Inst, size_t BufSize>
-std::span<const uint8_t> I2c<Inst, BufSize>::Received() const {
-  if (status_.load(std::memory_order_acquire) != I2cTransferStatus::kComplete) {
+std::span<const uint8_t> I2c<Inst, BufSize>::Received(
+    I2cTenant tenant) const {
+  const Slot &slot = SlotOf(tenant);
+  if (slot.status.load(std::memory_order_acquire) !=
+      I2cTransferStatus::kComplete) {
     return {};
   }
-  return {rx_buf_, rx_pos_};
+  return {slot.rx_buf, slot.rx_count};
 }
 
 template <I2cInstance Inst, size_t BufSize>
@@ -312,7 +304,7 @@ void I2c<Inst, BufSize>::AbortStuckTransfer() {
     ConfigureHw();
   }
 
-  status_.store(
+  active_->status.store(
       berr_seen_ ? I2cTransferStatus::kBusError : I2cTransferStatus::kTimeout,
       std::memory_order_release);
 }
@@ -345,7 +337,8 @@ void I2c<Inst, BufSize>::EndTransfer(I2cTransferStatus status) {
   // be draining, and CR1 must not be written over it. The next Arm clears
   // it after proving CR1 idle.
   phase_ = Phase::kIdle;
-  status_.store(status, std::memory_order_release);
+  active_->rx_count = rx_pos_;
+  active_->status.store(status, std::memory_order_release);
 }
 
 template <I2cInstance Inst, size_t BufSize>
@@ -434,7 +427,7 @@ void I2c<Inst, BufSize>::OnEventIrq() {
       // Only the single-byte read gets here; longer reads end in the
       // two-byte unload below.
       if ((sr1 & I2C_SR1_RXNE) != 0u) {
-        rx_buf_[rx_pos_] = static_cast<uint8_t>(hw->DR);
+        active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
         ++rx_pos_;
         EndTransfer(I2cTransferStatus::kComplete);
       }
@@ -452,7 +445,7 @@ void I2c<Inst, BufSize>::OnEventIrq() {
       // lets it clock in. The next BTF then holds the last two under a
       // stretch, where the STOP is programmed with no deadline.
       hw->CR1 &= ~I2C_CR1_ACK;
-      rx_buf_[rx_pos_] = static_cast<uint8_t>(hw->DR);
+      active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
       ++rx_pos_;
       return;
     }
@@ -461,14 +454,15 @@ void I2c<Inst, BufSize>::OnEventIrq() {
       // unloading DR first would un-stretch a bus with nothing programmed
       // -- then both held bytes.
       hw->CR1 |= I2C_CR1_STOP;
-      rx_buf_[rx_pos_] = static_cast<uint8_t>(hw->DR);
+      active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
       ++rx_pos_;
-      rx_buf_[rx_pos_] = static_cast<uint8_t>(hw->DR);
+      active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
       ++rx_pos_;
       EndTransfer(I2cTransferStatus::kComplete);
       return;
     }
-    rx_buf_[rx_pos_] = static_cast<uint8_t>(hw->DR);  // body: one per BTF
+    // The body: one byte per BTF.
+    active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
     ++rx_pos_;
     return;
   }

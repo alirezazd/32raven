@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "i2c.hpp"
@@ -73,7 +74,16 @@ class Qmc5883p {
   Qmc5883p(const Qmc5883p &) = delete;
   Qmc5883p &operator=(const Qmc5883p &) = delete;
 
-  void Init(const Config &cfg, I2c1 &bus, SharedState &blackboard);
+  using Bus = I2c1::Port<I2cTenant::kQmc5883p>;
+  enum class Reg : uint8_t {
+    kChipId = 0x00,
+    kDataX = 0x01,  // the first of six data bytes
+    kStatus = 0x09,
+    kCtrl1 = 0x0A,
+    kCtrl2 = 0x0B,
+  };
+
+  void Init(const Config &cfg, Bus bus, SharedState &blackboard);
 
   // Status and data sit either side of two registers the map does not list, so
   // one burst cannot cover both. Read in this order because DRDY clears when
@@ -84,8 +94,8 @@ class Qmc5883p {
   // Spins on the bus until it settles, which its own deadline bounds. Init
   // only: after the loop starts nothing may hold the main tick this long.
   I2cTransferStatus AwaitBus();
-  bool WriteRegister(uint8_t reg, uint8_t value);
-  bool ReadRegister(uint8_t reg, uint8_t &value);
+  bool WriteRegister(Reg target, uint8_t value);
+  std::optional<uint8_t> ReadRegister(Reg source);
   bool AddressAnswers(uint8_t addr7);
   // Probe, reset, configure. Anything but kOk means there is no usable
   // compass, and which value says why -- each maps to its own panic code,
@@ -100,14 +110,14 @@ class Qmc5883p {
   };
 
   BringUpResult BringUp();
-  bool StartRead(uint8_t reg, size_t len);
+  bool StartRead(Reg first, size_t len);
   void DecodeSample(std::span<const uint8_t> rx, uint32_t now_us);
 
   bool initialized_ = false;
   uint32_t device_id_ = 0;
   Config cfg_{};
   float microtesla_per_count_ = 0.0f;
-  I2c1 *bus_ = nullptr;
+  Bus bus_{};
   SharedState *blackboard_ = nullptr;
   Phase phase_ = Phase::kIdle;
   uint32_t last_start_us_ = 0;
