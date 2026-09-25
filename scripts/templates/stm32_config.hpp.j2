@@ -11,6 +11,7 @@
 #include "button.hpp"
 #include "common_config.hpp"
 #include "crsf_link_service.hpp"
+#include "dps310.hpp"
 #include "dshot_tim1.hpp"
 #include "esc_service.hpp"
 #include "esc_telemetry.hpp"
@@ -275,6 +276,14 @@ inline constexpr Qmc5883p::Config kQmc5883pConfig = {
             .z_from = {{ mag.axes.z_from }},
             .z_neg = {{ mag.axes.z_neg | cpp_bool }},
         },
+};
+
+inline constexpr Dps310::Config kDps310Config = {
+    .address = {{ baro.address }},
+    .pressure_oversampling = {{ baro.pressure_oversampling }},
+    .pressure_rate = {{ baro.pressure_rate }},
+    .temperature_rate = {{ baro.temperature_rate }},
+    .sample_period_us = {{ baro.sample_period_us }}u,
 };
 
 inline const Button::Config kButtonConfig = {

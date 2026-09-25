@@ -158,6 +158,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/m10.cpp
     Drivers/icm42688p.cpp
     Drivers/qmc5883p.cpp
+    Drivers/dps310.cpp
     Drivers/rc_receiver.cpp
     Drivers/ee.cpp
     Drivers/sdio.cpp

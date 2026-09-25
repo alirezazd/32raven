@@ -56,6 +56,7 @@ constexpr std::array<System::Component,
         System::Component::kIcm42688p,
         System::Component::kI2c1,
         System::Component::kQmc5883p,
+        System::Component::kDps310,
         System::Component::kMultirotorMixer,
         System::Component::kAhrs,
         System::Component::kRateController,
@@ -139,6 +140,7 @@ void System::Poll(uint32_t now_us) {
   SensorHealthSvc().Poll(now_us);
   Batt().Poll(now_us);
   Mag().Poll(now_us);
+  Baro().Poll(now_us);
   TelemetryPubSvc().Poll(now_us);
 }
 
@@ -293,6 +295,11 @@ void System::InitComponent(Component c) {
       Mag().Init(kQmc5883pConfig,
                  I2c1::GetInstance().PortFor<I2cTenant::kQmc5883p>(),
                  blackboard_);
+      break;
+    case Component::kDps310:
+      Baro().Init(kDps310Config,
+                  I2c1::GetInstance().PortFor<I2cTenant::kDps310>(),
+                  blackboard_);
       break;
     case Component::kMultirotorMixer:
       mixer_.Init(kMultirotorMixerConfig, blackboard_);

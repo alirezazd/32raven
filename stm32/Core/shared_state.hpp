@@ -160,6 +160,17 @@ struct MagnetometerData {
   uint32_t overflow_count = 0;
 };
 
+// The barometer reading, compensated by the driver with the part's own
+// coefficients and otherwise raw: no filter, and no altitude, which needs a
+// reference the estimator owns. Bus faults are SystemHealth::sensor_i2c's, as
+// the compass's are, and a moving `timestamp_us` is the liveness signal.
+struct BarometerData {
+  uint32_t timestamp_us = 0;
+  uint32_t device_id = 0;
+  float pressure_pa = 0.0f;
+  float temperature_c = 0.0f;
+};
+
 // Written on every burst, so `timestamp_us` doubles as the sample path's
 // heartbeat. Counters only: the thresholds live with Sentinel.
 struct ImuHealth {
@@ -396,6 +407,7 @@ class SharedState {
   void UpdateBattery(const BatteryData &data) { bat_ = data; }
   void UpdateEscTelemetry(const EscTelemetryData &data) { esc_ = data; }
   void UpdateMagnetometer(const MagnetometerData &data) { mag_ = data; }
+  void UpdateBarometer(const BarometerData &data) { baro_ = data; }
   void UpdateRc(const RcData &data) { rc_ = data; }
   void UpdateCrsfLink(const CrsfLinkData &data) { crsf_link_ = data; }
   void UpdateFcLink(const FcLinkData &data) { fc_link_ = data; }
@@ -437,6 +449,7 @@ class SharedState {
   const BatteryData &GetBattery() const { return bat_; }
   const EscTelemetryData &GetEscTelemetry() const { return esc_; }
   const MagnetometerData &GetMagnetometer() const { return mag_; }
+  const BarometerData &GetBarometer() const { return baro_; }
   const RcData &GetRc() const { return rc_; }
   const CrsfLinkData &GetCrsfLink() const { return crsf_link_; }
   const FcLinkData &GetFcLink() const { return fc_link_; }
@@ -490,6 +503,7 @@ class SharedState {
   BatteryData bat_{};
   EscTelemetryData esc_{};
   MagnetometerData mag_{};
+  BarometerData baro_{};
   RcData rc_{};
   CrsfLinkData crsf_link_{};
   FcLinkData fc_link_{};

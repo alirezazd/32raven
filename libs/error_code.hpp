@@ -114,6 +114,13 @@ enum class Stm32 : uint32_t {
   kEscOutputStalled,
   kFcLinkWireMismatch,
   kAssertFailed,
+  kBaroReinit,
+  kBaroInitFailed,
+  kBaroNotResponding,
+  kBaroUnexpectedPart,
+  kBaroNotReady,
+  kBaroConfigRefused,
+  kBaroConfigNotKept,
 };
 
 enum class Esp32 : uint32_t {

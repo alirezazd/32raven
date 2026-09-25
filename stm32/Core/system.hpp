@@ -16,6 +16,7 @@
 #include "gpio.hpp"
 #include "icm42688p.hpp"
 #include "qmc5883p.hpp"
+#include "dps310.hpp"
 #include "led.hpp"
 #include "log_service.hpp"
 #include "m10_service.hpp"
@@ -86,6 +87,7 @@ class System {
     kIcm42688p,
     kI2c1,
     kQmc5883p,
+    kDps310,
     kMultirotorMixer,
     kAhrs,
     kRateController,
@@ -125,6 +127,7 @@ class System {
   M10Service &GpsSvc() { return M10Service::GetInstance(); }
   Icm42688p &Imu() { return Icm42688p::GetInstance(); }
   Qmc5883p &Mag() { return Qmc5883p::GetInstance(); }
+  Dps310 &Baro() { return Dps310::GetInstance(); }
   Sdio &Sd() { return Sdio::GetInstance(); }
   LogService &LogSvc() { return LogService::GetInstance(); }
   MscService &MscSvc() { return MscService::GetInstance(); }

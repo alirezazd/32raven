@@ -2408,6 +2408,105 @@ config STM32_MAG_SAMPLE_PERIOD_US
 
 endmenu
 
+menu "Barometer (DPS310)"
+
+# No enable knob: the height the estimator and the handset use comes from this
+# part, and a build expecting it panics at boot without it, as the compass's
+# does.
+
+choice
+    prompt "I2C address"
+    default STM32_BARO_ADDRESS_77
+    help
+      Set by the part's SDO pin, which doubles as its address strap. A
+      module that leaves SDO floating or pulls it high answers at 0x77; one
+      that grounds it answers at 0x76. Either is free beside the compass,
+      which sits at 0x2C.
+
+config STM32_BARO_ADDRESS_77
+    bool "0x77 (SDO high or floating)"
+
+config STM32_BARO_ADDRESS_76
+    bool "0x76 (SDO grounded)"
+
+endchoice
+
+choice
+    prompt "Pressure oversampling"
+    default STM32_BARO_PRESSURE_OSR_16
+    help
+      Measurements the part averages into each pressure result: more is
+      quieter and slower. 16x holds about 1.2 Pa RMS, some 10 cm of height,
+      in 27.6 ms; 64x about 0.5 Pa in 104.4 ms. In flight, prop wash and
+      airflow move the reading far more than the sensor's own noise, so
+      beyond 16x the extra precision mostly buys a lower rate. It shares a
+      one-second budget with the rate below, and the build refuses a pair
+      that does not fit.
+
+config STM32_BARO_PRESSURE_OSR_1
+    bool "1x (3.6 ms)"
+
+config STM32_BARO_PRESSURE_OSR_2
+    bool "2x (5.2 ms, about 5 Pa)"
+
+config STM32_BARO_PRESSURE_OSR_4
+    bool "4x (8.4 ms)"
+
+config STM32_BARO_PRESSURE_OSR_8
+    bool "8x (14.8 ms)"
+
+config STM32_BARO_PRESSURE_OSR_16
+    bool "16x (27.6 ms, about 1.2 Pa)"
+
+config STM32_BARO_PRESSURE_OSR_32
+    bool "32x (53.2 ms)"
+
+config STM32_BARO_PRESSURE_OSR_64
+    bool "64x (104.4 ms, about 0.5 Pa)"
+
+config STM32_BARO_PRESSURE_OSR_128
+    bool "128x (206.8 ms)"
+
+endchoice
+
+choice
+    prompt "Pressure rate"
+    default STM32_BARO_PRESSURE_RATE_32HZ
+    help
+      Pressure results per second. Temperature is measured at half this
+      rate, at least once a second, to correct the pressure for the part's
+      own drift, and both share one converter: each rate times its
+      measurement time, summed, must stay under one second. 32 Hz at 16x
+      uses 941 ms of it.
+
+config STM32_BARO_PRESSURE_RATE_1HZ
+    bool "1 Hz"
+
+config STM32_BARO_PRESSURE_RATE_2HZ
+    bool "2 Hz"
+
+config STM32_BARO_PRESSURE_RATE_4HZ
+    bool "4 Hz"
+
+config STM32_BARO_PRESSURE_RATE_8HZ
+    bool "8 Hz"
+
+config STM32_BARO_PRESSURE_RATE_16HZ
+    bool "16 Hz"
+
+config STM32_BARO_PRESSURE_RATE_32HZ
+    bool "32 Hz"
+
+config STM32_BARO_PRESSURE_RATE_64HZ
+    bool "64 Hz"
+
+config STM32_BARO_PRESSURE_RATE_128HZ
+    bool "128 Hz"
+
+endchoice
+
+endmenu
+
 menu "IMU (ICM42688P)"
 
 choice

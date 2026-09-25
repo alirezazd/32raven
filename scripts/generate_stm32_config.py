@@ -333,6 +333,24 @@ MAG_OSR2_CHOICES = {
     "STM32_MAG_OSR2_1": "Qmc5883p::Osr2::k1",
 }
 
+BARO_ADDRESS_CHOICES = {
+    "STM32_BARO_ADDRESS_77": "Dps310::Address::kSdoHigh",
+    "STM32_BARO_ADDRESS_76": "Dps310::Address::kSdoLow",
+}
+
+# PM_PRC and PM_RATE both count in powers of two, so the register code is the
+# exponent: 2**code measurements averaged, 2**code results a second.
+BARO_PRESSURE_OSR_CHOICES = {
+    f"STM32_BARO_PRESSURE_OSR_{2**code}": str(code) for code in range(8)
+}
+BARO_PRESSURE_RATE_CHOICES = {
+    f"STM32_BARO_PRESSURE_RATE_{2**code}HZ": str(code) for code in range(8)
+}
+
+# DPS310 datasheet table 16: one result's measurement time, by oversampling
+# code. Temperature runs at single oversampling, the first entry.
+BARO_MEASUREMENT_MS = (3.6, 5.2, 8.4, 14.8, 27.6, 53.2, 104.4, 206.8)
+
 ODR_CHOICES = {
     "STM32_IMU_GYRO_ODR_32KHZ": "Icm42688pReg::Odr::k32kHz",
     "STM32_IMU_GYRO_ODR_16KHZ": "Icm42688pReg::Odr::k16kHz",
@@ -1413,6 +1431,19 @@ def _validate(kconf: kconfiglib.Kconfig) -> None:
             "CONFIG_STM32_AHRS_MAG_CLEAR_BAND_MILLI must be at most "
             "CONFIG_STM32_AHRS_MAG_ENTER_BAND_MILLI"
         )
+    # One converter serves both measurements, so an over-budget pair does not
+    # fail: the part silently delivers fewer results than it was asked for.
+    osr, rate, temperature_rate = _baro_codes(kconf)
+    busy_ms = (2**rate) * BARO_MEASUREMENT_MS[osr] + (
+        2**temperature_rate
+    ) * BARO_MEASUREMENT_MS[0]
+    if busy_ms >= 1000:
+        raise ValueError(
+            f"the barometer's {2**osr}x oversampling at {2**rate} Hz, with "
+            f"temperature at {2**temperature_rate} Hz, keeps its converter "
+            f"busy {busy_ms:.0f} ms of every second; lower the rate or the "
+            'oversampling in the "Barometer (DPS310)" menu'
+        )
 
     cell_empty_mv = sym_int(kconf, "STM32_BATTERY_CELL_EMPTY_MV")
     cell_full_mv = sym_int(kconf, "STM32_BATTERY_CELL_FULL_MV")
@@ -2289,6 +2320,26 @@ def _mag_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     }
 
 
+def _baro_codes(kconf: kconfiglib.Kconfig) -> tuple[int, int, int]:
+    """Pressure oversampling, pressure rate and temperature rate codes."""
+    osr = int(choice_value(kconf, BARO_PRESSURE_OSR_CHOICES))
+    rate = int(choice_value(kconf, BARO_PRESSURE_RATE_CHOICES))
+    return osr, rate, max(rate - 1, 0)
+
+
+def _baro_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
+    osr, rate, temperature_rate = _baro_codes(kconf)
+    return {
+        "address": choice_value(kconf, BARO_ADDRESS_CHOICES),
+        "pressure_oversampling": f"Dps310::Oversampling::k{2**osr}",
+        "pressure_rate": f"Dps310::Rate::k{2**rate}Hz",
+        "temperature_rate": f"Dps310::Rate::k{2**temperature_rate}Hz",
+        # Four reads of the ready flags per result, so one waits at most a
+        # quarter period to be collected.
+        "sample_period_us": 1_000_000 // (4 * 2**rate),
+    }
+
+
 def _i2c1_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
     return {
         "scl_hz": sym_int(kconf, "STM32_I2C1_SCL_HZ"),
@@ -2536,6 +2587,7 @@ def _runtime_context(
         "ee": _ee_context(kconf),
         "i2c1": _i2c1_context(kconf),
         "mag": _mag_context(kconf),
+        "baro": _baro_context(kconf),
         "rcc": _rcc_context(kconf),
         "flight_mode": _flight_mode_context(kconf),
         "timebase": _timebase_context(kconf),

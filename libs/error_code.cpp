@@ -70,11 +70,25 @@ const char *GetMessage(ErrorCode::Stm32 code) {
     case ErrorCode::Stm32::kMagUnexpectedPart:
       return "a QMC5883L answered where the P was expected";
     case ErrorCode::Stm32::kMagConfigRefused:
-      return "magnetometer answered, then refused its configuration";
+      return "magnetometer failed a transfer during setup";
     case ErrorCode::Stm32::kMagNotInitialized:
       return "magnetometer Not Initialized";
     case ErrorCode::Stm32::kMagConfigNotKept:
-      return "magnetometer failed to set config";
+      return "magnetometer did not keep its config";
+    case ErrorCode::Stm32::kBaroReinit:
+      return "barometer Init ran twice";
+    case ErrorCode::Stm32::kBaroInitFailed:
+      return "barometer config is not usable";
+    case ErrorCode::Stm32::kBaroNotResponding:
+      return "barometer did not answer on I2C1";
+    case ErrorCode::Stm32::kBaroUnexpectedPart:
+      return "barometer answered with another product ID";
+    case ErrorCode::Stm32::kBaroNotReady:
+      return "barometer never reported its calibration ready";
+    case ErrorCode::Stm32::kBaroConfigRefused:
+      return "barometer failed a transfer during setup";
+    case ErrorCode::Stm32::kBaroConfigNotKept:
+      return "barometer did not keep its config";
     case ErrorCode::Stm32::kGpsNotResponding:
       return "GPS Not Responding";
   case ErrorCode::Stm32::kGpsVerifyProtocolFailed:
