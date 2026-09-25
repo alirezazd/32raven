@@ -3,6 +3,7 @@
 
 #include "log_service.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cstdio>
 #include <cstring>
@@ -374,6 +375,15 @@ constexpr auto kTopicNames = MakeTopicTable<const char *>(
     "sensor_gyro_fifo", "sensor_accel_fifo", "rc_input", "battery",
     "esc_telemetry", "gps", "imu_health", "sensor_mag", "crsf_link",
     "system_health", "logger_status");
+
+// Sizes the subscription record, so a longer name cannot outgrow it.
+constexpr size_t kLongestTopicName = [] {
+  size_t longest = 0;
+  for (const char *name : kTopicNames) {
+    longest = std::max(longest, std::string_view(name).size());
+  }
+  return longest;
+}();
 
 // Returns the index from "LOGnnnnn.ULG", or 0 for any other name.
 uint32_t LogFileIndex(const char *name) {
@@ -835,7 +845,7 @@ void LogService::AppendDefinitions(uint64_t now64) {
 
   // Subscriptions: {uint8 multi_id, uint16 msg_id, name}.
   for (uint16_t id = 0; id < kMsgCount; ++id) {
-    uint8_t sub[3 + 16];
+    uint8_t sub[3 + kLongestTopicName];
     sub[0] = 0;
     std::memcpy(&sub[1], &id, sizeof(id));
     const size_t name_len = std::strlen(kTopicNames[id]);
@@ -850,8 +860,9 @@ void LogService::AppendSlowTopics(uint64_t now64, uint32_t now_us) {
   // and retry next tick.
   constexpr size_t kWorstCaseBytes =
       sizeof(RcRecord) + sizeof(BatteryRecord) + sizeof(EscTelemetryRecord) +
-      sizeof(GpsRecord) + sizeof(ImuHealthRecord) + sizeof(CrsfLinkRecord) +
-      sizeof(SystemHealthRecord) + sizeof(LoggerRecord);
+      sizeof(GpsRecord) + sizeof(ImuHealthRecord) + sizeof(MagRecord) +
+      sizeof(CrsfLinkRecord) + sizeof(SystemHealthRecord) +
+      sizeof(LoggerRecord);
   static_assert(kWorstCaseBytes < kStagingBytes);
   if (dma_busy_ && (kStagingBytes - fill_len_) < kWorstCaseBytes) {
     return;
