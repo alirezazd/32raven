@@ -467,7 +467,7 @@ class SensorCalService {
   // waiting on the outcome, and report the cancel so that page can close.
   void Cancel();
   // The DPS310 gets no run -- a baro's zero is a ground reference the
-  // estimator re-establishes at every arm (#46).
+  // estimator re-establishes at every arm.
 
   // What a ground station reads as CAL_MAG0_ID: the part once a calibration
   // is stored, zero before, which is how the page knows one is needed.

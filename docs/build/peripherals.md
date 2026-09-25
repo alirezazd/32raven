@@ -239,7 +239,8 @@ Four wires, on USART6 at 420000 baud, with the pair crossed:
 | `RX` | ← STM32 TX | `PC6` |
 
 The link is not receive-only. The firmware sends CRSF telemetry back the other way — GPS,
-battery and a heartbeat — so the STM32's transmit pin has to reach the receiver as well.
+battery, altitude and a heartbeat — so the STM32's transmit pin has to reach the receiver as
+well.
 
 It goes on a piece of foam tape in the space left beside the GPS, the same way the other two are
 held down. That spot is convenient rather than required — the receiver needs its four wires and
@@ -276,9 +277,29 @@ and the stored calibration does not cover what they add while running (`TBD(#45)
 
 ## Barometer
 
-`TBD(#46)` — **planned.** Altitude hold and vertical speed need a pressure reference; the IMU
-alone cannot tell a climb from an accelerometer bias. No driver in the firmware yet and no pins
-assigned. The reference build will use a MicoAir module, model `TBD(#46)`.
+A DPS310 on I2C1, wired in parallel with the compass. The reference build uses a MicoAir
+module, model `TBD(#46)`.
+
+| Module pad | Signal | STM32 |
+|---|---|---|
+| `VCC` | Supply | `3V3` |
+| `GND` | Ground | `GND` |
+| `SCL` | I2C clock | `PB8` |
+| `SDA` | I2C data | `PB9` |
+
+- **3.3 V only.** The part's limit is 3.6 V.
+- **Address.** The module answers at `0x77` with its `SDO` pin floating or high, and at `0x76`
+  with `SDO` grounded. The "Barometer (DPS310)" Kconfig menu names which, beside the
+  oversampling and rate.
+- **Pull-ups.** The firmware enables none on this bus, so the two modules' own resistors set it.
+  With everything unpowered, measure `SDA` to 3.3 V: the combined value should stay above about
+  1.1 kΩ. If it is lower, remove one module's pair.
+- **Siting matters more than wiring.** Mount it inside the frame, out of the prop wash and any
+  direct airflow, under a piece of open-cell foam: moving air reads as altitude.
+
+A barometer that does not answer stops the flight computer at boot, as a missing compass does.
+Once running, it gives height above where the aircraft was powered up, zeroed again at every
+arm. That height reaches the handset as its `Alt` sensor and the flight log as `sensor_baro`.
 
 ## Telemetry radio
 

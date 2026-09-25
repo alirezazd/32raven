@@ -123,8 +123,8 @@ into something a GCS sees.
 
 ### #50 — The four failsafe conditions, once there is somewhere to go — 🧊 DEFERRED
 
-What #15's conditions become once autoland and return-to-home exist. Gated on #46 (altitude),
-#27 (position and velocity), #45 (heading) and #49 (a fix worth trusting as a flight input).
+What #15's conditions become once autoland and return-to-home exist. Gated on #27 (position and
+velocity), #45 (heading) and #49 (a fix worth trusting as a flight input).
 
 - **RC loss** → return. Recovery needs sustained clean frames plus a deliberate pilot action,
   so a flapping link cannot toggle the aircraft between returning and manual.
@@ -154,7 +154,7 @@ rules — sequencing, which must not run inside the safety authority.
 - **`Failsafe`** — the parent, entered on a condition Sentinel raises while armed, exited when
   the pilot takes the aircraft back; #50 maps condition to procedure.
 - **`ReturnHome`** — setpoints from a navigator against the home vector (#27, #45).
-- **`Landing`** — closed-loop on altitude (#46); a fixed throttle and a timer is not one.
+- **`Landing`** — closed-loop on the barometer's height; a fixed throttle and a timer is not one.
 
 To settle: the request as a blackboard field the machine reads, the way `armed_` works, never
 Sentinel calling `ReqTransition`; the setpoint source switchable at one point, where
@@ -259,6 +259,8 @@ GPS) and innovation gating, not the algebra.
   gyro-integrated yaw, DJI's "yaw error", which the strength check cannot see — and PX4's answer
   when it fires: stop fusing, keep flying, never a mode the pilot did not choose.
 - **GPS becomes a flight input** (#48, #49): `sAcc` and the NED velocities are what it consumes.
+- **The barometer's height becomes one too**, and the vertical speed that comes out of it is what
+  CRSF `0x07` VARIO carries — differentiating the raw height instead would only send its noise.
 
 ### #45 — The compass reads, and nothing trusts it yet — 🟢 SUPPORTING
 
@@ -270,14 +272,10 @@ GPS) and innovation gating, not the algebra.
 - **Interference is caught by strength alone**; a field turned but not stretched passes. The
   yaw-consistency half, and the estimator consuming the compass at all, are #27's.
 
-### #46 — Barometer, DPS310 — 🟢 SUPPORTING
+### #46 — Name the barometer module in the handbook — 🟢 SUPPORTING
 
-No altitude source, so nothing can hold altitude or descend under control (#50, #52). DPS310 on
-the I2C1 bus already built: a driver and a blackboard fact, with the part's
-temperature-compensation coefficients read at boot — skipping them yields plausible nonsense.
-Its zero is a ground reference re-established at arm, estimator-side, not a `SensorCalService`
-record. Land two CRSF frames with it: `0x09` BARO_ALTITUDE (the referenced altitude, not raw
-pressure) and `0x07` VARIO (a derivative — from the estimator, #27, or it is noise).
+The handbook's Barometer section gives the DPS310's wiring but not the MicoAir module it is
+fitted on.
 
 ### #48 — Decide whether GPS quality gates arming — 🟢 SUPPORTING
 
