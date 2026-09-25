@@ -4371,36 +4371,10 @@ config STM32_RATE_CTRL_SMOOTHING_ENABLED
       affecting steady-state tracking. Disable to send the raw setpoint
       straight to the PID (matches the bare-cascade behavior).
 
-config STM32_RATE_CTRL_INTEGRATOR_CLAMP_MILLI
-    int "Integrator clamp (x1000)"
-    range 0 10000
-    default 500
-    help
-      Per-axis I-term magnitude limit, scaled by 1000 (500 = 0.5). Caps
-      how far the integrator can wind up. Set to 0 to disable clamping.
-      Applies to all three axes.
-
-config STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI
-    int "Output clamp (x1000)"
-    range 0 1000
-    default 1000
-    help
-      Per-axis torque output magnitude limit, scaled by 1000 (1000 = 1.0).
-      Matches the mixer's torque input range. Applies to all three axes.
-
-config STM32_RATE_CTRL_DLPF_CUTOFF_HZ
-    int "D-term LPF cutoff (Hz)"
-    range 0 4000
-    default 0
-    help
-      Corner frequency of the first-order IIR on the D path. 0 disables
-      filtering. Lower smooths gyro noise on the derivative term at the
-      cost of phase lag. Applies to all three axes. The IIR coefficient is
-      derived from this and the control loop rate, so the corner stays put
-      when the loop rate changes rather than moving with it.
+menu "Roll"
 
 config STM32_RATE_CTRL_ROLL_KP_MILLI
-    int "Roll Kp (x1000)"
+    int "Kp (x1000)"
     range 0 100000
     default 50
     help
@@ -4408,7 +4382,7 @@ config STM32_RATE_CTRL_ROLL_KP_MILLI
       Starting point; tune before flying.
 
 config STM32_RATE_CTRL_ROLL_KI_MILLI
-    int "Roll Ki (x1000)"
+    int "Ki (x1000)"
     range 0 100000
     default 0
     help
@@ -4417,7 +4391,7 @@ config STM32_RATE_CTRL_ROLL_KI_MILLI
       tuning lands.
 
 config STM32_RATE_CTRL_ROLL_KD_MICRO
-    int "Roll Kd (x1000000)"
+    int "Kd (x1000000)"
     range 0 100000
     default 0
     help
@@ -4427,7 +4401,7 @@ config STM32_RATE_CTRL_ROLL_KD_MICRO
       gyro-noise behavior is characterized.
 
 config STM32_RATE_CTRL_ROLL_SP_RATE_LIMIT
-    int "Roll setpoint rate limit (rad/s^2)"
+    int "Setpoint rate limit (rad/s^2)"
     range 0 100000
     default 100
     help
@@ -4437,7 +4411,7 @@ config STM32_RATE_CTRL_ROLL_SP_RATE_LIMIT
       stick range.
 
 config STM32_RATE_CTRL_ROLL_SP_LPF_CUTOFF_HZ
-    int "Roll setpoint LPF cutoff (Hz)"
+    int "Setpoint LPF cutoff (Hz)"
     range 0 4000
     default 70
     help
@@ -4447,29 +4421,33 @@ config STM32_RATE_CTRL_ROLL_SP_LPF_CUTOFF_HZ
       and the control loop rate, so the corner stays where it was put instead
       of moving with the loop.
 
+endmenu
+
+menu "Pitch"
+
 config STM32_RATE_CTRL_PITCH_KP_MILLI
-    int "Pitch Kp (x1000)"
+    int "Kp (x1000)"
     range 0 100000
     default 50
     help
       Proportional gain for the pitch-rate PID, scaled by 1000.
 
 config STM32_RATE_CTRL_PITCH_KI_MILLI
-    int "Pitch Ki (x1000)"
+    int "Ki (x1000)"
     range 0 100000
     default 0
     help
       Integral gain for the pitch-rate PID, scaled by 1000.
 
 config STM32_RATE_CTRL_PITCH_KD_MICRO
-    int "Pitch Kd (x1000000)"
+    int "Kd (x1000000)"
     range 0 100000
     default 0
     help
       Derivative gain for the pitch-rate PID, scaled by 1 000 000.
 
 config STM32_RATE_CTRL_PITCH_SP_RATE_LIMIT
-    int "Pitch setpoint rate limit (rad/s^2)"
+    int "Setpoint rate limit (rad/s^2)"
     range 0 100000
     default 100
     help
@@ -4477,15 +4455,19 @@ config STM32_RATE_CTRL_PITCH_SP_RATE_LIMIT
       roll equivalent for details.
 
 config STM32_RATE_CTRL_PITCH_SP_LPF_CUTOFF_HZ
-    int "Pitch setpoint LPF cutoff (Hz)"
+    int "Setpoint LPF cutoff (Hz)"
     range 0 4000
     default 70
     help
       Corner frequency of the first-order IIR on the pitch-rate setpoint.
       See the roll equivalent for details.
 
+endmenu
+
+menu "Yaw"
+
 config STM32_RATE_CTRL_YAW_KP_MILLI
-    int "Yaw Kp (x1000)"
+    int "Kp (x1000)"
     range 0 100000
     default 100
     help
@@ -4494,14 +4476,14 @@ config STM32_RATE_CTRL_YAW_KP_MILLI
       axis has the smallest moment-arm in QuadX and no overshoot to damp.
 
 config STM32_RATE_CTRL_YAW_KI_MILLI
-    int "Yaw Ki (x1000)"
+    int "Ki (x1000)"
     range 0 100000
     default 0
     help
       Integral gain for the yaw-rate PID, scaled by 1000.
 
 config STM32_RATE_CTRL_YAW_KD_MICRO
-    int "Yaw Kd (x1000000)"
+    int "Kd (x1000000)"
     range 0 100000
     default 0
     help
@@ -4509,7 +4491,7 @@ config STM32_RATE_CTRL_YAW_KD_MICRO
       kept at 0 in practice - yaw doesn't need overshoot damping.
 
 config STM32_RATE_CTRL_YAW_SP_RATE_LIMIT
-    int "Yaw setpoint rate limit (rad/s^2)"
+    int "Setpoint rate limit (rad/s^2)"
     range 0 100000
     default 100
     help
@@ -4517,12 +4499,40 @@ config STM32_RATE_CTRL_YAW_SP_RATE_LIMIT
       equivalent for details.
 
 config STM32_RATE_CTRL_YAW_SP_LPF_CUTOFF_HZ
-    int "Yaw setpoint LPF cutoff (Hz)"
+    int "Setpoint LPF cutoff (Hz)"
     range 0 4000
     default 70
     help
       Corner frequency of the first-order IIR on the yaw-rate setpoint.
       See the roll equivalent for details.
+
+config STM32_RATE_CTRL_YAW_OUTPUT_LPF_CUTOFF_HZ
+    int "Torque output LPF cutoff (Hz)"
+    range 0 4000
+    default 150
+    help
+      Corner frequency of the first-order IIR on the yaw torque output
+      (post-PID, pre-mixer). 0 disables filtering. Lower is more
+      aggressive smoothing; suppresses high-frequency torque transients
+      from rotor acceleration on the weak yaw axis. PX4 equivalent:
+      `_output_lpf_yaw`. Roll/pitch outputs are unfiltered.
+
+      A one-pole corner only means anything below Nyquist -- 512 Hz at a
+      1024 Hz loop. Higher and the coefficient saturates toward 1.0, which
+      is no filter while the menu still names a frequency.
+
+endmenu
+
+menu "Integrator"
+
+config STM32_RATE_CTRL_INTEGRATOR_CLAMP_MILLI
+    int "Integrator clamp (x1000)"
+    range 0 10000
+    default 500
+    help
+      Per-axis I-term magnitude limit, scaled by 1000 (500 = 0.5). Caps
+      how far the integrator can wind up. Set to 0 to disable clamping.
+      Applies to all three axes.
 
 config STM32_RATE_CTRL_ITERM_FREEZE_BELOW_THROTTLE_MILLI
     int "Freeze integrators when pilot throttle below (x1000)"
@@ -4547,20 +4557,30 @@ config STM32_RATE_CTRL_I_FACTOR_ERROR_THRESH_MILLI
       post-flip / stick-whip bounce-back, where a large transient error
       accumulates a huge I-term. 0 disables.
 
-config STM32_RATE_CTRL_YAW_OUTPUT_LPF_CUTOFF_HZ
-    int "Yaw torque output LPF cutoff (Hz)"
-    range 0 4000
-    default 150
-    help
-      Corner frequency of the first-order IIR on the yaw torque output
-      (post-PID, pre-mixer). 0 disables filtering. Lower is more
-      aggressive smoothing; suppresses high-frequency torque transients
-      from rotor acceleration on the weak yaw axis. PX4 equivalent:
-      `_output_lpf_yaw`. Roll/pitch outputs are unfiltered.
+endmenu
 
-      A one-pole corner only means anything below Nyquist -- 512 Hz at a
-      1024 Hz loop. Higher and the coefficient saturates toward 1.0, which
-      is no filter while the menu still names a frequency.
+menu "Filters and limits"
+
+config STM32_RATE_CTRL_DLPF_CUTOFF_HZ
+    int "D-term LPF cutoff (Hz)"
+    range 0 4000
+    default 0
+    help
+      Corner frequency of the first-order IIR on the D path. 0 disables
+      filtering. Lower smooths gyro noise on the derivative term at the
+      cost of phase lag. Applies to all three axes. The IIR coefficient is
+      derived from this and the control loop rate, so the corner stays put
+      when the loop rate changes rather than moving with it.
+
+config STM32_RATE_CTRL_OUTPUT_CLAMP_MILLI
+    int "Output clamp (x1000)"
+    range 0 1000
+    default 1000
+    help
+      Per-axis torque output magnitude limit, scaled by 1000 (1000 = 1.0).
+      Matches the mixer's torque input range. Applies to all three axes.
+
+endmenu
 
 endmenu
 
