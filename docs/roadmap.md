@@ -563,7 +563,7 @@ and hold because of it — they keep having no entries until something real need
 ### #57 — Replace Eigen once the estimator's algebra stops growing — 🧊 DEFERRED
 
 Eigen supplies `Vector3f`, `Matrix3f`, `Quaternionf`, a few `AngleAxisf` and one `Map`; the 9×9
-in `mag_fit` is solved by its own Gauss–Jordan, and no decomposition is linked. That much is a
+in `ellipsoid_fit` is solved by its own Cholesky, and no decomposition is linked. That much is a
 few hundred lines in-house. #27's IEKF is not: ~15×15 covariances, product chains, likely a
 Cholesky — where a verified library earns its keep while a new filter is debugged. So after #27,
 write exactly the operations then in use, run them against Eigen on the host as the oracle

@@ -9,7 +9,7 @@
 #include "ee.hpp"
 #include "ee_schema.hpp"
 #include "fc_link.hpp"
-#include "mag_fit.hpp"
+#include "math/ellipsoid_fit.hpp"
 #include "message.hpp"
 #include "shared_state.hpp"
 
@@ -228,8 +228,8 @@ class AccelCal {
 // resting on, the gyro confirms the operator has started turning it, and the
 // field is sampled while it turns, spread over the sphere rather than dense
 // where the turn was slow. Six poses feed one sphere-then-ellipsoid fit whose
-// centre is the hard iron and whose scale is the soft iron; `MagFit` is the
-// fit, this is everything around it.
+// centre is the hard iron and whose scale is the soft iron; `EllipsoidFit` is
+// the fit, this is everything around it.
 //
 // Runs entirely on the main loop, the tick the compass is read on: the pose
 // and the turn come from the estimator's calibrated burst averages, so unlike
@@ -274,6 +274,10 @@ class MagCal {
       kMaxPointsPerSide * message::kAccelSideCount;
   // How long a named pose waits for the operator to start turning.
   static constexpr uint32_t kRotateTimeoutS = 35;
+  // The Earth's field is 0.25 to 0.65 gauss; a radius outside this is not a
+  // fit of it.
+  static constexpr math::EllipsoidFit::RadiusBounds kFieldGauss = {.min = 0.2f,
+                                                                   .max = 0.7f};
 
   State Status() const { return state_; }
   bool Running() const {
@@ -286,12 +290,12 @@ class MagCal {
   uint8_t Progress() const;
   bool Calibrated() const { return record_.calibrated != 0u; }
   // The last fit, for the report that lands with kApplied.
-  const MagFitParams &Result() const { return result_; }
+  const math::EllipsoidFitParams &Result() const { return result_; }
   float ResultCost() const { return result_cost_; }
   // For the report that lands with kFailed: the fit as it stood.
   Failure Reason() const { return failure_; }
   uint32_t Points() const { return count_; }
-  const MagFit &Fit() const { return fit_; }
+  const math::EllipsoidFit &Fit() const { return fit_; }
 
  private:
   friend class SensorCalService;
@@ -319,7 +323,7 @@ class MagCal {
   void EndSide();
   // PX4's check on a finished fit: finite, a radius the Earth's field could
   // be, positive scale.
-  static bool IsSane(const MagFitParams &p);
+  static bool IsSane(const math::EllipsoidFitParams &p);
 
   Config cfg_{};
   SharedState *blackboard_ = nullptr;
@@ -348,17 +352,17 @@ class MagCal {
   uint32_t last_overflow_count_ = 0;
   // Seeds the fit and spaces the samples: the first accepted sample's
   // magnitude, clamped to the band a fit may land in.
-  float sphere_radius_ = MagFit::kMinRadius;
+  float sphere_radius_ = kFieldGauss.min;
   float x_[kMaxPoints]{};
   float y_[kMaxPoints]{};
   float z_[kMaxPoints]{};
   uint32_t count_ = 0;
   uint32_t side_count_ = 0;
 
-  MagFit fit_;
+  math::EllipsoidFit fit_;
   bool fitting_ellipsoid_ = false;
-  MagFitParams sphere_result_{};
-  MagFitParams result_{};
+  math::EllipsoidFitParams sphere_result_{};
+  math::EllipsoidFitParams result_{};
   float result_cost_ = 0.0f;
 };
 

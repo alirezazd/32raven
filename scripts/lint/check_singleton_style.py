@@ -261,7 +261,7 @@ NOT_A_COMPONENT = {
     "GyroCal": "a phase of SensorCalService, which owns it",
     "AccelCal": "a phase of SensorCalService, which owns it",
     "MagCal": "a phase of SensorCalService, which owns it",
-    "MagFit": "MagCal's solver, held by it",
+    "EllipsoidFit": "MagCal's solver, held by it",
     "LevelCal": "a phase of SensorCalService, which owns it",
     "FcConfigCache": "the flight computer's config records, held by Mavlink",
     "MavlinkParamServer": "the parameter protocol, held by Mavlink",

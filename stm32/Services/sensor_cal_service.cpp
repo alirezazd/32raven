@@ -559,8 +559,8 @@ void MagCal::Init(const Config &cfg, SharedState &blackboard, EE &ee) {
 
 bool MagCal::IsPlausible(const ee_schema::MagnetometerCalibration &cal) {
   constexpr float kMaxOffsetUt = 200.0f;
-  if (!(cal.field_ut >= MagFit::kMinRadius * kMicroteslaPerGauss) ||
-      !(cal.field_ut < MagFit::kMaxRadius * kMicroteslaPerGauss)) {
+  if (!(cal.field_ut >= kFieldGauss.min * kMicroteslaPerGauss) ||
+      !(cal.field_ut < kFieldGauss.max * kMicroteslaPerGauss)) {
     return false;
   }
   for (int axis = 0; axis < 3; ++axis) {
@@ -624,7 +624,7 @@ bool MagCal::Start(uint32_t now_us) {
   sides_done_ = 0;
   count_ = 0;
   side_count_ = 0;
-  sphere_radius_ = MagFit::kMinRadius;
+  sphere_radius_ = kFieldGauss.min;
   const MagnetometerData &mag = blackboard_->GetMagnetometer();
   last_sample_count_ = mag.sample_count;
   last_overflow_count_ = mag.overflow_count;
@@ -813,8 +813,8 @@ bool MagCal::TakeSample() {
   const float z = mag.z * kGaussPerMicrotesla;
   if (count_ == 0u) {
     const float norm = std::sqrt((x * x) + (y * y) + (z * z));
-    sphere_radius_ = norm < MagFit::kMinRadius   ? MagFit::kMinRadius
-                     : norm > MagFit::kMaxRadius ? MagFit::kMaxRadius
+    sphere_radius_ = norm < kFieldGauss.min   ? kFieldGauss.min
+                     : norm > kFieldGauss.max ? kFieldGauss.max
                                                  : norm;
   }
 
@@ -852,22 +852,22 @@ void MagCal::EndSide() {
   }
   state_ = State::kFitting;
   fitting_ellipsoid_ = false;
-  MagFitParams seed{};
+  math::EllipsoidFitParams seed{};
   seed.radius = sphere_radius_;
-  fit_.Start(MagFit::Stage::kSphere, seed);
+  fit_.Start(math::EllipsoidFit::Stage::kSphere, seed, kFieldGauss);
 }
 
 void MagCal::PollFitting() {
   const std::span<const float> x(x_, count_);
   const std::span<const float> y(y_, count_);
   const std::span<const float> z(z_, count_);
-  const MagFit::Status status = fit_.Step(x, y, z);
-  if (status == MagFit::Status::kRunning) {
+  const math::EllipsoidFit::Status status = fit_.Step(x, y, z);
+  if (status == math::EllipsoidFit::Status::kRunning) {
     return;
   }
 
   if (!fitting_ellipsoid_) {
-    if (status == MagFit::Status::kFailed) {
+    if (status == math::EllipsoidFit::Status::kFailed) {
       failure_ = Failure::kSphereFit;
       state_ = State::kFailed;
       return;
@@ -875,13 +875,14 @@ void MagCal::PollFitting() {
     sphere_result_ = fit_.Params();
     result_cost_ = fit_.Cost();
     fitting_ellipsoid_ = true;
-    fit_.Start(MagFit::Stage::kEllipsoid, sphere_result_);
+    fit_.Start(math::EllipsoidFit::Stage::kEllipsoid, sphere_result_,
+               kFieldGauss);
     return;
   }
 
   // An ellipsoid that would not converge leaves the sphere standing: offsets
   // alone are most of the correction.
-  if (status == MagFit::Status::kConverged) {
+  if (status == math::EllipsoidFit::Status::kConverged) {
     result_ = fit_.Params();
     result_cost_ = fit_.Cost();
   } else {
@@ -909,12 +910,12 @@ void MagCal::PollFitting() {
   state_ = State::kApplied;
 }
 
-bool MagCal::IsSane(const MagFitParams &p) {
+bool MagCal::IsSane(const math::EllipsoidFitParams &p) {
   if (!std::isfinite(p.radius) || !p.offset.allFinite() ||
       !p.diag.allFinite() || !p.offdiag.allFinite()) {
     return false;
   }
-  if (p.radius < MagFit::kMinRadius || p.radius >= MagFit::kMaxRadius) {
+  if (p.radius < kFieldGauss.min || p.radius >= kFieldGauss.max) {
     return false;
   }
   return p.diag(0) > 0.0f && p.diag(1) > 0.0f && p.diag(2) > 0.0f;
@@ -1542,7 +1543,7 @@ void SensorCalService::ReportMag(MagCal::State outcome, uint8_t sides_done,
 
 void SensorCalService::LogMagOutcome(MagCal::State outcome) {
   if (outcome == MagCal::State::kApplied) {
-    const MagFitParams &fit = mag_.Result();
+    const math::EllipsoidFitParams &fit = mag_.Result();
     fclink_->SendLog("[cal] mag off %ld %ld %ld uT, field %ld mG",
                      static_cast<long>(fit.offset(0) * kMicroteslaPerGauss),
                      static_cast<long>(fit.offset(1) * kMicroteslaPerGauss),
@@ -1559,7 +1560,7 @@ void SensorCalService::LogMagOutcome(MagCal::State outcome) {
   if (outcome != MagCal::State::kFailed) {
     return;
   }
-  const MagFit &fit = mag_.Fit();
+  const math::EllipsoidFit &fit = mag_.Fit();
   switch (mag_.Reason()) {
     case MagCal::Failure::kNone:
       break;
