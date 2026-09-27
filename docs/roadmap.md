@@ -569,3 +569,11 @@ Cholesky — where a verified library earns its keep while a new filter is debug
 write exactly the operations then in use, run them against Eigen on the host as the oracle
 (quaternion storage `xyzw` against the `wxyz` constructor, and product order, are the trap), then
 drop Eigen, and `__assert_func` in `panic.cpp` with it. If #27 is abandoned, nothing waits.
+
+### #58 — Replace the code still derived from PX4 — 🟢 SUPPORTING
+
+`multirotor_mixer.cpp` is a port of PX4's sequential desaturation and carries its BSD notice.
+Rewrite it from the mixer's math, check it against the port on random setpoints for identical
+motor outputs, then drop the notice and its `THIRD_PARTY_LICENSES.md` row. Then compare the
+accelerometer, compass and level routines in `sensor_cal_service.cpp` with PX4's calibration
+sources: following PX4's procedure and numbers needs no notice, a translation of its code does.
