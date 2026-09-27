@@ -17,6 +17,7 @@ from the `LICENSE`/`COPYING` files shipped in each component).
 | nanoprintf | `third_party/nanoprintf/` | https://github.com/charlesnicholson/nanoprintf | Unlicense OR 0BSD (public domain) |
 | STM32 open pin data | `third_party/stm32_open_pin_data/` | https://github.com/STMicroelectronics/STM32_open_pin_data | BSD-3-Clause (© STMicroelectronics) |
 | CMSIS + STM32F4 device headers | `stm32/lib/CMSIS_F4xx/` | Arm CMSIS / STMicroelectronics | Apache-2.0 |
+| PX4 sequential-desaturation mixer (ported) | `stm32/Control/multirotor_mixer.cpp` | https://github.com/PX4/PX4-Autopilot (`src/lib/control_allocation/control_allocation/ControlAllocationSequentialDesaturation.cpp`) | BSD-3-Clause (notice retained in the file; the port itself is GPL-3.0-only) |
 
 ## Notes
 
