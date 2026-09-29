@@ -110,8 +110,6 @@ void M10::WaitForReady() {
   auto &time = System::GetInstance().Time();
   const uint32_t configured = ToBaudRateValue(config_.baud_rate);
 
-  // Configured rate first and with the long window: it is the answer on every
-  // boot but the first after a swap, and paying the scan there costs a second.
   if (!SyncAt(configured, 1000)) {
     if (!config_.autobaud) {
       Panic(ErrorCode::Stm32::kGpsNotResponding);
