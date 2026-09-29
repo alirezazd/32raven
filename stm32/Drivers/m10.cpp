@@ -133,7 +133,9 @@ void M10::WaitForReady() {
 
     // Move the module alone, then follow it. ApplyConfig re-asserts this key
     // among the rest, where it is then a no-op.
-    if (!SendCfgValSet(kKeyUart1Baudrate, configured, ValsetLayer::kRam)) {
+    // Raw: a read-back at the old rate goes unheard once the module moves.
+    if (SendCfgValSetRaw(kKeyUart1Baudrate, configured, ValsetLayer::kRam) !=
+        Outcome::kOk) {
       Panic(ErrorCode::Stm32::kGpsVerifyProtocolFailed);
     }
     // The ACK is emitted at the old rate and the switch follows it, so the
