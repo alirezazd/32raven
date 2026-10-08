@@ -175,7 +175,9 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
         WriteRegister(Reg::kGyroConfigStatic7, (uint8_t)(val & 0xFF));
         WriteRegister(Reg::kGyroConfigStatic8, (uint8_t)(val & 0xFF));
 
-        uint8_t s9 = 0;
+        // Bits 7:6 are reserved and factory-trimmed.
+        uint8_t s9 =
+            static_cast<uint8_t>(ReadRegister(Reg::kGyroConfigStatic9) & 0xC0u);
         if (sel) s9 |= (1u << 5) | (1u << 4) | (1u << 3);
         if (val & 0x100) s9 |= (1u << 2) | (1u << 1) | (1u << 0);
         WriteRegister(Reg::kGyroConfigStatic9, s9);
@@ -205,7 +207,7 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
       WriteRegister(Reg::kGyroConfigStatic3,
                     (uint8_t)(cfg.gyro_aaf.delt & 0x3F));
       WriteRegister(Reg::kGyroConfigStatic4,
-               (uint8_t)(cfg.gyro_aaf.delt_sqr & 0xFF));
+                    (uint8_t)(cfg.gyro_aaf.delt_sqr & 0xFF));
 
       uint8_t s5 = (uint8_t)((cfg.gyro_aaf.bitshift & 0xF) << 4) |
                    (uint8_t)((cfg.gyro_aaf.delt_sqr >> 8) & 0xF);
@@ -228,7 +230,7 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
       WriteRegister(Reg::kAccelConfigStatic2, s2);
 
       WriteRegister(Reg::kAccelConfigStatic3,
-               (uint8_t)(cfg.accel_aaf.delt_sqr & 0xFF));
+                    (uint8_t)(cfg.accel_aaf.delt_sqr & 0xFF));
 
       uint8_t s4 = (uint8_t)((cfg.accel_aaf.bitshift & 0xF) << 4) |
                    (uint8_t)((cfg.accel_aaf.delt_sqr >> 8) & 0xF);
@@ -239,12 +241,8 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
   // UI filter bandwidths (Bank 0).
   SetBank(0);
   WriteRegister(Reg::kGyroAccelConfig0,
-           static_cast<uint8_t>(((cfg.ui_filter.accel_bw & 0x0Fu) << 4) |
-                                (cfg.ui_filter.gyro_bw & 0x0Fu)));
-  WriteRegister(Reg::kGyroConfig1,
-           static_cast<uint8_t>(cfg.ui_filter.gyro_cfg1 & 0xEFu));
-  WriteRegister(Reg::kAccelConfig1,
-           static_cast<uint8_t>(cfg.ui_filter.accel_cfg1 & 0x1Eu));
+                static_cast<uint8_t>(((cfg.ui_filter.accel_bw & 0x0Fu) << 4) |
+                                     (cfg.ui_filter.gyro_bw & 0x0Fu)));
 }
 
 // ISR path
@@ -649,7 +647,8 @@ void Icm42688p::SoftReset() {
   v |= 0x01u;  // SOFT_RESET_CONFIG = 1, preserve SPI_MODE + reserved
   WriteRegister(Reg::kDeviceConfig, v);
 
-  System::GetInstance().Time().DelayMicros(MillisToMicros(1));
+  // One tick over: DelayMicros can end up to a tick short of its count.
+  System::GetInstance().Time().DelayMicros(MillisToMicros(1) + 1u);
   SetBank(0);
 }
 
@@ -801,7 +800,7 @@ void Icm42688p::ConfigureFifo() {
   WriteRegister(Reg::kFifoConfig2,
                 static_cast<uint8_t>(fifo_wm_records_ & 0xFFu));
   WriteRegister(Reg::kFifoConfig3,
-           static_cast<uint8_t>((fifo_wm_records_ >> 8) & 0x0Fu));
+                static_cast<uint8_t>((fifo_wm_records_ >> 8) & 0x0Fu));
   WriteRegister(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadRegister(Reg::kIntStatus);    // clear any pending status bits (R/C)
   WriteRegister(Reg::kFifoConfig, 0x40);  // FIFO Stream mode

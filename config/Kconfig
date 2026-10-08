@@ -2670,8 +2670,9 @@ config STM32_IMU_UI_FILTER_GYRO_BW
     default 15
     help
       Raw GYRO_UI_FILT_BW field (bits[3:0] of GYRO_ACCEL_CONFIG0).
-      15 matches Betaflight LOW_LATENCY — 1st-order LP at ~ODR/4 with
-      negligible group delay. 0 = ODR/2 (passthrough).
+      15 matches Betaflight LOW_LATENCY: no low-pass of its own, the gyro
+      reads the decimation filter's output at the ODR, for the least delay.
+      0 = ODR/2 (passthrough).
 
 config STM32_IMU_UI_FILTER_ACCEL_BW
     int "UI filter accel bandwidth index"
@@ -2680,20 +2681,6 @@ config STM32_IMU_UI_FILTER_ACCEL_BW
     help
       Raw ACCEL_UI_FILT_BW field (bits[7:4] of GYRO_ACCEL_CONFIG0).
       15 matches Betaflight LOW_LATENCY. 0 = ODR/2 (passthrough).
-
-config STM32_IMU_UI_FILTER_GYRO_CFG1
-    int "UI filter gyro CFG1"
-    range 0 255
-    default 0
-    help
-      Raw CONFIG1 register value used for the gyroscope UI filter path.
-
-config STM32_IMU_UI_FILTER_ACCEL_CFG1
-    int "UI filter accel CFG1"
-    range 0 255
-    default 0
-    help
-      Raw CONFIG1 register value used for the accelerometer UI filter path.
 
 config STM32_IMU_NOTCH_ENABLED
     bool "Enable hardware gyro notch"

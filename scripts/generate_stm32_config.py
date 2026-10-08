@@ -2422,8 +2422,6 @@ def _icm42688p_context(kconf: kconfiglib.Kconfig) -> dict[str, object]:
         "ui_filter": {
             "gyro_bw": sym_int(kconf, "STM32_IMU_UI_FILTER_GYRO_BW"),
             "accel_bw": sym_int(kconf, "STM32_IMU_UI_FILTER_ACCEL_BW"),
-            "gyro_cfg1": sym_int(kconf, "STM32_IMU_UI_FILTER_GYRO_CFG1"),
-            "accel_cfg1": sym_int(kconf, "STM32_IMU_UI_FILTER_ACCEL_CFG1"),
         },
         "notch": {
             "freq_hz": (

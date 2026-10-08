@@ -36,8 +36,6 @@ class Icm42688p {
     struct UiFilter {
       uint8_t gyro_bw;
       uint8_t accel_bw;
-      uint8_t gyro_cfg1;
-      uint8_t accel_cfg1;
     } ui_filter;
 
     struct Notch {
