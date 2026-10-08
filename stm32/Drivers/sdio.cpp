@@ -248,11 +248,11 @@ void Sdio::ConfigureDma(const uint8_t *buf, Dir dir) {
                 DMA_LIFCR_CDMEIF3 | DMA_LIFCR_CFEIF3;
 
   // SDIO is DMA2 Stream3 Channel4 in the F407 request map. Under PFCTRL the
-  // DPSM's DLEN ends the stream, so NDTR is written only for form. 4-beat
-  // word bursts pair with the 16-byte FIFO threshold.
-  DMA2_Stream3->CR = DMA_SxCR_CHSEL_2 | DMA_SxCR_MBURST_0 | DMA_SxCR_PBURST_0 |
-                     DMA_SxCR_MSIZE_1 | DMA_SxCR_PSIZE_1 | DMA_SxCR_MINC |
-                     DMA_SxCR_PFCTRL |
+  // DPSM's DLEN ends the stream, so NDTR is written only for form. The SDIO
+  // side takes 4-beat word bursts; the memory side stays single, because a
+  // burst there must not cross 1 KB and the buffers are only word-aligned.
+  DMA2_Stream3->CR = DMA_SxCR_CHSEL_2 | DMA_SxCR_PBURST_0 | DMA_SxCR_MSIZE_1 |
+                     DMA_SxCR_PSIZE_1 | DMA_SxCR_MINC | DMA_SxCR_PFCTRL |
                      ((dir == Dir::kToCard) ? DMA_SxCR_DIR_0 : 0u);
   DMA2_Stream3->FCR = DMA_SxFCR_DMDIS | DMA_SxFCR_FTH;
   DMA2_Stream3->PAR = reinterpret_cast<uint32_t>(&SDIO->FIFO);
