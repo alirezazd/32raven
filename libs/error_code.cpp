@@ -89,6 +89,10 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "barometer failed a transfer during setup";
     case ErrorCode::Stm32::kBaroConfigNotKept:
       return "barometer did not keep its config";
+    case ErrorCode::Stm32::kI2cSdaHeldLow:
+      return "I2C1 SDA held low at boot";
+    case ErrorCode::Stm32::kI2cSclHeldLow:
+      return "I2C1 SCL held low at boot";
     case ErrorCode::Stm32::kGpsNotResponding:
       return "GPS Not Responding";
   case ErrorCode::Stm32::kGpsVerifyProtocolFailed:

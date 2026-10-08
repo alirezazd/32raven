@@ -121,6 +121,8 @@ enum class Stm32 : uint32_t {
   kBaroNotReady,
   kBaroConfigRefused,
   kBaroConfigNotKept,
+  kI2cSdaHeldLow,
+  kI2cSclHeldLow,
 };
 
 enum class Esp32 : uint32_t {

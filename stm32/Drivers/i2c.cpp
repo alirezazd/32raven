@@ -6,7 +6,9 @@
 #include <atomic>
 #include <cstring>
 
+#include "error_code.hpp"
 #include "irq_priority.hpp"
+#include "panic.hpp"
 #include "rcc.hpp"
 #include "stm32_config.hpp"
 #include "stm32f4xx.h"
@@ -100,6 +102,15 @@ void I2c<Inst, BufSize>::Init(const I2cConfig &config, GPIO &gpio) {
   if ((Hw()->SR2 & I2C_SR2_BUSY) != 0u && LinesIdle(*gpio_)) {
     RecoverBus();
     ConfigureHw();
+  }
+
+  // Still low after recovery is a short or a powered device pinning the line.
+  // Name it here: every device behind it would only report itself absent.
+  if (!SdaHigh(*gpio_)) {
+    Panic(ErrorCode::Stm32::kI2cSdaHeldLow);
+  }
+  if (!SclHigh(*gpio_)) {
+    Panic(ErrorCode::Stm32::kI2cSclHeldLow);
   }
 
   NVIC_SetPriority(EventIrqn(), irq_priority::kI2c1Event);
