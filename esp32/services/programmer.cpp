@@ -182,13 +182,15 @@ void Programmer::GpioInit() {
   if (nrst != GPIO_NUM_NC) {
     gpio_config_t io{};
     io.pin_bit_mask = (1ULL << static_cast<unsigned>(nrst));
-    io.mode = GPIO_MODE_OUTPUT;
+    // The STM32's own resets (software, watchdog) drive NRST low too, and a
+    // push-pull high would hold them off.
+    io.mode = GPIO_MODE_OUTPUT_OD;
     io.pull_up_en = GPIO_PULLUP_DISABLE;
     io.pull_down_en = GPIO_PULLDOWN_DISABLE;
     io.intr_type = GPIO_INTR_DISABLE;
     gpio_config(&io);
 
-    // Default NRST deasserted (high for active-low reset)
+    // Released; the STM32's internal pull-up holds NRST high.
     gpio_set_level(nrst, 1);
   }
 }
