@@ -14,7 +14,6 @@
 #include "error_code.hpp"
 #include "error_widget.hpp"
 #include "main_ui_widget.hpp"
-#include "message.hpp"
 #include "mavlink.hpp"
 #include "programmer.hpp"
 #include "ssd1306_panel.hpp"
@@ -84,6 +83,7 @@ class Ui {
     kMavlinkUsb,
     kProgram,
     kEscConfig,
+    kGpsPassthrough,
     kWifiLog,
     kUsbLog,
     kHardError,
@@ -110,7 +110,6 @@ class Ui {
     bool attached = false;
     bool configured = false;
     bool port_open = false;
-    message::UsbMode mode = message::UsbMode::kNone;
     // Wrapping: compare against what you saw last, never read as a total.
     // In MSC mode they carry SD block counts instead of protocol frames.
     uint8_t rx_frames = 0;
@@ -214,6 +213,7 @@ class Ui {
     kService,
     kProgram,
     kEscConfig,
+    kGpsPassthrough,
   };
 
   ScreenGroup ScreenGroupFor(MainScreen screen) const;

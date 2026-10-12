@@ -74,7 +74,7 @@ static bool CycleOnButton(StateMachineContext &ctx, const char *from,
 //   short press — cycle within the current menu
 //     normal: Serving -> MavlinkWifi -> WifiLog -> UsbLog -> MavlinkUsb
 //             -> Serving
-//     config: Service -> EscConfig -> Service
+//     config: Service -> EscConfig -> GpsPassthrough -> Service
 //   hold        — swap menus, from anywhere
 //     normal -> Service (config entry point), config -> Serving
 // Program is transient and sits outside the cycle; a hold aborts it back to
@@ -341,7 +341,8 @@ void EscConfigState::OnEnter(StateMachineContext &ctx) {
 }
 
 void EscConfigState::OnStep(StateMachineContext &ctx) {
-  if (CycleOnButton(ctx, "EscConfig", {ctx.service_state, "Service"},
+  if (CycleOnButton(ctx, "EscConfig",
+                    {ctx.gps_passthrough_state, "GpsPassthrough"},
                     {ctx.serving_state, "Serving"})) {
     return;
   }
@@ -384,6 +385,71 @@ void EscConfigState::OnStep(StateMachineContext &ctx) {
   // The port stays shut while armed, and the screen says so -- but the screen
   // may well be asleep, so say it out loud too. Edge-triggered: the condition
   // holds for as long as the vehicle stays armed.
+  const bool armed =
+      System::GetInstance().Mavlink().PeerArmed(ctx.now_ms).value_or(false);
+  if (armed && !warned_armed_) {
+    System::GetInstance().TonePlayer().PlayBuiltin(
+        ::TonePlayer::BuiltinTone::kWarning);
+    System::GetInstance().Ui().NotifyUserActivity();
+  }
+  warned_armed_ = armed;
+}
+
+// GpsPassthrough State
+// As EscConfigState::OnExit. The STM32 reboots on the revoke.
+void GpsPassthroughState::OnExit(StateMachineContext &ctx) { DropUsbMode(ctx); }
+
+void GpsPassthroughState::OnEnter(StateMachineContext &ctx) {
+  ESP_LOGI(kTag, "entering GpsPassthrough");
+  System::GetInstance().Ui().SetBridgeState(Ui::BridgeState::kGpsPassthrough);
+  // As EscConfig: the host is on the STM32's USB, and the radio stays up.
+  System::GetInstance().Mavlink().SetTransport(&System::GetInstance().Telem());
+  System::GetInstance().Mavlink().SetTelemetryLink(true);
+  System::GetInstance().Led().SetPattern(LED::Pattern::kBlink,
+                                         kToolModeBlinkMs);
+  System::GetInstance().StopNetwork();
+  warned_armed_ = false;
+  stream_seen_ = false;
+  activity_.Reset(0);
+  grant_.Begin(ctx.now_ms);
+  SendUsbMode(ctx, message::UsbMode::kGpsPassthrough);
+}
+
+void GpsPassthroughState::OnStep(StateMachineContext &ctx) {
+  if (CycleOnButton(ctx, "GpsPassthrough", {ctx.service_state, "Service"},
+                    {ctx.serving_state, "Serving"})) {
+    return;
+  }
+
+  DrainFcLink(ctx);
+  System::GetInstance().Mavlink().Poll(ctx.now_ms);
+
+  if (!stream_seen_) {
+    if (System::GetInstance().Ui().PeerUsb(ctx.now_ms).has_value()) {
+      stream_seen_ = true;
+    } else if (grant_.Due(ctx.now_ms, FcLink::kHandshakeRetryPeriodMs)) {
+      if (grant_.Exhausted(kStm32RequestAttempts)) {
+        ESP_LOGW(kTag,
+                 "GpsPassthrough -> Serving (STM32 never opened the port)");
+        System::GetInstance().TonePlayer().PlayBuiltin(
+            ::TonePlayer::BuiltinTone::kWarning);
+        System::GetInstance().Ui().NotifyUserActivity();
+        ctx.sm->ReqTransition(ctx.serving_state);
+        return;
+      }
+      grant_.Sent(ctx.now_ms);
+      SendUsbMode(ctx, message::UsbMode::kGpsPassthrough);
+    }
+  }
+
+  if (const auto usb = System::GetInstance().Ui().PeerUsb(ctx.now_ms)) {
+    const uint32_t bytes =
+        (static_cast<uint32_t>(usb->rx_frames) << 8) | usb->tx_frames;
+    if (activity_.Advanced(bytes)) {
+      System::GetInstance().Ui().NotifyUserActivity();
+    }
+  }
+
   const bool armed =
       System::GetInstance().Mavlink().PeerArmed(ctx.now_ms).value_or(false);
   if (armed && !warned_armed_) {

@@ -93,6 +93,8 @@ const char *GetMessage(ErrorCode::Stm32 code) {
       return "I2C1 SDA held low at boot";
     case ErrorCode::Stm32::kI2cSclHeldLow:
       return "I2C1 SCL held low at boot";
+    case ErrorCode::Stm32::kGpsPassthroughReinit:
+      return "STM32 GPS passthrough service re-init";
     case ErrorCode::Stm32::kGpsNotResponding:
       return "GPS Not Responding";
   case ErrorCode::Stm32::kGpsVerifyProtocolFailed:

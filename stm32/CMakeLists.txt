@@ -176,6 +176,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/dshot_codec.cpp
     Services/esc_service.cpp
     Services/msc_service.cpp
+    Services/gps_passthrough_service.cpp
     Services/msp_service.cpp
     Services/four_way_service.cpp
     Drivers/esc_bootloader.cpp

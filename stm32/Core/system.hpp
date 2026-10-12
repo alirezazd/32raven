@@ -14,6 +14,7 @@
 #include "fc_link.hpp"
 #include "four_way_service.hpp"
 #include "gpio.hpp"
+#include "gps_passthrough_service.hpp"
 #include "icm42688p.hpp"
 #include "qmc5883p.hpp"
 #include "dps310.hpp"
@@ -98,6 +99,7 @@ class System {
     kSdio,
     kLogService,
     kMscService,
+    kGpsPassthroughService,
     kSensorCalService,
 
     kCount,  // terminator: keep last
@@ -131,6 +133,9 @@ class System {
   Sdio &Sd() { return Sdio::GetInstance(); }
   LogService &LogSvc() { return LogService::GetInstance(); }
   MscService &MscSvc() { return MscService::GetInstance(); }
+  GpsPassthroughService &GpsPassthroughSvc() {
+    return GpsPassthroughService::GetInstance();
+  }
   SensorCalService &SensorCalSvc() { return SensorCalService::GetInstance(); }
   multirotor_mixer::Mixer &MixerSvc() { return mixer_; }
   Ahrs &AhrsSvc() { return ahrs_; }

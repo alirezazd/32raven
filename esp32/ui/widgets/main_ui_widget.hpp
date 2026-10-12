@@ -23,6 +23,11 @@ class MainUiWidget : public IWidget {
     kEscConfigDisconnected,   // no host has enumerated the port
     kEscConfigIdleConnected,  // enumerated, no configurator attached yet
     kEscConfigConnected,      // configurator opened the port
+    // The same four stages, for GPS passthrough.
+    kGpsPassthroughArmed,
+    kGpsPassthroughDisconnected,
+    kGpsPassthroughIdleConnected,
+    kGpsPassthroughConnected,
     kWifiLogDisconnected,     // AP up, no station associated
     kWifiLogConnected,        // a station joined; pulls animate the lanes
     kUsbLogIdle,              // MSC granted, no host has enumerated the disk

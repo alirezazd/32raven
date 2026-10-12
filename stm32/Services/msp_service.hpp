@@ -36,7 +36,7 @@ class MspService {
 
   void Poll(uint32_t now_us);
 
-  // The one writer of SharedState::usb_: this service already holds the CDC
+  // Writes SharedState::usb_ in ESC config: this service already holds the CDC
   // driver and the four-way service, so it is where all three sources meet
   // without something reaching sideways. Stamps only on a real change.
   //

@@ -17,6 +17,7 @@ struct StateMachineContext {
   ServiceState service_state;
   ProgramState program_state;
   EscConfigState esc_config_state;
+  GpsPassthroughState gps_passthrough_state;
   WifiLogState wifi_log_state;
   UsbLogState usb_log_state;
   LogPullState log_pull_state;

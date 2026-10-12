@@ -123,6 +123,7 @@ enum class Stm32 : uint32_t {
   kBaroConfigNotKept,
   kI2cSdaHeldLow,
   kI2cSclHeldLow,
+  kGpsPassthroughReinit,
 };
 
 enum class Esp32 : uint32_t {

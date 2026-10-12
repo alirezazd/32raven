@@ -44,3 +44,9 @@ struct MscState : public IState<StateMachineContext> {
   void OnExit(StateMachineContext &ctx) override;
   void OnStep(StateMachineContext &ctx) override;
 };
+
+struct GpsPassthroughState : public IState<StateMachineContext> {
+  const char *Name() const override { return "GpsPassthrough"; }
+  void OnEnter(StateMachineContext &ctx) override;
+  void OnStep(StateMachineContext &ctx) override;
+};

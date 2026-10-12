@@ -17,4 +17,5 @@ struct StateMachineContext {
   ArmedState armed_state;
   EscConfigState esc_config_state;
   MscState msc_state;
+  GpsPassthroughState gps_passthrough_state;
 };

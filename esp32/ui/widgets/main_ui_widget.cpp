@@ -49,6 +49,7 @@ constexpr char kServingStatus[] = "Serving";
 constexpr char kServiceStatus[] = "Service";
 constexpr char kMavlinkWifiStatus[] = "MAVLink";
 constexpr char kEscConfigStatus[] = "ESC Config";
+constexpr char kGpsPassthroughStatus[] = "GPS Passthrough";
 constexpr char kWifiLogStatus[] = "WiFi Log Download";
 constexpr char kUsbLogStatus[] = "USB Log Download";
 constexpr size_t kServiceIconLeftX = 0;
@@ -137,6 +138,11 @@ const char *StatusTextForScreen(Screen screen) {
     case Screen::kEscConfigIdleConnected:
     case Screen::kEscConfigConnected:
       return kEscConfigStatus;
+    case Screen::kGpsPassthroughArmed:
+    case Screen::kGpsPassthroughDisconnected:
+    case Screen::kGpsPassthroughIdleConnected:
+    case Screen::kGpsPassthroughConnected:
+      return kGpsPassthroughStatus;
     case Screen::kWifiLogDisconnected:
     case Screen::kWifiLogConnected:
       return kWifiLogStatus;
@@ -161,6 +167,18 @@ bool IsEscConfigScreen(Screen screen) {
          screen == Screen::kEscConfigConnected;
 }
 
+bool IsGpsPassthroughScreen(Screen screen) {
+  return screen == Screen::kGpsPassthroughArmed ||
+         screen == Screen::kGpsPassthroughDisconnected ||
+         screen == Screen::kGpsPassthroughIdleConnected ||
+         screen == Screen::kGpsPassthroughConnected;
+}
+
+// The two sessions whose host is on the STM32's USB COM port.
+bool IsComPortScreen(Screen screen) {
+  return IsEscConfigScreen(screen) || IsGpsPassthroughScreen(screen);
+}
+
 bool IsWifiLogScreen(Screen screen) {
   return screen == Screen::kWifiLogDisconnected ||
          screen == Screen::kWifiLogConnected;
@@ -174,7 +192,7 @@ bool IsServiceVisualScreen(Screen screen) {
   return screen == Screen::kServiceDisconnected ||
          screen == Screen::kServiceIdleConnected ||
          screen == Screen::kMavlinkWifiDisconnected ||
-         screen == Screen::kMavlinkWifiConnected || IsEscConfigScreen(screen) ||
+         screen == Screen::kMavlinkWifiConnected || IsComPortScreen(screen) ||
          IsWifiLogScreen(screen) || IsUsbLogScreen(screen) ||
          screen == Screen::kProgramming || screen == Screen::kVerifying;
 }
@@ -189,6 +207,8 @@ bool ShouldBlinkCornerBadge(Screen screen) {
          screen == Screen::kMavlinkWifiDisconnected ||
          screen == Screen::kEscConfigDisconnected ||
          screen == Screen::kEscConfigArmed ||
+         screen == Screen::kGpsPassthroughDisconnected ||
+         screen == Screen::kGpsPassthroughArmed ||
          screen == Screen::kWifiLogDisconnected ||
          screen == Screen::kUsbLogIdle;
 }
@@ -200,6 +220,7 @@ bool HasPacketLanes(Screen screen) {
   return screen == Screen::kMavlinkWifiDisconnected ||
          screen == Screen::kMavlinkWifiConnected ||
          screen == Screen::kEscConfigConnected ||
+         screen == Screen::kGpsPassthroughConnected ||
          screen == Screen::kWifiLogConnected ||
          screen == Screen::kUsbLogActive;
 }
@@ -264,7 +285,7 @@ void DrawProgressBar(DisplayRenderer &renderer, TimeMs now, Screen screen) {
 // Names the transport the screen is reachable on. Verifying gets none: it runs
 // off the link that brought it here.
 PackedBitmap CornerBadgeForScreen(Screen screen) {
-  if (IsEscConfigScreen(screen) || IsUsbLogScreen(screen)) {
+  if (IsComPortScreen(screen) || IsUsbLogScreen(screen)) {
     return usb_bitmap::kBitmap;
   }
   if (IsServiceVisualScreen(screen) && screen != Screen::kVerifying) {
@@ -300,6 +321,9 @@ PackedBitmap LeftIconForScreen(Screen screen, TimeMs now) {
   if (IsEscConfigScreen(screen)) {
     return am32_bitmap::kBitmap;
   }
+  if (IsGpsPassthroughScreen(screen)) {
+    return chip_bitmap::kBitmap;
+  }
   if (IsWifiLogScreen(screen) || IsUsbLogScreen(screen)) {
     return sd_card_bitmap::kBitmap;
   }
@@ -313,7 +337,7 @@ PackedBitmap LeftIconForScreen(Screen screen, TimeMs now) {
 // The far end of the session: the PC, the GCS across the WiFi link, or the
 // STM32 when flashing.
 PackedBitmap RightIconForScreen(Screen screen, TimeMs now) {
-  if (IsEscConfigScreen(screen) || IsUsbLogScreen(screen) ||
+  if (IsComPortScreen(screen) || IsUsbLogScreen(screen) ||
       IsWifiLogScreen(screen)) {
     return pc_bitmap::kBitmap;
   }
@@ -339,7 +363,7 @@ bool ShouldAnimateEntryText(Screen screen) {
          screen == Screen::kServiceDisconnected ||
          screen == Screen::kServiceIdleConnected ||
          screen == Screen::kMavlinkWifiDisconnected ||
-         screen == Screen::kMavlinkWifiConnected || IsEscConfigScreen(screen) ||
+         screen == Screen::kMavlinkWifiConnected || IsComPortScreen(screen) ||
          IsWifiLogScreen(screen) || IsUsbLogScreen(screen);
 }
 
@@ -713,12 +737,15 @@ bool MainUiWidget::AdvanceServiceLinkAnimation(DisplayRenderer &renderer,
 MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForScreen(
     Screen screen, TimeMs now, const Ui &ui, const Mavlink &mavlink) {
   if (screen == Screen::kEscConfigConnected ||
+      screen == Screen::kGpsPassthroughConnected ||
       screen == Screen::kUsbLogActive) {
     const auto usb = ui.PeerUsb(now);
     return {
         .active = usb.has_value(),
         .left_icon_width = screen == Screen::kUsbLogActive
                                ? sd_card_bitmap::kVisibleWidth
+                           : screen == Screen::kGpsPassthroughConnected
+                               ? chip_bitmap::kVisibleWidth
                                : am32_bitmap::kVisibleWidth,
         .rx_count = usb.has_value() ? usb->rx_frames : 0u,
         .tx_count = usb.has_value() ? usb->tx_frames : 0u,
@@ -1131,14 +1158,16 @@ void MainUiWidget::RenderScreen(WidgetContext &ctx, TimeMs now, Screen screen) {
         std::snprintf(guidance, sizeof(guidance), "%s", "Waiting for USB");
         AppendDots(guidance, dot_count);
         DrawBodyTextLines(renderer, now, body_top, guidance);
-      } else if (IsEscConfigScreen(screen)) {
+      } else if (IsComPortScreen(screen)) {
         // Enumerated, so the missing piece is the configurator opening it.
         char guidance[kStatusLineBufferSize]{};
-        if (screen == Screen::kEscConfigArmed) {
+        if (screen == Screen::kEscConfigArmed ||
+            screen == Screen::kGpsPassthroughArmed) {
           DrawBodyTextLines(renderer, now, body_top, "Disarm first");
         } else {
           std::snprintf(guidance, sizeof(guidance), "%s",
-                        screen == Screen::kEscConfigDisconnected
+                        screen == Screen::kEscConfigDisconnected ||
+                                screen == Screen::kGpsPassthroughDisconnected
                             ? "Waiting for USB"
                             : "Waiting for command");
           AppendDots(guidance, dot_count);
@@ -1315,7 +1344,8 @@ void MainUiWidget::RenderScreen(WidgetContext &ctx, TimeMs now, Screen screen) {
                           static_cast<size_t>(chip_icon_y));
 
       if ((screen == Screen::kServiceIdleConnected ||
-           screen == Screen::kEscConfigIdleConnected) &&
+           screen == Screen::kEscConfigIdleConnected ||
+           screen == Screen::kGpsPassthroughIdleConnected) &&
           dot_count > 0 &&
           (kServiceIconLeftX + left_icon.width) <= right_icon_x) {
         constexpr char kSleepChar[] = "z";

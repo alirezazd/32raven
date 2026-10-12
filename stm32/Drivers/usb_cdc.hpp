@@ -90,6 +90,9 @@ class UsbCdc {
 
   uint32_t ResetCount() const { return reset_count_; }
 
+  // The baud the host last set with SET_LINE_CODING.
+  uint32_t LineCodingBaud() const { return line_coding_baud_; }
+
   void IrqHandler();
 
  private:
@@ -183,6 +186,8 @@ class UsbCdc {
   volatile bool bulk_out_stalled_ = false;
   volatile bool configured_ = false;
   volatile bool dtr_ = false;
+  // line_coding_ is packed, so its baud is no single load; this copy is.
+  volatile uint32_t line_coding_baud_ = 115200u;
   volatile bool tx_in_flight_ = false;
   bool tx_zlp_pending_ = false;
   uint16_t last_tx_len_ = 0;

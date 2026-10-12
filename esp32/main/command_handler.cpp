@@ -110,7 +110,6 @@ static void OnUsbStatus(StateMachineContext &ctx, const message::Packet &pkt) {
           .attached = (msg.flags & message::kUsbStatusAttached) != 0u,
           .configured = (msg.flags & message::kUsbStatusConfigured) != 0u,
           .port_open = (msg.flags & message::kUsbStatusPortOpen) != 0u,
-          .mode = reported,
           .rx_frames = msg.rx_frames,
           .tx_frames = msg.tx_frames,
       },
@@ -127,6 +126,8 @@ static void OnUsbStatus(StateMachineContext &ctx, const message::Packet &pkt) {
       want = message::UsbMode::kEscConfig;
     } else if (ctx.sm->CurrentState() == &ctx.usb_log_state) {
       want = message::UsbMode::kMsc;
+    } else if (ctx.sm->CurrentState() == &ctx.gps_passthrough_state) {
+      want = message::UsbMode::kGpsPassthrough;
     }
   }
   if (reported != want) {

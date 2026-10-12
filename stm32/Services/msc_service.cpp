@@ -108,14 +108,13 @@ void MscService::PublishUsbStatus(uint32_t now_us) {
   UsbStatusData next{};
   next.attached = usb_->IsAttached();
   next.configured = usb_->IsConfigured();
-  next.msc_active = granted_;
+  next.mode = granted_ ? message::UsbMode::kMsc : message::UsbMode::kNone;
   next.msp_requests = blocks_written_;
   next.msp_replies = blocks_read_;
 
   const UsbStatusData &current = blackboard_->GetUsbStatus();
   if (current.attached == next.attached &&
-      current.configured == next.configured &&
-      current.msc_active == next.msc_active &&
+      current.configured == next.configured && current.mode == next.mode &&
       current.msp_requests == next.msp_requests &&
       current.msp_replies == next.msp_replies) {
     return;

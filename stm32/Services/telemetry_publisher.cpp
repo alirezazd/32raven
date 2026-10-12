@@ -487,19 +487,12 @@ message::UsbStatusMsg TelemetryPublisher::BuildUsbStatusMsg() const {
   if (usb.configured) flags |= message::kUsbStatusConfigured;
   if (usb.port_open) flags |= message::kUsbStatusPortOpen;
 
-  // The states that set these two flags are mutually exclusive, so the pair
-  // cannot both be true.
-  const message::UsbMode mode = usb.esc_config_granted
-                                    ? message::UsbMode::kEscConfig
-                                : usb.msc_active ? message::UsbMode::kMsc
-                                                 : message::UsbMode::kNone;
-
   // Both dialects share the port, so their frames share one count -- the
   // reader is drawing "data moved", not attributing it to a protocol. They
   // stay apart on the Blackboard; merging is this message's view of them.
   return message::UsbStatusMsg{
       .flags = flags,
-      .mode = static_cast<uint8_t>(mode),
+      .mode = static_cast<uint8_t>(usb.mode),
       .rx_frames =
           static_cast<uint8_t>(usb.msp_requests + usb.four_way_requests),
       .tx_frames = static_cast<uint8_t>(usb.msp_replies + usb.four_way_replies),
@@ -588,7 +581,7 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishUsbStatus(
   // it is what the ESP32 times out on to learn the session never opened, so
   // the stream's presence is the grant and no flag has to carry it.
   const UsbStatusData &granted = self.blackboard_->GetUsbStatus();
-  if (!granted.esc_config_granted && !granted.msc_active) {
+  if (granted.mode == message::UsbMode::kNone) {
     // Drop the snapshot with it, or a session that reopens onto identical
     // values would have its first report suppressed as unchanged.
     self.have_usb_status_ = false;

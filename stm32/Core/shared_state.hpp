@@ -394,8 +394,9 @@ struct FcLinkData {
   uint32_t checksum_failures = 0;  // arrived whole, failed CRC-16
 };
 
-// The USB bench session. Two writers, never concurrent: MspService in ESC
-// config, MscService in MSC. `timestamp_us` is when a field last *changed*.
+// The USB bench session. Three writers, never concurrent: MspService in ESC
+// config, MscService in MSC, GpsPassthroughService in GPS passthrough.
+// `timestamp_us` is when a field last *changed*.
 struct UsbStatusData {
   uint32_t timestamp_us = 0;
   uint32_t msp_requests = 0;
@@ -405,8 +406,7 @@ struct UsbStatusData {
   bool attached = false;
   bool configured = false;
   bool port_open = false;
-  bool esc_config_granted = false;
-  bool msc_active = false;
+  message::UsbMode mode = message::UsbMode::kNone;
 };
 
 class SharedState {

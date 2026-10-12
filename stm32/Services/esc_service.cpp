@@ -194,7 +194,8 @@ void EscService::PollEscInfo(uint32_t now_us) {
   // it, throttle standing or not: the command burst below writes kMotorStop to
   // every motor it is not addressed to, and a burst already under way when the
   // host's slider moves stops that motor just the same.
-  const bool host_owns_motors = blackboard_->GetUsbStatus().esc_config_granted;
+  const bool host_owns_motors =
+      blackboard_->GetUsbStatus().mode == message::UsbMode::kEscConfig;
   if (blackboard_->IsArmed() || command_.active || host_owns_motors ||
       telemetry_ == nullptr || !telemetry_->IsInitialized()) {
     return;

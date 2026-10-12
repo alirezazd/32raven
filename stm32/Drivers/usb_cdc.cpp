@@ -637,6 +637,7 @@ void UsbCdc::OnOutEndpoint() {
         if (ctrl_out_is_line_coding_) {
           ctrl_out_is_line_coding_ = false;
           std::memcpy(&line_coding_, ctrl_out_buf_, sizeof(line_coding_));
+          line_coding_baud_ = line_coding_.baud;
           ControlSendZlp();
         }
         PrepareEp0Setup();

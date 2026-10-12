@@ -213,10 +213,15 @@ static void OnSetUsbMode(const StateMachineContext &,
   if (mode != message::UsbMode::kMsc) {
     System::GetInstance().MscSvc().SetMscMode(false);
   }
+  if (mode != message::UsbMode::kGpsPassthrough) {
+    System::GetInstance().GpsPassthroughSvc().SetGpsPassthroughMode(false);
+  }
   if (mode == message::UsbMode::kEscConfig) {
     System::GetInstance().MspSvc().SetEscConfigMode(true);
   } else if (mode == message::UsbMode::kMsc) {
     System::GetInstance().MscSvc().SetMscMode(true);
+  } else if (mode == message::UsbMode::kGpsPassthrough) {
+    System::GetInstance().GpsPassthroughSvc().SetGpsPassthroughMode(true);
   }
 }
 

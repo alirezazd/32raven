@@ -67,6 +67,7 @@ constexpr std::array<System::Component,
         System::Component::kSdio,
         System::Component::kLogService,
         System::Component::kMscService,
+        System::Component::kGpsPassthroughService,
         System::Component::kSensorCalService,
     };
 
@@ -327,6 +328,10 @@ void System::InitComponent(Component c) {
       MscService::GetInstance().Init(UsbCdc::GetInstance(),
                                      LogService::GetInstance(), blackboard_,
                                      Sdio::GetInstance());
+      break;
+    case Component::kGpsPassthroughService:
+      GpsPassthroughService::GetInstance().Init(
+          UsbCdc::GetInstance(), Uart2::GetInstance(), blackboard_);
       break;
     case Component::kCount:
       break;

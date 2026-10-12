@@ -107,6 +107,23 @@ class EscConfigState : public IState<StateMachineContext> {
   RetryCadence grant_{};
 };
 
+// u-center on the STM32's USB, bridged to the GPS. EscConfig's grant
+// handshake; leaving reboots the STM32, which restores the GPS configuration.
+class GpsPassthroughState : public IState<StateMachineContext> {
+ public:
+  const char *Name() const override { return "GpsPassthrough"; }
+
+  void OnEnter(StateMachineContext &ctx) override;
+  void OnExit(StateMachineContext &ctx) override;
+  void OnStep(StateMachineContext &ctx) override;
+
+ private:
+  bool warned_armed_ = false;
+  bool stream_seen_ = false;
+  ActivityWatch activity_{};
+  RetryCadence grant_{};
+};
+
 // AP up, TCP server serving the LOG verbs. A LOG LIST or LOG GET hands off
 // to LogPullState, which returns here when the transfer ends either way.
 class WifiLogState : public IState<StateMachineContext> {

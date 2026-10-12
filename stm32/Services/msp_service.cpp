@@ -132,7 +132,13 @@ void MspService::RevokeEscConfigMode() {
 void MspService::SetEscConfigMode(bool enabled) {
   // The mixer is still writing motor commands, and the device commands this
   // unlocks drive the same lines.
-  if (!enabled || blackboard_->IsArmed()) {
+  if (enabled && blackboard_->IsArmed()) {
+    enabled = false;
+  }
+  if (enabled == esc_config_granted_) {
+    return;
+  }
+  if (!enabled) {
     RevokeEscConfigMode();
     return;
   }
@@ -205,7 +211,8 @@ void MspService::PublishUsbStatus(uint32_t now_us) {
   next.attached = usb_->IsAttached();
   next.configured = usb_->IsConfigured();
   next.port_open = usb_->IsConnected();
-  next.esc_config_granted = esc_config_granted_;
+  next.mode = esc_config_granted_ ? message::UsbMode::kEscConfig
+                                  : message::UsbMode::kNone;
 
   const UsbStatusData &prev = blackboard_->GetUsbStatus();
   if (next.msp_requests == prev.msp_requests &&
@@ -213,8 +220,7 @@ void MspService::PublishUsbStatus(uint32_t now_us) {
       next.four_way_requests == prev.four_way_requests &&
       next.four_way_replies == prev.four_way_replies &&
       next.attached == prev.attached && next.configured == prev.configured &&
-      next.port_open == prev.port_open &&
-      next.esc_config_granted == prev.esc_config_granted) {
+      next.port_open == prev.port_open && next.mode == prev.mode) {
     return;
   }
 

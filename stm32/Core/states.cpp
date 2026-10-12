@@ -259,6 +259,10 @@ void StandbyState::OnStep(StateMachineContext &ctx) {
     ctx.sm->ReqTransition(ctx.msc_state);
     return;
   }
+  if (System::GetInstance().GpsPassthroughSvc().GpsPassthroughGranted()) {
+    ctx.sm->ReqTransition(ctx.gps_passthrough_state);
+    return;
+  }
 
   if (System::GetInstance().Blackboard().IsArmed()) {
     ctx.sm->ReqTransition(ctx.armed_state);
@@ -352,5 +356,35 @@ void MscState::OnStep(StateMachineContext &ctx) {
 
   if (!System::GetInstance().MscSvc().MscGranted()) {
     ctx.sm->ReqTransition(ctx.standby_state);
+  }
+}
+
+void GpsPassthroughState::OnEnter(StateMachineContext &ctx) {
+  ctx.control_tick_state = nullptr;
+  System::GetInstance().Blackboard().SetControlLoopRunning(false);
+  System::GetInstance().SuspendFlightComponents();
+  // The suspend masked the GPS's RX, which is the half the host reads.
+  System::GetInstance().GpsUart().ResumeRx();
+  System::GetInstance().GpsUart().FlushRx();
+  System::GetInstance().Led().Set(true);
+}
+
+// GpsSvc is never polled here: the parser would take bytes meant for the host.
+void GpsPassthroughState::OnStep(StateMachineContext &ctx) {
+  if (System::GetInstance().Time().ConsumeTim5Ticks() == 0u) {
+    return;
+  }
+
+  const uint32_t current_time = System::GetInstance().Time().Micros();
+
+  UsbCdc::GetInstance().Poll(current_time);
+  System::GetInstance().GpsPassthroughSvc().Poll(current_time);
+  System::GetInstance().Poll(current_time);
+  DrainFcLink(ctx);
+
+  // The host may have left the module on any baud or message set, and only
+  // boot knows how to bring it back to the firmware's.
+  if (!System::GetInstance().GpsPassthroughSvc().GpsPassthroughGranted()) {
+    NVIC_SystemReset();
   }
 }
