@@ -12,6 +12,7 @@
 #include "error_code.hpp"
 #include "panic.hpp"
 #include "stm32_config.hpp"
+#include "watchdog.hpp"
 
 namespace {
 
@@ -224,36 +225,36 @@ bool EE::Write(const void *src, size_t len, size_t offset) {
 
   // Each page is the old image with the write laid over it, erased where
   // the old image ends.
-  return WriteRecord(new_size, [&](uint32_t page_offset, uint8_t *page,
-                                   size_t page_len) {
-    if (active_record_.valid && page_offset < current_size) {
-      const size_t readable =
-          std::min(page_len, static_cast<size_t>(current_size - page_offset));
-      if (!ReadRaw(PayloadAddress(active_record_) + page_offset, page,
-                   readable)) {
-        return false;
-      }
-      if (readable < page_len) {
-        std::memset(page + readable, 0xFF, page_len - readable);
-      }
-    } else {
-      std::memset(page, 0xFF, page_len);
-    }
+  return WriteRecord(
+      new_size, [&](uint32_t page_offset, uint8_t *page, size_t page_len) {
+        if (active_record_.valid && page_offset < current_size) {
+          const size_t readable = std::min(
+              page_len, static_cast<size_t>(current_size - page_offset));
+          if (!ReadRaw(PayloadAddress(active_record_) + page_offset, page,
+                       readable)) {
+            return false;
+          }
+          if (readable < page_len) {
+            std::memset(page + readable, 0xFF, page_len - readable);
+          }
+        } else {
+          std::memset(page, 0xFF, page_len);
+        }
 
-    const size_t page_end = static_cast<size_t>(page_offset) + page_len;
-    if (offset < page_end && write_end > page_offset) {
-      const size_t dst_offset =
-          (offset > page_offset) ? (offset - page_offset) : 0u;
-      const size_t src_offset =
-          (page_offset > offset) ? (page_offset - offset) : 0u;
-      const size_t copy_begin = std::max(static_cast<size_t>(offset),
-                                         static_cast<size_t>(page_offset));
-      const size_t copy_end = std::min(write_end, page_end);
-      std::memcpy(&page[dst_offset], &src_bytes[src_offset],
-                  copy_end - copy_begin);
-    }
-    return true;
-  });
+        const size_t page_end = static_cast<size_t>(page_offset) + page_len;
+        if (offset < page_end && write_end > page_offset) {
+          const size_t dst_offset =
+              (offset > page_offset) ? (offset - page_offset) : 0u;
+          const size_t src_offset =
+              (page_offset > offset) ? (page_offset - offset) : 0u;
+          const size_t copy_begin = std::max(static_cast<size_t>(offset),
+                                             static_cast<size_t>(page_offset));
+          const size_t copy_end = std::min(write_end, page_end);
+          std::memcpy(&page[dst_offset], &src_bytes[src_offset],
+                      copy_end - copy_begin);
+        }
+        return true;
+      });
 }
 
 bool EE::Rewrite(std::span<const Segment> segments) {
@@ -370,6 +371,7 @@ bool EE::EnsureWritable() {
 
 bool EE::WaitWhileBusy() const {
   for (uint32_t attempt = 0; attempt < kBusyPollLimit; ++attempt) {
+    Watchdog::GetInstance().Kick();
     const std::optional<uint8_t> status = ReadStatus();
     if (!status) {
       return false;
