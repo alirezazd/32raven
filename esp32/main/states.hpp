@@ -107,8 +107,8 @@ class EscConfigState : public IState<StateMachineContext> {
   RetryCadence grant_{};
 };
 
-// u-center on the STM32's USB, bridged to the GPS. EscConfig's grant
-// handshake; leaving reboots the STM32, which restores the GPS configuration.
+// u-center on the STM32's USB, bridged to the GPS. Leaving reboots the STM32,
+// which re-applies the firmware's GPS settings.
 class GpsPassthroughState : public IState<StateMachineContext> {
  public:
   const char *Name() const override { return "GpsPassthrough"; }

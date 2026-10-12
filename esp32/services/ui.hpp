@@ -111,7 +111,7 @@ class Ui {
     bool configured = false;
     bool port_open = false;
     // Wrapping: compare against what you saw last, never read as a total.
-    // In MSC mode they carry SD block counts instead of protocol frames.
+    // MSC carries SD block counts here instead, and GPS passthrough bytes.
     uint8_t rx_frames = 0;
     uint8_t tx_frames = 0;
   };
