@@ -23,9 +23,9 @@
 // below rather than for the protocol's 64-key ceiling.
 class ValsetFrame {
  public:
-  // The signal group is the largest at five keys, and every key is counted
+  // The signal group is the largest at seven keys, and every key is counted
   // as a U4 so a member changing width cannot silently outgrow this.
-  static constexpr size_t kMaxKeys = 5;
+  static constexpr size_t kMaxKeys = 7;
   static constexpr size_t kMaxPayload = 4 + (kMaxKeys * (4 + 4));
 
   explicit ValsetFrame(uint8_t layer) {
@@ -229,6 +229,10 @@ void M10::ApplyConfig(ValsetLayer layer) {
         {kKeyGloEnable, u8(config_.gnss.glo_enable)},
         {kKeyGalEnable, u8(config_.gnss.gal_enable)},
         {kKeyBdsEnable, u8(config_.gnss.bds_enable)},
+        // BeiDou on B1C: the default B1I cannot run beside GLONASS, and the
+        // module drops GLONASS for it without a NAK.
+        {kKeyBdsB1Enable, u8(false)},
+        {kKeyBdsB1cEnable, u8(config_.gnss.bds_enable)},
         {kKeySbasEnable, u8(config_.gnss.sbas_enable)},
     };
 
@@ -257,6 +261,19 @@ void M10::ApplyConfig(ValsetLayer layer) {
       if (!WaitForValget<uint8_t>(signal.key, signal.value)) {
         Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
       }
+    }
+
+    // The read-back passes for a constellation stored but not run.
+    (*uart_).FlushRx();
+    if (SendMonGnssPoll() != Outcome::kOk) {
+      Panic(ErrorCode::Stm32::kGpsTxRejected);
+    }
+    const std::optional<RunningGnss> running = WaitForMonGnss();
+    if (!running || running->gps != config_.gnss.gps_enable ||
+        running->glo != config_.gnss.glo_enable ||
+        running->bds != config_.gnss.bds_enable ||
+        running->gal != config_.gnss.gal_enable) {
+      Panic(ErrorCode::Stm32::kGpsVerifyConstellationFailed);
     }
   }
 
@@ -471,6 +488,65 @@ bool M10::WaitForValget(uint32_t key, T expected_value) {
   }
 
   return false;
+}
+
+Outcome M10::SendMonGnssPoll() {
+  uint8_t buf[8] = {UBX::kSync1, UBX::kSync2, UBX::kClsMon, UBX::kIdMonGnss};
+  const checksum::Fletcher8 ck = checksum::Fletcher8Of({&buf[2], 4u});
+  buf[6] = ck.ck_a;
+  buf[7] = ck.ck_b;
+  return (*uart_).Send(buf, sizeof(buf));
+}
+
+std::optional<M10::RunningGnss> M10::WaitForMonGnss() {
+  constexpr uint16_t kPayloadLen = 8;
+  constexpr size_t kEnabledIndex = 6 + 3;
+
+  auto &uart = (*uart_);
+  auto &time = System::GetInstance().Time();
+  const uint32_t start = time.Micros();
+
+  uint8_t frame[6 + kPayloadLen + 2];
+  size_t idx = 0;
+
+  while ((uint32_t)(time.Micros() - start) < config_.ack_timeout_us) {
+    const std::optional<uint8_t> byte = uart.ReadByte();
+    if (!byte) continue;
+    const uint8_t b = byte.value();
+
+    if (idx == 0 && b != UBX::kSync1) continue;
+    if (idx == 1 && b != UBX::kSync2) {
+      idx = 0;
+      continue;
+    }
+
+    frame[idx++] = b;
+
+    if (idx == 6 && (frame[2] != UBX::kClsMon || frame[3] != UBX::kIdMonGnss ||
+                     frame[4] != kPayloadLen || frame[5] != 0)) {
+      idx = 0;
+      continue;
+    }
+
+    if (idx < sizeof(frame)) continue;
+    idx = 0;
+
+    const checksum::Fletcher8 ck =
+        checksum::Fletcher8Of({&frame[2], 4u + kPayloadLen});
+    if (ck.ck_a != frame[6 + kPayloadLen] ||
+        ck.ck_b != frame[6 + kPayloadLen + 1])
+      continue;
+
+    const uint8_t enabled = frame[kEnabledIndex];
+    return RunningGnss{
+        .gps = (enabled & kMonGnssGps) != 0u,
+        .glo = (enabled & kMonGnssGlo) != 0u,
+        .bds = (enabled & kMonGnssBds) != 0u,
+        .gal = (enabled & kMonGnssGal) != 0u,
+    };
+  }
+
+  return std::nullopt;
 }
 
 template <typename T>

@@ -3,6 +3,7 @@
 
 #pragma once
 #include <cstdint>
+#include <optional>
 
 #include "outcome.hpp"
 #include "uart.hpp"
@@ -132,6 +133,16 @@ class M10 {
 
   template <typename T>
   bool WaitForValget(uint32_t key, T expected_value);
+
+  // What the receiver runs, which can differ from what it stores.
+  struct RunningGnss {
+    bool gps;
+    bool glo;
+    bool bds;
+    bool gal;
+  };
+  [[nodiscard]] Outcome SendMonGnssPoll();
+  std::optional<RunningGnss> WaitForMonGnss();
 
   void WaitForReady();
   bool WaitForAck(uint8_t want_cls, uint8_t want_id);

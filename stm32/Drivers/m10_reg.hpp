@@ -22,7 +22,15 @@ static constexpr uint8_t kIdCfgValget = 0x8B;
 static constexpr uint8_t kClsAck = 0x05;
 static constexpr uint8_t kIdAckAck = 0x01;
 static constexpr uint8_t kIdAckNak = 0x00;
+static constexpr uint8_t kClsMon = 0x0A;
+static constexpr uint8_t kIdMonGnss = 0x28;
 }  // namespace UBX
+
+// UBX-MON-GNSS `enabled` bits.
+constexpr uint8_t kMonGnssGps = 1u << 0;
+constexpr uint8_t kMonGnssGlo = 1u << 1;
+constexpr uint8_t kMonGnssBds = 1u << 2;
+constexpr uint8_t kMonGnssGal = 1u << 3;
 
 // M10 config is applied to RAM on each boot. This module variant has no flash.
 constexpr uint8_t kValsetLayerRam = 0x01;
@@ -41,6 +49,8 @@ constexpr uint32_t kKeyGloEnable = 0x10310025;      // CFG-SIGNAL-GLO_ENA
 constexpr uint32_t kKeyGalEnable = 0x10310021;      // CFG-SIGNAL-GAL_ENA
 constexpr uint32_t kKeyBdsEnable = 0x10310022;      // CFG-SIGNAL-BDS_ENA
 constexpr uint32_t kKeySbasEnable = 0x10310020;     // CFG-SIGNAL-SBAS_ENA
+constexpr uint32_t kKeyBdsB1Enable = 0x1031000d;    // CFG-SIGNAL-BDS_B1_ENA
+constexpr uint32_t kKeyBdsB1cEnable = 0x1031000f;   // CFG-SIGNAL-BDS_B1C_ENA
 
 constexpr uint32_t kKeyItfmEnable = 0x10410013;  // CFG-ITFM-ENABLE
 
