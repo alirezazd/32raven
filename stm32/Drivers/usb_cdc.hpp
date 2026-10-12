@@ -90,7 +90,6 @@ class UsbCdc {
 
   uint32_t ResetCount() const { return reset_count_; }
 
-  // The baud the host last set with SET_LINE_CODING.
   uint32_t LineCodingBaud() const { return line_coding_baud_; }
 
   void IrqHandler();

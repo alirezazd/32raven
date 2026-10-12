@@ -9,10 +9,8 @@
 #include "uart.hpp"
 #include "usb_cdc.hpp"
 
-// u-center to the GPS module: the USB COM port and UART2 joined byte for byte,
-// at whatever baud the host opens the port at. The M10 parser is not polled
-// for the session, and the session ends in a reset so boot re-applies the
-// module's configuration whatever the host changed.
+// u-center to the GPS: the USB COM port and UART2 joined byte for byte at the
+// host's baud. The session ends in a reset, which re-applies the GPS settings.
 class GpsPassthroughService {
  public:
   static GpsPassthroughService &GetInstance();

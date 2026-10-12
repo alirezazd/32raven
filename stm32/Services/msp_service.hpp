@@ -36,9 +36,8 @@ class MspService {
 
   void Poll(uint32_t now_us);
 
-  // Writes SharedState::usb_ in ESC config: this service already holds the CDC
-  // driver and the four-way service, so it is where all three sources meet
-  // without something reaching sideways. Stamps only on a real change.
+  // Writes SharedState::usb_ in ESC config, where the CDC driver, the four-way
+  // service and MSP meet. Stamps only on a real change.
   //
   // Public for the state that owned the session to call on its way out: Poll
   // is the only other caller and it stops running when that state does, so

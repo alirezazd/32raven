@@ -382,8 +382,8 @@ void GpsPassthroughState::OnStep(StateMachineContext &ctx) {
   System::GetInstance().Poll(current_time);
   DrainFcLink(ctx);
 
-  // The host may have left the module on any baud or message set, and only
-  // boot knows how to bring it back to the firmware's.
+  // Boot finds the module at whatever baud the host left it on and re-applies
+  // the firmware's settings.
   if (!System::GetInstance().GpsPassthroughSvc().GpsPassthroughGranted()) {
     NVIC_SystemReset();
   }

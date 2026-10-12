@@ -76,7 +76,7 @@ constexpr std::array<TopicConfig, TelemetryPublisher::kFcLinkTopicCount>
         // change, so a quiet receiver costs nothing until the silence bound,
         // which is what lets the ESP32 tell held channels from a dead link.
         {.period = 40000u, .max_silence = 1000000u, .priority = 9u},
-        // UsbStatus: sent when the MSP or four-way counters move; the silence
+        // UsbStatus: sent when the session's counters move; the silence
         // bound keeps the configurator UI from flapping on an idle port.
         {.period = 100000u, .max_silence = 300000u, .priority = 4u},
         // GpsData: sent on a new fix, so this only caps the rate, at the
@@ -588,7 +588,7 @@ TelemetryPublisher::PublishResult TelemetryPublisher::PublishUsbStatus(
     return PublishResult::kSkipped;
   }
 
-  // One compare: MspService stamps the Blackboard only when something moved.
+  // One compare: the session's service stamps the Blackboard only on a change.
   const UsbStatusData &usb = self.blackboard_->GetUsbStatus();
   const bool unchanged =
       self.have_usb_status_ && usb.timestamp_us == self.usb_sent_timestamp_us_;
