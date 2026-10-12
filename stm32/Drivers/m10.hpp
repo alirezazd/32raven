@@ -139,6 +139,8 @@ class M10 {
   Uart2 *uart_ = nullptr;
 
   Config config_{};
+  // A UBX frame start from the module during SyncAt, answered or not.
+  bool heard_ubx_ = false;
 
   M10() = default;
   ~M10() = default;

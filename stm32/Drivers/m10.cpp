@@ -87,6 +87,7 @@ bool M10::SyncAt(uint32_t baud, uint32_t window_ms) {
   auto &time = System::GetInstance().Time();
 
   uart.SetBaudRate(baud);
+  heard_ubx_ = false;
   const uint32_t start = time.Micros();
 
   while ((uint32_t)(time.Micros() - start) < MillisToMicros(window_ms)) {
@@ -123,6 +124,12 @@ void M10::WaitForReady() {
         continue;
       }
       if (SyncAt(candidate, 150)) {
+        found = candidate;
+        break;
+      }
+      // The other rates' probes reach the module as garbage and it can miss the
+      // first one at its own rate; its frames prove the rate, so retry longer.
+      if (heard_ubx_ && SyncAt(candidate, 1000)) {
         found = candidate;
         break;
       }
@@ -302,6 +309,7 @@ bool M10::WaitForAck(uint8_t want_cls, uint8_t want_id) {
         idx = 0;
         continue;
       }
+      heard_ubx_ = true;
       frame[idx++] = b;
       continue;
     }
