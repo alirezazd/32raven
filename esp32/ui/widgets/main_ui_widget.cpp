@@ -22,6 +22,7 @@
 #include "bitmap/mavlink3_bitmap.hpp"
 #include "bitmap/pc_bitmap.hpp"
 #include "bitmap/sd_card_bitmap.hpp"
+#include "bitmap/ublox_bitmap.hpp"
 #include "bitmap/usb_bitmap.hpp"
 #include "bitmap/wifi_bitmap.hpp"
 #include "system.hpp"
@@ -322,7 +323,7 @@ PackedBitmap LeftIconForScreen(Screen screen, TimeMs now) {
     return am32_bitmap::kBitmap;
   }
   if (IsGpsPassthroughScreen(screen)) {
-    return chip_bitmap::kBitmap;
+    return ublox_bitmap::kBitmap;
   }
   if (IsWifiLogScreen(screen) || IsUsbLogScreen(screen)) {
     return sd_card_bitmap::kBitmap;
@@ -745,7 +746,7 @@ MainUiWidget::LinkPacketSource MainUiWidget::PacketSourceForScreen(
         .left_icon_width = screen == Screen::kUsbLogActive
                                ? sd_card_bitmap::kVisibleWidth
                            : screen == Screen::kGpsPassthroughConnected
-                               ? chip_bitmap::kVisibleWidth
+                               ? ublox_bitmap::kVisibleWidth
                                : am32_bitmap::kVisibleWidth,
         .rx_count = usb.has_value() ? usb->rx_frames : 0u,
         .tx_count = usb.has_value() ? usb->tx_frames : 0u,
