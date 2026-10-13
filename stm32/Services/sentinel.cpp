@@ -10,10 +10,8 @@
 
 namespace {
 
-// Not Kconfig knobs: this is a backstop for a path that either works or is
-// broken, with no tuning between the two. At the 1 kHz idle cadence a healthy
-// window sees a handful of collisions at most, so a window of misses is the
-// path being gone rather than busy.
+// Not Kconfig: the path works or is broken. At the 1 kHz idle cadence a
+// healthy window sees a handful of collisions at most.
 constexpr uint32_t kEscDropWindowUs = 200000;
 constexpr uint32_t kEscDropThreshold = 150;
 
@@ -31,9 +29,8 @@ void Sentinel::Init(const Config &cfg, SharedState &blackboard, EscService &esc,
     Panic(ErrorCode::Stm32::kSentinelReinit);
   }
 
-  // A zero threshold is met by an empty window, so it would raise on every
-  // pass. The generator refuses one; this refuses a config that reached the
-  // board another way.
+  // A zero threshold is met by an empty window and would fire every pass;
+  // this catches a config that bypassed the generator's check.
   if (cfg.imu_loss_threshold_samples == 0u || cfg.imu_loss_consecutive == 0u ||
       cfg.imu_fault_threshold == 0u || cfg.imu_loss_window_us == 0u ||
       cfg.imu_fault_window_us == 0u || cfg.imu_stall_timeout_us == 0u ||
@@ -51,17 +48,13 @@ void Sentinel::Init(const Config &cfg, SharedState &blackboard, EscService &esc,
 }
 
 void Sentinel::RequestArm(bool armed) {
-  // Answered before the interlock so a redundant request is not a refusal --
-  // it would otherwise sound the warning for asking twice.
+  // Before the interlock, so asking twice does not sound a refusal.
   if (armed == blackboard_->IsArmed()) {
     return;
   }
 
-  // Every blocker, not just the state the request came from: a GCS must not
-  // arm past a switch the pilot is holding down, and the bench path is
-  // unaffected because the switch blockers only exist once RC is fresh and the
-  // channel is mapped. Disarming stays available from anywhere -- a refusal
-  // must never trap the board armed.
+  // A GCS must not arm past a switch the pilot holds down. Disarm is never
+  // refused: a refusal must never trap the board armed.
   if (armed && arm_blockers_ != 0u) {
     EmitWarning();
     return;
@@ -70,20 +63,15 @@ void Sentinel::RequestArm(bool armed) {
   // A wound-up controller from a prior session must not kick the next arm.
   rate_controller_->Reset();
 
-  // The flag moves to its safe end of the transition first: cleared before the
-  // stop frames go out, set only once the ESC path is clean. The control loop
-  // can preempt anywhere in this window, and either order leaves it reading
-  // disarmed -- the reverse would let it re-command motors mid-disarm.
+  // The control loop can preempt anywhere here, so it must read disarmed
+  // throughout: the flag clears first and is set last.
   if (!armed) {
-    // Every disarm re-arms the interlock, whatever asked for it. Doing this
-    // in Supervise instead would leave a GCS or failsafe disarm to be undone
-    // by the next pass, on a switch nobody moved.
+    // Every disarm, whoever asked, so a GCS or failsafe disarm cannot be
+    // undone on a switch nobody moved.
     arm_switch_blocked_ = true;
     blackboard_->SetArmed(false);
-    // After the flag, so the stop frames cannot race a control-loop motor
-    // write. The flag alone only stops future writes -- an ESC holds its last
-    // commanded throttle until something tells it otherwise, and this is what
-    // tells it, rather than waiting for the idle scheduler.
+    // After the flag, so no control-loop write races the stop frames; an ESC
+    // holds its last throttle until told otherwise.
     (void)esc_->StopAll();
     return;
   }
@@ -97,16 +85,11 @@ void Sentinel::EmitWarning() {
       message::ToneMsg{.tone = static_cast<uint8_t>(message::Tone::kWarning)});
 }
 
-// Kept as its own function because the phase is the whole response: the guard
-// that rides out a dropout, the disarm that ends it and the block on re-arming
-// afterwards are one sequence, and splitting them across callers is how a
-// vehicle ends up half in failsafe.
+// Guard, disarm and re-arm block are one sequence kept in one place: split
+// across callers, a vehicle ends up half in failsafe.
 RcLinkPhase Sentinel::StepRcLink(uint32_t now_us, bool link_ok) {
-  // Runs until the phase settles rather than once: a zero guard chains kUp to
-  // kGuard to the disarm inside one pass, and waiting a tick between them
-  // would leave the motors running past the decision. One iteration per phase
-  // is the most a settling chain can need; bounded rather than while(true) so
-  // a bug here cannot hang the main tick.
+  // Loops to settle, since a zero guard chains kUp to the disarm in one pass;
+  // bounded at one step per phase so a bug here cannot hang the main tick.
   for (uint8_t step = 0; step < 3u; ++step) {
     const RcLinkPhase entry = rc_link_phase_;
 
@@ -118,10 +101,7 @@ RcLinkPhase Sentinel::StepRcLink(uint32_t now_us, bool link_ok) {
         break;
 
       case RcLinkPhase::kGuard:
-        // The aircraft keeps flying the pilot's last frame, and a link that
-        // returns inside the window is simply resumed -- the whole reason the
-        // phase exists, and why a 600 ms dropout no longer ends a flight. A
-        // vehicle already disarmed skips it: there is no flight to protect.
+        // A disarmed vehicle skips the guard: no flight to protect.
         if (link_ok) {
           rc_link_phase_ = RcLinkPhase::kUp;
         } else if (!blackboard_->IsArmed() ||
@@ -133,10 +113,6 @@ RcLinkPhase Sentinel::StepRcLink(uint32_t now_us, bool link_ok) {
         break;
 
       case RcLinkPhase::kRecovering:
-        // Holds arming shut until RC has streamed cleanly for the recovery
-        // period. One frame back from an intermittent link is not a link,
-        // and the vehicle it would re-arm is on the ground with a switch
-        // somebody never moved.
         if (!link_ok) {
           rc_recovery_since_us_ = 0;
         } else if (rc_recovery_since_us_ == 0u) {
@@ -162,10 +138,8 @@ RcLinkPhase Sentinel::StepRcLink(uint32_t now_us, bool link_ok) {
 void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
   const RcData &rc = blackboard_->GetRc();
 
-  // The receiver stamps arrival on this same clock, so the published stamp
-  // ages directly. Both it and the tick wrap every 71.6 minutes, which bounds
-  // how long a dead link stays detectable -- past that the difference comes
-  // back under the timeout and the link reads live again.
+  // Same clock as the receiver's stamp. It wraps every 71.6 min, after which
+  // a dead link's stamp ages back under the timeout and reads live again.
   const bool ever_seen = rc.timestamp_us != 0u;
   const bool fresh =
       ever_seen && (now_us - rc.timestamp_us) < cfg_.rc_loss_timeout_us;
@@ -196,9 +170,6 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
     arm_switch_blocked_ = false;
   }
 
-  // Live every pass rather than the outcome of whichever request came last:
-  // the question is "would it arm right now", and the answer moves with the
-  // switch and the link, not with whoever asked previously.
   uint16_t blockers = state_blockers;
   if (in_failsafe) {
     blockers |= kArmBlockRcLoss;
@@ -206,10 +177,8 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
   if (mapped && fresh && arm_switch_blocked_) {
     blockers |= kArmBlockSwitchNotCycled;
   }
-  // Not gated on freshness: a stale reading that is high blocks, which is the
-  // safe direction, and a stale one that is low is already answered by the
-  // link blocker above. Zero is the never-seen value and passes, which is
-  // what keeps arming over FcLink with no transmitter working.
+  // Not gated on freshness: stale-high blocks, the safe direction, and
+  // stale-low is caught by the link blocker. Never-seen reads zero and passes.
   if (cfg_.arm_throttle_max_us != 0u &&
       rc.throttle_us > cfg_.arm_throttle_max_us) {
     blockers |= kArmBlockThrottleHigh;
@@ -217,9 +186,8 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
   arm_blockers_ = blockers;
   blackboard_->SetArmBlocked(blockers != 0u);
 
-  // Cleared wherever the switch is not asking, so the next time it is counts
-  // as a new question. Without this a pilot who cycles the switch and is
-  // refused for the same reason twice hears it only once.
+  // Cleared whenever the switch is not asking, so each new ask is announced
+  // even when refused for the same reason.
   if (!mapped || !fresh) {
     switch_refusal_announced_ = 0;
     return;
@@ -240,11 +208,15 @@ void Sentinel::SuperviseRc(uint32_t now_us, uint16_t state_blockers) {
     RequestArm(true);
     return;
   }
-  // The switch is up and an interlock is holding it -- the one moment on this
-  // path where the pilot has asked and been told no. RequestArm never sees it,
-  // because the check above is what keeps a blocked request from reaching it.
-  if (blockers != switch_refusal_announced_) {
-    switch_refusal_announced_ = blockers;
+  // A refusal spends the switch: a blocker that clears later must not arm on
+  // a switch nobody moved.
+  arm_switch_blocked_ = true;
+  // A refusal RequestArm never sees. The latch just set is not a new reason,
+  // so it alone does not sound again.
+  const uint16_t others = blockers & ~kArmBlockSwitchNotCycled;
+  const uint16_t reasons = (others != 0u) ? others : blockers;
+  if (reasons != switch_refusal_announced_) {
+    switch_refusal_announced_ = reasons;
     EmitWarning();
   }
 }
@@ -254,12 +226,8 @@ void Sentinel::Supervise(uint32_t now_us) {
   // Standby, and the exit that matters is an arm request.
   SuperviseTestThrottle(now_us);
 
-  // The condition Standby actually is, rather than the name of it: the
-  // cascade is running and no flight has started. Asking the state machine
-  // which state is current would point Sentinel back up at the machine that
-  // owns it, and a flag the states each set is one every future state can
-  // forget -- a forgotten call keeps the previous state's answer, which
-  // entered from Standby is yes.
+  // Standby's condition, not its name: asking the state machine points back
+  // up at Sentinel's owner, and a flag each state sets is one a state forgets.
   const uint16_t state_blockers =
       (blackboard_->IsControlLoopRunning() && !blackboard_->IsArmed())
           ? 0u
@@ -278,34 +246,28 @@ void Sentinel::Supervise(uint32_t now_us) {
   const uint16_t standing_blockers =
       state_blockers | BatteryBlocker() | gyro_blocker | mag_blocker;
 
-  // The bench states suspend the sample interrupt on purpose, so a frozen
-  // heartbeat there is the state machine's doing rather than a stall -- and
-  // the recovery would restart a sensor that was switched off, possibly while
-  // a bit-banged four-way transfer holds the board.
+  // The bench states stop the sample interrupt on purpose, and a recovery
+  // could restart the sensor mid four-way transfer.
   if (!blackboard_->IsControlLoopRunning()) {
-    // Still set on the way out, because a request can arrive here and the RC
-    // reasons below are the ones that do not apply: the receiver is switched
-    // off, so its silence is not a link the pilot lost.
+    // Still set on the way out, since a request can arrive here; the RC reasons
+    // below do not apply, the receiver being off rather than lost.
     arm_blockers_ = standing_blockers;
     blackboard_->SetArmBlocked(standing_blockers != 0u);
+    // Unread here, so a switch already up must cycle once back in Standby.
+    arm_switch_blocked_ = true;
     return;
   }
 
-  // Below the branch, with the IMU checks and for the same reason those give:
-  // SuspendFlightComponents stops the RC UART in the bench states, so a frozen
-  // stamp there is the state machine's doing rather than a dead link. Above,
-  // every ESC-config session would raise a link failsafe the GCS then holds.
+  // Below the branch: SuspendFlightComponents stops the RC UART, so above it
+  // every ESC-config session would raise a link failsafe.
   SuperviseRc(now_us, standing_blockers);
   SuperviseEscOutput(now_us);
   SuperviseImu(now_us);
   RecoverStalledImu(now_us);
 }
 
-// A pack that cannot finish the flight must not start one. Judged on the
-// filtered pack reading, which on the ground is the resting voltage; a pack
-// never sampled reads zero and is refused by the same comparison. No
-// hysteresis on purpose -- the refusal only sounds while the switch is asking,
-// and a resting pack does not flicker across a threshold.
+// A never-sampled pack reads zero and is refused. No hysteresis: a resting
+// pack does not flicker across the threshold.
 uint16_t Sentinel::BatteryBlocker() const {
   if (cfg_.arm_battery_min_mv == 0u) {
     return 0u;
@@ -316,13 +278,8 @@ uint16_t Sentinel::BatteryBlocker() const {
              : 0u;
 }
 
-// The whole bench deadman. EscService only holds the values a host asked for;
-// how long that host may go quiet before they are cut is a policy question,
-// and this owns it.
-//
-// MSP request count rather than a stamp from the parser: a configurator polls
-// telemetry continuously while it sits on the motor page, so any request is
-// proof the host is there -- not just the ones that move the slider.
+// Bench deadman. Any MSP request proves the host is there: a configurator
+// polls telemetry continuously while it sits on the motor page.
 void Sentinel::SuperviseTestThrottle(uint32_t now_us) {
   if (!esc_->TestThrottleActive()) {
     last_host_us_ = 0;
@@ -338,24 +295,14 @@ void Sentinel::SuperviseTestThrottle(uint32_t now_us) {
 
   if ((now_us - last_host_us_) >= cfg_.test_throttle_silence_us) {
     esc_->ClearTestThrottle();
-    // Motors stopping on their own is indistinguishable from a wiring fault at
-    // the bench, so the board says which it was. One tone, not a stream: the
-    // clear above is what makes the next pass return at the top.
+    // Tells a deadman cut apart from a wiring fault. Sounds once: the clear
+    // makes the next pass return at the top.
     EmitWarning();
   }
 }
 
-// A dropped write is normally a frame arriving while the last one is still on
-// the wire -- rare at the 1 kHz idle cadence, since a DShot600 frame clears in
-// tens of microseconds. Every write failing instead means the burst DMA is not
-// completing, and then no stop frame reaches the ESCs at all: they hold the
-// last throttle they were given, disarmed or not.
-//
-// So this panics rather than disarming. Clearing the armed flag stops the
-// control loop commanding motors, but it cannot stop motors already spinning
-// when the path that would tell them is the broken part. Panic latches the
-// TIM1 compare registers low, which is the one stop that does not run through
-// the DMA -- the ESCs then see an idle line and time out on their own.
+// Panics rather than disarms: with the burst DMA stuck no stop frame lands,
+// but Panic latches TIM1's compares low and the ESCs time out on idle.
 void Sentinel::SuperviseEscOutput(uint32_t now_us) {
   // Seeded on the first pass so a count carried from bring-up is not read as
   // a window's worth of failures.
@@ -422,10 +369,8 @@ void Sentinel::SuperviseImu(uint32_t now_us) {
   }
 }
 
-// Armed, a degraded gyro is still the only gyro: halting answers a fault the
-// aircraft can fly through with one it cannot. ArduPilot draws the same line
-// from the other side, refusing to demote a sensor unless a healthy peer can
-// take over -- on a single-IMU board, never.
+// Armed, a degraded gyro is still the only gyro: halting would trade a fault
+// the aircraft can fly through for one it cannot.
 void Sentinel::RaiseImuFault(ErrorCode::Stm32 code) {
   if (!blackboard_->IsArmed()) {
     Panic(code);
@@ -434,9 +379,8 @@ void Sentinel::RaiseImuFault(ErrorCode::Stm32 code) {
   blackboard_->SetFailsafeFlags(blackboard_->FailsafeFlags() |
                                 message::kVehicleFailsafeFlagImu);
 
-  // Deferring the halt must not become dropping it. The first cause is kept
-  // rather than the last: later faults are as likely to be consequences of it
-  // as independent, and one that clears before landing is still owed an answer.
+  // The first cause is kept: later faults are as likely its consequences, and
+  // one that clears before landing is still owed the halt.
   if (!imu_fault_latched_) {
     imu_fault_latched_ = true;
     imu_fault_code_ = code;
@@ -444,10 +388,7 @@ void Sentinel::RaiseImuFault(ErrorCode::Stm32 code) {
 }
 
 // The sample interrupt stamps ImuHealth every burst, so silence past the
-// configured timeout is many missed bursts -- far outside jitter, and nothing
-// else can produce it: the interrupt runs independently of the loop checking
-// it. ESC configuration silences the sensor deliberately, but that state runs
-// its own step body and never reaches Supervise, so it needs no exemption.
+// timeout is a stall, not jitter.
 void Sentinel::RecoverStalledImu(uint32_t now_us) {
   const auto &imu_health_us = blackboard_->GetImuHealth().timestamp_us;
   // No burst yet, so a cold start would otherwise read as a stall.

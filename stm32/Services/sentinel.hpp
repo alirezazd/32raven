@@ -12,18 +12,8 @@
 #include "rate_controller.hpp"
 #include "shared_state.hpp"
 
-// Why an arm request would be refused. A bitmask rather than an enum because
-// the common case is several at once -- an uncycled switch on a link that has
-// just come back is one situation, not two competing answers. Kept apart at
-// all because "it will not arm and will not say why" is its own failure mode,
-// which is why Betaflight carries twenty of these.
-//
-// Sentinel's own: the gate is the only reader, and the blackboard carries only
-// whether one holds, for the handset's marker.
-//
-// Deliberately no never-seen-RC member. Arming over FcLink with no transmitter
-// powered on has to keep working, which is PX4's _manual_control_lost_at_arming
-// rule stated from the other side.
+// Arm-refusal reasons, a bitmask because several often hold at once.
+// No never-seen-RC bit: arming over FcLink with no transmitter must work.
 inline constexpr uint16_t kArmBlockNotStandby = 1u << 0;
 inline constexpr uint16_t kArmBlockSwitchNotCycled = 1u << 1;
 inline constexpr uint16_t kArmBlockRcLoss = 1u << 2;
@@ -32,58 +22,30 @@ inline constexpr uint16_t kArmBlockThrottleHigh = 1u << 4;
 inline constexpr uint16_t kArmBlockGyroUncalibrated = 1u << 5;
 inline constexpr uint16_t kArmBlockMagInterference = 1u << 6;
 
-// How much the RC link is currently trusted. Deliberately not called a
-// failsafe *state*: none of these change what the vehicle does. kGuard flies
-// the pilot's last frame exactly as kUp does, and kRecovering is an arming
-// interlock on a vehicle already sitting disarmed. The state machine owns
-// what the vehicle does; this owns how much its inputs are believed.
-//
-// That division is what #52 has to keep when a failsafe gains somewhere to go:
-// a descent or a return is sequencing, so it belongs in the main state
-// machine, requested from here rather than run from here.
-//
-// Sentinel's own, not the blackboard's: nothing outside reads it. What leaves
-// the board is kVehicleFailsafeFlagRcLoss, which the ESP32 turns into
-// MAV_STATE_CRITICAL.
+// How far the RC inputs are trusted, not a failsafe state: no phase changes
+// what the vehicle does, so #52's descent belongs in the state machine.
 enum class RcLinkPhase : uint8_t {
-  // Frames arriving, or none ever seen -- the bench case, where arming over
-  // FcLink with no transmitter has to keep working.
+  // Frames arriving, or none ever seen.
   kUp = 0,
-  // Silent past the timeout and still flying the last frame. A link that
-  // comes back inside the guard is simply resumed; one that does not gets
-  // the disarm on the way out, rather than in a phase of its own -- only one
-  // branch reaches it, so there is nothing for a phase to join.
+  // Silent past the timeout, still flying the last frame. Expiry disarms on
+  // the way to kRecovering rather than through a phase of its own.
   kGuard,
-  // Disarmed, holding arming shut until frames have streamed cleanly long
-  // enough to be a link rather than a lucky packet.
+  // Disarmed, holding arming shut until a clean stream proves the link.
   kRecovering,
 };
 
-// The board's safety authority. It owns the arm state end to end: the sources
-// that ask for it, the interlocks that refuse it, the effects that make a
-// transition safe, and the one variable that records the answer.
-//
-// Its writes are deliberately narrow: SharedState::armed_, the decision, and
-// the failsafe flags that say why -- which leave the board so an operator is
-// not left guessing at a disarm. It never drives motors and never sequences
-// flight modes: it decides, the state machine sequences, and EscService
-// enforces at the wire. Every condition it gains -- RC loss today, sensor
-// staleness and battery next -- has to arrive as another reason to call the
-// same transition, not as another thing it writes.
+// The board's safety authority. It writes only the arm state and failsafe
+// flags; the state machine sequences flight and EscService drives the motors.
 class Sentinel {
  public:
   static Sentinel &GetInstance();
 
-  // Thresholds only. Every one is a policy question the components that raise
-  // the conditions are deliberately not asked -- a driver counts, this decides
-  // how much counts as too much.
+  // Thresholds only: a driver counts, Sentinel decides how much is too much.
   struct Config {
-    // Resolved by the generator from a share of the record rate, so a rate
-    // change moves it rather than silently meaning something else.
+    // Derived by the generator from the record rate, so it tracks rate changes.
     uint32_t imu_loss_threshold_samples;
     uint32_t imu_loss_window_us;
-    // Windows in a row that must exceed the threshold. 1 removes the
-    // hysteresis.
+    // Windows in a row over the threshold; 1 removes the hysteresis.
     uint32_t imu_loss_consecutive;
     uint32_t imu_fault_threshold;
     uint32_t imu_fault_window_us;
@@ -97,36 +59,29 @@ class Sentinel {
     // switch's middle detent and reverses without a polarity knob.
     uint16_t arm_range_min_us;
     uint16_t arm_range_max_us;
-    // Receiver silence before the link counts as lost. CRSF has no failsafe
-    // bit and ExpressLRS stops sending rather than flagging, so this is the
-    // only detector there is. Starts the staged response; not a disarm.
+    // The only RC-loss detector (CRSF has no failsafe bit; ELRS goes quiet).
+    // Starts the guard; not a disarm.
     uint32_t rc_loss_timeout_us;
-    // Flight on the pilot's last frame before the procedure runs. The knob
-    // that makes a brief dropout survivable, and the window the aircraft
-    // spends uncommanded.
+    // Flight on the pilot's last frame before the disarm: the window a dropout
+    // can recover in, and the time spent uncommanded.
     uint32_t failsafe_guard_us;
     // Clean RC required before arming is allowed again, so an intermittent
     // link cannot re-arm on a switch nobody moved.
     uint32_t failsafe_recovery_us;
-    // Pack millivolts below which arming is refused; 0 disables. Ground-only
-    // by design: in the air the same reading sags with throttle, and acting
-    // on it there is #50's landing, not a cut.
+    // Pack mV below which arming is refused; 0 disables. Ground-only: in
+    // flight it sags with throttle, and acting on it there is #50's landing.
     uint32_t arm_battery_min_mv;
-    // Calibrated throttle above which arming is refused; 0 disables. A
-    // backstop behind the handset's own idle condition, for the transmitter
-    // that was never told to carry one.
+    // Calibrated throttle above which arming is refused; 0 disables. Backs up
+    // a handset that has no throttle-idle arm condition of its own.
     uint16_t arm_throttle_max_us;
   };
 
-  // Every arm request on the board lands here -- the privileged command and
-  // the RC switch alike. A refusal is announced from inside rather than
-  // returned: the caller has no way to know which interlock said no, and two
-  // callers each remembering to make a noise is how one of them stops.
+  // Every arm request lands here. Refusals are announced inside rather than
+  // returned, so no caller can forget to sound one.
   void RequestArm(bool armed);
 
-  // Called from the main tick, never the control loop: PendSV is pended by the
-  // sample interrupt, so a watchdog living there would fall silent in exactly
-  // the failure it exists to catch.
+  // Main tick only, never the control loop: PendSV is pended by the sample
+  // interrupt, so a watchdog there would go silent when the IMU stalls.
   void Supervise(uint32_t now_us);
 
  private:
@@ -140,29 +95,20 @@ class Sentinel {
   Sentinel(const Sentinel &) = delete;
   Sentinel &operator=(const Sentinel &) = delete;
 
-  // Weighs the driver's counters against the thresholds it deliberately does
-  // not know, and answers per the arm state.
   void SuperviseImu(uint32_t now_us);
-  // Watches the one failure a stop frame cannot answer: the DShot path
-  // refusing every write.
+  // The one failure a stop frame cannot answer: DShot refusing every write.
   void SuperviseEscOutput(uint32_t now_us);
   void SuperviseTestThrottle(uint32_t now_us);
   void RecoverStalledImu(uint32_t now_us);
-  // Halts when disarmed; armed, raises the failsafe flag and remembers the
-  // code so the halt still happens once the aircraft is down.
   void RaiseImuFault(ErrorCode::Stm32 code);
 
-  // Every refusal and the bench cut sound the same for now: the bitmask can
-  // say which interlock said no, but nothing the pilot can hear distinguishes
-  // them yet.
+  // One tone for every refusal and the bench cut: nothing audible yet says
+  // which interlock said no.
   void EmitWarning();
 
-  // The RC half of Supervise: link loss, then the arm switch. Takes the
-  // blockers raised outside it so the published set is written once, by the
-  // half that also acts on it.
+  // Takes the blockers raised elsewhere so the published set is written once.
   void SuperviseRc(uint32_t now_us, uint16_t state_blockers);
-  // Advances the link phase and, when the guard runs out, disarms. Returns
-  // the phase it settled on, so the caller reads it once.
+  // Also disarms when the guard runs out.
   RcLinkPhase StepRcLink(uint32_t now_us, bool link_ok);
   uint16_t BatteryBlocker() const;
 
@@ -172,8 +118,6 @@ class Sentinel {
   RateController *rate_controller_ = nullptr;
   Icm42688p *imu_ = nullptr;
   FcLink *fc_link_ = nullptr;
-  // Rate-limits recovery to one attempt per stall window, rather than every
-  // main tick while the heartbeat stays frozen.
   uint32_t last_imu_recovery_us_ = 0;
   uint32_t last_loss_window_us_ = 0;
   uint32_t last_missed_samples_ = 0;
@@ -182,33 +126,24 @@ class Sentinel {
   uint32_t last_esc_window_us_ = 0;
   uint32_t last_esc_drops_ = 0;
   uint32_t high_loss_consec_ = 0;
-  // 0 means no throttle is standing, so a stale stamp from a previous
-  // session can never cut the next one on its first pass.
+  // 0 means no throttle standing, so a stale stamp cannot cut a new session.
   uint32_t last_host_us_ = 0;
   uint32_t last_msp_requests_ = 0;
-  // Refused until the first Supervise has computed a real set, so a request
-  // that beats the supervisor to the first pass is answered by the interlock
-  // rather than by a word nobody has written yet.
+  // Blocks arming until the first Supervise pass computes the real set.
   uint16_t arm_blockers_ = kArmBlockNotStandby;
   RcLinkPhase rc_link_phase_ = RcLinkPhase::kUp;
-  // Stamped on every phase change; only kGuard reads it back, to age itself
-  // out against the guard.
+  // Stamped on every phase change; only kGuard reads it.
   uint32_t rc_link_entered_us_ = 0;
-  // Restarted by every frame that arrives while the link is judged bad, so
-  // recovery measures a clean stretch rather than a single lucky frame.
+  // Zeroed on any bad pass so recovery times a clean stretch, not one frame.
   uint32_t rc_recovery_since_us_ = 0;
-  // Set by every disarm, so a
-  // switch left up cannot re-arm behind a GCS or failsafe disarm; cleared only
-  // by seeing the switch outside its window. True at boot, so a board powered
-  // up with the switch already on stays disarmed until it is cycled.
+  // Set at boot, by every disarm and refusal, and while the loop is stopped, so
+  // only a switch movement can arm; cleared by seeing the switch out of window.
   bool arm_switch_blocked_ = true;
-  // The switch earns its kill authority by being seen in-window once. Until
-  // then it cannot disarm -- a bench fixture injecting channels it does not
-  // drive reads zero on the arm slot, and that must not cut a test.
+  // The switch can disarm only once seen in-window: a bench fixture leaves
+  // the arm channel at zero, and that must not cut a test.
   bool arm_switch_authority_ = false;
-  // Edge, so holding the switch up against an interlock is one refusal rather
-  // than one per pass. A privileged request is its own event and announces
-  // every time, which is why only the switch path carries this.
+  // Edge, so a switch held against an interlock sounds once, not every pass;
+  // a privileged request announces every time.
   uint16_t switch_refusal_announced_ = 0;
   bool imu_fault_latched_ = false;
   // Only read while latched, so its initial value never reaches a Panic.
