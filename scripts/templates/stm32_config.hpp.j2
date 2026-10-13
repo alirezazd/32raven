@@ -35,13 +35,8 @@
 #include "uart_soft.hpp"
 #include "usb_cdc.hpp"
 
-{# ---- Pin map (from menuconfig + ST silicon data) ------------------------
-   Single source of truth for this PCB's pin assignments. Each entry below
-   is a Kconfig-tunable pin; the (pin, AF) / (pin, ADC channel) / EXTI IRQn
-   combo was validated against ST's open-pin-data at generation time, so
-   invalid picks can't reach this header. Emitted before any consumer
-   (kButtonConfig, kLedConfig, kGpioDefault) so the constants are visible
-   at point of use. #}
+{# Each pin's AF, ADC channel and EXTI IRQn were checked against ST's
+   open-pin-data at generation time. #}
 namespace board {
 
 struct BoardPin {
@@ -59,8 +54,7 @@ inline const BoardPin {{ p.name }} = {
 inline constexpr uint8_t {{ p.adc_const }} = {{ p.adc_channel }}u;
 {% endif %}
 {% endfor %}
-{# SYSCLK after the AHB divider. Rcc::Init publishes it as CMSIS's
-   SystemCoreClock. #}
+{# SYSCLK / AHB divider; Rcc::Init publishes it as CMSIS SystemCoreClock. #}
 inline constexpr uint32_t kHclkHz = {{ rcc.hclk_hz }}u;
 
 }  // namespace board
@@ -82,9 +76,8 @@ inline constexpr Rcc::Config kRccConfig = {
     .hclk_hz = board::kHclkHz,
 };
 
-{# GPIO programming for every pin in the pin map. Mode / pull / speed /
-   active_low follow from the entry's role in PINMAP_ENTRIES; there is no
-   hand-wired override layer. Consumed by GPIO::Init() at bring-up. #}
+{# Mode, pull, speed and active_low follow from each entry's role in
+   PINMAP_ENTRIES; there is no hand-wired override. #}
 inline const std::array kGpioDefault = {
 {% for p in pinmap %}
     GPIO::PinConfig{board::{{ p.name }}.port,
@@ -94,11 +87,10 @@ inline const std::array kGpioDefault = {
 {% endfor %}
 };
 
-{# Field order here is the struct's, not the schedule's: TelemetryPublisher owns
-   the topic order, flattening these into the array the scheduler walks. #}
+{# Struct order, not schedule order: TelemetryPublisher owns the topic order. #}
 inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
-{# Authored under RC Receiver -> CRSF Telemetry, because they describe that
-   link's content; scheduled here, because TelemetryPublisher owns every cadence. #}
+{# Authored in the CRSF Telemetry menu, which they describe; scheduled here
+   because TelemetryPublisher owns every cadence. #}
 {% for name in ["heartbeat", "gps", "battery", "flight_mode",
                 "attitude", "rpm", "temperature", "gps_time",
                 "baro_altitude"] %}
@@ -114,9 +106,8 @@ inline constexpr TelemetryPublisher::Config kTelemetryPublisherConfig = {
 
 inline constexpr UartConfig kUart1Config = {
     .baud_rate = common_config::kFcLinkBaud,
-    // 8E1, fixed: the programmer reaches this MCU's own ROM bootloader over
-    // this UART and AN3155 specifies even parity. USART1's M bit counts parity
-    // as part of the word, so eight data bits plus parity is a nine-bit word.
+    // 8E1, fixed: this MCU's ROM bootloader answers here and AN3155 specifies
+    // even parity. USART1's M bit counts parity, so that is a nine-bit word.
     .word_length = UartWordLength::k9Bits,
     .stop_bits = {{ fclink.uart.stop_bits }},
     .parity = UartParity::kEven,
@@ -155,10 +146,8 @@ inline constexpr SpiConfig kEeSpi1Config = {
 {# Off, Profiler<> reduces its wrappers to the calls they wrap. #}
 inline constexpr bool kEnableProfiling = {{ enable_profiling | cpp_bool }};
 
-// Rate the FIFO watermark interrupt drives the control cascade at, and the
-// only correct timestep for anything it integrates. Derived from the
-// CLKIN-scaled record rate divided by the watermark, and exact by
-// construction: the build rejects a rate that does not divide evenly.
+// CLKIN-scaled record rate / FIFO watermark; the build rejects a rate that
+// does not divide evenly, so kControlLoopDtSec is the exact cascade timestep.
 inline constexpr std::uint32_t kControlLoopHz = {{ control_loop_hz }}u;
 inline constexpr float kControlLoopDtSec = 1.0f / static_cast<float>(kControlLoopHz);
 
@@ -236,10 +225,8 @@ inline constexpr SensorCalService::Config kSensorCalConfig = {
 static_assert(kSensorCalConfig.gyro.timeout_s > kSensorCalConfig.gyro.duration_s,
               "gyro calibration deadline leaves no room for a restart -- "
               "raise STM32_SENSOR_CAL_GYRO_TIMEOUT_S above the duration");
-// Six poses, each needing its stillness hold and then its sampling, with
-// nothing left over for the operator to turn the airframe between them. The
-// floor is what a perfect operator would take, so a deadline under it cannot
-// be met by anyone.
+// Six poses of stillness hold plus sampling, with zero time to turn between
+// them: a floor no operator can beat.
 static_assert(
     kSensorCalConfig.accel.timeout_s * 1000000ull >
         6u * 1000u *
@@ -326,17 +313,15 @@ inline constexpr RcReceiver::Config kRcReceiverConfig = {
     .throttle_channel = {{ rc_receiver.rc_map.throttle }},
 };
 
-// Ten sample periods, derived so a slower cadence does not read as a dead
-// sensor. The margin is wide because BatteryData stamps when its conversion
-// started, and the publish trails that by up to a whole decimation period.
+// Wide because BatteryData stamps conversion start, and the publish trails it
+// by up to a whole decimation period.
 inline constexpr uint32_t kBatteryFreshTimeoutUs =
     kBatteryConfig.sample_period_us * 10u;
 
 inline constexpr uint32_t kGpsFreshTimeoutUs =
     {{ rc_receiver.crsf.gps_fresh_timeout_ms }}u * 1000u;
 
-// Ten pressure periods, derived so a slower rate does not read as a dead
-// sensor.
+// Ten pressure periods, so a slower rate does not read as a dead sensor.
 inline constexpr uint32_t kBaroFreshTimeoutUs = {{ baro.fresh_timeout_us }}u;
 
 inline constexpr CrsfLinkService::Config kCrsfLinkConfig = {
@@ -436,11 +421,8 @@ inline constexpr LogService::Config kLogServiceConfig = {
 {% endfor %}
 };
 
-// The threshold below is {{ sentinel.loss_permille }} per mille of the record
-// rate over {{ sentinel.loss_window_ms }} ms, resolved here so the comparison
-// is a plain compare. The share is the knob
-// (STM32_SENTINEL_IMU_LOSS_PERMILLE); a share that rounds to zero samples
-// fails the build rather than matching every window.
+// The loss threshold is {{ sentinel.loss_permille }} per mille of the record
+// rate over {{ sentinel.loss_window_ms }} ms; rounding to zero fails the build.
 inline constexpr Sentinel::Config kSentinelConfig = {
     .imu_loss_threshold_samples = {{ sentinel.loss_threshold_samples }}u,
     .imu_loss_window_us = {{ sentinel.loss_window_ms }}u * 1000u,
@@ -458,13 +440,8 @@ inline constexpr Sentinel::Config kSentinelConfig = {
     .arm_battery_min_mv = {{ sentinel.arm_battery_min_mv }}u,
     .arm_throttle_max_us = {{ sentinel.arm_throttle_max_us }}u,
 };
-{# The stall window is bounded at both ends and only one end is checkable.
-   Below: PublishHealth stamps ImuHealth on every burst, unconditionally, so
-   the window has to span many of them or ordinary jitter reads as a stalled
-   sensor and restarts a healthy one mid-flight. Above: it has to stay under
-   the time the motors and props need to respond, or the airframe has already
-   diverged by the time the stall is noticed -- that bound is a property of
-   the airframe, not a constant here, so it lives in this comment. #}
+{# Upper bound, uncheckable here: under the motor and prop response time, or
+   the airframe diverges before the stall is noticed. #}
 static_assert(kSentinelConfig.imu_stall_timeout_us >=
                   (8u * 1000000u) / kControlLoopHz,
               "STM32_SENTINEL_IMU_STALL_TIMEOUT_MS must span at least 8 IMU "
@@ -478,11 +455,8 @@ inline constexpr UsbCdcConfig kUsbCdcConfig = {
     .product_msc = {{ usb_cdc.product_msc }},
 };
 
-{# Fixed by the ESC bootloader, not by this board: AM32 and BLHeli listen at
-   19200 8N1 and nothing here can negotiate. Spelled out rather than pulled
-   from Kconfig for the same reason the four-way command bytes are -- a knob
-   could only be turned to a value no ESC answers. The timeout is a bootloader
-   that replies within a few bit times against one that is not there at all. #}
+{# AM32 and BLHeli bootloaders listen only at 19200 8N1, so no Kconfig knob.
+   The timeout tells a reply within a few bit times from no bootloader. #}
 inline constexpr UartSoftConfig kEscBootloaderUartConfig = {
     .baud_rate = 19200u,
     .parity = UartParity::kNone,
@@ -490,8 +464,6 @@ inline constexpr UartSoftConfig kEscBootloaderUartConfig = {
     .start_bit_timeout_us = 2000u,
 };
 
-{# MSP gives each field 16 bits and the casts below would wrap silently, so
-   the range is checked first. #}
 static_assert(kControlLoopHz <= UINT16_MAX &&
                   (1000000u + kControlLoopHz / 2u) / kControlLoopHz <= UINT16_MAX,
               "CONFIG_STM32_CONTROL_LOOP_HZ does not fit MSP's 16-bit rate and "
@@ -522,19 +494,12 @@ inline constexpr multirotor_mixer::Mixer::Config kMultirotorMixerConfig = {
     .idle = {{ multirotor_mixer.idle_milli }} * 0.001f,
 };
 
-{# Pilot stick at 0 maps to this fraction of full thrust, not literal zero.
-   states.cpp linearly remaps NormalizedThrottle() in [0, 1] to
-   [kPilotThrottleMin, 1] before feeding the mixer, so the mixer always
-   has a workable motor band around the pilot's commanded thrust.
-   PX4 equivalent: MPC_MANTHR_MIN. #}
+{# Thrust fraction at zero stick, not literal zero, so the mixer keeps a motor
+   band; seeds RcReceiver's runtime floor. PX4: MPC_MANTHR_MIN. #}
 inline constexpr float kPilotThrottleMin =
     {{ multirotor_mixer.pilot_throttle_min_milli }} * 0.001f;
 
-{# Per-axis PID gains and shared limits/filter come from the Rate Controller
-   menu. Kconfig stores integers (millis for kp/ki, micros for kd) so the
-   `make 32raven-menuconfig` UI stays sane; the template scales each value
-   to its float representation at the point of use - the compiler folds
-   these constexpr multiplications. #}
+{# Kconfig stores integers: kp, ki and the limits in millis, kd in micros. #}
 inline constexpr RateController::Config kRateControllerConfig = {
     .smoothing_enabled = {{ rate_controller.smoothing_enabled | cpp_bool }},
 {% for axis_name in ["roll", "pitch", "yaw"] %}
@@ -561,12 +526,7 @@ inline constexpr RateController::Config kRateControllerConfig = {
     .yaw_output_lpf_alpha = {{ '%.6f' | format(rate_controller.yaw_output_lpf_alpha) }}f,
 };
 
-{# Mahony complementary-filter gains for the AHRS. All six knobs are
-   scaled by 1000 in Kconfig (so menuconfig deals in integers); the
-   template folds each into its float representation at the point of
-   use. Soft attenuation: accel correction full-trust inside +/-full_dev,
-   smooth decay to zero by +/-zero_dev; bias updates full-weight when
-   |gyro| <= quiescent_full, smooth decay to zero by quiescent_zero. #}
+{# Kconfig is integer-only, so each knob is stored scaled by 1000. #}
 inline constexpr Ahrs::Config kAhrsConfig = {
     .kp_accel                  = {{ ahrs.kp_accel_milli }} * 0.001f,
     .ki_bias                   = {{ ahrs.ki_bias_milli }} * 0.001f,
@@ -579,21 +539,15 @@ inline constexpr Ahrs::Config kAhrsConfig = {
     .mag_verdict_hold_us       = {{ ahrs.mag_verdict_hold_ms }}u * 1000u,
 };
 
-{# Outer attitude loop gains (Stage-2 Stabilize mode). Kconfig stores
-   kp scaled by 1000 and rate_clamp in milli-rad/s; the template folds
-   each into its float representation at the point of use. #}
-{# The transmitter's channel number is resolved to a slot here because
-   RcData::channels holds only the enabled channels. #}
-// Index into RcData::channels, which is compacted to the enabled channels --
-// not the transmitter's channel number. Derived from
-// CONFIG_STM32_RC_MAP_MODE, which the generator refuses unless
-// that channel is enabled.
+// RcData::channels_raw slot in transmitter order: CONFIG_STM32_RC_MAP_MODE - 1.
+// The generator refuses a channel a stick or the arm switch already uses.
 inline constexpr std::size_t kFlightModeChannelSlot = {{ flight_mode.slot }};
 inline constexpr std::uint16_t kFlightModeThresholdUs = {{ flight_mode.threshold_us }};
 inline constexpr float kPilotAcroMaxRateRollPitch = {{ flight_mode.acro_max_rate_roll_pitch_milli }} * 0.001f;
 inline constexpr float kPilotAcroMaxRateYaw = {{ flight_mode.acro_max_rate_yaw_milli }} * 0.001f;
 inline constexpr float kPilotStabilizeMaxTiltRad = {{ flight_mode.stabilize_max_tilt_rad }};
 
+{# Kconfig stores kp scaled by 1000 and rate_clamp in milli-rad/s. #}
 inline constexpr AttitudeController::Config kAttitudeControllerConfig = {
 {% for axis_name in ["roll", "pitch", "yaw"] %}
 {% set axis = attitude_controller[axis_name] %}
