@@ -17,16 +17,13 @@
 
 namespace {
 
-// EV and ER share one preemption level on purpose: they serialize, so the
-// error handler can never cut into the event handler between the SR1 read
-// and the SR2 read of an ADDR clear. Raising one above the other would
-// reopen that whole class of races.
+// One preemption level so EV and ER serialize: ER can never cut into EV
+// between the SR1 and SR2 reads of an ADDR clear.
 static_assert(irq_priority::kI2c1Event == irq_priority::kI2c1Error,
               "the I2C1 vectors must stay in one preemption tier");
 
-// Poll's abort rewrites the same transfer state the handlers write; the
-// guard shuts both out for the handful of stores that must be atomic
-// against them. One constant serves both vectors -- they share a tier.
+// Masks both vectors (they share a tier) while Poll's abort rewrites
+// transfer state the handlers also write.
 constexpr uint32_t kI2cMaskPri =
     (irq_priority::kI2c1Event << (8u - __NVIC_PRIO_BITS)) & 0xFFu;
 
@@ -41,8 +38,7 @@ class BasepriGuard {
   uint32_t saved_;
 };
 
-// Bounded flag wait. The waits here are a few SCL periods long; the bound
-// only exists so a dead bus cannot hang the main loop.
+// The bound only exists so a dead bus cannot hang the main loop.
 template <typename Pred>
 bool SpinFor(uint32_t timeout_us, Pred done) {
   const TimeBase &time = System::GetInstance().Time();
@@ -90,22 +86,20 @@ void I2c<Inst, BufSize>::Init(const I2cConfig &config, GPIO &gpio) {
     (void)RCC->APB1ENR;  // readback delay
   }
 
-  // A slave abandoned mid-transaction by a reset on our side survives it on
-  // theirs and holds SDA until it sees clocks. Free the wire before the
-  // peripheral first samples it, or BUSY latches on from boot.
+  // A slave our reset abandoned mid-byte holds SDA until clocked; free it
+  // before the peripheral first samples the bus, or BUSY latches from boot.
   MaybeRecoverBus();
   ConfigureHw();
 
-  // BUSY latched with both lines reading high is the analog-filter lockup
-  // (ES0182): the filter cannot be disabled on this part, and only the
-  // manual waveform flushes it -- SWRST alone does not.
+  // BUSY with both lines high is the analog-filter lockup (ES0182); this
+  // part cannot disable the filter, and only the manual waveform flushes it.
   if ((Hw()->SR2 & I2C_SR2_BUSY) != 0u && LinesIdle(*gpio_)) {
     RecoverBus();
     ConfigureHw();
   }
 
-  // Still low after recovery is a short or a powered device pinning the line.
-  // Name it here: every device behind it would only report itself absent.
+  // Still low after recovery is a short or a pinned line. Name it here, or
+  // every device behind it only reports itself absent.
   if (!SdaHigh(*gpio_)) {
     Panic(ErrorCode::Stm32::kI2cSdaHeldLow);
   }
@@ -154,11 +148,8 @@ void I2c<Inst, BufSize>::MaybeRecoverBus() {
 
 template <I2cInstance Inst, size_t BufSize>
 void I2c<Inst, BufSize>::RecoverBus() {
-  // Borrow the pins from the peripheral: SetPinMode moves MODER only, so AFR
-  // keeps AF4 and OTYPER/PUPDR keep the open-drain-with-pull programming
-  // kGpioDefault gave them -- which is also what makes driving these lines
-  // safe, since a push-pull pin would fight a slave holding one low. PE goes
-  // off first so the peripheral is not driving what we are about to.
+  // SetPinMode moves MODER only, so AF4 and kGpioDefault's open-drain pull
+  // survive; push-pull would fight a slave holding a line low.
   I2C_TypeDef *hw = Hw();
   hw->CR1 = 0;
 
@@ -173,23 +164,20 @@ void I2c<Inst, BufSize>::RecoverBus() {
   gpio.SetPinMode(scl.port, scl.pin, GPIO_MODE_OUTPUT_OD);
   gpio.SetPinMode(sda.port, sda.pin, GPIO_MODE_OUTPUT_OD);
 
-  // Up to 9 clocks walks a slave out of whatever bit of whatever byte it
-  // died in: 8 data bits plus its ACK slot. Zero iterations when SDA is
-  // already free -- the filter-flush caller only needs the STOP below.
+  // 9 clocks (8 data bits plus ACK) walk a slave out of any bit it died in;
+  // the filter-flush caller, with SDA already free, only needs the STOP.
   for (uint8_t pulse = 0; pulse < 9u && !SdaHigh(gpio); ++pulse) {
     gpio.WritePin(scl.port, scl.pin, false);
     time.DelayMicros(kRecoverHalfPeriodUs);
     gpio.WritePin(scl.port, scl.pin, true);
-    // A slave may stretch mid-recovery. SCL shorted low never rises; the
-    // bound turns that into a counted failure instead of a boot hang.
+    // Waits out a stretching slave; the bound keeps an SCL shorted low from
+    // hanging boot.
     (void)SpinFor(kRecoverStretchUs, [&gpio] { return SclHigh(gpio); });
     time.DelayMicros(kRecoverHalfPeriodUs);
   }
 
-  // Close with a real STOP edge -- SDA rising while SCL is high -- so every
-  // listener resets its frame state. SDA must fall while SCL is low first,
-  // or the fall itself would read as a START. This exact waveform is also
-  // ST's flush for the analog-filter lockup.
+  // A real STOP resets every listener and is ST's analog-filter flush. SDA
+  // falls while SCL is low first, or the fall would read as a START.
   gpio.WritePin(scl.port, scl.pin, false);
   time.DelayMicros(kRecoverHalfPeriodUs);
   gpio.WritePin(sda.port, sda.pin, false);
@@ -216,10 +204,8 @@ Outcome I2c<Inst, BufSize>::Arm(I2cTenant tenant, uint8_t addr7,
     return Outcome::kRejected;
   }
   I2C_TypeDef *hw = Hw();
-  // A back-to-back Start can catch the previous transfer's STOP still
-  // draining, and CR1 must not be written over a pending START/STOP -- the
-  // write can issue a second one (RM0090's CR1 note). Two SCL periods of
-  // grace, then backpressure.
+  // The last transfer's STOP may still be draining, and writing CR1 over a
+  // pending START/STOP can issue a second one (RM0090's CR1 note).
   if (!SpinFor(kCr1PendingUs, [hw] {
         return (hw->CR1 & (I2C_CR1_START | I2C_CR1_STOP | I2C_CR1_PEC)) == 0u &&
                (hw->SR2 & I2C_SR2_BUSY) == 0u;
@@ -237,9 +223,8 @@ Outcome I2c<Inst, BufSize>::Arm(I2cTenant tenant, uint8_t addr7,
   rx_pos_ = 0;
   berr_seen_ = false;
 
-  // The configured timeout is a floor for short transfers, not a ceiling:
-  // a full write-read at 100 kHz needs ~29 ms of wire time, and a knob
-  // that aborted it mid-flight would fabricate bus faults.
+  // The configured timeout is only a floor: a full write-read at 100 kHz
+  // needs ~29 ms of wire time, and aborting it would fabricate bus faults.
   const uint32_t bit_us = (1000000u + cfg_.scl_hz - 1u) / cfg_.scl_hz;
   const uint32_t wire_us =
       static_cast<uint32_t>(9u * (tx_len_ + rx_len_ + 2u)) * bit_us;
@@ -289,18 +274,16 @@ template <I2cInstance Inst, size_t BufSize>
 void I2c<Inst, BufSize>::AbortStuckTransfer() {
   I2C_TypeDef *hw = Hw();
   {
-    // Shut both handlers out, then take the engine apart. A handler that
-    // was already pended runs once after the guard drops, sees kIdle, and
-    // counts itself as spurious.
+    // A handler already pended runs once after the guard drops, sees kIdle,
+    // and counts itself spurious.
     BasepriGuard guard;
     hw->CR2 &= ~(I2C_CR2_ITEVTEN | I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
     phase_ = Phase::kIdle;
   }
   timeouts_ = timeouts_ + 1;
 
-  // If we still own the bus and nothing else is pending, a STOP releases
-  // it cleanly. A slave pinning SDA makes the STOP unformable -- the wire
-  // check below escalates that to the recovery clocking.
+  // A slave pinning SDA makes this STOP unformable; the wire check below
+  // escalates that to recovery clocking.
   if ((hw->SR2 & I2C_SR2_MSL) != 0u &&
       (hw->CR1 & (I2C_CR1_START | I2C_CR1_STOP)) == 0u) {
     hw->CR1 |= I2C_CR1_STOP;
@@ -328,9 +311,8 @@ void I2c<Inst, BufSize>::FinishTxPhase() {
     EndTransfer(I2cTransferStatus::kComplete);
     return;
   }
-  // Repeated START off the BTF stretch: deterministic under any interrupt
-  // latency, and the read leg's ACK/POS arm here, where CR1 provably has
-  // no START or STOP pending.
+  // Restarting off the BTF stretch is latency-proof, and CR1 provably has no
+  // START/STOP pending, so the read leg's ACK/POS arm here.
   uint32_t cr1 = hw->CR1 | I2C_CR1_ACK;
   if (rx_len_ == 2u) {
     cr1 |= I2C_CR1_POS;  // re-targets the NACK to the second byte
@@ -344,9 +326,8 @@ template <I2cInstance Inst, size_t BufSize>
 void I2c<Inst, BufSize>::EndTransfer(I2cTransferStatus status) {
   I2C_TypeDef *hw = Hw();
   hw->CR2 &= ~(I2C_CR2_ITEVTEN | I2C_CR2_ITBUFEN | I2C_CR2_ITERREN);
-  // POS is deliberately not cleaned up here: the STOP just issued may still
-  // be draining, and CR1 must not be written over it. The next Arm clears
-  // it after proving CR1 idle.
+  // POS stays set: the STOP may still be draining and CR1 must not be
+  // written over it. The next Arm clears it once CR1 is idle.
   phase_ = Phase::kIdle;
   active_->rx_count = rx_pos_;
   active_->status.store(status, std::memory_order_release);
@@ -395,10 +376,8 @@ void I2c<Inst, BufSize>::OnEventIrq() {
     // left is the per-length prep, decided before ADDR's stretch ends.
     if (rx_len_ == 1u) {
       hw->CR1 &= ~I2C_CR1_ACK;
-      // The SR2 read releases the stretch and the lone byte starts
-      // clocking. A preemption outlasting the byte would leave it NACKed
-      // with no STOP programmed and the bus parked -- mask the gap shut,
-      // it is four instructions.
+      // The SR2 read starts the lone byte; a preemption outlasting it would
+      // leave it NACKed with no STOP programmed and the bus parked.
       __disable_irq();
       (void)hw->SR2;
       hw->CR1 |= I2C_CR1_STOP;
@@ -419,9 +398,8 @@ void I2c<Inst, BufSize>::OnEventIrq() {
       hw->DR = tx_buf_[tx_pos_];
       ++tx_pos_;
       if (tx_pos_ == tx_len_) {
-        // Last byte queued. TXE stays asserted from here to the STOP, so
-        // leaving ITBUFEN on is a livelock; BTF closes the phase instead,
-        // and only fires once the byte is out and acknowledged.
+        // TXE stays set until the STOP, so ITBUFEN would livelock; BTF
+        // closes the phase once the last byte is out and ACKed.
         hw->CR2 &= ~I2C_CR2_ITBUFEN;
       }
       return;
@@ -445,25 +423,21 @@ void I2c<Inst, BufSize>::OnEventIrq() {
       return;
     }
     if ((sr1 & I2C_SR1_BTF) == 0u) {
-      // Multi-byte reads act only at BTF, where SCL is stretched and
-      // lateness costs bus time, never data. RXNE-paced reads under
-      // interrupt latency clear ACK a byte late, handing the slave an ACK
-      // on its true last byte -- a wedged bus and a garbage tail.
+      // Only at BTF is SCL stretched; RXNE pacing under latency clears ACK
+      // a byte late, ACKing the slave's last byte and wedging the bus.
       return;
     }
     if (remaining == 3u) {
-      // The NACK armed here governs the final byte; unloading one byte
-      // lets it clock in. The next BTF then holds the last two under a
-      // stretch, where the STOP is programmed with no deadline.
+      // The NACK armed here lands on the final byte, which this unload lets
+      // clock in; the next BTF holds the last two for an unhurried STOP.
       hw->CR1 &= ~I2C_CR1_ACK;
       active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
       ++rx_pos_;
       return;
     }
     if (remaining == 2u) {
-      // Shared close of the POS pair and the >=3 tail: STOP first --
-      // unloading DR first would un-stretch a bus with nothing programmed
-      // -- then both held bytes.
+      // Closes the POS pair and the >=3 tail. STOP goes first: unloading DR
+      // un-stretches the bus, which must not run with nothing programmed.
       hw->CR1 |= I2C_CR1_STOP;
       active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
       ++rx_pos_;
@@ -472,7 +446,6 @@ void I2c<Inst, BufSize>::OnEventIrq() {
       EndTransfer(I2cTransferStatus::kComplete);
       return;
     }
-    // The body: one byte per BTF.
     active_->rx_buf[rx_pos_] = static_cast<uint8_t>(hw->DR);
     ++rx_pos_;
     return;
@@ -493,7 +466,7 @@ void I2c<Inst, BufSize>::OnErrorIrq() {
   if ((sr1 & I2C_SR1_AF) != 0u) {
     // The peripheral stops clocking and waits, still master; releasing the
     // bus after a NACK is software's job.
-    hw->SR1 = ~I2C_SR1_AF;
+    hw->SR1 = static_cast<uint32_t>(~I2C_SR1_AF);
     nacks_ = nacks_ + 1;
     hw->CR1 |= I2C_CR1_STOP;
     EndTransfer(phase_ == Phase::kTx ? I2cTransferStatus::kNackData
@@ -501,25 +474,23 @@ void I2c<Inst, BufSize>::OnErrorIrq() {
     return;
   }
   if ((sr1 & I2C_SR1_ARLO) != 0u) {
-    // Arbitration loss already put the interface back in slave mode with
-    // the lines released; a STOP here would fire on someone else's frame.
-    // On this single-master bus it is line-fault evidence, not traffic.
-    hw->SR1 = ~I2C_SR1_ARLO;
+    // ARLO already dropped to slave mode, so a STOP would hit someone else's
+    // frame. On this single-master bus it means a line fault, not traffic.
+    hw->SR1 = static_cast<uint32_t>(~I2C_SR1_ARLO);
     arb_losses_ = arb_losses_ + 1;
     EndTransfer(I2cTransferStatus::kArbitrationLost);
     return;
   }
   if ((sr1 & I2C_SR1_BERR) != 0u) {
-    // ES0182: BERR asserts spuriously in master mode, so it never aborts a
-    // transfer by itself. One a real bus error broke will stall, and the
-    // deadline path reports kBusError off the flag noted here.
-    hw->SR1 = ~I2C_SR1_BERR;
+    // ES0182: BERR is spurious in master mode, so it never aborts alone; a
+    // truly broken transfer stalls and the deadline reports kBusError.
+    hw->SR1 = static_cast<uint32_t>(~I2C_SR1_BERR);
     bus_errors_ = bus_errors_ + 1;
     berr_seen_ = true;
   }
   if ((sr1 & I2C_SR1_OVR) != 0u) {
     // Unreachable for a stretching master; cleared so it cannot storm.
-    hw->SR1 = ~I2C_SR1_OVR;
+    hw->SR1 = static_cast<uint32_t>(~I2C_SR1_OVR);
     spurious_irqs_ = spurious_irqs_ + 1;
   }
 }
