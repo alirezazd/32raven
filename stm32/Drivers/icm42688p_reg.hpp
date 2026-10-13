@@ -83,8 +83,6 @@ enum class Reg : uint8_t {
   kClkdiv = 0x2A,
 };
 
-// Bit definitions
-
 // DEVICE_CONFIG (0x11)
 constexpr uint8_t DEVICE_CONFIG_SOFT_RESET = 1u << 0;
 
@@ -106,8 +104,8 @@ constexpr uint8_t INT_STATUS_FIFO_THS_INT = 1u << 2;
 constexpr uint8_t INT_STATUS_FIFO_FULL_INT = 1u << 1;
 
 // INTF_CONFIG0 (0x4C)
-constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_REC = 1u << 6;   // Record mode
-constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_BYTE = 0u << 6;  // Byte mode
+constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_REC = 1u << 6;
+constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_REC_BYTE = 0u << 6;
 constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_ENDIAN_LITTLE = 0u << 5;
 constexpr uint8_t INTF_CONFIG0_FIFO_COUNT_ENDIAN_BIG = 1u << 5;
 constexpr uint8_t INTF_CONFIG0_SENSOR_DATA_ENDIAN_LITTLE = 0u << 4;
@@ -128,8 +126,8 @@ constexpr uint8_t INTF_CONFIG1_CLKSEL_DIS = 0x03u;
 
 constexpr uint8_t INTF_CONFIG1_ACCEL_LP_CLK_SEL = 1u << 3;
 
-// PWR_MGMT0 (0x4E)
-constexpr uint8_t PWR_MGMT0_TEMP_DIS = 1u << 5;  // 1=temperature sensor off
+// PWR_MGMT0 (0x4E). AAF and notch need LN mode (datasheet §12.4), never LP.
+constexpr uint8_t PWR_MGMT0_TEMP_DIS = 1u << 5;
 constexpr uint8_t PWR_MGMT0_GYRO_MODE_LN = 0x3u << 2;   // Low Noise
 constexpr uint8_t PWR_MGMT0_ACCEL_MODE_LN = 0x3u << 0;  // Low Noise
 
@@ -137,11 +135,11 @@ constexpr uint8_t PWR_MGMT0_ACCEL_MODE_LN = 0x3u << 0;  // Low Noise
 constexpr uint8_t TMST_CONFIG_TO_REGS_EN = 1u
                                            << 4;  // Timestamp readable via regs
 constexpr uint8_t TMST_CONFIG_RES = 1u << 3;      // 0=1µs, 1=16µs/RTC
-constexpr uint8_t TMST_CONFIG_DELTA_EN = 1u << 2;  // Delta timestamp
+constexpr uint8_t TMST_CONFIG_DELTA_EN = 1u << 2;
 constexpr uint8_t TMST_CONFIG_FSYNC_EN = 1u << 1;  // FSYNC timestamp latch
 constexpr uint8_t TMST_CONFIG_EN = 1u << 0;        // Master enable
 
-// FIFO_CONFIG1 bit definitions (datasheet-correct)
+// FIFO_CONFIG1 (0x5F)
 constexpr uint8_t FIFO_CONFIG1_ACCEL_EN = 1u << 0;
 constexpr uint8_t FIFO_CONFIG1_GYRO_EN = 1u << 1;
 constexpr uint8_t FIFO_CONFIG1_TEMP_EN = 1u << 2;
@@ -150,8 +148,7 @@ constexpr uint8_t FIFO_CONFIG1_HIRES_EN = 1u << 4;
 constexpr uint8_t FIFO_CONFIG1_WM_GT_TH = 1u << 5;
 constexpr uint8_t FIFO_CONFIG1_RESUME_PARTIAL_RD = 1u << 6;
 
-// FIFO header byte field definitions (datasheet §6.2). 1-byte header at
-// offset 0 of every packet encodes variant + ODR-change flags.
+// FIFO packet header, byte 0 of every packet (datasheet §6.2)
 constexpr uint8_t FIFO_HEADER_MSG = 1u << 7;    // 1 = no sensor data
 constexpr uint8_t FIFO_HEADER_ACCEL = 1u << 6;  // accel payload present
 constexpr uint8_t FIFO_HEADER_GYRO = 1u << 5;   // gyro payload present
@@ -163,8 +160,7 @@ constexpr uint8_t FIFO_HEADER_TIMESTAMP_FSYNC =
 constexpr uint8_t FIFO_HEADER_ODR_DIFF_ACCEL = 1u << 1;  // accel ODR changed
 constexpr uint8_t FIFO_HEADER_ODR_DIFF_GYRO = 1u << 0;   // gyro ODR changed
 
-// Mask + nominal header values for Packet3 (16-byte) and Packet4 (20-byte
-// HiRes). Masks the top 5 bits; ODR-change flags (bits[1:0]) are ignored.
+// Masking the top 5 bits also passes the FSYNC tag and ODR-change flags.
 //   Packet3: MSG=0, ACCEL=1, GYRO=1, 20=0, TS=ODR → 0x68
 //   Packet4: MSG=0, ACCEL=1, GYRO=1, 20=1, TS=ODR → 0x78
 constexpr uint8_t kFifoHeaderVariantMask = 0xF8u;
@@ -191,7 +187,7 @@ constexpr uint8_t INT_CONFIG0_FIFO_FULL_CLEAR_ON_BOTH = 0x3u << 0;
 // INT_CONFIG1 (0x64)
 constexpr uint8_t INT_CONFIG1_TPULSE_DURATION =
     1u << 6;  // 0=100µs (default), 1=8µs
-constexpr uint8_t INT_CONFIG1_TDEASSERT_DIS = 1u << 5;  // Disable deassertion
+constexpr uint8_t INT_CONFIG1_TDEASSERT_DIS = 1u << 5;
 constexpr uint8_t INT_CONFIG1_ASYNC_RESET =
     1u << 4;  // 1=Reset (default), 0=Enable proper INT pin function
 
@@ -208,9 +204,9 @@ constexpr uint8_t GYRO_CONFIG_STATIC2_AAF_DIS = 1u << 1;
 constexpr uint8_t GYRO_CONFIG_STATIC2_NF_DIS = 1u << 0;
 
 // INTF_CONFIG5 (Bank 1, 0x7B) — PIN9_FUNCTION bits [2:1]
-//   00 = FSYNC (default), 10 = CLKIN
+//   00 = INT2 (reset), 01 = FSYNC, 10 = CLKIN
 constexpr uint8_t INTF_CONFIG5_PIN9_FUNCTION_MASK = 0x06u;
-constexpr uint8_t INTF_CONFIG5_PIN9_FUNCTION_FSYNC = 0x00u;
+constexpr uint8_t INTF_CONFIG5_PIN9_FUNCTION_FSYNC = 0x02u;
 constexpr uint8_t INTF_CONFIG5_PIN9_FUNCTION_CLKIN = 0x04u;
 
 // SIGNAL_PATH_RESET (0x4B)
@@ -222,12 +218,8 @@ constexpr uint8_t SIGNAL_PATH_RESET_FIFO_FLUSH = 1u << 1;
 // ACCEL_CONFIG_STATIC2 (Bank 2, 0x03)
 constexpr uint8_t ACCEL_CONFIG_STATIC2_AAF_DIS = 1u << 0;
 
-// WHO_AM_I values
-
 constexpr uint8_t WHO_AM_I_ICM42688P = 0x47;
 constexpr uint8_t WHO_AM_I_ICM42686P = 0x44;
-
-// Enumerations
 
 enum class Odr : uint8_t {
   k32kHz = 0x01,
@@ -303,12 +295,10 @@ static constexpr float AccelRangeG(AccelFs fs) {
   }
 }
 
-// Datasheet conversion for the 16-bit FIFO accel samples.
 static constexpr float AccelLsbToMps2(AccelFs fs) {
   return (AccelRangeG(fs) / kFifoDataLsb) * math::kGravityMps2;
 }
 
-// Datasheet conversion for the 16-bit FIFO gyro samples.
 static constexpr float GyroLsbToRadS(GyroFs fs) {
   return (GyroRangeDps(fs) / kFifoDataLsb) * kDegToRad;
 }
@@ -318,14 +308,8 @@ static constexpr float FifoTemperatureC(int8_t fifo_temp_data) {
   return (static_cast<float>(fifo_temp_data) / 2.07f) + 25.0f;
 }
 
-// FIFO sample ranges (datasheet §12.8)
-// With FIFO_HOLD_LAST_DATA_EN=0 the chip inserts an invalid-sample
-// sentinel when no fresh data is available; the parser rejects the record and
-// counts it, leaving Sentinel to decide whether that is fatal. Valid samples
-// stay within the ranges below, never the raw int16/int20 limits.
-// 20-bit mode enforces LSB constraints:
-//   gyro  — LSB[0]   = 0  (even, gap = 2)
-//   accel — LSB[1:0] = 0  (multiple of 4, gap = 4)
+// Datasheet §12.8: with FIFO_HOLD_LAST_DATA_EN=0, a slot with no fresh data
+// holds the sentinel. 20-bit mode zeroes gyro LSB[0] and accel LSB[1:0].
 constexpr int16_t kFifo16ValidMin = -32767;
 constexpr int16_t kFifo16ValidMax = +32767;
 constexpr int16_t kFifo16InvalidSentinel = -32768;
@@ -336,25 +320,15 @@ constexpr int32_t kFifo20AccelValidMin = -524256;
 constexpr int32_t kFifo20AccelValidMax = +524284;
 constexpr int32_t kFifo20InvalidSentinel = -524288;
 
-// 20-bit HiRes (Packet4) constants
-// FIFO_HIRES_EN=1 forces ±2000 dps + ±16g; other FSR settings ignored
-// (datasheet §6.1). Effective widths 19-bit gyro / 18-bit accel, emitted
-// as 20-bit signed with the low LSBs forced 0 -- which costs resolution but
-// not range, so the full scale still spans the whole 20-bit code.
-// AAF + Notch require LN power mode (datasheet §12.4); do not drop to LP
-// while they are enabled.
-//
-// Divided out of the full scale rather than copied from the datasheet's
-// sensitivity table: the 131 LSB/dps and 8192 LSB/g quoted there belong to the
-// 16-bit path, and the same physical range spans 16x as many counts here.
+// HiRes forces ±2000 dps / ±16 g (datasheet §6.1) and spans the whole 20-bit
+// code: the 131 LSB/dps and 8192 LSB/g sensitivities are the 16-bit path's.
 constexpr float kHiRes20BitHalfScale = 524288.0f;
 constexpr float kHiResGyroFsDps = 2000.0f;
 constexpr float kHiResAccelFsG = 16.0f;
 constexpr float kHiResGyroLsbPerDps = kHiRes20BitHalfScale / kHiResGyroFsDps;
 constexpr float kHiResAccelLsbPerG = kHiRes20BitHalfScale / kHiResAccelFsG;
 
-// HiRes 20-bit LSB → SI conversions. No FS enum: HiRes locks the chip to
-// ±2000 dps + ±16g.
+// No FS argument: HiRes locks the chip to ±2000 dps and ±16 g.
 inline constexpr float AccelLsbToMps2_HiRes() {
   return (1.0f / kHiResAccelLsbPerG) * math::kGravityMps2;
 }
@@ -362,15 +336,13 @@ inline constexpr float GyroLsbToRadS_HiRes() {
   return (1.0f / kHiResGyroLsbPerDps) * kDegToRad;
 }
 
-// 16-bit FIFO temperature decode for Packet4: offset 25 °C, scale 64×
-// finer than Packet3's 8-bit field (per TDK/InvenSense reference firmware).
+// Scale per TDK/InvenSense reference firmware, 64x finer than Packet3's.
 inline constexpr float FifoTemperatureC16(int16_t fifo_temp_data) {
   return (static_cast<float>(fifo_temp_data) / 132.48f) + 25.0f;
 }
 
-// FIFO packet sizes (datasheet §6.1, Figure 10)
-// Driver sizes DMA + parses by these. Only Packet3/Packet4 are used;
-// Packet1/2 (accel-only / gyro-only) kept for completeness.
+// FIFO packet sizes (datasheet §6.1, Figure 10). Only Packet3/4 are used;
+// Packet1/2 are accel-only / gyro-only.
 constexpr uint16_t kPacket1Bytes = 8;
 constexpr uint16_t kPacket2Bytes = 8;
 constexpr uint16_t kPacket3Bytes = 16;

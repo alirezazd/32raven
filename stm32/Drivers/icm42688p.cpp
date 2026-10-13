@@ -56,9 +56,8 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, const Config &cfg,
   fifo_wm_records_ = cfg.fifo.watermark_records;
   fifo_hold_last_data_en_ = cfg.fifo.hold_last;
   last_irq_cnt_ = System::GetInstance().Time().Micros();
-  // Seeded from the counter, not from zero: this is the unwrapped host clock,
-  // and the log builds its own timeline from the same TIM2 count. Starting at
-  // zero would stamp every IMU record a whole boot behind the rest of the file.
+  // Seeded from the TIM2 count, not zero: the log's timeline uses the same
+  // count, and zero would stamp IMU records a whole boot behind the rest.
   last_irq_us_ = last_irq_cnt_;
   hires_ = cfg.fifo.hires;
   packet_bytes_ =
@@ -96,11 +95,10 @@ void Icm42688p::Init(GPIO &gpio, Spi2 &spi, const Config &cfg,
   SetOdrAndFullScale(cfg);
 
   SetTimestampConfig();
-  // Keep temp sensor disabled while accel/gyro OFF during FIFO setup.
   WriteRegister(Reg::kPwrMgmt0, PWR_MGMT0_TEMP_DIS);
   ConfigureFifo();
 
-  // Enable all sensors (incl. temp, for FIFO die-temp) once, last.
+  // Last, with temp on too: the FIFO records carry die temperature.
   WriteRegister(Reg::kPwrMgmt0,
                 PWR_MGMT0_GYRO_MODE_LN | PWR_MGMT0_ACCEL_MODE_LN);
 
@@ -122,8 +120,6 @@ uint32_t Icm42688p::GetDeviceId() const {
   return device_id_;
 }
 
-// Filter configuration
-
 void Icm42688p::ConfigureFilters(const Config &cfg) {
   static constexpr float kPi = 3.14159265358979323846f;
   const auto clampf = [](float x, float lo, float hi) constexpr {
@@ -131,7 +127,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
   };
   SetBank(1);
 
-  // Gyro notch filter (Bank 1)
   {
     uint8_t s2 = ReadRegister(Reg::kGyroConfigStatic2);
 
@@ -139,13 +134,11 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
       // Datasheet: notch supported 1kHz..3kHz.
       float f_hz = clampf(cfg.notch.freq_hz, 1000.0f, 3000.0f);
 
-      // CLKDIV lives in Bank 3.
       SetBank(3);
       uint8_t clkdiv = ReadRegister(Reg::kClkdiv);
       SetBank(1);
 
       if (clkdiv == 0) {
-        // Invalid clock divider: leave notch disabled.
         s2 |= GYRO_CONFIG_STATIC2_NF_DIS;
         WriteRegister(Reg::kGyroConfigStatic2, s2);
       } else {
@@ -194,7 +187,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
     }
   }
 
-  // Gyro anti-alias filter (Bank 1)
   {
     uint8_t s2 = ReadRegister(Reg::kGyroConfigStatic2);
     if (cfg.gyro_aaf.dis) {
@@ -215,7 +207,6 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
     }
   }
 
-  // Accel anti-alias filter (Bank 2)
   SetBank(2);
 
   {
@@ -238,14 +229,11 @@ void Icm42688p::ConfigureFilters(const Config &cfg) {
     }
   }
 
-  // UI filter bandwidths (Bank 0).
   SetBank(0);
   WriteRegister(Reg::kGyroAccelConfig0,
                 static_cast<uint8_t>(((cfg.ui_filter.accel_bw & 0x0Fu) << 4) |
                                      (cfg.ui_filter.gyro_bw & 0x0Fu)));
 }
-
-// ISR path
 
 void Icm42688p::OnIrq() {
   const uint32_t now_cnt = System::GetInstance().Time().Micros();
@@ -253,12 +241,8 @@ void Icm42688p::OnIrq() {
   last_irq_cnt_ = now_cnt;
 
   if (inflight_.exchange(true, std::memory_order_acq_rel)) {
-    // These records stay in the FIFO, and a burst reads a fixed count rather
-    // than FIFO_COUNT, so the level never returns below the watermark. With
-    // FIFO_CONFIG1.FIFO_WM_GT_TH clear the watermark interrupt fires once per
-    // upward crossing ("Interrupt only fires once", FIFO_CONFIG2), so without
-    // a flush this one missed burst ends the stream for good. The bus belongs
-    // to the burst in flight, so defer it.
+    // Unread, these keep the FIFO from dropping back below the watermark, and
+    // FIFO_THS fires only on an upward crossing: the in-flight burst flushes.
     resync_pending_.store(true, std::memory_order_release);
     overrun_cnt_.fetch_add(1, std::memory_order_relaxed);
     return;
@@ -302,8 +286,7 @@ void Icm42688p::OnSpiDone(bool ok) {
   burst.gyro_scale = scale_config_.gyro_lsb_to_rad_s;
   burst.accel_scale = scale_config_.accel_lsb_to_mps2;
 
-  // Outlives the loop so the newest sample's timestamp is still readable once
-  // the offset servo below has run.
+  // Outlives the loop: the newest sample's timestamp is read after the servo.
   Sample sample{};
   for (uint16_t i = 0; i < fifo_wm_records_; ++i) {
     const uint8_t *rec = p + (static_cast<uint32_t>(i) * packet_bytes_);
@@ -346,9 +329,8 @@ void Icm42688p::OnSpiDone(bool ok) {
 void Icm42688p::FlushAndResync() {
   SetBank(0);
 
-  // Records, not bytes -- SetInterfaceConfig sets FIFO_COUNT_REC and big-endian
-  // counts. Read on the fault path only; the hot path deliberately transfers a
-  // fixed length instead of consulting this.
+  // Records, big-endian, per SetInterfaceConfig. Read on the fault path only:
+  // the hot path deliberately transfers a fixed length instead.
   const uint32_t hi = ReadRegister(Reg::kFifoCountH);
   const uint32_t lo = ReadRegister(Reg::kFifoCountL);
   dropped_records_.fetch_add((hi << 8) | lo, std::memory_order_relaxed);
@@ -406,9 +388,8 @@ uint64_t Icm42688p::UpdateTimestampAndSync(uint16_t ts16) {
 
   const int64_t imu_us = static_cast<int64_t>(tmst64_us_);
 
-  // Seeded here rather than in SyncHostOffset so the first burst is already in
-  // the host domain: the servo runs after the parse, and samples stamped with a
-  // zero offset would read as if the board had just booted.
+  // Seeded here, not in SyncHostOffset: the servo runs after the parse, and
+  // a zero offset would stamp the first burst as if the board just booted.
   if (!host_sync_inited_) {
     host_offset_us_ = static_cast<int64_t>(last_irq_us_) - imu_us;
     host_sync_inited_ = true;
@@ -417,10 +398,8 @@ uint64_t Icm42688p::UpdateTimestampAndSync(uint16_t ts16) {
   return static_cast<uint64_t>(imu_us + host_offset_us_);
 }
 
-// One correction per burst, not per record: last_irq_us_ moves once per burst,
-// so a per-record call would feed the servo the same measurement once per
-// sample -- all but one against a sample older than the interrupt, biasing the
-// offset by half a burst and scaling the >> 7 gain by the watermark.
+// Once per burst: last_irq_us_ moves once per burst, so a per-record call
+// biases the offset by half a burst and scales the >> 7 gain by the watermark.
 void Icm42688p::SyncHostOffset() {
   if (!host_sync_inited_) {
     return;
@@ -437,23 +416,19 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket3Record(
   if (!rec) return std::nullopt;
   Sample out{};
 
-  // Header check for Packet3 accel+gyro+temp+timestamp, 16-bit mode.
-  // Accept both normal packets (0x68) and ODR-change-tagged variants (0x6C).
+  // Packet3 header 0x68, or 0x6C when FSYNC-tagged; ODR-change bits ignored.
   const uint8_t hdr = rec[0];
   if ((hdr & 0xF8u) != 0x68u) {
     return std::nullopt;
   }
 
-  // Packet3 temperature byte is at 0x0D and timestamp stays at 0x0E..0x0F.
-  // The byte is two's complement and temp_raw is int16_t to also hold Packet4's
-  // 16-bit form, so widening it must sign-extend.
+  // The byte is two's complement, so widening it to int16_t must sign-extend.
   // NOLINTNEXTLINE(bugprone-signed-char-misuse)
   out.temp_raw = static_cast<int8_t>(rec[0x0D]);
   const uint16_t ts16 = LoadBe16(&rec[0x0E]);
 
   out.timestamp_us = UpdateTimestampAndSync(ts16);
 
-  // Packet layout (big-endian)
   out.accel[0] = LoadBe16Signed(&rec[0x01]);
   out.accel[1] = LoadBe16Signed(&rec[0x03]);
   out.accel[2] = LoadBe16Signed(&rec[0x05]);
@@ -462,9 +437,8 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket3Record(
   out.gyro[1] = LoadBe16Signed(&rec[0x09]);
   out.gyro[2] = LoadBe16Signed(&rec[0x0B]);
 
-  // INTF_CONFIG0.FIFO_HOLD_LAST_DATA_EN=0 inserts invalid code (-32768).
-  // Rejecting the record is the whole answer here: the caller counts it and
-  // resyncs. Whether that is fatal is Sentinel's call, not an ISR's.
+  // Rejecting is the whole answer: the caller counts and resyncs, and whether
+  // that is fatal is Sentinel's call, not an ISR's.
   if (!fifo_hold_last_data_en_) {
     static constexpr int32_t kInvalid16 = Icm42688pReg::kFifo16InvalidSentinel;
     if (out.accel[0] == kInvalid16 || out.accel[1] == kInvalid16 ||
@@ -483,35 +457,20 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket4Record(
   if (!rec) return std::nullopt;
   Sample out{};
 
-  // Header check: Packet4 = 0x78 with mask 0xF8 (top 5 bits define the
-  // variant; bits[1:0] are ODR-change flags, ignored). Also accepts the
-  // FSYNC-tagged variant 0x7C — same packet shape, different time-tag.
+  // Also 0x7C when FSYNC-tagged (same shape); ODR-change bits ignored.
   const uint8_t hdr = rec[0];
   if ((hdr & Icm42688pReg::kFifoHeaderVariantMask) !=
       Icm42688pReg::kFifoHeaderPacket4) {
     return std::nullopt;
   }
 
-  // Reassemble split 20-bit signed value: high 16 bits + low 4. Sign extends
-  // naturally — int16 `high` carries bit 19, and <<4 in int32 preserves sign.
+  // Sign-extends for free: int16 `high` carries bit 19 into the int32 shift.
   auto pack20 = [](int16_t high, uint8_t low4) -> int32_t {
     return (static_cast<int32_t>(high) << 4) |
            static_cast<int32_t>(low4 & 0x0Fu);
   };
 
-  // Packet4 layout (datasheet §6.1, Figure 10 + Packet 4 table):
-  //   0x00       FIFO header
-  //   0x01-0x02  Accel X [19:12], [11:4]   (high 16 bits, big-endian)
-  //   0x03-0x04  Accel Y high 16
-  //   0x05-0x06  Accel Z high 16
-  //   0x07-0x08  Gyro  X high 16
-  //   0x09-0x0A  Gyro  Y high 16
-  //   0x0B-0x0C  Gyro  Z high 16
-  //   0x0D-0x0E  Temperature [15:8], [7:0]   (16-bit, signed)
-  //   0x0F-0x10  Timestamp [15:8], [7:0]
-  //   0x11       Accel X [3:0] (upper nibble) | Gyro X [3:0] (lower nibble)
-  //   0x12       Accel Y [3:0] | Gyro Y [3:0]
-  //   0x13       Accel Z [3:0] | Gyro Z [3:0]
+  // Packet4 layout: datasheet §6.1, Figure 10.
   const int16_t temp16 = LoadBe16Signed(&rec[0x0D]);
   const uint16_t ts16 = LoadBe16(&rec[0x0F]);
 
@@ -535,9 +494,7 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket4Record(
   out.gyro[2] =
       pack20(LoadBe16Signed(&rec[0x0B]), static_cast<uint8_t>(b13 & 0x0Fu));
 
-  // Invalid-sample sentinel (datasheet §12.8) — chip writes -524288
-  // when FIFO_HOLD_LAST_DATA_EN=0 and no fresh data is available.
-  // Mirror of the 16-bit -32768 sentinel handled in ParsePacket3Record.
+  // Datasheet §12.8: the sentinel marks a slot with no fresh data.
   if (!fifo_hold_last_data_en_) {
     static constexpr int32_t kInvalid20 = Icm42688pReg::kFifo20InvalidSentinel;
     if (out.accel[0] == kInvalid20 || out.accel[1] == kInvalid20 ||
@@ -551,10 +508,8 @@ std::optional<Icm42688p::Sample> Icm42688p::ParsePacket4Record(
   return out;
 }
 
-// Roughly once a second, against a burst rate three orders of magnitude higher:
-// the die moves on a ~90 s thermal constant, so anything faster republishes a
-// value that has not changed. Also keeps the float divide out of all but one
-// interrupt in a thousand.
+// The die's thermal constant is ~90 s, so faster only republishes an unchanged
+// value, and the float divide stays out of all but one burst in a thousand.
 constexpr uint32_t kTemperaturePeriodUs = 1000000u;
 
 void Icm42688p::PublishTemperature(uint32_t now_us) {
@@ -598,19 +553,15 @@ void Icm42688p::PublishHealth(uint32_t now_us) {
 void Icm42688p::PublishBurst(const ImuBurst &burst) {
   ImuBurstSlot &slot = blackboard_->ImuBurstMailbox();
   if (slot.fresh) {
-    // The consumer is still reading the previous burst, so this one is
-    // dropped. Counted in samples to stay comparable with the ODR, which is
-    // what kLossPanicPerSec is scaled from. No PendSV either: waking the
-    // consumer would only re-offer the burst it already holds.
+    // The consumer still holds the previous burst, so this one is dropped and
+    // counted in samples, Sentinel's unit; a PendSV would re-offer the old one.
     missed_samples_.fetch_add(fifo_wm_records_, std::memory_order_relaxed);
     return;
   }
 
-  // Acquire: the write below must not be hoisted above the test that made it
-  // safe.
+  // Keeps the writes below from being hoisted above the `fresh` test.
   std::atomic_signal_fence(std::memory_order_acquire);
-  // Both fences are load-bearing: without them the compiler is free to move the
-  // copy out from between the two `seq` stores that bracket it.
+  // Both fences pin the copy between the two `seq` stores that bracket it.
   slot.seq = slot.seq + 1u;
   std::atomic_signal_fence(std::memory_order_release);
   slot.burst = burst;
@@ -690,8 +641,7 @@ void Icm42688p::SetClockSource(const Config &cfg) {
   SetBank(0);
 
   uint8_t v = ReadRegister(Reg::kIntfConfig1);
-  // CLKSEL[1:0]=01 (PLL when available); RTC_MODE bit2 needs pin9 CLKIN for
-  // external clocking. Preserve reserved [7:4] and ACCEL_LP_CLK_SEL bit3.
+  // RTC_MODE needs pin 9 as CLKIN; keep reserved [7:4] and ACCEL_LP_CLK_SEL.
   v &= static_cast<uint8_t>(~(Icm42688pReg::INTF_CONFIG1_CLKSEL_MASK |
                               Icm42688pReg::INTF_CONFIG1_RTC_MODE_MASK));
   v |= Icm42688pReg::INTF_CONFIG1_CLKSEL_PLL;
@@ -706,12 +656,8 @@ void Icm42688p::SetInterfaceConfig(const Config &cfg) {
 
   uint8_t v = ReadRegister(Reg::kIntfConfig0);
 
-  // Keep reserved bits (3:2), update everything else we control:
-  // - bit7 FIFO_HOLD_LAST_DATA_EN (user-configurable)
-  // - bit6 FIFO_COUNT_REC = 1 (record mode)
-  // - bit5 FIFO_COUNT_ENDIAN = 1 (big-endian count)
-  // - bit4 SENSOR_DATA_ENDIAN = 1 (big-endian sensor data)
-  // - bits1:0 UI_SIFS_CFG = 3 (disable I2C, keep SPI active)
+  // 0x73: FIFO_COUNT_REC, big-endian count + data, UI_SIFS_CFG=11 (I2C off).
+  // 0x80 is FIFO_HOLD_LAST_DATA_EN; reserved bits 3:2 are preserved.
   uint8_t cfg_bits = 0x73u;
   if (cfg.fifo.hold_last) {
     cfg_bits |= 0x80u;
@@ -723,15 +669,11 @@ void Icm42688p::SetInterfaceConfig(const Config &cfg) {
 void Icm42688p::SetInterruptConfig() {
   SetBank(0);
   uint8_t v = ReadRegister(Reg::kIntConfig);
-  // Preserve reserved bits 7:6, rewrite bits 5:0
-  // INT2: pulsed(0), open-drain(0), active-low(0) => bits [5:3] = 000
-  // INT1: pulsed(0), push-pull(1), active-high(1) => bits [2:0] = 0b011
+  // Keep reserved 7:6; 0x03: INT1 pulsed, push-pull, active-high; INT2 all 0.
   v = static_cast<uint8_t>((v & 0xC0u) | 0x03u);
   WriteRegister(Reg::kIntConfig, v);
-  // ODR >= 4kHz: 8us pulse + deassert disabled.
-  // Datasheet note: set INT_ASYNC_RESET=0 for proper INT operation.
-  // Preserve reserved bits: bit7 and bits3:0
-  // Set bits6:4 = 0b110 (8us pulse, disable deassert duration, async_reset=0)
+  // 0x60: 8 us pulse and no deassert, as ODR >= 4 kHz requires; ASYNC_RESET=0,
+  // which the datasheet needs for proper INT operation. Keep reserved 7, 3:0.
   v = ReadRegister(Reg::kIntConfig1);
   v = static_cast<uint8_t>((v & 0x8Fu) | 0x60u);
   WriteRegister(Reg::kIntConfig1, v);
@@ -742,10 +684,9 @@ void Icm42688p::DisableFsync() {
 
   uint8_t v = ReadRegister(Reg::kFsyncConfig);
 
-  // Preserve reserved bits: bit7 and bits3:2
-  // Clear only: FSYNC_UI_SEL (6:4), FSYNC_UI_FLAG_CLEAR_SEL (1),
-  // FSYNC_POLARITY (0)
-  v &= static_cast<uint8_t>(~0x73u);  // ~0b01110011
+  // Clear FSYNC_UI_SEL (6:4), FSYNC_UI_FLAG_CLEAR_SEL (1) and FSYNC_POLARITY
+  // (0); bits 7 and 3:2 are reserved.
+  v &= static_cast<uint8_t>(~0x73u);
   WriteRegister(Reg::kFsyncConfig, v);
 }
 
@@ -783,7 +724,7 @@ void Icm42688p::ConfigureFifo() {
   WriteRegister(Reg::kIntConfig0, v);
   v = ReadRegister(Reg::kIntSource0);  // Preserve reserved bit7, clear bits6:0
   v = static_cast<uint8_t>((v & 0x80u) | 0x04u);  // FIFO_THS -> INT1 only
-  WriteRegister(Reg::kIntSource0, v);  // Packet3, 16-bit, timestamp, DMA-safe
+  WriteRegister(Reg::kIntSource0, v);
   v = ReadRegister(Reg::kFifoConfig);
   v &= 0x3F;  // clear bits 7:6 → FIFO_MODE = 00 (bypass)
   WriteRegister(Reg::kFifoConfig, v);
@@ -794,9 +735,8 @@ void Icm42688p::ConfigureFifo() {
     fifo_cfg1 |= FIFO_CONFIG1_HIRES_EN;  // switches to Packet4
   }
   WriteRegister(Reg::kFifoConfig1, fifo_cfg1);
-  // Records, not bytes: SetInterfaceConfig sets FIFO_COUNT_REC, and the
-  // watermark is compared against that same count. In bytes this asks for a
-  // level past what the FIFO can hold, so FIFO_THS never fires at all.
+  // Records, not bytes: FIFO_COUNT_REC makes the watermark a record count, and
+  // in bytes it asks for more than the FIFO holds, so FIFO_THS never fires.
   WriteRegister(Reg::kFifoConfig2,
                 static_cast<uint8_t>(fifo_wm_records_ & 0xFFu));
   WriteRegister(Reg::kFifoConfig3,
@@ -816,7 +756,6 @@ void Icm42688p::SetupDmaBuffer() {
   fifo_tx_[0] =
       static_cast<uint8_t>(std::to_underlying(Reg::kFifoData) | 0x80u);
 }
-// SPI helpers (blocking)
 
 void Icm42688p::SetBank(uint8_t bank) {
   WriteRegister(Reg::kBankSel, (uint8_t)(bank & 0x07));
@@ -828,9 +767,8 @@ void Icm42688p::WriteRegister(Reg target, uint8_t value) {
   uint8_t tx[2] = {static_cast<uint8_t>(std::to_underlying(target) & 0x7F),
                    value};
   CsLow();
-  // Discarded: register access has no failure path to thread this through,
-  // and the bus keeps the count regardless. A part dead enough to matter is
-  // rejected by CheckWhoAmI before any of these run.
+  // Discarded: no failure path to thread it through, the bus counts it anyway,
+  // and CheckWhoAmI rejects a part dead enough to matter before these run.
   (void)spi.WriteBytes(tx);
   CsHigh();
 }
@@ -861,18 +799,15 @@ void Icm42688p::SuspendSampling() {
 }
 
 void Icm42688p::RestartSampling() {
-  // Suspend first: FlushAndResync touches registers the sample interrupt owns.
-  // The flush is what breaks the deadlock -- the watermark raises INT1 only on
-  // an upward crossing, and a FIFO stuck above it never crosses again.
+  // Suspend first: the sample IRQ owns the registers the flush touches. A FIFO
+  // stuck above the watermark never raises INT1 again; the flush frees it.
   SuspendSampling();
   FlushAndResync();
   ResumeSampling();
 }
 
 void Icm42688p::ResumeSampling() {
-  // The chip never stopped sampling into its own FIFO, so what is in there is
-  // a backlog rather than the present. Discarded instead of parsed: a stale
-  // burst would be integrated by the AHRS as if it had just happened, and
+  // Flushed, not parsed: the AHRS would take the backlog for the present, and
   // FIFO_THS never re-fires from a FIFO already above the watermark.
   WriteRegister(Reg::kSignalPathReset, SIGNAL_PATH_RESET_FIFO_FLUSH);
   (void)ReadRegister(Reg::kIntStatus);
