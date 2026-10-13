@@ -10,9 +10,6 @@
 #include "stm32_config.hpp"
 #include "system.hpp"
 
-// A configurator that vanishes mid-test must not leave a motor turning, so the
-// commanded values carry their own expiry rather than trusting anyone to clear
-// them.
 // AM32's inputType enum, of which these three end up driving DShot.
 static constexpr uint8_t kInputTypeAuto = 0;
 static constexpr uint8_t kInputTypeDshot = 1;
@@ -41,8 +38,7 @@ static_assert(kEscServiceConfig.dshot.gap_bits <= DShotCodec::kMaxGapBits,
               "CONFIG_STM32_ESC_SERVICE_DSHOT_GAP_BITS is past the codec's "
               "staging buffer; DShotCodec::Init would panic at boot");
 
-// A frame with fewer motors than TIM1 has channels leaves the spare ones
-// configured and idle, which is what DShotCodec::kMotorStop encodes.
+// TIM1 channels beyond the airframe's motor count idle at kMotorStop.
 DShotCodec::MotorValues ThrustToDshotValues(
     const multirotor_mixer::MotorThrust &thrust) {
   DShotCodec::MotorValues values{};
@@ -95,12 +91,8 @@ void EscService::Poll(uint32_t now_us) {
     CheckEscFirmware();
   }
 
-  // Armed, the control loop owns the wire, so a burst still standing from
-  // before the arm is abandoned rather than paused. Paused is not an option in
-  // either direction: these frames are written from the main tick while the
-  // loop writes thrust from the control tick, and WriteMotors refuses outright
-  // while a command stands -- so leaving one active would cut the motors for
-  // the rest of the flight.
+  // Abandoned, not paused: WriteMotors refuses while a command stands, so one
+  // left active would cut the motors for the rest of the flight.
   if (command_.active && blackboard_->IsArmed()) {
     command_ = PendingCommand{};
   }
@@ -129,23 +121,24 @@ void EscService::Poll(uint32_t now_us) {
 
   PollEscInfo(now_us);
 
-  // AM32 counts six identical frames before acting and resets that count on
-  // any zero, so an idle frame landing between two command frames -- which the
-  // shorter idle period guarantees -- makes every command unreachable.
+  // AM32 resets its six-frame command count on any zero, and the shorter idle
+  // period guarantees one between command frames: commands would never land.
   if (!blackboard_->IsArmed() && !command_.active &&
-      (last_idle_send_us_ == 0u ||
-       static_cast<int32_t>(now_us - last_idle_send_us_) >=
-           static_cast<int32_t>(cfg_.idle_period_us))) {
+      (next_idle_us_ == 0u ||
+       static_cast<int32_t>(now_us - next_idle_us_) >= 0)) {
     if (SendIdleFrame(now_us)) {
-      last_idle_send_us_ = now_us;
+      // Stepped from the deadline, since now drifts inside the tick and would
+      // skip ticks; a period behind (long tick, pause) re-anchors.
+      next_idle_us_ += cfg_.idle_period_us;
+      if (static_cast<int32_t>(now_us - next_idle_us_) >= 0) {
+        next_idle_us_ = now_us + cfg_.idle_period_us;
+      }
     }
   }
 }
 
-// Checked once per motor, when that ESC's settings first arrive -- there is no
-// earlier moment, since an ESC only answers once it is powered and has armed.
-// An ESC that never answers is not a failure: a bench session on USB alone has
-// no battery and reaches none of them.
+// An ESC answers only once powered and armed, so one that never does is no
+// failure: a USB-only bench session has no battery.
 void EscService::CheckEscFirmware() {
   if (!cfg_.firmware_checks) {
     return;
@@ -175,25 +168,19 @@ void EscService::CheckEscFirmware() {
       Panic(ErrorCode::Stm32::kEscDirectionReversed);
     }
 
-    // 3D reads the lower half of the throttle range as reverse, and
-    // ThrustToDshot spans the whole range forward-only -- everything below
-    // half thrust would drive that motor backwards. Roadmap #13 is the signed
-    // thrust chain that would make the mode meaningful.
+    // 3D reads the lower throttle half as reverse, so forward-only
+    // ThrustToDshot would spin it backwards below half thrust (roadmap #13).
     if (info.bidirectional) {
       Panic(ErrorCode::Stm32::kEsc3dModeEnabled);
     }
   }
 }
 
-// Telemetry arriving from a motor is the proof the info request needs: only a
-// powered, armed, stopped ESC answers, which is exactly what AM32 requires
-// before it will act on a command. It also covers a battery arriving long after
-// boot, with no timer to get wrong.
+// A motor's telemetry gates its info request: no timer to get wrong, and a
+// battery connected long after boot is covered.
 void EscService::PollEscInfo(uint32_t now_us) {
-  // A host holding the ESC config grant owns the motors for as long as it holds
-  // it, throttle standing or not: the command burst below writes kMotorStop to
-  // every motor it is not addressed to, and a burst already under way when the
-  // host's slider moves stops that motor just the same.
+  // A host holding the ESC config grant owns the motors, throttle or not: a
+  // burst writes kMotorStop to every motor it does not address.
   const bool host_owns_motors =
       blackboard_->GetUsbStatus().mode == message::UsbMode::kEscConfig;
   if (blackboard_->IsArmed() || command_.active || host_owns_motors ||
@@ -208,9 +195,8 @@ void EscService::PollEscInfo(uint32_t now_us) {
 
   const uint8_t seen = telemetry_->ValidMask();
   for (uint8_t n = 0; n < DShotCodec::kMotorCount; ++n) {
-    // Round robin rather than draining one motor first. AM32 needs about a
-    // second of zero throttle to arm, and telemetry starts before that, so
-    // whoever is asked first spends its whole budget too early.
+    // Round robin: telemetry starts before AM32's ~1 s arm, so draining one
+    // motor first would spend its whole budget too early.
     const uint8_t i =
         static_cast<uint8_t>((info_cursor_ + n) % DShotCodec::kMotorCount);
     if ((seen & (1u << i)) == 0u || telemetry_->GetInfo(i).valid ||
@@ -219,9 +205,8 @@ void EscService::PollEscInfo(uint32_t now_us) {
     }
     info_cursor_ = static_cast<uint8_t>((i + 1u) % DShotCodec::kMotorCount);
     if (QueueCommand(DshotCommand::kEscInfo, i)) {
-      // Opened with the first frame, not the last. AM32 acts on the sixth of
-      // ten, so the reply lands mid-burst -- a window opened at the end has
-      // already missed it.
+      // Opened with the first frame: AM32 acts on the sixth of ten, so the
+      // reply lands mid-burst.
       telemetry_->ExpectInfo(i, now_us);
       info_attempts_[i]++;
       info_last_attempt_us_ = (now_us == 0u) ? 1u : now_us;
@@ -230,8 +215,8 @@ void EscService::PollEscInfo(uint32_t now_us) {
   }
 }
 
-// Test values ride the idle path rather than being written straight out: they
-// inherit its rate, and going stale is what stops the motors.
+// Test values ride the idle path so they inherit its rate, and stop the
+// motors through it once cleared.
 bool EscService::SendIdleFrame(uint32_t now_us) {
   if (TestThrottleActive()) {
     return WriteRaw(test_values_, now_us, false);
@@ -353,9 +338,8 @@ bool EscService::WriteRaw(const DShotCodec::MotorValues &motor, uint32_t now_us,
   requests.fill(false);
 
   uint8_t telemetry_motor = DShotCodec::kMotorCount;
-  // AM32 answers a telemetry request in preference to the info packet, and a
-  // request also re-aims the shared line and resizes the parser. The window is
-  // open for the whole command burst, so testing it covers both.
+  // AM32 answers telemetry before info, and a request re-aims the shared line
+  // and resizes the parser; the info window spans the whole burst.
   if (telemetry_ != nullptr && telemetry_->IsInitialized() && now_us != 0u &&
       !telemetry_->IsExpectingInfo() &&
       (force_telemetry || last_telemetry_request_us_ == 0u ||

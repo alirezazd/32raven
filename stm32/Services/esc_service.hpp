@@ -47,32 +47,29 @@ class EscService {
   [[nodiscard]] bool WriteMotors(const DShotCodec::MotorValues &motor,
                                  uint32_t now_us);
 
-  // Overloads taking normalized thrust [0, 1] per motor — the units mixers /
-  // controllers produce. Per-motor ThrustToDshot, then WriteMotors.
+  // Normalized thrust [0, 1] per motor, as the mixer produces it.
   [[nodiscard]] bool WriteMotorsThrust(
       const multirotor_mixer::MotorThrust &thrust);
   [[nodiscard]] bool WriteMotorsThrust(
       const multirotor_mixer::MotorThrust &thrust,
                                        uint32_t now_us);
 
-  // Map normalized thrust [0, 1] → DShot wire units. 0 → kMotorStop (motor
-  // off). >0 → linearly into [kThrottleMin, kThrottleMax]. Saturates.
+  // Thrust [0, 1]: 0 is kMotorStop, above it linear into
+  // [kThrottleMin, kThrottleMax], saturating.
   static uint16_t ThrustToDshot(float thrust);
   static float DshotToThrust(uint16_t value);
   static constexpr uint8_t kAllMotors = 0xFF;
 
   [[nodiscard]] bool StopAll();
-  // A command aimed at one motor leaves the others at kMotorStop, which is what
-  // they are already being sent while disarmed. Anything read back arrives on
-  // the telemetry line all four share, so a broadcast would collide.
+  // A single-motor command sends the rest kMotorStop; anything read back
+  // shares one telemetry line, so a broadcast would collide.
   [[nodiscard]] bool QueueCommand(DshotCommand command,
                                   uint8_t motor_index = kAllMotors,
                                   bool telemetry = false);
   void SetTestThrottle(const std::array<float, 4> &thrust);
   void ClearTestThrottle();
-  // Whether a test throttle is standing, read off the values themselves: an
-  // all-stopped one is indistinguishable from none, and correctly so -- there
-  // is nothing for Sentinel to cut either way.
+  // An all-stopped test throttle reads as none, correctly: there is nothing
+  // for Sentinel to cut either way.
   [[nodiscard]] bool TestThrottleActive() const;
 
   // What actually went out on the wire, not what was asked for: a dropped
@@ -105,9 +102,8 @@ class EscService {
     bool active = false;
   };
 
-  // Telemetry proves an ESC is powered, not that it has armed -- AM32 needs
-  // about a second of zero throttle for that, and refuses commands until then.
-  // The budget spans that gap rather than trying to detect it.
+  // Telemetry proves power, not AM32's ~1 s arm before it takes commands;
+  // the retry budget spans that gap rather than detecting it.
   static constexpr uint8_t kInfoMaxAttempts = 6;
   static constexpr uint32_t kInfoRetryPeriodUs = 250000u;
 
@@ -127,7 +123,7 @@ class EscService {
   bool initialized_ = false;
   DShotCodec::MotorValues test_values_{};
   DShotCodec::MotorValues outputs_{};
-  uint32_t last_idle_send_us_ = 0;
+  uint32_t next_idle_us_ = 0;
   uint32_t last_telemetry_request_us_ = 0;
   uint32_t dropped_write_count_ = 0;
   uint32_t info_last_attempt_us_ = 0;
