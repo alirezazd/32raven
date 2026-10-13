@@ -37,10 +37,8 @@
 #include "uart.hpp"
 #include "watchdog.hpp"
 
-// Why the board last came up. RCC->CSR accumulates these until RMVF is
-// written, so the register is read and cleared exactly once at boot -- miss
-// that and the answer is gone. Values are ours rather than the register's bit
-// positions, since they are meant to be decoded off-board eventually.
+// RCC->CSR flags accumulate until RMVF clears them, so boot reads them once.
+// Values are ours, not CSR bit positions, so they can be decoded off-board.
 enum class ResetCause : uint8_t {
   kUnknown = 0,
   kPowerOn,
@@ -56,7 +54,6 @@ class System {
  public:
   static System &GetInstance();
 
-  // Component identifiers used by InitComponent().
   enum class Component : uint8_t {
     kRcc,
     kTimeBase,
@@ -72,7 +69,6 @@ class System {
     kFcLink,
     kCommandHandler,
 
-    // SECONDARY DRIVERS
     kSpi2,
     kDshot,
     kEscTelemetry,
@@ -102,7 +98,7 @@ class System {
     kGpsPassthroughService,
     kSensorCalService,
 
-    kCount,  // terminator: keep last
+    kCount,  // keep last
   };
 
   void Init();
@@ -147,8 +143,7 @@ class System {
   }
 
   SharedState &Blackboard() { return blackboard_; }
-  // Latched at boot and constant after, so it is read where it is reported
-  // rather than republished with the changing state.
+  // Constant after boot: read where reported, not republished with live state.
   ResetCause GetResetCause() const { return reset_cause_; }
   FcLink &FcLinkSvc() { return FcLink::GetInstance(); }
   CommandHandler &GetCommandHandler() { return CommandHandler::GetInstance(); }
@@ -169,7 +164,6 @@ class System {
   RateController rate_controller_;
   AttitudeController attitude_controller_;
 
-  // Empty by design — call Init() explicitly to bring up the chip.
   System() = default;
   ~System() = default;
   System(const System &) = delete;

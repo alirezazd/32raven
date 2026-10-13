@@ -71,9 +71,8 @@ constexpr std::array<System::Component,
         System::Component::kSensorCalService,
     };
 
-// -Werror=switch already ties Component to InitComponent's switch; this ties it
-// to the boot order, so an enumerator that is never brought up fails the build
-// instead of shipping with its peripheral clock still gated off.
+// -Werror=switch ties Component to InitComponent; this ties it to kInitOrder,
+// so a component that is never brought up fails the build.
 consteval bool InitOrderCoversEveryComponent() {
   std::array<bool, static_cast<std::size_t>(System::Component::kCount)> seen{};
   for (const System::Component c : kInitOrder) {
@@ -93,8 +92,7 @@ consteval bool InitOrderCoversEveryComponent() {
 static_assert(InitOrderCoversEveryComponent());
 }  // namespace
 
-// Out-of-line so the `static System` lives in this one TU rather than emitting
-// a linkonce/COMDAT copy per includer.
+// Out-of-line so the static lives in one TU, not a COMDAT copy per includer.
 System &System::GetInstance() {
   static System instance;
   return instance;
@@ -119,8 +117,7 @@ void System::Init() {
   Wdg().Init();
 }
 
-// The one place that already knows which UART serves which peer, so the
-// mapping stays here rather than in every consumer of the record.
+// Only System knows which UART serves which peer, so the mapping lives here.
 void System::PublishSystemHealth(uint32_t now_us) {
   blackboard_.UpdateSystemHealth(SystemHealth{
       .timestamp_us = now_us,
@@ -134,8 +131,7 @@ void System::PublishSystemHealth(uint32_t now_us) {
 }
 
 void System::Poll(uint32_t now_us) {
-  // First, and roadmap #16 requires it stay first: a failsafe skipped under
-  // load is a failsafe that does not exist.
+  // Must stay first (roadmap #16): load must never skip the failsafe.
   SentinelSvc().Supervise(now_us);
   PublishSystemHealth(now_us);
   SensorHealthSvc().Poll(now_us);
@@ -146,22 +142,22 @@ void System::Poll(uint32_t now_us) {
 }
 
 void System::SuspendFlightComponents() {
-  // Order matters only in that the sample interrupt goes first: it is the one
-  // that drives the cascade, and the two receive paths merely feed it.
+  // Only sampling must go first: it drives the cascade the receive paths feed.
   Imu().SuspendSampling();
   GpsUart().SuspendRx();
   RcUart().SuspendRx();
   (void)EscSvc().StopAll();
 }
 
+// Only after a suspend: on live streams the IMU's FIFO flush would land inside
+// a running burst, and the receive flushes would drop frames in flight.
 void System::ResumeFlightComponents() {
   GpsUart().ResumeRx();
   RcUart().ResumeRx();
   Imu().ResumeSampling();
 }
 
-// Most-specific first: a watchdog reset also asserts the pin flag on this part,
-// so testing the pin earlier would hide every interesting case.
+// Most-specific first: a watchdog reset also sets PINRSTF on this part.
 ResetCause System::ConsumeResetCause() {
   const uint32_t csr = RCC->CSR;
   RCC->CSR |= RCC_CSR_RMVF;

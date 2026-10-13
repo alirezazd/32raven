@@ -24,6 +24,9 @@ int main(void) {
 
   ctx.now_us = System::GetInstance().Time().Micros();
   sm.Start(ctx.standby_state);
+  // The one resume without a suspend: Init leaves sampling unarmed until
+  // Standby has wired its consumer.
+  System::GetInstance().ResumeFlightComponents();
   while (1) {
     ctx.now_us = System::GetInstance().Time().Micros();
     ctx.sm->Step();

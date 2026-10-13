@@ -64,7 +64,6 @@ static void EnterFlightLoop(StateMachineContext &ctx,
   g_control_loop_load.timestamp_us = now_us;
   System::GetInstance().Blackboard().UpdateControlLoopLoad(g_control_loop_load);
   System::GetInstance().Blackboard().SetControlLoopRunning(true);
-  System::GetInstance().ResumeFlightComponents();
 }
 
 static void StepFlightLoop(StateMachineContext &ctx) {
@@ -294,6 +293,7 @@ void ArmedState::OnStep(StateMachineContext &ctx) {
 void EscConfigState::OnExit(StateMachineContext &) {
   System::GetInstance().MspSvc().PublishUsbStatus(
       System::GetInstance().Time().Micros());
+  System::GetInstance().ResumeFlightComponents();
 }
 
 void EscConfigState::OnEnter(StateMachineContext &ctx) {
@@ -332,6 +332,7 @@ void EscConfigState::OnStep(StateMachineContext &ctx) {
 void MscState::OnExit(StateMachineContext &) {
   System::GetInstance().MscSvc().PublishUsbStatus(
       System::GetInstance().Time().Micros());
+  System::GetInstance().ResumeFlightComponents();
 }
 
 void MscState::OnEnter(StateMachineContext &ctx) {
