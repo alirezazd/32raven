@@ -29,9 +29,10 @@ static void MainTick(StateMachineContext &ctx) {
   };
   UsbCdc::GetInstance().Poll(micros());
 
-  // Ahead of System::Poll so a fix parsed here reaches the blackboard before
-  // TelemetryPublisher reads it, rather than a pass later.
+  // Ahead of System::Poll so what they parse is on the blackboard before its
+  // readers run: telemetry for the fix, Sentinel for the RC it judges fresh.
   System::GetInstance().GpsSvc().Poll();
+  System::GetInstance().CrsfLinkSvc().PollRx(micros());
 
   System::GetInstance().Poll(micros());
 
@@ -44,7 +45,6 @@ static void MainTick(StateMachineContext &ctx) {
   g_main_tick_counter++;
   System::GetInstance().Blackboard().UpdateMainTickCount(g_main_tick_counter);
 
-  System::GetInstance().CrsfLinkSvc().PollRx(micros());
   System::GetInstance().EscSvc().Poll(micros());
 
   System::GetInstance().LogSvc().Poll(micros());
