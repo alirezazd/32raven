@@ -27,9 +27,10 @@ constexpr uint32_t kMaxRootScanEntries = 4096;
 // on it.
 constexpr uint8_t kMaxLoopFrees = 8;
 
-// A time budget: preallocation walks the FAT a sector at a time over SDIO.
-// 32 GB at the 32 KB-cluster default builds a 4 MB table; the same card cut
-// into 4 KB clusters builds 32 MB, which is what this rejects.
+// A FAT32 time budget: preallocation walks the FAT a sector at a time over
+// SDIO. 32 GB at the 32 KB-cluster default builds a 4 MB table; the same card
+// cut into 4 KB clusters builds 32 MB, which is what this rejects. exFAT
+// preallocates in its bitmap and never walks the FAT.
 constexpr uint32_t kMaxFatSectors = 20000;
 
 // What a ULog reader takes for "no sample", as opposed to a sample of zero.
@@ -468,7 +469,7 @@ void LogService::Init(const Config &cfg, SharedState &blackboard,
   }
   mounted_ = true;
 
-  if (fs_.fsize > kMaxFatSectors) {
+  if (fs_.fs_type != FS_EXFAT && fs_.fsize > kMaxFatSectors) {
     LogSdFailure(*fc_link_, "fat too large", static_cast<int>(fs_.fsize));
     Panic(ErrorCode::Stm32::kSdCardGeometry);
   }
@@ -589,6 +590,9 @@ void LogService::PrepareNextFile() {
           (static_cast<uint64_t>(Sdio::GetInstance().BlockCount()) *
            Sdio::kBlockBytes) >>
           20));
+  if (fs_.fs_type != FS_EXFAT) {
+    fc_link_->SendLog("sd: FAT32 card, disarm stalls for seconds; format exFAT");
+  }
 }
 
 void LogService::FormatLogName(uint32_t index) {

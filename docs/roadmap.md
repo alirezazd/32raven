@@ -440,9 +440,9 @@ a decimation knob once flights show whether full rate pays, and a firmware ident
 
 ### #32 — Format the card on the vehicle — 🟢 SUPPORTING
 
-An unmountable card is a trip to a PC; one over 32 GB a trip to a PC with third-party tooling.
-`f_mkfs` with `FM_FAT32` costs +2,088 B of flash and no RAM (`LogService::staging_[0]` is idle
-whenever a format could run). Never automatic — a mount failure is also a transient SDIO error,
+An unmountable card is a trip to a PC, and a card that arrives FAT32 needs one too: FAT32 stalls
+every disarm for seconds. `f_mkfs` with `FM_EXFAT` needs no RAM (`LogService::staging_[0]` is idle
+whenever a format could run); its flash cost is unmeasured (`FM_FAT32` alone was +2,088 B). Never automatic — a mount failure is also a transient SDIO error,
 or a corrupted directory over intact log sectors. A hidden entry documented only in the
 handbook, hold-to-confirm showing capacity and label, refused while armed (in `MscState` after
 `ReleaseCard()`), and `f_mkfs` checked against the ~700 ms watchdog window. After the SD path

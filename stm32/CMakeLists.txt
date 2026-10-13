@@ -164,6 +164,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Drivers/sdio.cpp
     Drivers/sd_diskio.cpp
     ../third_party/fatfs/ff.c
+    ../third_party/fatfs/ffunicode.c
     Core/printf_impl.cpp
     Core/cxa_atexit_stub.cpp
     Core/states.cpp
