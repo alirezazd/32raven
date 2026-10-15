@@ -135,6 +135,9 @@ static void ControlTickFlightLoop() {
     if (authority > 1.0f) authority = 1.0f;
   }
 
+  // Forward stick reads high and means nose down, which is -pitch in NED.
+  const float pitch_stick = -RcReceiver::NormalizedAxis(rc.pitch_us);
+
   // FlightMode gates the setpoint source.
   //   kAcro      : sticks → angular-rate setpoint directly.
   //   kStabilize : sticks → desired-tilt quaternion → attitude
@@ -148,8 +151,7 @@ static void ControlTickFlightLoop() {
     // cheaper than AngleAxis and avoids template bloat.
     const float roll_des_rad =
         RcReceiver::NormalizedAxis(rc.roll_us) * kPilotStabilizeMaxTiltRad;
-    const float pitch_des_rad =
-        RcReceiver::NormalizedAxis(rc.pitch_us) * kPilotStabilizeMaxTiltRad;
+    const float pitch_des_rad = pitch_stick * kPilotStabilizeMaxTiltRad;
 
     const float half_roll = 0.5f * roll_des_rad;
     const float half_pitch = 0.5f * pitch_des_rad;
@@ -192,7 +194,7 @@ static void ControlTickFlightLoop() {
   } else {
     rate_sp = Eigen::Vector3f{
         RcReceiver::NormalizedAxis(rc.roll_us) * kMaxRateRollPitch,
-        RcReceiver::NormalizedAxis(rc.pitch_us) * kMaxRateRollPitch,
+        pitch_stick * kMaxRateRollPitch,
         RcReceiver::NormalizedAxis(rc.yaw_us) * kMaxRateYaw,
     };
   }
