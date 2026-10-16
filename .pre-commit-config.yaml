@@ -6,9 +6,12 @@
 # Hooks receive the staged paths, so a commit costs one pass over what it
 # touched. CI runs the same scripts with no arguments, where they walk
 # `git ls-files` and cover what a commit happened not to touch.
-# The commit-msg hook only runs once `pre-commit install` has created it, so
-# the hook types are declared here rather than left to whoever cloned last.
-default_install_hook_types: [pre-commit, commit-msg]
+# The commit-msg and pre-push hooks only run once `pre-commit install` has
+# created them, so the hook types are declared here rather than left to whoever
+# cloned last. A hook that names no stage runs at commit only; otherwise every
+# check would lint the pushed files a second time.
+default_install_hook_types: [pre-commit, commit-msg, pre-push]
+default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -18,9 +21,13 @@ repos:
       # whitespace is upstream's business, and a generator or menuconfig would
       # just re-dirty what we fixed. The Search Console token is served back
       # byte-for-byte, so a newline appended to it fails verification.
+      # Both name pre-push in their own manifest, which default_stages does
+      # not override.
       - id: end-of-file-fixer
+        stages: [pre-commit]
         exclude: &not_ours '^(third_party/.*|stm32/lib/CMSIS_F4xx/.*|stm32/Core/(system_)?stm32f4xx.*|docs/google[0-9a-f]+\.html|config/32raven\.config|.*_(config|limits)\.hpp)$'
       - id: trailing-whitespace
+        stages: [pre-commit]
         # Source only. In a .patch or a fixture, trailing space is content.
         files: '\.(c|h|cpp|hpp|py|j2|md|ya?ml)$'
         exclude: *not_ours
@@ -62,6 +69,27 @@ repos:
         entry: uv run --quiet --script scripts/lint/check_commit_msg.py
         language: system
         stages: [commit-msg]
+
+      # The rules live in .git/info and never in the tree, so a clone without
+      # them passes all three; see the script's docstring.
+      - id: check-leaks
+        name: Local-only text
+        entry: uv run --quiet --script scripts/lint/check_leaks.py
+        language: system
+
+      - id: check-leaks-message
+        name: Local-only text in the commit message
+        entry: uv run --quiet --script scripts/lint/check_leaks.py --message
+        language: system
+        stages: [commit-msg]
+
+      - id: check-leaks-push
+        name: Local-only text in the pushed commits
+        entry: uv run --quiet --script scripts/lint/check_leaks.py --push
+        language: system
+        stages: [pre-push]
+        pass_filenames: false
+        always_run: true
 
       - id: check-error-codes
         name: Unused error enumerators

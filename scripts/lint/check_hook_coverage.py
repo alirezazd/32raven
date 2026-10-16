@@ -54,6 +54,14 @@ BUILD_FILES = (
     REPO / "Makefile",
 )
 
+# Hooks no workflow can repeat, because what they check never reaches a runner.
+# Each needs the reason, or the exemption is just a hook that stopped mattering.
+LOCAL_ONLY = (
+    # Its rules live in .git/info, which no clone carries, so CI would pass on
+    # an empty rule set. The pre-push stage is its backstop instead.
+    "scripts/lint/check_leaks.py",
+)
+
 SCRIPT_SUFFIXES = (".py", ".sh")
 
 
@@ -104,7 +112,7 @@ def main() -> int:
     problems: list[str] = []
 
     for hook_id, script in sorted(hooks.items()):
-        if script not in in_workflow:
+        if script not in in_workflow and script not in LOCAL_ONLY:
             problems.append(
                 f"[uncovered] {hook_id} runs {script} at commit time and no "
                 "workflow repeats it"
