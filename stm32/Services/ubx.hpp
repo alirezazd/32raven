@@ -6,8 +6,8 @@
 #include <cstdint>
 
 // The UBX NAV payloads M10Service decodes, one packed struct per message, each
-// pinned to its UBX payload length. Kept free of every other include so the SIL
-// can serialize the same bytes from the same definitions.
+// pinned to its UBX payload length. Kept free of every other include so other
+// code can serialize the same bytes from the same definitions.
 
 struct M10PVTData {
   uint32_t iTOW;
